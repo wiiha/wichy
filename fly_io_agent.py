@@ -2,8 +2,8 @@ from openai import OpenAI
 import json
 from pydantic import BaseModel
 from typing import List, Optional
-import subprocess
 from rich import print
+from tools import ALL_TOOLS, get_tool_definitions
 
 
 class function(BaseModel):
@@ -51,40 +51,6 @@ class Message(BaseModel):
         )
 
 
-tools = [
-    {
-        "type": "function",
-        "function": {
-            "name": "ping",
-            "description": "ping some host on the internet",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "host": {
-                        "type": "string",
-                        "description": "hostname or IP",
-                    },
-                },
-                "required": ["host"],
-            },
-        },
-    },
-]
-
-
-def ping(host=""):
-    try:
-        result = subprocess.run(
-            ["ping", "-c", "5", host],
-            text=True,
-            stderr=subprocess.STDOUT,
-            stdout=subprocess.PIPE,
-        )
-        return result.stdout
-    except Exception as e:
-        return f"error: {e}"
-
-
 # point to local llama-cpp-python OpenAI-compatible server
 client = OpenAI(base_url="http://localhost:8080/v1", api_key="sk-local")
 
@@ -93,6 +59,7 @@ context = []
 
 def call(tools):
     # use chat completions API
+    print("*calling llm endpoint*")
     response = client.chat.completions.create(
         model="model-set-by-llama-server",
         messages=context,
@@ -110,8 +77,9 @@ def tool_call(item: called_tool):
     name = item.function.name
     args = json.loads(item.function.arguments)
     print("tool call: " + name + " " + json.dumps(args))
-    if name == "ping":
-        result = ping(**args)
+    for tool in ALL_TOOLS:
+        if name == tool.name:
+            result = tool.validate_and_execute(**args)
 
     if result is None:
         result = "There is no tool called " + item.function.name +"."
@@ -139,6 +107,7 @@ def handle_tools(tools, response: Message):
 
 def process(line):
     context.append({"role": "user", "content": line})
+    tools = get_tool_definitions(ALL_TOOLS)
     response = call(tools)
     # new code: resolve tool calls
     while handle_tools(tools, response):
