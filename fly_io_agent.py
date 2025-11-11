@@ -59,7 +59,7 @@ context = []
 
 def call(tools):
     # use chat completions API
-    print("*calling llm endpoint*")
+    print("[italic]calling llm endpoint[/italic]")
     response = client.chat.completions.create(
         model="model-set-by-llama-server",
         messages=context,
@@ -76,13 +76,13 @@ def tool_call(item: called_tool):
     result = None
     name = item.function.name
     args = json.loads(item.function.arguments)
-    print("tool call: " + name + " " + json.dumps(args))
+    print("[italic]tool call: " + name + " " + json.dumps(args)+"[/italic]")
     for tool in ALL_TOOLS:
         if name == tool.name:
             result = tool.validate_and_execute(**args)
 
     if result is None:
-        result = "There is no tool called " + item.function.name +"."
+        result = "There is no tool called " + item.function.name + "."
     return {"role": "tool", "tool_call_id": item.id, "content": result}
 
 
@@ -94,11 +94,11 @@ def handle_tools(tools, response: Message):
         {
             "role": "assistent",
             "content": response.content,
-            "tool_calls": [t.model_dump() for t in response.tool_calls]
+            "tool_calls": [t.model_dump() for t in response.tool_calls],
         }
     )
 
-    print("got " + str(len(response.tool_calls)) + " tool calls")
+    print("[italic]got " + str(len(response.tool_calls)) + " tool calls[/italic]")
     osz = len(context)
     for item in response.tool_calls:
         context.append(tool_call(item))
@@ -117,6 +117,7 @@ def process(line):
 
 
 def main():
+    context.append({"role": "system", "content": "You are a helpful assistent."})
     while True:
         line = input("> ")
         result = process(line)
