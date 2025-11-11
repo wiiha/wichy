@@ -7,3 +7,9 @@ definition of simonw [An LLM agent runs tools in a loop to achive a goal](https:
 
 - all is running locally
 - should be a stepping stone for larger projects
+
+
+## reference
+
+- https://docs.unsloth.ai/models/ibm-granite-4.0#recommended-inference-settings
+- https://fly.io/blog/everyone-write-an-agent/
