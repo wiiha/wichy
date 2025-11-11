@@ -1,20 +1,88 @@
 from openai import OpenAI
+import json
 from pydantic import BaseModel
 from typing import List, Optional
+import subprocess
+from rich import print
+
+
+class function(BaseModel):
+    arguments: str
+    name: str
+
+
+class called_tool(BaseModel):
+    id: str
+    type: str
+    function: function
+
 
 class Message(BaseModel):
     content: str
     role: str
-    tool_calls: Optional[List[str]] = None
-    
+    tool_calls: Optional[List[called_tool]] = None
+    finish_reason: str
+
     @classmethod
-    def from_message(cls, m):
+    def from_choice(cls, c):
+        m = c.message
+        content = m.content
+        if content is None:
+            content = ""
+        x = []
+        if m.tool_calls:
+            for t in m.tool_calls:
+                cid = t.id
+                tool_type = t.type
+                function_args = t.function.arguments
+                function_name = t.function.name
+                x.append(
+                    called_tool(
+                        id=cid,
+                        type=tool_type,
+                        function=function(name=function_name, arguments=function_args),
+                    )
+                )
+        else:
+            x = None
+
         return cls(
-            content=m.content,
-            role=m.role,
-            tool_calls=m.tool_calls if m.tool_calls else getattr(m, 'function_call', None)
+            content=content, role=m.role, tool_calls=x, finish_reason=c.finish_reason
         )
 
+
+tools = [
+    {
+        "type": "function",
+        "function": {
+            "name": "ping",
+            "description": "ping some host on the internet",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "host": {
+                        "type": "string",
+                        "description": "hostname or IP",
+                    },
+                },
+                "required": ["host"],
+            },
+        },
+    },
+]
+
+
+def ping(host=""):
+    try:
+        result = subprocess.run(
+            ["ping", "-c", "5", host],
+            text=True,
+            stderr=subprocess.STDOUT,
+            stdout=subprocess.PIPE,
+        )
+        return result.stdout
+    except Exception as e:
+        return f"error: {e}"
 
 
 # point to local llama-cpp-python OpenAI-compatible server
@@ -22,29 +90,69 @@ client = OpenAI(base_url="http://localhost:8080/v1", api_key="sk-local")
 
 context = []
 
-def call():
+
+def call(tools):
     # use chat completions API
     response = client.chat.completions.create(
         model="model-set-by-llama-server",
         messages=context,
+        tools=tools,
         # max_tokens=512
     )
 
     # unwrap response
-    m = Message.from_message(response.choices[0].message)
+    m = Message.from_choice(response.choices[0])
     return m
+
+
+def tool_call(item: called_tool):
+    result = None
+    name = item.function.name
+    args = json.loads(item.function.arguments)
+    print("tool call: " + name + " " + json.dumps(args))
+    if name == "ping":
+        result = ping(**args)
+
+    if result is None:
+        result = "There is no tool called " + item.function.name +"."
+    return {"role": "tool", "tool_call_id": item.id, "content": result}
+
+
+def handle_tools(tools, response: Message):
+    if response.finish_reason != "tool_calls":
+        return False
+
+    context.append(
+        {
+            "role": "assistent",
+            "content": response.content,
+            "tool_calls": [t.model_dump() for t in response.tool_calls]
+        }
+    )
+
+    print("got " + str(len(response.tool_calls)) + " tool calls")
+    osz = len(context)
+    for item in response.tool_calls:
+        context.append(tool_call(item))
+    return len(context) != osz
+
 
 def process(line):
     context.append({"role": "user", "content": line})
-    response = call()
+    response = call(tools)
+    # new code: resolve tool calls
+    while handle_tools(tools, response):
+        response = call(tools)
     context.append({"role": "assistant", "content": response.content})
     return response.content
+
 
 def main():
     while True:
         line = input("> ")
         result = process(line)
         print(f">>> {result}\n")
+
 
 if __name__ == "__main__":
     main()
