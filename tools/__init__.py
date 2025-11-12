@@ -1,4 +1,5 @@
 from .ping import PingTool
+from .file_explorer import ListFilesTool, CatFileContentTool
 
 # Different tool collections for different contexts
 BASIC_TOOLS = [
@@ -9,6 +10,8 @@ BASIC_TOOLS = [
 # All tools combined
 ALL_TOOLS = [
     PingTool(),
+    ListFilesTool(),
+    CatFileContentTool(),
 ]
 
 
