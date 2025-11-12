@@ -6,12 +6,12 @@ from llm_backend import called_tool, Message, call
 context = []
 
 
-def tool_call(item: called_tool):
+def tool_call(tools, item: called_tool):
     result = None
     name = item.function.name
     args = json.loads(item.function.arguments)
     print("[italic]tool call: " + name + " " + json.dumps(args) + "[/italic]")
-    for tool in ALL_TOOLS:
+    for tool in tools:
         if name == tool.name:
             result = tool.validate_and_execute(**args)
 
@@ -35,17 +35,18 @@ def handle_tools(tools, response: Message):
     print("[italic]got " + str(len(response.tool_calls)) + " tool calls[/italic]")
     osz = len(context)
     for item in response.tool_calls:
-        context.append(tool_call(item))
+        context.append(tool_call(tools, item))
     return len(context) != osz
 
 
 def process(line):
+    tools = ALL_TOOLS
     context.append({"role": "user", "content": line})
-    tools = get_tool_definitions(ALL_TOOLS)
-    response = call(context, tools)
-    # new code: resolve tool calls
+    tool_defs = get_tool_definitions(tools)
+    response = call(context=context, tool_defs=tool_defs)
+
     while handle_tools(tools, response):
-        response = call(context, tools)
+        response = call(context, tool_defs)
     context.append({"role": "assistant", "content": response.content})
     return response.content
 

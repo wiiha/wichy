@@ -49,7 +49,7 @@ class Message(BaseModel):
         )
 
 
-def call(context, tools):
+def call(context, tool_defs):
     # point to local llama-cpp-python OpenAI-compatible server
     client = OpenAI(base_url="http://localhost:8080/v1", api_key="sk-local")
     # use chat completions API
@@ -57,7 +57,7 @@ def call(context, tools):
     response = client.chat.completions.create(
         model="model-set-by-llama-server",
         messages=context,
-        tools=tools,
+        tools=tool_defs,
         # max_tokens=512
     )
 
