@@ -1,18 +1,22 @@
 from .ping import PingTool
-from .file_explorer import ListFilesTool, CatFileContentTool
+from .file_explorer import ListFilesTool, CatFileContentTool, WriteFileTool
 
 # Different tool collections for different contexts
 BASIC_TOOLS = [
     PingTool(),
 ]
 
-
-# All tools combined
-ALL_TOOLS = [
-    PingTool(),
+FILE_SYSTEM_TOOLS = [
     ListFilesTool(),
     CatFileContentTool(),
+    WriteFileTool(),
 ]
+
+
+# All tools combined
+ALL_TOOLS = []
+ALL_TOOLS.extend(BASIC_TOOLS)
+ALL_TOOLS.extend(FILE_SYSTEM_TOOLS)
 
 
 def get_tool_definitions(tools):
@@ -22,6 +26,7 @@ def get_tool_definitions(tools):
 
 __all__ = [
     'BASIC_TOOLS',
+    'FILE_SYSTEM_TOOLS',
     'ALL_TOOLS',
     'get_tool_definitions',
 ]

@@ -2,6 +2,7 @@ from pydantic import BaseModel, Field
 from typing import Optional
 import subprocess
 from .base import BaseTool
+import os
 
 
 class ListFilesParameters(BaseModel):
@@ -52,5 +53,29 @@ class CatFileContentTool(BaseTool):
                 stdout=subprocess.PIPE,
             )
             return result.stdout
+        except Exception as e:
+            return f"error: {e}"
+
+class WriteFileParameters(BaseModel):
+    path: str = Field(
+        ...,
+        description="path for file to write content into",
+    )
+    content: str = Field(..., description="content to write")
+
+
+class WriteFileTool(BaseTool):
+    name = "write_file"
+    description = "Write content to file at path. This will always overwrite the current content of a file. Hence, I file update needs to contain the full new version of the content."
+    parameters_model = WriteFileParameters
+
+    def execute(self, path, content) -> str:
+        """Execute write file"""
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            
+            with open(path, 'w') as f:
+                f.write(content)
+            return f"Successfully wrote to {path}"
         except Exception as e:
             return f"error: {e}"
