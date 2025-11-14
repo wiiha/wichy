@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
 from pydantic import BaseModel
 from typing import Type, Dict, Any
+from helpers.console import console_tool_result
+from rich.markdown import Markdown
 
 
 class BaseTool(ABC):
@@ -58,10 +60,14 @@ class BaseTool(ABC):
     def validate_and_execute(self, **kwargs) -> str:
         """Validate parameters using Pydantic model and execute."""
         # This will raise ValidationError if params are invalid
-        # and also catch errors that are not handled by the tool 
+        # and also catch errors that are not handled by the tool
         # itself.
+        res = ""
         try:
             validated_params = self.parameters_model(**kwargs)
-            return self.execute(**validated_params.model_dump())
+            res = self.execute(**validated_params.model_dump())
         except Exception as e:
-            return f"error: {e}"
+            res = f"error: {e}"
+
+        console_tool_result.log(Markdown(f"\n\n---\n\n### tool {self.name}\n\n{res}\n\n---\n\n"))
+        return res

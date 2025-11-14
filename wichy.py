@@ -1,7 +1,7 @@
 import json
 from rich import print
 from rich.markdown import Markdown
-from helpers.console import console
+from helpers.console import console, console_tool_result
 from tools import ALL_TOOLS, get_tool_definitions
 from llm_backend import called_tool, Message, call
 import argparse
@@ -14,6 +14,9 @@ class ArgumentParserWrapper:
         )
         self.parser.add_argument(
             "--show-log", action="store_true", help="Show logs during execution"
+        )
+        self.parser.add_argument(
+            "--log-tools", action="store_true", help="Show tool results during execution, requires --show-log"
         )
         self.args = None
 
@@ -77,6 +80,8 @@ def main():
     # Set console quiet mode based on --show-log flag
     if args.show_log:
         console.quiet = False
+        if args.log_tools:
+            console_tool_result.quiet = False
     else:
         console.quiet = True
 
