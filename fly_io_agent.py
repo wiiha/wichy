@@ -5,7 +5,6 @@ from llm_backend import called_tool, Message, call
 
 context = []
 
-
 def tool_call(tools, item: called_tool):
     result = None
     name = item.function.name
