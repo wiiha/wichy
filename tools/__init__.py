@@ -3,6 +3,7 @@ from .file_explorer import ListFilesTool, CatFileContentTool, WriteFileTool
 from .file_search_in import SearchRecursiveTool
 from .execute_command import ExecuteCommandTool
 from .reverse_dns_tool import ReverseDnsTool
+from .tree import TreeTool
 
 # Different tool collections for different contexts
 BASIC_TOOLS = [ExecuteCommandTool()]
@@ -14,6 +15,7 @@ FILE_SYSTEM_TOOLS = [
     CatFileContentTool(),
     WriteFileTool(),
     SearchRecursiveTool(),
+    TreeTool(),
 ]
 
 
