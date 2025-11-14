@@ -56,6 +56,7 @@ class CatFileContentTool(BaseTool):
         except Exception as e:
             return f"error: {e}"
 
+
 class WriteFileParameters(BaseModel):
     path: str = Field(
         ...,
@@ -72,9 +73,11 @@ class WriteFileTool(BaseTool):
     def execute(self, path, content) -> str:
         """Execute write file"""
         try:
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            
-            with open(path, 'w') as f:
+            parent_dir_path = os.path.dirname(path)
+            if parent_dir_path != "":
+                os.makedirs(parent_dir_path, exist_ok=True)
+
+            with open(path, "w") as f:
                 f.write(content)
             return f"Successfully wrote to {path}"
         except Exception as e:
