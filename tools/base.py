@@ -58,6 +58,8 @@ class BaseTool(ABC):
     def validate_and_execute(self, **kwargs) -> str:
         """Validate parameters using Pydantic model and execute."""
         # This will raise ValidationError if params are invalid
+        # and also catch errors that are not handled by the tool 
+        # itself.
         try:
             validated_params = self.parameters_model(**kwargs)
             return self.execute(**validated_params.model_dump())

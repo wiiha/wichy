@@ -52,10 +52,13 @@ def process(line):
 
 def main():
     context.append({"role": "system", "content": "You are a helpful assistent."})
-    while True:
-        line = input("> ")
-        result = process(line)
-        print(f">>> {result}\n")
+    try:
+        while True:
+            line = input("> ")
+            result = process(line)
+            print(f">>> {result}\n")
+    except KeyboardInterrupt:
+        print("\nexiting")
 
 
 if __name__ == "__main__":
