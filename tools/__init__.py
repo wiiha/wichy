@@ -1,6 +1,6 @@
 from .ping import PingTool
 from .file_explorer import ListFilesTool, CatFileContentTool, WriteFileTool
-from .grep import SearchRecursiveTool
+from .file_search_in import SearchRecursiveTool
 
 # Different tool collections for different contexts
 BASIC_TOOLS = [
