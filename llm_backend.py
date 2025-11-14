@@ -2,6 +2,7 @@ from openai import OpenAI
 from pydantic import BaseModel
 from typing import List, Optional
 from rich import print
+import json
 
 
 class function(BaseModel):
@@ -64,4 +65,53 @@ def call(context, tool_defs):
     # unwrap response
     m = Message.from_choice(response.choices[0])
     print(f"[italic]finish reason: {m.finish_reason}[/italic]")
+    if contains_unparsed_tool_call(m.content):
+        print("[italic][yellow]found unparsed tool call[/yellow][/italic]")
     return m
+
+
+def contains_unparsed_tool_call(text):
+    try:
+        str(text).index("<tool_call>")
+        str(text).index("</tool_call>")
+    except ValueError as e:
+        return False
+    except Exception:
+        # Lazy for now
+        return False
+    return True
+
+
+def parse_tool_calls(text):
+    start = str(text).index("<tool_call>")
+    end = str(text).index("</tool_call>")
+    x = text[start + len("<tool_call>") : end]
+    print(start, end, x)
+
+    calls = []
+    for l in str(x).splitlines():
+        if l.strip() == "":
+            continue
+        c = parse_tool_call(l)
+
+
+def parse_tool_call(text):
+    try:
+        f = function(json.loads(text))
+        print(f)
+    except Exception as e:
+        return None
+
+
+
+if __name__ == "__main__":
+    test_text = """I see the issue. The regex pattern `FLAG\{[^\}]*\}` should work correctly to match the flag format `FLAG{<text>}`. Let me try searching again with this corrected 
+pattern.
+
+I see the issue. The regex pattern `FLAG\{[^\}]*\}` should work correctly to match the flag format `FLAG{<text>}`. Let me try searching again with this corrected pattern.
+
+<tool_call>
+{"name": "search_recursive", "arguments": {"path": ".", "pattern": "FLAG\\{[^\}]*\\}"}}
+</tool_call>"""
+
+    res = parse_tool_calls(test_text)
