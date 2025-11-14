@@ -6,19 +6,26 @@ from tools import ALL_TOOLS, get_tool_definitions
 from llm_backend import called_tool, Message, call
 import argparse
 
+
 class ArgumentParserWrapper:
     def __init__(self):
-        self.parser = argparse.ArgumentParser(description='Agentic LLM')
-        self.parser.add_argument('--show-log', action='store_true', help='Show logs during execution')
+        self.parser = argparse.ArgumentParser(
+            description="Agentic LLM - An interactive command-line interface for an agentic LLM that can perform tasks using available tools."
+        )
+        self.parser.add_argument(
+            "--show-log", action="store_true", help="Show logs during execution"
+        )
         self.args = None
 
     def parse_args(self):
         self.args = self.parser.parse_args()
         return self.args
 
+
 context = []
 
 console.quiet = False
+
 
 def tool_call(tools, item: called_tool):
     result = None
@@ -69,13 +76,13 @@ def main():
     context.append({"role": "system", "content": "You are a helpful assistent."})
     parser = ArgumentParserWrapper()
     args = parser.parse_args()
-    
+
     # Set console quiet mode based on --show-log flag
     if args.show_log:
         console.quiet = False
     else:
         console.quiet = True
-    
+
     try:
         while True:
             print(Markdown("\n\n---\n\n### User"))
@@ -87,6 +94,7 @@ def main():
             # print(f">> {result}\n")
     except KeyboardInterrupt:
         print("\nexiting...")
+
 
 if __name__ == "__main__":
     main()
