@@ -24,9 +24,6 @@ class ArgumentParserWrapper:
 
 context = []
 
-console.quiet = False
-
-
 def tool_call(tools, item: called_tool):
     result = None
     name = item.function.name
@@ -83,8 +80,8 @@ def main():
     else:
         console.quiet = True
 
-    try:
-        while True:
+    while True:
+        try:
             print(Markdown("\n\n---\n\n### User"))
             line = input("> ")
             result = process(line)
@@ -92,8 +89,11 @@ def main():
             markdown = Markdown(result)
             print(markdown)
             # print(f">> {result}\n")
-    except KeyboardInterrupt:
-        print("\nexiting...")
+        except KeyboardInterrupt:
+            continue
+        except EOFError:
+            print("\nexiting...")
+            exit(0)
 
 
 if __name__ == "__main__":
