@@ -2,6 +2,7 @@ from openai import OpenAI
 from pydantic import BaseModel
 from typing import List, Optional
 from rich import print
+from helpers.console import console
 import json
 
 
@@ -54,7 +55,7 @@ def call(context, tool_defs):
     # point to local llama-cpp-python OpenAI-compatible server
     client = OpenAI(base_url="http://localhost:8080/v1", api_key="sk-local")
     # use chat completions API
-    print("[italic]calling llm endpoint[/italic]")
+    console.log("calling llm endpoint")
     response = client.chat.completions.create(
         model="model-set-by-llama-server",
         messages=context,
@@ -64,9 +65,12 @@ def call(context, tool_defs):
 
     # unwrap response
     m = Message.from_choice(response.choices[0])
-    print(f"[italic]finish reason: {m.finish_reason}[/italic]")
+    console.log({"finish reason": m.finish_reason})
     if contains_unparsed_tool_call(m.content):
-        print("[italic][yellow]found unparsed tool call[/yellow][/italic]")
+        console.log(
+            "[italic][yellow]found unparsed tool call[/yellow][/italic]",
+            {"unparsed call": extract_tool_calls(m.content)},
+        )
     return m
 
 
@@ -82,11 +86,16 @@ def contains_unparsed_tool_call(text):
     return True
 
 
-def parse_tool_calls(text):
+def extract_tool_calls(text):
     start = str(text).index("<tool_call>")
     end = str(text).index("</tool_call>")
     x = text[start + len("<tool_call>") : end]
-    print(start, end, x)
+    return x
+
+
+def parse_tool_calls(text):
+
+    x = extract_tool_calls(text)
 
     calls = []
     for l in str(x).splitlines():
@@ -101,7 +110,6 @@ def parse_tool_call(text):
         print(f)
     except Exception as e:
         return None
-
 
 
 if __name__ == "__main__":

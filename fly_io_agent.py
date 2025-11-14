@@ -1,15 +1,20 @@
 import json
 from rich import print
+from rich.markdown import Markdown
+from helpers.console import console
 from tools import ALL_TOOLS, get_tool_definitions
 from llm_backend import called_tool, Message, call
 
+
 context = []
+
+console.quiet = False
 
 def tool_call(tools, item: called_tool):
     result = None
     name = item.function.name
     args = json.loads(item.function.arguments)
-    print("[italic]tool call: " + name + " " + json.dumps(args) + "[/italic]")
+    console.log({"tool": name, "args": args})
     for tool in tools:
         if name == tool.name:
             result = tool.validate_and_execute(**args)
@@ -31,7 +36,7 @@ def handle_tools(tools, response: Message):
         }
     )
 
-    print("[italic]got " + str(len(response.tool_calls)) + " tool calls[/italic]")
+    console.log("[italic]got " + str(len(response.tool_calls)) + " tool calls[/italic]")
     osz = len(context)
     for item in response.tool_calls:
         context.append(tool_call(tools, item))
@@ -54,11 +59,15 @@ def main():
     context.append({"role": "system", "content": "You are a helpful assistent."})
     try:
         while True:
+            print(Markdown("\n\n---\n\n### User"))
             line = input("> ")
             result = process(line)
-            print(f">>> {result}\n")
+            result = "\n---\n\n### Assistant\n" + result
+            markdown = Markdown(result)
+            print(markdown)
+            # print(f">>> {result}\n")
     except KeyboardInterrupt:
-        print("\nexiting")
+        print("\nexiting...")
 
 
 if __name__ == "__main__":

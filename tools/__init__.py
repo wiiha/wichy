@@ -1,10 +1,12 @@
 from .ping import PingTool
 from .file_explorer import ListFilesTool, CatFileContentTool, WriteFileTool
 from .file_search_in import SearchRecursiveTool
+from .execute_command import ExecuteCommandTool
 
 # Different tool collections for different contexts
 BASIC_TOOLS = [
     PingTool(),
+    ExecuteCommandTool()
 ]
 
 FILE_SYSTEM_TOOLS = [
