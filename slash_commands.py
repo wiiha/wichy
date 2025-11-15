@@ -1,4 +1,5 @@
-from helpers.console import console, console_tool_result
+from helpers.console import console
+from tools.base import console_tool_result
 
 
 class SlashCommandChecker:

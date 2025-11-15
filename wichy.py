@@ -1,9 +1,11 @@
 import json
 from rich import print
 from rich.markdown import Markdown
-from helpers.console import console, console_tool_result
+from helpers.console import console
+from helpers.context import new_context
 from slash_commands import SlashCommandChecker
 from tools import ALL_TOOLS, get_tool_definitions
+from tools.base import console_tool_result
 from llm_backend import called_tool, Message, call
 import argparse
 import os
@@ -29,7 +31,7 @@ class ArgumentParserWrapper:
         return self.args
 
 
-context = []
+context = new_context()
 
 
 def tool_call(tools, item: called_tool):
@@ -70,10 +72,10 @@ def process(line):
     tools = ALL_TOOLS
     context.append({"role": "user", "content": line})
     tool_defs = get_tool_definitions(tools)
-    response = call(context=context, tool_defs=tool_defs)
+    response = call(context=context(), tool_defs=tool_defs)
 
     while handle_tools(tools, response):
-        response = call(context, tool_defs)
+        response = call(context(), tool_defs)
     context.append({"role": "assistant", "content": response.content})
     return response.content
 

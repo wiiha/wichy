@@ -1,8 +1,10 @@
 from abc import ABC, abstractmethod
 from pydantic import BaseModel
 from typing import Type, Dict, Any
-from helpers.console import console_tool_result
 from rich.markdown import Markdown
+from rich.console import Console
+
+console_tool_result = Console(quiet=True)
 
 
 class BaseTool(ABC):
