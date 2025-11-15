@@ -5,17 +5,17 @@ from .base import BaseTool
 from .human_verification import require_human_verification
 
 
-class ExecuteCommandParameters(BaseModel):
+class BashParameters(BaseModel):
     command: str = Field(..., description="The command to execute")
     timeout: Optional[int] = Field(
         30, description="Timeout in seconds for the command execution"
     )
 
 
-class ExecuteCommandTool(BaseTool):
+class BashTool(BaseTool):
     name = "execute_command"
-    description = "Execute an arbitrary command using subprocess. Calls to this tool will be audited before execution."
-    parameters_model = ExecuteCommandParameters
+    description = "Execute an arbitrary command using subprocess, imagine it being bash. Calls to this tool will be audited before execution."
+    parameters_model = BashParameters
 
     @require_human_verification
     def execute(self, command: str, timeout: int = 30) -> str:
