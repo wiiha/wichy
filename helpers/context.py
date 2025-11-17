@@ -1,4 +1,5 @@
 import secrets
+import hashlib
 import json
 import os
 from os.path import isfile, join
@@ -12,7 +13,9 @@ CONTEXT_FILE_EXT = ".json"
 class ContextHandler:
     def __init__(self):
         self.context = []
-        self.id = secrets.token_urlsafe(7)
+        h = hashlib.sha256()
+        h.update(secrets.token_urlsafe(10).encode())
+        self.id = h.hexdigest()
         self.start_date = datetime.now().strftime("%Y-%m-%d")
         self._ensure_context_dir()
 
