@@ -2,3 +2,4 @@ venv/
 granite-4.0-h-tiny-Q4_K_M.gguf
 llama_server_stuff/
 __pycache__
+.wichy/
