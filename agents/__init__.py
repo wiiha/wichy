@@ -1,1 +1,4 @@
-from .agent_desc_code_reviewer import new_code_review_agent
+from .agent_desc_code_reviewer import agent_code_reviewer
+from .sub_agent import new_sub_agent_as_tool
+
+code_agent = new_sub_agent_as_tool(markdown_description=agent_code_reviewer)

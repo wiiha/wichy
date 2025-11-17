@@ -2,6 +2,7 @@ import functools
 from typing import Callable, Any, Optional
 from rich import print
 
+SKIP_HUMAN_VERIFICATION = False
 
 def require_human_verification(func: Callable) -> Callable:
     """
@@ -32,6 +33,9 @@ def require_human_verification(func: Callable) -> Callable:
             print(message)
         if all_args:
             print(all_args)
+
+        if SKIP_HUMAN_VERIFICATION:
+            return func(*args, **kwargs)
 
         while True:
             response = input("Proceed? (y/n): ").strip().lower()

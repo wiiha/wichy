@@ -6,6 +6,8 @@ from helpers.context import new_context
 from slash_commands import SlashCommandChecker
 from tools import ALL_TOOLS, get_tool_definitions
 from tools.base import console_tool_result
+from agents.sub_agent import console_sub_agents
+from agents import code_agent
 from llm_backend import called_tool, Message, call
 import argparse
 
@@ -22,6 +24,11 @@ class ArgumentParserWrapper:
             "--log-tools",
             action="store_true",
             help="Show tool results during execution, requires --show-log",
+        )
+        self.parser.add_argument(
+            "--log-agents",
+            action="store_true",
+            help="Show agent results during execution, requires --show-log",
         )
         self.args = None
 
@@ -53,7 +60,7 @@ def handle_tools(tools, response: Message):
 
     context.append(
         {
-            "role": "assistent",
+            "role": "assistant",
             "content": response.content,
             "tool_calls": [t.model_dump() for t in response.tool_calls],
         }
@@ -69,6 +76,7 @@ def handle_tools(tools, response: Message):
 def process(line):
 
     tools = ALL_TOOLS
+    tools.append(code_agent)
     context.append({"role": "user", "content": line})
     tool_defs = get_tool_definitions(tools)
     response = call(context=context(), tool_defs=tool_defs)
@@ -80,7 +88,7 @@ def process(line):
 
 
 def main():
-    context.append({"role": "system", "content": "You are a helpful assistent."})
+    context.append({"role": "system", "content": "You are a helpful assistant."})
     parser = ArgumentParserWrapper()
     args = parser.parse_args()
     cmd_checker = SlashCommandChecker()
@@ -90,6 +98,8 @@ def main():
         console.quiet = False
         if args.log_tools:
             console_tool_result.quiet = False
+        if args.log_agents:
+            console_sub_agents.quiet = False
     else:
         console.quiet = True
 

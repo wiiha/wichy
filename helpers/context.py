@@ -1,5 +1,4 @@
-import secrets
-import hashlib
+import time
 import json
 import os
 from os.path import isfile, join
@@ -13,9 +12,9 @@ CONTEXT_FILE_EXT = ".json"
 class ContextHandler:
     def __init__(self, custom_suffix="", sub_dir=""):
         self.context = []
-        h = hashlib.sha256()
-        h.update(secrets.token_urlsafe(10).encode())
-        self.id = h.hexdigest()
+        # generating a time based id is fine under the assumption that this will 
+        # be running on a local machine only and not in a multi user setup.
+        self.id = str(time.time()).split(".")[0]
         self.start_date = datetime.now().strftime("%Y-%m-%d")
         self.custom_suffix = custom_suffix
         self.sub_dir = sub_dir
@@ -56,6 +55,14 @@ class ContextHandler:
                 f.write(json.dumps(new_object) + "\n")
         except Exception as e:
             print(f"[red]Error saving context to file:[/red] {e}")
+
+    def delete(self):
+        save_path = self.context_dir + self.start_date + "_" + self.id
+        if self.custom_suffix != "":
+            save_path += "_" + self.custom_suffix
+        save_path += CONTEXT_FILE_EXT
+        os.remove(save_path)
+
 
 
 def new_context():

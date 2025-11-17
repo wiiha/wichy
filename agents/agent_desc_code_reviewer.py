@@ -1,5 +1,3 @@
-from .sub_agent import SubAgent
-
 agent_code_reviewer = """---
 name: code-reviewer
 description: Expert code review specialist. Proactively reviews code for quality, security, and maintainability. Use immediately after writing or modifying code.
@@ -30,6 +28,3 @@ Provide feedback organized by priority:
 - Suggestions (consider improving)
 
 Include specific examples of how to fix issues."""
-
-def new_code_review_agent():
-    return SubAgent(markdown_description=agent_code_reviewer)
