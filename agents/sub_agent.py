@@ -129,10 +129,13 @@ class SubAgent:
         tool_defs = get_tool_definitions(tools)
         response = call(context=self.context(), tool_defs=tool_defs)
 
-        while self._handle_tools(tools, response):
-            response = call(self.context(), tool_defs)
-        self.context.append({"role": "assistant", "content": response.content})
-        return response.content
+        try:
+            while self._handle_tools(tools, response):
+                response = call(self.context(), tool_defs)
+            self.context.append({"role": "assistant", "content": response.content})
+            return response.content
+        except KeyboardInterrupt as e:
+            raise Exception("user aborted execution of " + self.name)
 
 
 def new_sub_agent_as_tool(
