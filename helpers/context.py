@@ -10,7 +10,30 @@ CONTEXT_FILE_EXT = ".json"
 
 
 class ContextHandler:
+    """
+    A class to handle context management for conversations.
+
+    This class manages a list of conversation messages and provides methods to
+    add, save, and delete context data. It also ensures the necessary directory
+    structure exists for storing context files.
+    """
+
     def __init__(self, custom_suffix="", sub_dir=""):
+        """
+        Initialize a new ContextHandler instance.
+
+        Args:
+            custom_suffix (str, optional): Custom suffix to add to the context file name. Defaults to empty string.
+            sub_dir (str, optional): Subdirectory to store context files in. Defaults to empty string.
+
+        Attributes:
+            context (list): List of conversation messages.
+            id (str): Unique identifier for this context instance (based on current time).
+            start_date (str): Date when this context was created (YYYY-MM-DD format).
+            custom_suffix (str): Custom suffix for the context file name.
+            sub_dir (str): Subdirectory for storing context files.
+            context_dir (str): Full path to the context directory.
+        """
         self.context = []
         # generating a time based id is fine under the assumption that this will
         # be running on a local machine only and not in a multi user setup.
@@ -21,30 +44,78 @@ class ContextHandler:
         self._ensure_context_dir()
 
     def _ensure_context_dir(self):
-        """Ensure the .wichy/contexts directory exists."""
+        """
+        Ensure the .wichy/contexts directory exists.
+
+        This method creates the context directory if it doesn't exist. If a subdirectory
+        is specified, it will create that as well.
+        """
         self.context_dir = CONTEXT_DIR
         if self.sub_dir != "":
             self.context_dir += self.sub_dir + "/"
         os.makedirs(self.context_dir, exist_ok=True)
 
     def __len__(self):
+        """
+        Return the number of messages in the context.
+
+        Returns:
+            int: The number of messages in the context.
+        """
         return len(self.context)
 
     def __call__(self):
+        """
+        Return the context as a list.
+
+        Returns:
+            list: The current context messages.
+        """
         return self.context
 
     def append(self, new_object):
-        """Append a new object to context and log it to file."""
+        """
+        Append a new object to context and log it to file.
+
+        Args:
+            new_object (dict): The object to add to the context. Should be a dictionary
+                with at least 'role' and 'content' keys.
+
+        Side effects:
+            - Adds the object to the context list
+            - Saves the object to a JSON file
+        """
         self.context.append(new_object)
         self._save_to_file(new_object)
 
     def add(self, role, content):
-        """Add a new message to context and log it to file. Helper method"""
+        """
+        Add a new message to context and log it to file. Helper method.
+
+        Args:
+            role (str): The role of the message (e.g., 'user', 'assistant')
+            content (str): The content of the message
+
+        Side effects:
+            - Creates a new message dictionary
+            - Adds it to the context list
+            - Saves it to a JSON file
+        """
         x = {"role": role, "content": content}
         self.append(x)
 
     def _save_to_file(self, new_object):
-        """Save the new object as a JSON object on a new line in the log file."""
+        """
+        Save the new object as a JSON object on a new line in the log file.
+
+        Args:
+            new_object (dict): The object to save to file
+
+        Side effects:
+            - Creates or appends to a context file with a name based on start date,
+              ID, and custom suffix
+            - Writes the object as a JSON string followed by a newline
+        """
         save_path = self.context_dir + self.start_date + "_" + self.id
         if self.custom_suffix != "":
             save_path += "_" + self.custom_suffix
@@ -57,6 +128,14 @@ class ContextHandler:
             print(f"[red]Error saving context to file:[/red] {e}")
 
     def delete(self):
+        """
+        Delete the context file.
+
+        This method deletes the context file associated with this instance.
+
+        Side effects:
+            - Removes the context file from disk
+        """
         save_path = self.context_dir + self.start_date + "_" + self.id
         if self.custom_suffix != "":
             save_path += "_" + self.custom_suffix
@@ -65,10 +144,28 @@ class ContextHandler:
 
 
 def new_context():
+    """
+    Create a new ContextHandler instance.
+
+    Returns:
+        ContextHandler: A new context handler instance
+    """
     return ContextHandler()
 
 
 def context_from_file(path):
+    """
+    Load a context from a file.
+
+    Args:
+        path (str): Path to the context file
+
+    Returns:
+        ContextHandler: A new context handler instance loaded with data from the file
+
+    Raises:
+        ValueError: If the file is empty
+    """
     lines = []
     with open(path, "r") as f:
         lines = f.readlines()
@@ -117,6 +214,12 @@ def context_from_file(path):
 
 
 def previous_conversations():
+    """
+    Get a list of previous conversation files.
+
+    Returns:
+        list: List of context file names in the contexts directory
+    """
     cs = [f for f in os.listdir(CONTEXT_DIR) if isfile(join(CONTEXT_DIR, f))]
     return cs
 
