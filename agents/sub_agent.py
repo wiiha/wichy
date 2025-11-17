@@ -72,7 +72,7 @@ class SubAgent:
         self.tools = tools
 
         if "model" in frontmatter.keys():
-            print('[yellow]WAR: subagent property "model" is not implemented.[/yellow]')
+            console_sub_agents.print('[yellow]WAR: subagent property "model" is not implemented.[/yellow]')
 
         context = ContextHandler(custom_suffix=self.name, sub_dir="sub_agents")
         context.add(role="system", content=instructions)
