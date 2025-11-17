@@ -12,7 +12,7 @@ CONTEXT_FILE_EXT = ".json"
 class ContextHandler:
     def __init__(self, custom_suffix="", sub_dir=""):
         self.context = []
-        # generating a time based id is fine under the assumption that this will 
+        # generating a time based id is fine under the assumption that this will
         # be running on a local machine only and not in a multi user setup.
         self.id = str(time.time()).split(".")[0]
         self.start_date = datetime.now().strftime("%Y-%m-%d")
@@ -64,7 +64,6 @@ class ContextHandler:
         os.remove(save_path)
 
 
-
 def new_context():
     return ContextHandler()
 
@@ -105,7 +104,7 @@ def context_from_file(path):
 
     path_parts = str(path).split("/")
     ctx_sub_dir = ""
-    if path_parts.index(CONTEXT_DIR) != (len(path_parts) - 2):
+    if path_parts.index("contexts") != (len(path_parts) - 2):
         # we have a sub dir
         ctx_sub_dir = path_parts[-2]
 
