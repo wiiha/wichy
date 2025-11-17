@@ -8,7 +8,6 @@ from tools import ALL_TOOLS, get_tool_definitions
 from tools.base import console_tool_result
 from llm_backend import called_tool, Message, call
 import argparse
-import os
 
 
 class ArgumentParserWrapper:
