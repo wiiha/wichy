@@ -4,9 +4,10 @@ from .file_search_in import SearchRecursiveTool
 from .bash import BashTool
 from .reverse_dns_tool import ReverseDnsTool
 from .tree import TreeTool
+from .search_ddg import SearchDDGTool
 
 # Different tool collections for different contexts
-BASIC_TOOLS = [BashTool()]
+BASIC_TOOLS = [BashTool(),SearchDDGTool()]
 
 NETWORK_TOOLS = [PingTool(), ReverseDnsTool()]
 
