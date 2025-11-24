@@ -20,7 +20,7 @@ QWEN3_VL_8B_THINKING_DEFAULTS=(
 
 LLM_MODEL_QWEN_INSTRUCT="llama_server_stuff/Qwen3-VL-8B-Instruct-UD-Q4_K_XL.gguf"
 QWEN3_VL_8B_INSTRUCT_DEFAULTS=(
-    --mmproj "llama_server_stuff/Qwen3-mmproj-F16.gguf" \
+    # --mmproj "llama_server_stuff/Qwen3-mmproj-F16.gguf" \
     --jinja \
     --top-p 0.8 \
     --top-k 20 \
@@ -28,7 +28,7 @@ QWEN3_VL_8B_INSTRUCT_DEFAULTS=(
     --min-p 0.0 \
     --flash-attn on \
     --presence-penalty 1.5 \
-    --ctx-size 8192
+    --ctx-size 16384
 )
 
 exec "$LLAMA_SERVER_BIN" --model "$LLM_MODEL_QWEN_INSTRUCT" "${QWEN3_VL_8B_INSTRUCT_DEFAULTS[@]}"
