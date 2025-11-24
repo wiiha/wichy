@@ -47,7 +47,7 @@ class SearchRecursiveTool(BaseTool):
 
     def execute(self, path=".", pattern="") -> str:
         """Execute recursive search"""
-        if not pattern:
+        if not pattern or pattern.strip() == "":
             return "error: pattern is required"
 
         try:
