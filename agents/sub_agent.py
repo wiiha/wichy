@@ -15,7 +15,7 @@ from tools import (
     ListFilesTool,
     get_tool_definitions,
 )
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from tools.base import BaseTool
 
 console_sub_agents = Console(quiet=True)
@@ -72,7 +72,9 @@ class SubAgent:
         self.tools = tools
 
         if "model" in frontmatter.keys():
-            console_sub_agents.print('[yellow]WAR: subagent property "model" is not implemented.[/yellow]')
+            console_sub_agents.print(
+                '[yellow]WARN: subagent property "model" is not implemented.[/yellow]'
+            )
 
         context = ContextHandler(custom_suffix=self.name, sub_dir="sub_agents")
         context.add(role="system", content=instructions)
@@ -140,31 +142,34 @@ class SubAgent:
 
 def new_sub_agent_as_tool(
     markdown_description,
-    first_user_prompt=None,
 ):
 
     class SubAgentParameters(BaseModel):
-        pass
+        first_prompt: str = Field(
+            "Follow your given instructions and complete your task.",
+            description="The initial instructions to give the agent. Unless mentioned, this parameter should be left with its default value.",
+        )
 
     class SubAgentTool(BaseTool):
         name = "NOT_SET"
         description = "NOT_SET"
         parameters_model = SubAgentParameters
 
-        def __init__(self, markdown_description, first_user_prompt=None):
+        def __init__(self, markdown_description):
             super().__init__()
             sa = SubAgent(markdown_description=markdown_description)
             self.name = sa.name
             self.description = sa.description
             sa.context.delete()
             self.markdown_description = markdown_description
-            self.first_user_prompt = first_user_prompt
 
-        def execute(self) -> str:
+        def execute(
+            self, first_prompt="Follow your given instructions and complete your task."
+        ) -> str:
             """run sub agent"""
             sa = SubAgent(
                 markdown_description=self.markdown_description,
-                first_user_prompt=self.first_user_prompt,
+                first_user_prompt=first_prompt,
             )
             try:
                 result = sa.run()
@@ -172,4 +177,4 @@ def new_sub_agent_as_tool(
             except Exception as e:
                 return f"error: {e}"
 
-    return SubAgentTool(markdown_description, first_user_prompt)
+    return SubAgentTool(markdown_description)
