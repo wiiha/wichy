@@ -2,7 +2,7 @@ from openai import OpenAI
 from pydantic import BaseModel
 from typing import List, Optional
 from rich import print
-from helpers.console import console
+from wichy.helpers.console import console
 import json
 
 

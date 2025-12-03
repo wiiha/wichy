@@ -1,12 +1,12 @@
 # sub agent is a type of agent that is based on a markdown file describing its task
 import json
-from helpers.markdown import read_markdown_with_frontmatter
-from helpers.context import ContextHandler
+from wichy.helpers.markdown import read_markdown_with_frontmatter
+from wichy.helpers.context import ContextHandler
 from rich import print
 from rich.markdown import Markdown
 from rich.console import Console
-from llm_backend import Message, call, called_tool
-from tools import (
+from wichy.llm_backend import Message, call, called_tool
+from wichy.tools import (
     BashTool,
     TreeTool,
     CatFileContentTool,
@@ -18,7 +18,7 @@ from tools import (
     get_tool_definitions,
 )
 from pydantic import BaseModel, Field
-from tools.base import BaseTool
+from wichy.tools.base import BaseTool
 
 console_sub_agents = Console(quiet=True)
 

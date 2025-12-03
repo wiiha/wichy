@@ -1,6 +1,6 @@
-from helpers.console import console
-from tools.base import console_tool_result
-from agents.sub_agent import console_sub_agents
+from wichy.helpers.console import console
+from wichy.tools.base import console_tool_result
+from wichy.agents.sub_agent import console_sub_agents
 
 
 class SlashCommandChecker:

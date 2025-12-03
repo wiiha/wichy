@@ -1,14 +1,14 @@
 import json
 from rich import print
 from rich.markdown import Markdown
-from helpers.console import console
-from helpers.context import new_context
-from slash_commands import SlashCommandChecker
-from tools import ALL_TOOLS, get_tool_definitions
-from tools.base import console_tool_result
-from agents.sub_agent import console_sub_agents
-from agents import code_agent, web_research_agent, web_research_agent_lite
-from llm_backend import called_tool, Message, call
+from wichy.helpers.console import console
+from wichy.helpers.context import new_context
+from wichy.slash_commands import SlashCommandChecker
+from wichy.tools import ALL_TOOLS, get_tool_definitions
+from wichy.tools.base import console_tool_result
+from wichy.agents.sub_agent import console_sub_agents
+from wichy.agents import code_agent, web_research_agent, web_research_agent_lite
+from wichy.llm_backend import called_tool, Message, call
 import argparse
 
 
