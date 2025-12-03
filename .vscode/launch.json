@@ -8,7 +8,7 @@
             "name": "Python Debugger: Wichy",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/wichy.py",
+            "program": "${workspaceFolder}/src/wichy/__main__.py",
             "console": "integratedTerminal",
             "args": []
         },
@@ -16,7 +16,7 @@
             "name": "Python Debugger: Wichy (with args)",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/wichy.py",
+            "program": "${workspaceFolder}/src/wichy/__main__.py",
             "console": "integratedTerminal",
             "args": ["--show-log","--log-tools", "--log-agents"]
         },
