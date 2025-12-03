@@ -7,7 +7,7 @@ from slash_commands import SlashCommandChecker
 from tools import ALL_TOOLS, get_tool_definitions
 from tools.base import console_tool_result
 from agents.sub_agent import console_sub_agents
-from agents import code_agent
+from agents import code_agent, web_research_agent
 from llm_backend import called_tool, Message, call
 import argparse
 
@@ -57,6 +57,11 @@ def tool_call(tools, item: called_tool):
 def handle_tools(tools, response: Message):
     if response.finish_reason != "tool_calls":
         return False
+    
+    if response.content.strip() != "":
+        result = "\n---\n\n### Assistant\n" + response.content
+        markdown = Markdown(result)
+        print(markdown)
 
     context.append(
         {
@@ -76,7 +81,7 @@ def handle_tools(tools, response: Message):
 def process(line):
 
     tools = ALL_TOOLS
-    tools.append(code_agent)
+    tools.extend([code_agent,web_research_agent])
     context.append({"role": "user", "content": line})
     tool_defs = get_tool_definitions(tools)
     response = call(context=context(), tool_defs=tool_defs)

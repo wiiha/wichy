@@ -13,6 +13,8 @@ from tools import (
     WriteFileTool,
     SearchRecursiveTool,
     ListFilesTool,
+    SearchDDGTool,
+    FetchWebPageTool,
     get_tool_definitions,
 )
 from pydantic import BaseModel, Field
@@ -29,6 +31,8 @@ tools_map = {
     "write": WriteFileTool(),
     "grep": SearchRecursiveTool(),
     "ls": ListFilesTool(),
+    "web_search": SearchDDGTool(),
+    "web_fetch": FetchWebPageTool(),
 }
 
 

@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import Optional
-from ddgs import DDGS
+from ddgs import DDGS # ref: https://pypi.org/project/ddgs/
 from .base import BaseTool
 
 

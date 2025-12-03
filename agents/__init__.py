@@ -1,4 +1,6 @@
 from .agent_desc_code_reviewer import agent_code_reviewer
+from .agent_desc_web_researcher import agent_web_researcher
 from .sub_agent import new_sub_agent_as_tool
 
 code_agent = new_sub_agent_as_tool(markdown_description=agent_code_reviewer)
+web_research_agent = new_sub_agent_as_tool(markdown_description=agent_web_researcher)

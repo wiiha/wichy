@@ -5,9 +5,13 @@ from .bash import BashTool
 from .reverse_dns_tool import ReverseDnsTool
 from .tree import TreeTool
 from .search_ddg import SearchDDGTool
+from .fetch_webpage import FetchWebPageTool
 
 # Different tool collections for different contexts
-BASIC_TOOLS = [BashTool(),SearchDDGTool()]
+BASIC_TOOLS = [BashTool(),
+            #    SearchDDGTool(),
+            #    FetchWebPageTool(),
+               ]
 
 NETWORK_TOOLS = [PingTool(), ReverseDnsTool()]
 
