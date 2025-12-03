@@ -7,7 +7,7 @@ from slash_commands import SlashCommandChecker
 from tools import ALL_TOOLS, get_tool_definitions
 from tools.base import console_tool_result
 from agents.sub_agent import console_sub_agents
-from agents import code_agent, web_research_agent
+from agents import code_agent, web_research_agent, web_research_agent_lite
 from llm_backend import called_tool, Message, call
 import argparse
 
@@ -81,7 +81,7 @@ def handle_tools(tools, response: Message):
 def process(line):
 
     tools = ALL_TOOLS
-    tools.extend([code_agent,web_research_agent])
+    tools.extend([code_agent,web_research_agent,web_research_agent_lite])
     context.append({"role": "user", "content": line})
     tool_defs = get_tool_definitions(tools)
     response = call(context=context(), tool_defs=tool_defs)
