@@ -7,7 +7,12 @@ from wichy.slash_commands import SlashCommandChecker
 from wichy.tools import ALL_TOOLS, get_tool_definitions
 from wichy.tools.base import console_tool_result
 from wichy.agents.sub_agent import console_sub_agents
-from wichy.agents import code_agent, web_research_agent, web_research_agent_lite, code_planner_agent
+from wichy.agents import (
+    code_agent,
+    web_research_agent,
+    web_research_agent_lite,
+    code_planner_agent,
+)
 from wichy.llm_backend import called_tool, Message, call
 import argparse
 
@@ -57,7 +62,7 @@ def tool_call(tools, item: called_tool):
 def handle_tools(tools, response: Message):
     if response.finish_reason != "tool_calls":
         return False
-    
+
     if response.content.strip() != "":
         result = "\n---\n\n### Assistant\n" + response.content
         markdown = Markdown(result)
@@ -81,7 +86,9 @@ def handle_tools(tools, response: Message):
 def process(line):
 
     tools = ALL_TOOLS
-    tools.extend([code_agent,web_research_agent,web_research_agent_lite,code_planner_agent])
+    tools.extend(
+        [code_planner_agent, code_agent, web_research_agent, web_research_agent_lite]
+    )
     context.append({"role": "user", "content": line})
     tool_defs = get_tool_definitions(tools)
     response = call(context=context(), tool_defs=tool_defs)
@@ -93,7 +100,12 @@ def process(line):
 
 
 def main():
-    context.append({"role": "system", "content": "You are a helpful assistant. Whenever possible, defer tasks to available agents."})
+    context.append(
+        {
+            "role": "system",
+            "content": "You are a helpful assistant. Whenever possible, defer tasks to available agents.",
+        }
+    )
     parser = ArgumentParserWrapper()
     args = parser.parse_args()
     cmd_checker = SlashCommandChecker()
