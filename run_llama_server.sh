@@ -31,4 +31,15 @@ QWEN3_VL_8B_INSTRUCT_DEFAULTS=(
     --ctx-size 16384
 )
 
-exec "$LLAMA_SERVER_BIN" --model "$LLM_MODEL_GRANITE" "${GRANITE_DEFAULTS[@]}"
+LLM_MODEL_GEMMA_3_12B="llama_server_stuff/gemma-3-12b-it-UD-Q4_K_XL.gguf"
+GEMMA_3_12B=(
+    --ctx-size 16384 \
+    --temp 1.0 \
+    --repeat-penalty 1.0 \
+    --min-p 0.01 \
+    --top-k 64 \
+    --top-p 0.95
+    --jinja \
+)
+
+exec "$LLAMA_SERVER_BIN" --model "$LLM_MODEL_GEMMA_3_12B" "${GEMMA_3_12B[@]}"
