@@ -31,7 +31,7 @@ QWEN3_VL_8B_INSTRUCT_DEFAULTS=(
     --ctx-size 16384
 )
 
-LLM_MODEL_GEMMA_3_12B="llama_server_stuff/gemma-3-12b-it-UD-Q4_K_XL.gguf"
+LLM_MODEL_GEMMA_3_12B="llama_server_stuff/gemma-3-4b-it-UD-Q4_K_XL.gguf"
 GEMMA_3_12B=(
     --ctx-size 16384 \
     --temp 1.0 \
