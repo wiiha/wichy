@@ -16,6 +16,11 @@ from wichy.agents import (
 from wichy.llm_backend import called_tool, Message, call
 import argparse
 
+TOOLS = ALL_TOOLS
+TOOLS.extend(
+    [code_planner_agent, code_agent, web_research_agent, web_research_agent_lite]
+)
+
 
 class ArgumentParserWrapper:
     def __init__(self):
@@ -85,10 +90,7 @@ def handle_tools(tools, response: Message):
 
 def process(line):
 
-    tools = ALL_TOOLS
-    tools.extend(
-        [code_planner_agent, code_agent, web_research_agent, web_research_agent_lite]
-    )
+    tools = TOOLS
     context.append({"role": "user", "content": line})
     tool_defs = get_tool_definitions(tools)
     response = call(context=context(), tool_defs=tool_defs)

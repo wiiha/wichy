@@ -129,13 +129,13 @@ class SubAgent:
 
     def _process(self, line=""):
 
-        tools = self.tools
-        if line != "":
-            self.context.add(role="user", content=line)
-        tool_defs = get_tool_definitions(tools)
-        response = call(context=self.context(), tool_defs=tool_defs)
-
         try:
+            tools = self.tools
+            if line != "":
+                self.context.add(role="user", content=line)
+            tool_defs = get_tool_definitions(tools)
+            response = call(context=self.context(), tool_defs=tool_defs)
+
             while self._handle_tools(tools, response):
                 response = call(self.context(), tool_defs)
             self.context.append({"role": "assistant", "content": response.content})
