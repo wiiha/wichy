@@ -42,4 +42,4 @@ GEMMA_3_12B=(
     --jinja \
 )
 
-exec "$LLAMA_SERVER_BIN" --model "$LLM_MODEL_GEMMA_3_12B" "${GEMMA_3_12B[@]}"
+exec "$LLAMA_SERVER_BIN" --model "$LLM_MODEL_QWEN_INSTRUCT" "${QWEN3_VL_8B_INSTRUCT_DEFAULTS[@]}"
