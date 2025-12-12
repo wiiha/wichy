@@ -1,4 +1,5 @@
 from openai import OpenAI
+import time
 from pydantic import BaseModel
 from typing import List, Optional
 from rich import print
@@ -51,26 +52,60 @@ class Message(BaseModel):
         )
 
 
-def call(context, tool_defs):
-    # point to local llama-cpp-python OpenAI-compatible server
-    client = OpenAI(base_url="http://localhost:8080/v1", api_key="sk-local")
-    # use chat completions API
-    console.log("calling llm endpoint")
+def call(context, tool_defs=None, model_name=None, backend="ollama"):
+    """
+    Call an LLM backend with the given context and tools.
+
+    Args:
+        context: The conversation context/messages
+        tool_defs: Tool definitions for function calling
+        model_name: Model name (required for ollama backend)
+        backend: Backend to use - "ollama" or "llama_cpp" (default: "ollama")
+
+    Returns:
+        Message object with the model's response
+    """
+    # Configure client based on backend
+    model = None
+    if backend == "ollama":
+        client = OpenAI(
+            base_url="http://localhost:11434/v1",
+            api_key="ollama",
+        )
+        if model_name == None:
+            raise ValueError("parameter model_name is required for backend ollama.")
+        model = model_name
+
+    elif backend == "llama_cpp":
+        client = OpenAI(base_url="http://localhost:8080/v1", api_key="sk-local")
+        model = "model-set-by-llama-server"
+    else:
+        raise ValueError(f"Unknown backend: {backend}. Use 'ollama' or 'llama_cpp'")
+
+    # Make the API call
+    console.log(f"calling llm endpoint [backend={backend}, model={model}]")
+    start_time = time.time()
     response = client.chat.completions.create(
-        model="model-set-by-llama-server",
+        model=model,
         messages=context,
         tools=tool_defs,
         # max_tokens=512
     )
+    elapsed_time = time.time() - start_time
 
-    # unwrap response
+    # Unwrap response
     m = Message.from_choice(response.choices[0])
-    console.log({"finish reason": m.finish_reason})
+    console.log({
+        "finish reason": m.finish_reason,
+        "elapsed_time": f"{elapsed_time:.2f}s"
+    })
+
     if contains_unparsed_tool_call(m.content):
         console.log(
             "[italic][yellow]found unparsed tool call[/yellow][/italic]",
             {"unparsed call": extract_tool_calls(m.content)},
         )
+
     return m
 
 

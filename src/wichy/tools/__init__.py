@@ -8,10 +8,11 @@ from .search_ddg import SearchDDGTool
 from .fetch_webpage import FetchWebPageTool
 
 # Different tool collections for different contexts
-BASIC_TOOLS = [BashTool(),
-            #    SearchDDGTool(),
-            #    FetchWebPageTool(),
-               ]
+BASIC_TOOLS = [
+    BashTool(),
+    #    SearchDDGTool(),
+    #    FetchWebPageTool(),
+]
 
 NETWORK_TOOLS = [PingTool(), ReverseDnsTool()]
 
@@ -27,7 +28,7 @@ FILE_SYSTEM_TOOLS = [
 # All tools combined
 ALL_TOOLS = []
 ALL_TOOLS.extend(BASIC_TOOLS)
-ALL_TOOLS.extend(NETWORK_TOOLS)
+# ALL_TOOLS.extend(NETWORK_TOOLS)
 ALL_TOOLS.extend(FILE_SYSTEM_TOOLS)
 
 

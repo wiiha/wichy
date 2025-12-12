@@ -2,7 +2,7 @@
 import json
 from wichy.helpers.markdown import read_markdown_with_frontmatter
 from wichy.helpers.context import ContextHandler
-from rich import print
+from wichy.helpers.string import strip_thinking_content
 from rich.markdown import Markdown
 from rich.console import Console
 from wichy.llm_backend import Message, call, called_tool
@@ -22,7 +22,7 @@ from wichy.tools.base import BaseTool
 
 console_sub_agents = Console(quiet=True)
 
-REQ_KEYS = ("name", "description")
+REQ_KEYS = ("name", "description", "model")
 
 tools_map = {
     "bash": BashTool(),
@@ -60,6 +60,7 @@ class SubAgent:
 
         self.name = frontmatter["name"]
         self.description = frontmatter["description"]
+        self.model = frontmatter["model"]
         tools = [tools_map[k] for k in tools_map]
         allowed_tools = frontmatter.get("tools", None)
         if allowed_tools != None:
@@ -75,17 +76,22 @@ class SubAgent:
 
         self.tools = tools
 
-        if "model" in frontmatter.keys():
-            console_sub_agents.print(
-                '[yellow]WARN: subagent property "model" is not implemented.[/yellow]'
-            )
-
         context = ContextHandler(custom_suffix=self.name, sub_dir="sub_agents")
         context.add(role="system", content=instructions)
         context.add(role="user", content=first_user_prompt)
         self.context = context
 
     def run(self):
+        console_sub_agents.log(
+            Markdown(
+                "\n\n---\n\n ### Sub Agent "
+                + self.name
+                + " called\n\n- llm model: "
+                + self.model
+                + "\n\n- given task: "
+                + (self.context()[1]["content"] if len(self.context) >= 2 else self.context()[0]["content"])
+            )
+        )
         res = self._process()
         console_sub_agents.log(
             Markdown(
@@ -134,10 +140,12 @@ class SubAgent:
             if line != "":
                 self.context.add(role="user", content=line)
             tool_defs = get_tool_definitions(tools)
-            response = call(context=self.context(), tool_defs=tool_defs)
+            response = call(
+                context=self.context(), tool_defs=tool_defs, model_name=self.model
+            )
 
             while self._handle_tools(tools, response):
-                response = call(self.context(), tool_defs)
+                response = call(self.context(), tool_defs, model_name=self.model)
             self.context.append({"role": "assistant", "content": response.content})
             return response.content
         except KeyboardInterrupt as e:
@@ -152,6 +160,10 @@ def new_sub_agent_as_tool(
         first_prompt: str = Field(
             "Follow your given instructions and complete your task.",
             description="The initial instructions to give the agent. Unless mentioned, this parameter should be left with its default value.",
+        )
+        model_name: str = Field(
+            None,
+            description="HIDE_FROM_LLM What model to use. Name should be a reference to a valid model given the backend used.",
         )
 
     class SubAgentTool(BaseTool):
@@ -168,15 +180,24 @@ def new_sub_agent_as_tool(
             self.markdown_description = markdown_description
 
         def execute(
-            self, first_prompt="Follow your given instructions and complete your task."
+            self,
+            model_name=None,
+            first_prompt="Follow your given instructions and complete your task.",
         ) -> str:
             """run sub agent"""
             sa = SubAgent(
                 markdown_description=self.markdown_description,
                 first_user_prompt=first_prompt,
             )
+            if model_name == None:
+                raise ValueError("Parameter model_name must be passed, got None")
+
+            if sa.model == "inherit":
+                sa.model = model_name
+
             try:
                 result = sa.run()
+                result = strip_thinking_content(result)
                 return result
             except Exception as e:
                 return f"error: {e}"

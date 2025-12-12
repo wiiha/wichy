@@ -28,6 +28,16 @@ class BaseTool(ABC):
             del schema["title"]
 
         if "properties" in schema:
+            props_to_del = []
+            for prop_name in schema["properties"]:
+                # This is to be able to define params on tools
+                # and hide these params from being presented to
+                # the LLM model. Not pretty but it works.
+                prop = schema["properties"][prop_name]
+                if "description" in prop and prop["description"].startswith("HIDE_FROM_LLM"):
+                    props_to_del.append(prop_name)
+            for pn in props_to_del:
+                del schema["properties"][pn]
 
             for prop_name in schema["properties"]:
                 prop = schema["properties"][prop_name]
@@ -71,5 +81,7 @@ class BaseTool(ABC):
         except Exception as e:
             res = f"error: {e}"
 
-        console_tool_result.log(Markdown(f"\n\n---\n\n### tool {self.name}\n\n{res}\n\n---\n\n"))
+        console_tool_result.log(
+            Markdown(f"\n\n---\n\n### tool {self.name}\n\n{res}\n\n---\n\n")
+        )
         return res
