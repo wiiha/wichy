@@ -1,3 +1,7 @@
+from dotenv import load_dotenv
+
+load_dotenv()
+
 import json
 from rich import print
 from rich.markdown import Markdown
