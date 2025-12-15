@@ -14,7 +14,8 @@ from wichy.tools import ALL_TOOLS, get_tool_definitions
 from wichy.tools.base import console_tool_result
 from wichy.agents.sub_agent import console_sub_agents
 from wichy.agents import (
-    code_agent,
+    code_reviewer_agent,
+    code_implementer_agent,
     web_research_agent,
     web_research_agent_lite,
     code_planner_agent,
@@ -24,7 +25,13 @@ import argparse
 
 TOOLS = ALL_TOOLS
 TOOLS.extend(
-    [code_planner_agent, code_agent, web_research_agent, web_research_agent_lite]
+    [
+        code_planner_agent,
+        code_implementer_agent,
+        code_reviewer_agent,
+        web_research_agent,
+        web_research_agent_lite,
+    ]
 )
 
 
