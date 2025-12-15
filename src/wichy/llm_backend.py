@@ -95,10 +95,13 @@ def call(context, tool_defs=None, model_name=None, backend="ollama"):
 
     # Unwrap response
     m = Message.from_choice(response.choices[0])
-    console.log({
-        "finish reason": m.finish_reason,
-        "elapsed_time": f"{elapsed_time:.2f}s"
-    })
+    console.log(
+        {
+            "finish reason": m.finish_reason,
+            "elapsed time": f"{elapsed_time:.2f}s",
+            "total tokens": f"{response.usage.total_tokens}",
+        }
+    )
 
     if contains_unparsed_tool_call(m.content):
         console.log(
@@ -145,4 +148,3 @@ def parse_tool_call(text):
         print(f)
     except Exception as e:
         return None
-
