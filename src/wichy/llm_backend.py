@@ -146,15 +146,3 @@ def parse_tool_call(text):
     except Exception as e:
         return None
 
-
-if __name__ == "__main__":
-    test_text = """I see the issue. The regex pattern `FLAG\{[^\}]*\}` should work correctly to match the flag format `FLAG{<text>}`. Let me try searching again with this corrected 
-pattern.
-
-I see the issue. The regex pattern `FLAG\{[^\}]*\}` should work correctly to match the flag format `FLAG{<text>}`. Let me try searching again with this corrected pattern.
-
-<tool_call>
-{"name": "search_recursive", "arguments": {"path": ".", "pattern": "FLAG\\{[^\}]*\\}"}}
-</tool_call>"""
-
-    res = parse_tool_calls(test_text)

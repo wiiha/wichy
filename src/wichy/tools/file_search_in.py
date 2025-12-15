@@ -16,7 +16,7 @@ class SearchRecursiveParameters(BaseModel):
 
 
 class SearchRecursiveTool(BaseTool):
-    name = "search_recursive"
+    name = "grep"
     description = "Search for a pattern recursively in all files within a directory. Returns lines containing the pattern along with file paths. Under the hood, this function uses ripgrep or grep (fallback). Therefore, take care of using regex patterns."
     parameters_model = SearchRecursiveParameters
 
