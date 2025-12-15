@@ -127,7 +127,7 @@ def main():
     root_agent.context.append(
         {
             "role": "system",
-            "content": "You are a helpful assistant. Whenever possible, defer tasks to available agents. Current year is "
+            "content": "You are a helpful assistant. Whenever possible, defer tasks to available agents. Agents DO NOT retain memory between requests to them, even if you call the same agent twice. Current year is "
             + str(datetime.date.today().year)
             + ". /think",
         }
