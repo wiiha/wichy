@@ -141,11 +141,11 @@ class SubAgent:
                 self.context.add(role="user", content=line)
             tool_defs = get_tool_definitions(tools)
             response = call(
-                context=self.context(), tool_defs=tool_defs, model_name=self.model
+                context=self.context(), tool_defs=tool_defs, model_str=self.model
             )
 
             while self._handle_tools(tools, response):
-                response = call(self.context(), tool_defs, model_name=self.model)
+                response = call(self.context(), tool_defs, model_str=self.model)
             self.context.append({"role": "assistant", "content": response.content})
             return response.content
         except KeyboardInterrupt as e:
@@ -161,9 +161,9 @@ def new_sub_agent_as_tool(
             "Follow your given instructions and complete your task.",
             description="The initial instructions to give the agent. Unless mentioned, this parameter should be left with its default value.",
         )
-        model_name: str = Field(
+        model_str: str = Field(
             None,
-            description="HIDE_FROM_LLM What model to use. Name should be a reference to a valid model given the backend used.",
+            description="HIDE_FROM_LLM What model to use. Should be a reference to a valid backend and model.",
         )
 
     class SubAgentTool(BaseTool):
@@ -181,7 +181,7 @@ def new_sub_agent_as_tool(
 
         def execute(
             self,
-            model_name=None,
+            model_str=None,
             first_prompt="Follow your given instructions and complete your task.",
         ) -> str:
             """run sub agent"""
@@ -189,11 +189,11 @@ def new_sub_agent_as_tool(
                 markdown_description=self.markdown_description,
                 first_user_prompt=first_prompt,
             )
-            if model_name == None:
-                raise ValueError("Parameter model_name must be passed, got None")
+            if model_str == None:
+                raise ValueError("Parameter model_str must be passed, got None")
 
             if sa.model == "inherit":
-                sa.model = model_name
+                sa.model = model_str
 
             try:
                 result = sa.run()

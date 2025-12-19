@@ -48,7 +48,7 @@ agent_web_researcher_lite = """---
 name: agent-web-researcher-lite
 description: Quick web research specialist for rapid overviews. Conducts focused searches to get the gist of topics without deep investigation. USE when you need a quick answer, basic understanding, or surface-level information gathering.
 tools: web_search, web_fetch
-model: hf.co/unsloth/granite-4.0-h-micro-GGUF:UD-Q4_K_XL
+model: ollama/hf.co/unsloth/granite-4.0-h-micro-GGUF:UD-Q4_K_XL
 ---
 
 You are a quick-scan web researcher focused on efficient information gathering for rapid understanding.

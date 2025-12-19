@@ -61,9 +61,9 @@ class ArgumentParserWrapper:
 
 
 class RootAgent:
-    def __init__(self, model_name, tools):
+    def __init__(self, model_str, tools):
         self.context = new_context()
-        self.model_name = model_name
+        self.model_str = model_str
         self.tools = tools
 
     def tool_call(self, tools, item: called_tool):
@@ -74,7 +74,7 @@ class RootAgent:
 
         # Inject extra argument if name has 'agent-' prefix
         if name.startswith("agent-"):
-            args["model_name"] = self.model_name
+            args["model_str"] = self.model_str
 
         for tool in tools:
             if name == tool.name:
@@ -116,11 +116,11 @@ class RootAgent:
         self.context.append({"role": "user", "content": line})
         tool_defs = get_tool_definitions(self.tools)
         response = call(
-            context=self.context(), tool_defs=tool_defs, model_name=self.model_name
+            context=self.context(), tool_defs=tool_defs, model_str=self.model_str
         )
 
         while self.handle_tools(self.tools, response):
-            response = call(self.context(), tool_defs, model_name=self.model_name)
+            response = call(self.context(), tool_defs, model_str=self.model_str)
         self.context.append({"role": "assistant", "content": response.content})
         return response.content
 
@@ -128,7 +128,7 @@ class RootAgent:
 def main():
 
     root_agent = RootAgent(
-        model_name="hf.co/unsloth/Qwen3-8B-GGUF:UD-Q4_K_XL", tools=TOOLS
+        model_str="ollama/hf.co/unsloth/Qwen3-8B-GGUF:UD-Q4_K_XL", tools=TOOLS
     )
 
     root_agent.context.append(

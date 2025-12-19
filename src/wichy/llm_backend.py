@@ -51,8 +51,24 @@ class Message(BaseModel):
             content=content, role=m.role, tool_calls=x, finish_reason=c.finish_reason
         )
 
+def backend_and_model_from_model_str(model_str:str):
+    """
+    Takes a string on format <backend>/<model_path>/<longer_sub_path>
+    
+    Args:
+        model_str: string containing both backend and model name
 
-def call(context, tool_defs=None, model_name=None, backend="ollama"):
+    Returns:
+        tuple (backend,model)
+    """
+    parts = model_str.strip().split("/")
+    backend = parts[0]
+    model = "/".join(parts[1:])
+    model = model.strip()
+    return (backend,model)
+
+
+def call(context, tool_defs=None, model_str=None):
     """
     Call an LLM backend with the given context and tools.
 
@@ -65,6 +81,7 @@ def call(context, tool_defs=None, model_name=None, backend="ollama"):
     Returns:
         Message object with the model's response
     """
+    backend, model_name = backend_and_model_from_model_str(model_str)
     # Configure client based on backend
     model = None
     if backend == "ollama":
@@ -80,7 +97,7 @@ def call(context, tool_defs=None, model_name=None, backend="ollama"):
         client = OpenAI(base_url="http://localhost:8080/v1", api_key="sk-local")
         model = "model-set-by-llama-server"
     else:
-        raise ValueError(f"Unknown backend: {backend}. Use 'ollama' or 'llama_cpp'")
+        raise ValueError(f"Unknown backend: {backend}. Use 'ollama' or 'llama_cpp'. got model string: {model_str}")
 
     # Make the API call
     console.log(f"calling llm endpoint [backend={backend}, model={model}]")
