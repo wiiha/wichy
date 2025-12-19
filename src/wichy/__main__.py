@@ -7,7 +7,7 @@ from rich import print
 from rich.markdown import Markdown
 from wichy.helpers.console import console
 from wichy.helpers.string import strip_thinking_content
-from wichy.slash_commands import SlashCommandChecker
+from wichy.slash_commands import SlashCommandChecker,slash_completer
 from wichy.tools import ALL_TOOLS
 from wichy.tools.base import console_tool_result
 from wichy.agents.sub_agent import console_sub_agents
@@ -19,8 +19,13 @@ from wichy.agents import (
     web_research_agent_lite,
     code_planner_agent,
 )
-from wichy.llm_backend import called_tool, Message, call
 import argparse
+from prompt_toolkit import PromptSession
+from prompt_toolkit.history import FileHistory
+from pathlib import Path
+from wichy.pretty_prompt import bottom_toolbar
+
+
 
 TOOLS = ALL_TOOLS
 TOOLS.extend(
@@ -53,6 +58,9 @@ class ArgumentParserWrapper:
             help="Show agent results during execution, requires --show-log",
         )
         self.parser.add_argument(
+            "--bash-allow-all", action="store_true", help="Allow direct execution of bash commands without human authorization."
+        )
+        self.parser.add_argument(
             "--model-str",
             default="ollama/ministral-3:3b",
             help="Specify the model string (format: <backend>/<model>)",
@@ -69,6 +77,11 @@ def main():
     parser = ArgumentParserWrapper()
     args = parser.parse_args()
     cmd_checker = SlashCommandChecker()
+
+    home_dir = Path.home()
+    prompt_session = PromptSession(history=FileHistory(home_dir / Path(".wichy_history")))
+
+    # print(f"{args.bash_allow_all=}")
 
     root_agent = RootAgent(
         model_str=args.model_str,
@@ -97,7 +110,7 @@ def main():
     while True:
         try:
             print(Markdown("\n\n---\n\n### User"))
-            line = input("> ")
+            line = prompt_session.prompt("> ", completer=slash_completer)
             possible_cmd = cmd_checker.check_command(line)
             if possible_cmd != None:
                 print(possible_cmd)
