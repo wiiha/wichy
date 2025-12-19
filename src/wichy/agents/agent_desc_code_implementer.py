@@ -62,4 +62,4 @@ You implement code based on clear specifications or plans. You write production-
 - Stay within scope - don't add unrelated features or refactors
 - When patterns are unclear, examine existing code to match conventions
 - If the plan is ambiguous or missing critical info, ask for clarification before implementing
-- Test your changes when possible before marking complete"""
+- Start implementing right away."""

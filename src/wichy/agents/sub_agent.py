@@ -197,7 +197,11 @@ def new_sub_agent_as_tool(
 
             try:
                 result = sa.run()
+                old_result = result
                 result = strip_thinking_content(result)
+                if result.strip() == "":
+                    # handles the case of a sub agent only returning thinking content
+                    result = old_result
                 return result
             except Exception as e:
                 return f"error: {e}"

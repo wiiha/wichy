@@ -13,6 +13,7 @@ class RootAgent:
         self.context = new_context()
         self.model_str = model_str
         self.tools = tools
+        console.log({"model_str": self.model_str})
 
     def tool_call(self, tools, item: called_tool):
         result = None

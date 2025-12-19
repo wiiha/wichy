@@ -52,6 +52,11 @@ class ArgumentParserWrapper:
             action="store_true",
             help="Show agent results during execution, requires --show-log",
         )
+        self.parser.add_argument(
+            "--model-str",
+            default="ollama/ministral-3:3b",
+            help="Specify the model string (format: <backend>/<model>)",
+        )
         self.args = None
 
     def parse_args(self):
@@ -61,10 +66,13 @@ class ArgumentParserWrapper:
 
 def main():
 
+    parser = ArgumentParserWrapper()
+    args = parser.parse_args()
+    cmd_checker = SlashCommandChecker()
+
     root_agent = RootAgent(
-        # model_str="ollama/hf.co/unsloth/Qwen3-8B-GGUF:UD-Q4_K_XL", tools=TOOLS
-        model_str="ollama/ministral-unsloth-params", tools=TOOLS
-        
+        model_str=args.model_str,
+        tools=TOOLS
     )
 
     root_agent.context.append(
@@ -75,9 +83,6 @@ def main():
             + ". /think",
         }
     )
-    parser = ArgumentParserWrapper()
-    args = parser.parse_args()
-    cmd_checker = SlashCommandChecker()
 
     # Set console quiet mode based on --show-log flag
     if args.show_log:

@@ -13,7 +13,7 @@ class BashParameters(BaseModel):
 
 
 class BashTool(BaseTool):
-    name = "execute_command"
+    name = "bash"
     description = "Execute an arbitrary command using subprocess, imagine it being bash. Calls to this tool will be audited before execution."
     parameters_model = BashParameters
 

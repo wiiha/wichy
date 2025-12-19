@@ -1,5 +1,4 @@
 from pydantic import BaseModel, Field
-from typing import Optional
 import socket
 
 from .base import BaseTool
