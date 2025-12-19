@@ -6,6 +6,12 @@ from wichy.helpers.context import new_context
 from wichy.helpers.string import strip_thinking_content
 from wichy.tools import get_tool_definitions
 from wichy.llm_backend import called_tool, Message, call
+from enum import Enum
+
+
+class ContextResetStrategies(str, Enum):
+    NUKE = "nuke"
+    SUMMARY = "summary"
 
 
 class RootAgent:
@@ -72,3 +78,40 @@ class RootAgent:
             response = call(self.context(), tool_defs, model_str=self.model_str)
         self.context.append({"role": "assistant", "content": response.content})
         return response.content
+
+    def reset_context(self, strategy: ContextResetStrategies):
+        first_prompt = self.context()[0]
+
+        if strategy == ContextResetStrategies.SUMMARY:
+            ctx = new_context()
+            ctx.append(
+                {
+                    "role": "system",
+                    "content": "You are a helpful assistant. Your task is to generate a summary of the following conversation between yourself and the user. /think",
+                }
+            )
+
+            for i in self.context()[1:]:
+                ctx.append(i)
+
+            ctx.add(
+                role="user",
+                content="Now summarize our conversation in a single message. Keep it simple, structured and concise. If external sources has been mentioned, list these.",
+            )
+
+            response = call(context=ctx(), model_str=self.model_str)
+
+            res = "\n\n---\n\n ### Summary of context\n\n" + response.content
+
+            print(Markdown(res))
+            ctx.delete()
+            n_ctx = new_context()
+            n_ctx.append(first_prompt)
+            n_ctx.add(role="user", content=res)
+            self.context = n_ctx
+            return
+
+        # nuke default case
+        ctx = new_context()
+        ctx.append(first_prompt)
+        self.context = ctx
