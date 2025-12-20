@@ -11,7 +11,6 @@ from wichy.slash_commands import (
     SlashCommandChecker,
     slash_completer,
     ContextResetException,
-    ContextResetStrategies,
 )
 from wichy.tools import ALL_TOOLS
 from wichy.tools.base import console_tool_result
