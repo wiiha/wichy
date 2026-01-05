@@ -118,7 +118,7 @@ def select_candidate_for_artifact(a: Artifact, candidates: list[Artifact]):
 
     model_str = "ollama/hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M"
 
-    res = call_llm(context=ctx(), model_str=model_str)
+    res = call_llm(context=ctx(), model_str=model_str, temperature=0.0)
     ctx.append({"role": "assistant", "content": res.content})
 
     c = res.content
@@ -132,7 +132,7 @@ def select_candidate_for_artifact(a: Artifact, candidates: list[Artifact]):
     if winner_cid == "no_match":
         winner_cid = ""
 
-    return (winner_cid, confidence,motivation)
+    return (winner_cid, confidence, motivation)
 
 
 def artifact_list_to_prompt_format(artifact_list: list[Artifact]) -> str:

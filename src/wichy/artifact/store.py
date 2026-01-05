@@ -1,13 +1,10 @@
 from .artifact import Artifact, ArtifactReference
 from .helpers import (
     artifact_list_to_prompt_format,
-    score_candidate_for_artifact,
     select_candidate_for_artifact,
     console,
 )
-from typing import Optional, List, Tuple
-from datetime import datetime
-from collections import Counter
+from typing import List, Tuple
 from rapidfuzz.distance.DamerauLevenshtein import (
     normalized_similarity as rapidfuzz_normalized_similarity,
 )
@@ -32,7 +29,8 @@ class ArtifactStore:
 
     def add(self, a: Artifact):
         # call _find_possible_previous_version and see if there is any matches
-        print(f"-> {a.id} {a.title}: {a.description}")
+        a_str = ArtifactReference.from_artifact(a).format_for_prompt()
+        console.log(f"new artifact:\n{a_str}")
         possible = self._find_possible_previous_version(a)
 
         if len(possible) == 0:
@@ -64,11 +62,10 @@ class ArtifactStore:
             self.artifacts[a.id] = a
             return
 
-        a_str = ArtifactReference.from_artifact(a).format_for_prompt()
         c_str = ArtifactReference.from_artifact(sel_c).format_for_prompt()
 
         console.log(
-            f"Updating artifact\n{c_str}\nreplaced by\n{a_str}\n---\n[green]reson:[/green] {motivation}\n[green]confidence:[/green] {confidence}."
+            f"artifact\n{c_str}\n[green]replaced by[/green]\n{a_str}\n---\n[green]reson:[/green] {motivation}\n[green]confidence:[/green] {confidence}."
         )
 
         # candidate selected by LLM and it was a valid ID.
