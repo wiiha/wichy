@@ -75,12 +75,13 @@ def call(context, tool_defs=None, model_str=None):
     Args:
         context: The conversation context/messages
         tool_defs: Tool definitions for function calling
-        model_name: Model name (required for ollama backend)
-        backend: Backend to use - "ollama" or "llama_cpp" (default: "ollama")
+        model_str: string specifying backend and model name on format `<backend>/<model_name>`
 
     Returns:
         Message object with the model's response
     """
+    if model_str is None:
+        raise ValueError("missing value for parameter model_str, cannot be None.")
     backend, model_name = backend_and_model_from_model_str(model_str)
     # Configure client based on backend
     model = None
