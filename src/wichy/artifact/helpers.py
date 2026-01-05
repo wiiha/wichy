@@ -138,8 +138,7 @@ def select_candidate_for_artifact(a: Artifact, candidates: list[Artifact]):
 def artifact_list_to_prompt_format(artifact_list: list[Artifact]) -> str:
     out_str = ""
     for a in artifact_list:
-        ar = ArtifactReference.from_artifact(a)
-        s = ar.format_for_prompt()
+        s = ArtifactReference.from_artifact(a).format_for_prompt()
         out_str += s + "\n"
 
     return out_str
