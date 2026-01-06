@@ -31,6 +31,9 @@ class RootAgent:
         if name.startswith("agent-"):
             args["model_str"] = self.model_str
 
+        if name.startswith("artifact_"):
+            args["creator"] = "root_agent"
+
         for tool in tools:
             if name == tool.name:
                 result = tool.validate_and_execute(**args)

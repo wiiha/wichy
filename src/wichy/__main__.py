@@ -28,9 +28,12 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
 from pathlib import Path
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
+from wichy.artifact import NewArtifactTool
+from wichy.artifact.helpers import console as console_artifacts
 
 
 TOOLS = ALL_TOOLS
+TOOLS.extend([NewArtifactTool()])
 TOOLS.extend(
     [
         code_planner_agent,
@@ -61,13 +64,19 @@ class ArgumentParserWrapper:
             help="Show agent results during execution, requires --show-log",
         )
         self.parser.add_argument(
+            "--log-artifacts",
+            action="store_true",
+            help="Show activity related to artifacts during execution, requires --show-log",
+        )
+        self.parser.add_argument(
             "--bash-allow-all",
             action="store_true",
             help="Allow direct execution of bash commands without human authorization.",
         )
         self.parser.add_argument(
             "--model-str",
-            default="ollama/ministral-3:3b",
+            # default="ollama/ministral-3:3b",
+            default="ollama/hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M",
             help="Specify the model string (format: <backend>/<model>)",
         )
         self.args = None
@@ -110,6 +119,8 @@ def main():
             console_tool_result.quiet = False
         if args.log_agents:
             console_sub_agents.quiet = False
+        if args.log_artifacts:
+            console_artifacts.quiet = False
     else:
         console.quiet = True
 

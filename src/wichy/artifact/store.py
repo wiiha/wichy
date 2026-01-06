@@ -3,6 +3,7 @@ from .helpers import (
     artifact_list_to_prompt_format,
     select_candidate_for_artifact,
     console,
+    select_artifacts_for_prompt
 )
 from typing import List, Tuple
 from rapidfuzz.distance.DamerauLevenshtein import (
@@ -208,5 +209,42 @@ class ArtifactStore:
         return ars
 
     def all_latest_prompt_formatted(self):
+        """
+        Fetches the latest version of each artifact and returns a string representation
+        that can be injected into a prompt.
+
+        :returns: String representing latest version of each artifact.
+        :rtype: str
+        """
         ars = self.all_latest()
         return artifact_list_to_prompt_format(artifact_list=ars)
+
+    def artifacts_for_prompt(self, prompt, intended_recipient=""):
+        """
+        Uses the provided prompt in order to identify artifacts of possible
+        relevance for the context.
+
+        :param prompt: The prompt that will be passed to an LLM model. Will be used as reference for choosing relevant artifacts.
+        :type prompt: str
+        :param intended_recipient: The name of the recipient (usually an agent) that will receive the prompt.
+        :type intended_recipient: str
+        :returns: List of artifacts that is deemed relevant.
+        :rtype: list[Artifact]
+        """
+        if prompt.strip() == "":
+            raise ValueError("cannot have an empty prompt as basis for artifact selection")
+
+        cids = select_artifacts_for_prompt(prompt=prompt,recipient=intended_recipient,candidates=self.all_latest())
+
+        candidates:list[Artifact] = []
+        for cid in cids:
+            c = self.get(cid)
+            if c is None:
+                console.log(f"[yellow]warning[/yellow] got id {cid} from LLM, expected match, got None.")
+                continue
+            candidates.append(c)
+
+        return candidates
+
+        
+

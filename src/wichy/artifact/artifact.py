@@ -3,6 +3,8 @@ from typing import Literal, Optional
 from datetime import datetime, timezone
 from uuid import uuid4
 
+ARTIFACT_TYPES = Literal["plan", "research", "analysis", "raw_data"]
+
 
 class Artifact(BaseModel):
     """
@@ -38,7 +40,7 @@ class Artifact(BaseModel):
         description="Unique identifier for this artifact",
     )
 
-    type: Literal["plan", "research", "analysis", "raw_data"] = Field(
+    type: ARTIFACT_TYPES  = Field(
         description="Type of artifact determining its purpose and content structure"
     )
 
