@@ -1,8 +1,11 @@
-from .store import ArtifactStore
-from .artifact import ARTIFACT_TYPES, Artifact
-from pydantic import BaseModel, Field
 from typing import Optional
+
+from pydantic import BaseModel, Field
+
 from wichy.tools.base import BaseTool
+
+from .artifact import ARTIFACT_TYPES, Artifact
+from .store import ArtifactStore
 
 artifact_store = ArtifactStore()
 
@@ -47,7 +50,7 @@ class NewArtifactParameters(BaseModel):
 
 class NewArtifactTool(BaseTool):
     name = "artifact_create"
-    description = "An artifact represents knowledge that will be stored over time and can be shared between different entities in a large project context. Useful for tracking knowledge over time and keep track of plans."
+    description = "An artifact represents knowledge that will be stored over time and can be shared between different entities in a larger project context. Useful for tracking knowledge and findings over time."
     parameters_model = NewArtifactParameters
 
     def execute(
@@ -72,7 +75,7 @@ class NewArtifactTool(BaseTool):
 
             artifact_store.add(a=a)
 
-            # this little dance is needed since the version number 
+            # this little dance is needed since the version number
             # will be modified by the add method.
             n = artifact_store.get(a.id)
             if n.version > 1:
