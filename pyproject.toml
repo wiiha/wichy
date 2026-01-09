@@ -79,3 +79,7 @@ packages = ["wichy", "wichy.agents", "wichy.helpers", "wichy.tools"]
 
 [tool.setuptools.package-data]
 wichy = ["*.sh", "*.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
