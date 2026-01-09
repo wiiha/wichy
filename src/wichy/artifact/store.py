@@ -1,14 +1,17 @@
-from .artifact import Artifact, ArtifactReference
-from .helpers import (
-    artifact_list_to_prompt_format,
-    select_candidate_for_artifact,
-    console,
-    select_artifacts_for_prompt
-)
 from typing import List, Tuple
+
 from rapidfuzz.distance.DamerauLevenshtein import (
     normalized_similarity as rapidfuzz_normalized_similarity,
 )
+
+from .artifact import Artifact, ArtifactReference
+from .helpers import (
+    artifact_list_to_prompt_format,
+    console,
+    select_artifacts_for_prompt,
+    select_candidate_for_artifact,
+)
+from .store_backend import StoreBackendSQLite
 
 
 class ArtifactStore:
@@ -22,11 +25,11 @@ class ArtifactStore:
     - Lightweight references for discovery
     """
 
-    def __init__(self):
+    def __init__(self, session_id: str):
         """
         Initialize artifact store.
         """
-        self.artifacts: dict[str, Artifact] = {}
+        self.session_id = session_id
 
     def add(self, a: Artifact):
         # call _find_possible_previous_version and see if there is any matches
@@ -36,23 +39,35 @@ class ArtifactStore:
 
         if len(possible) == 0:
             # no candidates, just add
-            self.artifacts[a.id] = a
-            return
+            with StoreBackendSQLite() as store:
+                if not store.create(artifact=a, session_id=self.session_id):
+                    raise Exception("failed to add artifact")
+                return
 
         candidates: list[Artifact] = []
         for cid in possible:
             candidate = self.get(cid)
             candidates.append(candidate)
-        del candidate
-        del cid
+
+        try:
+            del candidate
+        except:
+            pass
+        try:
+            del cid
+        except:
+            pass
 
         cid, confidence, motivation = select_candidate_for_artifact(
             a=a, candidates=candidates
         )
         if cid == "":
             # LLM deemed no candidates were viable, just add
-            self.artifacts[a.id] = a
-            return
+            with StoreBackendSQLite() as store:
+                if not store.create(artifact=a, session_id=self.session_id):
+                    raise Exception("failed to add artifact")
+                return
+
         sel_c = self.get(cid)
 
         if sel_c is None:
@@ -60,8 +75,10 @@ class ArtifactStore:
                 f"[yellow]warning[/yellow] LLM returned artifact id [green]{cid}[/green], which did not have a match, this is unexpected. Will add artifact as new artifact, but there might be a previous version.",
                 log_locals=True,
             )
-            self.artifacts[a.id] = a
-            return
+            with StoreBackendSQLite() as store:
+                if not store.create(artifact=a, session_id=self.session_id):
+                    raise Exception("failed to add artifact")
+                return
 
         c_str = ArtifactReference.from_artifact(sel_c).format_for_prompt()
 
@@ -71,8 +88,16 @@ class ArtifactStore:
 
         # candidate selected by LLM and it was a valid ID.
 
-        self.artifacts[a.id] = a.model_copy(update={"version": sel_c.version + 1})
-        self.artifacts[sel_c.id] = sel_c.model_copy(update={"replaced_by": a.id})
+        new_a = a.model_copy(update={"version": sel_c.version + 1})
+        updated_sel_c = sel_c.model_copy(update={"replaced_by": a.id})
+        with StoreBackendSQLite() as store:
+            if not store.create(artifact=new_a, session_id=self.session_id):
+                raise Exception("failed to add artifact")
+            if not store.update_by_id(updated_sel_c):
+                raise Exception(
+                    "new artifact added, failed to mark old version as replaced"
+                )
+
         return
 
     def _normalize_text(self, s: str) -> str:
@@ -174,7 +199,8 @@ class ArtifactStore:
         :returns: Artifact object or None if not found.
         :rtype: Optional[Artifact]
         """
-        return self.artifacts.get(id, None)
+        with StoreBackendSQLite() as store:
+            return store.get_by_id(id)
 
     def get_latest(self, id: str):
         """
@@ -201,11 +227,18 @@ class ArtifactStore:
         :returns: List of Artifact objects.
         :rtype: list[Artifact]
         """
+
         ars: list[Artifact] = []
-        for _, v in self.artifacts.items():
-            if v.replaced_by != None:
-                continue
-            ars.append(v)
+
+        with StoreBackendSQLite() as store:
+            latest = store.find_where_replaced_by_is_null(session_id=self.session_id)
+            if len(latest) < 1:
+                return ars
+
+            for i in latest:
+                artifact = i.get("artifact")
+                ars.append(artifact)
+
         return ars
 
     def all_latest_prompt_formatted(self):
@@ -232,19 +265,22 @@ class ArtifactStore:
         :rtype: list[Artifact]
         """
         if prompt.strip() == "":
-            raise ValueError("cannot have an empty prompt as basis for artifact selection")
+            raise ValueError(
+                "cannot have an empty prompt as basis for artifact selection"
+            )
 
-        cids = select_artifacts_for_prompt(prompt=prompt,recipient=intended_recipient,candidates=self.all_latest())
+        cids = select_artifacts_for_prompt(
+            prompt=prompt, recipient=intended_recipient, candidates=self.all_latest()
+        )
 
-        candidates:list[Artifact] = []
+        candidates: list[Artifact] = []
         for cid in cids:
             c = self.get(cid)
             if c is None:
-                console.log(f"[yellow]warning[/yellow] got id {cid} from LLM, expected match, got None.")
+                console.log(
+                    f"[yellow]warning[/yellow] got id {cid} from LLM, expected match, got None."
+                )
                 continue
             candidates.append(c)
 
         return candidates
-
-        
-

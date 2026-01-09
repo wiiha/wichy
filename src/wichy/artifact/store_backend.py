@@ -105,7 +105,6 @@ class StoreBackendSQLite:
 
         Args:
             id: Artifact identifier
-            model: Optional Pydantic model class to validate and parse data into
 
         Returns:
             Dictionary containing artifact data, or Pydantic model instance if model provided.
@@ -115,10 +114,9 @@ class StoreBackendSQLite:
         row = cursor.fetchone()
 
         if row:
-
             artifact = Artifact.model_validate_json(row["data"])
-
             return artifact
+
         return None
 
     def update_by_id(
@@ -205,10 +203,10 @@ class StoreBackendSQLite:
         for row in cursor.fetchall():
             result = {
                 "session_id": row["session_id"],
-                "data": row["data"],
+                "artifact": row["data"],
             }
 
-            result["data"] = Artifact.model_validate_json(row["data"])
+            result["artifact"] = Artifact.model_validate_json(row["data"])
 
             results.append(result)
 

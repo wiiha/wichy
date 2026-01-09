@@ -263,7 +263,7 @@ class TestFindWhereReplacedByIsNull:
         results = store.find_where_replaced_by_is_null()
         assert len(results) == 2
 
-        artifact_ids = [r["data"].id for r in results]
+        artifact_ids = [r["artifact"].id for r in results]
         assert sample_artifact.id in artifact_ids
         assert another_artifact.id in artifact_ids
 
@@ -282,7 +282,7 @@ class TestFindWhereReplacedByIsNull:
 
         results = store.find_where_replaced_by_is_null()
         assert len(results) == 1
-        assert results[0]["data"].id == another_artifact.id
+        assert results[0]["artifact"].id == another_artifact.id
 
     def test_find_by_session_id(self, store, sample_artifact, another_artifact):
         """Test filtering by session_id."""
@@ -291,7 +291,7 @@ class TestFindWhereReplacedByIsNull:
 
         results = store.find_where_replaced_by_is_null(session_id="session_1")
         assert len(results) == 1
-        assert results[0]["data"].id == sample_artifact.id
+        assert results[0]["artifact"].id == sample_artifact.id
         assert results[0]["session_id"] == "session_1"
 
     def test_find_empty_database(self, store):
@@ -305,7 +305,7 @@ class TestFindWhereReplacedByIsNull:
 
         results = store.find_where_replaced_by_is_null()
         assert len(results) == 1
-        assert isinstance(results[0]["data"], Artifact)
+        assert isinstance(results[0]["artifact"], Artifact)
 
 
 class TestContextManager:
@@ -357,8 +357,8 @@ class TestEdgeCases:
 
         assert len(session1_artifacts) == 1
         assert len(session2_artifacts) == 1
-        assert session1_artifacts[0]["data"].id == artifact1.id
-        assert session2_artifacts[0]["data"].id == artifact2.id
+        assert session1_artifacts[0]["artifact"].id == artifact1.id
+        assert session2_artifacts[0]["artifact"].id == artifact2.id
 
     def test_unicode_content(self, store):
         """Test handling Unicode content in artifacts."""
