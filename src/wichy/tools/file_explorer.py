@@ -1,8 +1,10 @@
-from pydantic import BaseModel, Field
-from typing import Optional
-import subprocess
-from .base import BaseTool
 import os
+import subprocess
+from typing import Optional
+
+from pydantic import BaseModel, Field
+
+from .base import BaseTool
 
 
 class ListFilesParameters(BaseModel):
@@ -67,7 +69,7 @@ class WriteFileParameters(BaseModel):
 
 class WriteFileTool(BaseTool):
     name = "write_file"
-    description = "Write content to file at path. This will always overwrite the current content of a file. Hence, I file update needs to contain the full new version of the content."
+    description = "Write content to file at path. This will always overwrite the current content of a file. Hence, a file update needs to contain the full new version of the content."
     parameters_model = WriteFileParameters
 
     def execute(self, path, content) -> str:

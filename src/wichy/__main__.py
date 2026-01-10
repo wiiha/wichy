@@ -12,17 +12,10 @@ from prompt_toolkit.history import FileHistory
 from rich import print
 from rich.markdown import Markdown
 
-from wichy.agents import (
-    code_implementer_agent,
-    code_planner_agent,
-    code_reviewer_agent,
-    web_research_agent,
-    web_research_agent_lite,
-)
+from wichy.agents import SUB_AGENTS
 from wichy.agents.root_agent import RootAgent
 from wichy.agents.sub_agent import console_sub_agents
-from wichy.artifact import SESSION_ID as ARTIFACT_SESSION_ID
-from wichy.artifact import NewArtifactTool
+from wichy.artifact import ARTIFACT_TOOLS
 from wichy.artifact import console as console_artifacts
 from wichy.helpers.console import console
 from wichy.helpers.string import strip_thinking_content
@@ -35,16 +28,8 @@ from wichy.tools import ALL_TOOLS
 from wichy.tools.base import console_tool_result
 
 TOOLS = ALL_TOOLS
-TOOLS.extend([NewArtifactTool(session_id=ARTIFACT_SESSION_ID)])
-TOOLS.extend(
-    [
-        code_planner_agent,
-        code_implementer_agent,
-        code_reviewer_agent,
-        web_research_agent,
-        web_research_agent_lite,
-    ]
-)
+TOOLS.extend(ARTIFACT_TOOLS)
+TOOLS.extend(SUB_AGENTS)
 
 
 class ArgumentParserWrapper:
