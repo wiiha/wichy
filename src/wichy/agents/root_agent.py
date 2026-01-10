@@ -1,12 +1,14 @@
 import json
+from enum import Enum
+
 from rich import print
 from rich.markdown import Markdown
+
 from wichy.helpers.console import console
 from wichy.helpers.context import new_context
 from wichy.helpers.string import strip_thinking_content
+from wichy.llm_backend import Message, call, called_tool
 from wichy.tools import get_tool_definitions
-from wichy.llm_backend import called_tool, Message, call
-from enum import Enum
 
 
 class ContextResetStrategies(str, Enum):
@@ -37,6 +39,7 @@ class RootAgent:
         for tool in tools:
             if name == tool.name:
                 result = tool.validate_and_execute(**args)
+                break
 
         if result is None:
             result = "There is no tool called " + item.function.name + "."
