@@ -1,8 +1,13 @@
 import functools
-from typing import Callable, Any, Optional
+from typing import Any, Callable, Optional
+
+from prompt_toolkit import PromptSession
 from rich import print
 
 SKIP_HUMAN_VERIFICATION = False
+
+prompt_session = PromptSession()
+
 
 def require_human_verification(func: Callable) -> Callable:
     """
@@ -38,11 +43,14 @@ def require_human_verification(func: Callable) -> Callable:
             return func(*args, **kwargs)
 
         while True:
-            response = input("Proceed? (y/n): ").strip().lower()
+            line = prompt_session.prompt("Proceed? (y/n): ")
+            response = str(line).strip().lower()
             if response in ("y", "yes"):
                 return func(*args, **kwargs)
             if response in ("n", "no"):
-                raise PermissionError(f"User denied your suggested execution of: {all_args}")
+                raise PermissionError(
+                    f"User denied your suggested execution of: {all_args}"
+                )
             print("Please enter 'y' or 'n'")
 
     return wrapper

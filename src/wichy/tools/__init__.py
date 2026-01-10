@@ -1,3 +1,4 @@
+from .base import BaseTool
 from .bash import BashTool
 from .fetch_webpage import FetchWebPageTool
 from .file_explorer import CatFileContentTool, ListFilesTool, WriteFileTool
