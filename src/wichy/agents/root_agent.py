@@ -35,6 +35,7 @@ class RootAgent:
 
         if name.startswith("artifact_"):
             args["creator"] = "root_agent"
+            args["recipient"] = "root_agent"
 
         for tool in tools:
             if name == tool.name:

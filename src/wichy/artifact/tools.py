@@ -115,3 +115,48 @@ class ArtifactByIDTool(BaseTool):
 
         except Exception as e:
             return f"error: {e}"
+
+
+class ArtifactByQueryParameters(BaseModel):
+
+    query: str = Field(
+        ...,
+        description="Query (question, subject, or topic) to search for relevant artifacts",
+        min_length=1,
+    )
+
+    recipient: str = Field(
+        "",
+        description="HIDE_FROM_LLM Name of the intended recipient (usually an agent) for the query results",
+    )
+
+
+class ArtifactByQueryTool(BaseTool):
+    name = "artifact_search"
+    description = "Search for artifacts by query. Finds artifacts containing information, data, analysis, or context relevant to the given query, question, or subject."
+    parameters_model = ArtifactByQueryParameters
+
+    def __init__(self, session_id: str):
+        super().__init__()
+        self.artifact_store = ArtifactStore(session_id=session_id)
+
+    def execute(self, query: str, recipient: str = "") -> str:
+        """Search artifacts by query"""
+        try:
+            artifacts = self.artifact_store.artifacts_for_query(
+                query=query, intended_recipient=recipient
+            )
+
+            if len(artifacts) < 1:
+                return "No relevant artifacts found for the given query."
+
+            result = f"Found {len(artifacts)} relevant artifact(s):\n\n"
+            for artifact in artifacts:
+                result += "=" * 10 + "\n"
+                result += artifact.as_text()
+                result += "\n\n"
+
+            return result
+
+        except Exception as e:
+            return f"error: {e}"

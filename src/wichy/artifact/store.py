@@ -8,6 +8,7 @@ from .artifact import Artifact, ArtifactReference
 from .helpers import (
     artifact_list_to_prompt_format,
     console,
+    select_artifacts_by_query,
     select_artifacts_for_prompt,
     select_candidate_for_artifact,
 )
@@ -252,17 +253,19 @@ class ArtifactStore:
         ars = self.all_latest()
         return artifact_list_to_prompt_format(artifact_list=ars)
 
-    def artifacts_for_prompt(self, prompt, intended_recipient=""):
+    def artifacts_for_prompt(
+        self, prompt: str, intended_recipient: str = ""
+    ) -> list[Artifact]:
         """
-        Uses the provided prompt in order to identify artifacts of possible
-        relevance for the context.
+        Uses the provided prompt to identify artifacts of possible relevance for the context.
 
         :param prompt: The prompt that will be passed to an LLM model. Will be used as reference for choosing relevant artifacts.
         :type prompt: str
         :param intended_recipient: The name of the recipient (usually an agent) that will receive the prompt.
         :type intended_recipient: str
-        :returns: List of artifacts that is deemed relevant.
+        :returns: List of artifacts that are deemed relevant.
         :rtype: list[Artifact]
+        :raises ValueError: If prompt is empty or whitespace-only.
         """
         if prompt.strip() == "":
             raise ValueError(
@@ -273,14 +276,50 @@ class ArtifactStore:
             prompt=prompt, recipient=intended_recipient, candidates=self.all_latest()
         )
 
-        candidates: list[Artifact] = []
-        for cid in cids:
-            c = self.get(cid)
-            if c is None:
+        return self._resolve_artifact_ids(cids)
+
+    def artifacts_for_query(
+        self, query: str, intended_recipient: str = ""
+    ) -> list[Artifact]:
+        """
+        Uses the provided query to identify artifacts containing relevant information.
+
+        :param query: The query (question, subject, or topic) used as reference for choosing relevant artifacts.
+        :type query: str
+        :param intended_recipient: The name of the recipient (usually an agent) that will receive the query results.
+        :type intended_recipient: str
+        :returns: List of artifacts that are deemed relevant.
+        :rtype: list[Artifact]
+        :raises ValueError: If query is empty or whitespace-only.
+        """
+        if query.strip() == "":
+            raise ValueError(
+                "cannot have an empty query as basis for artifact selection"
+            )
+
+        cids = select_artifacts_by_query(
+            query=query, recipient=intended_recipient, candidates=self.all_latest()
+        )
+
+        return self._resolve_artifact_ids(cids)
+
+    def _resolve_artifact_ids(self, artifact_ids: list[str]) -> list[Artifact]:
+        """
+        Helper method to resolve artifact IDs to actual Artifact objects.
+
+        :param artifact_ids: List of artifact IDs to resolve.
+        :type artifact_ids: list[str]
+        :returns: List of resolved Artifact objects (skips any IDs that can't be found).
+        :rtype: list[Artifact]
+        """
+        artifacts: list[Artifact] = []
+        for aid in artifact_ids:
+            artifact = self.get(aid)
+            if artifact is None:
                 console.log(
-                    f"[yellow]warning[/yellow] got id {cid} from LLM, expected match, got None."
+                    f"[yellow]warning[/yellow] got id {aid} from LLM, expected match, got None."
                 )
                 continue
-            candidates.append(c)
+            artifacts.append(artifact)
 
-        return candidates
+        return artifacts

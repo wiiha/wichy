@@ -1,8 +1,9 @@
-from .artifact import Artifact, ArtifactReference
-from wichy.helpers.context import ContextHandler
-from wichy.llm_backend import call as call_llm
 from rich.console import Console
 
+from wichy.helpers.context import ContextHandler
+from wichy.llm_backend import call as call_llm
+
+from .artifact import Artifact, ArtifactReference
 
 console = Console(quiet=True)
 
@@ -174,6 +175,64 @@ def select_artifacts_for_prompt(
     user_msg += "### PROMPT START\n\n"
     user_msg += prompt.strip() + "\n\n"
     user_msg += "### PROMPT END\n\n"
+
+    user_msg += "### ARTIFACT CANDIDATES START\n\n"
+    for candidate in candidates:
+        c_str = ArtifactReference.from_artifact(candidate).format_for_prompt()
+        user_msg += c_str + "\n"
+    user_msg += "\n\n### ARTIFACT CANDIDATES END"
+
+    ctx.add(role="user", content=user_msg)
+
+    model_str = "ollama/hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M"
+
+    res = call_llm(context=ctx(), model_str=model_str)
+    ctx.append({"role": "assistant", "content": res.content})
+
+    c = res.content
+    # expect response to have format <ID>|<ID>|<ID>...
+    c = c.strip().lower()
+    if c == "no_match":
+        return []
+
+    ps = c.split("|")
+
+    return ps
+
+
+INSTRUCTION_QUERY_TO_ARTIFACTS = """You are a selector that chooses zero or more artifact IDs from the supplied candidate list that are relevant to the given query. Relevance means an artifact contains information, data, analysis, or context that DIRECTLY helps answer or address the query.
+
+- Output exactly one line containing zero or more candidate IDs separated by a single pipe character: ID|ID|ID...
+  - IDs must be returned verbatim as they appear in the candidate list. Format for an ID is `artifact_xxx`.
+  - If no candidates are relevant, output exactly `no_match`.
+- Base relevance only on the textual information provided for each artifact (title, short description, content summary, version if present) and the query text. Ignore timestamps and internal storage metadata.
+- Consider the query recipient (if supplied) when judging relevance (e.g., different audience or role may change which artifacts are useful).
+- BE HIGHLY SELECTIVE: Only include an artifact if it DIRECTLY and SPECIFICALLY addresses the query. Prefer returning fewer, more precise matches over many loosely related ones.
+  - An artifact must contain concrete information that answers the query, not just touch on related topics.
+  - Vaguely related or tangentially connected artifacts should be excluded.
+  - When in doubt about relevance, exclude the artifact.
+  - Aim for precision over recall: it's better to return 1-2 highly relevant artifacts than 5-10 somewhat related ones.
+- Do not include duplicates or near-duplicates that add no new value.
+- Order IDs by descending relevance (most relevant first).
+- If multiple artifacts together are needed to fully address the query (truly complementary pieces), include all that are essential.
+- Do not output any extra text, punctuation, newline, or commentary—only the single pipe-separated line (or `no_match`)."""
+
+
+def select_artifacts_by_query(
+    query: str, recipient: str, candidates: list[Artifact]
+) -> list[str]:
+    ctx = ContextHandler(custom_suffix="query_to_artifacts", sub_dir="artifact_store")
+    ctx.add(
+        role="system",
+        content=(INSTRUCTION_QUERY_TO_ARTIFACTS.strip()),
+    )
+
+    user_msg = ""
+
+    if recipient.strip() != "":
+        user_msg += "QUERY RECIPIENT: " + recipient + "\n"
+
+    user_msg += "QUERY: " + query.strip() + "\n\n"
 
     user_msg += "### ARTIFACT CANDIDATES START\n\n"
     for candidate in candidates:
