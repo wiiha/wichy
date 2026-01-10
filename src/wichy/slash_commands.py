@@ -1,8 +1,11 @@
+from prompt_toolkit.completion import NestedCompleter
+
+from wichy.agents.root_agent import ContextResetStrategies
+from wichy.agents.sub_agent import console_sub_agents
+from wichy.artifact import SESSION_ID
+from wichy.artifact.store import ArtifactStore
 from wichy.helpers.console import console
 from wichy.tools.base import console_tool_result
-from wichy.agents.sub_agent import console_sub_agents
-from prompt_toolkit.completion import NestedCompleter
-from wichy.agents.root_agent import ContextResetStrategies
 
 
 class ContextResetException(Exception):
@@ -23,6 +26,7 @@ slash_completer = NestedCompleter.from_nested_dict(
         },
         "/context": {"reset": None, "reset_by_summary": None},
         "/exit": None,
+        "/artifacts": {"list": None},
     }
 )
 
@@ -49,6 +53,12 @@ class SlashCommandChecker:
                 raise ContextResetException(strategy=ContextResetStrategies.NUKE)
             if command == "/context reset_by_summary":
                 raise ContextResetException(strategy=ContextResetStrategies.SUMMARY)
-
+            if command == "/artifacts list":
+                store = ArtifactStore(session_id=SESSION_ID)
+                artifacts = store.all_latest()
+                if not artifacts:
+                    return "No artifacts found in current session."
+                result = "\n\n".join([f"{a.as_text()}" for a in artifacts])
+                return f"Found {len(artifacts)} artifact(s) in current session:\n\n{result}"
             return f"Unknown command: {command}"
         return None
