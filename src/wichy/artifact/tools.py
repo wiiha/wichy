@@ -37,7 +37,7 @@ class NewArtifactParameters(BaseModel):
 
     metadata: dict = Field(
         {},
-        description="Additional metadata like related_files, confidence, etc.",
+        description="Additional metadata like related_files, etc.",
     )
 
     creator: str = Field(
