@@ -80,8 +80,38 @@ class NewArtifactTool(BaseTool):
             # will be modified by the add method.
             n = self.artifact_store.get(a.id)
             if n.version > 1:
-                return f"Successfully created new version of artifact"
+                return f"Successfully created new version of artifact. ID: {a.id}"
 
-            return f"Successfully created new artifact"
+            return f"Successfully created new artifact. ID: {a.id}"
+        except Exception as e:
+            return f"error: {e}"
+
+
+class ArtifactByIDParameters(BaseModel):
+
+    id: str = Field(
+        ...,
+        description="ID for artifact to fetch",
+    )
+
+
+class ArtifactByIDTool(BaseTool):
+    name = "artifact_by_id"
+    description = "Fetch an artifact by it's ID."
+    parameters_model = ArtifactByIDParameters
+
+    def __init__(self, session_id: str):
+        super().__init__()
+        self.artifact_store = ArtifactStore(session_id=session_id)
+
+    def execute(self, id: str) -> str:
+        """Get artifact by ID"""
+        try:
+            a = self.artifact_store.get(id)
+            if a is None:
+                return f"no artifact with id {id} found"
+
+            return a.as_text()
+
         except Exception as e:
             return f"error: {e}"

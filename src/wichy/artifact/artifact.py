@@ -1,7 +1,8 @@
-from pydantic import BaseModel, Field, ConfigDict
-from typing import Literal, Optional
 from datetime import datetime, timezone
+from typing import Literal, Optional
 from uuid import uuid4
+
+from pydantic import BaseModel, ConfigDict, Field
 
 ARTIFACT_TYPES = Literal["plan", "research", "analysis", "raw_data"]
 
@@ -40,7 +41,7 @@ class Artifact(BaseModel):
         description="Unique identifier for this artifact",
     )
 
-    type: ARTIFACT_TYPES  = Field(
+    type: ARTIFACT_TYPES = Field(
         description="Type of artifact determining its purpose and content structure"
     )
 
@@ -79,6 +80,34 @@ class Artifact(BaseModel):
         default_factory=dict,
         description="Additional metadata like related_files, confidence, etc.",
     )
+
+    def as_text(self) -> str:
+        """
+        Generate a string representation of the artifact for LLM consumption.
+
+        Returns:
+            Formatted string containing all relevant artifact information.
+        """
+        out = f"# Artifact: {self.title}\n\n"
+        out += f"**ID:** {self.id}\n"
+        out += f"**Type:** {self.type}\n"
+        out += f"**Creator:** {self.creator}\n"
+        out += f"**Version:** {self.version}\n"
+        out += f"**Created:** {self.created_at.isoformat()}\n"
+
+        if self.replaced_by:
+            out += f"**Replaced By:** {self.replaced_by}\n"
+
+        out += f"\n**Description:** {self.description}\n"
+
+        if self.metadata:
+            out += f"\n**Metadata:**\n"
+            for key, value in self.metadata.items():
+                out += f"- {key}: {value}\n"
+
+        out += f"\n---\n\n**Content:**\n\n{self.content}\n"
+
+        return out
 
 
 class ArtifactReference(BaseModel):
