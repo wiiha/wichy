@@ -11,7 +11,6 @@ definition of simonw [An LLM agent runs tools in a loop to achive a goal](https:
 ## future todos
 
 - FIX human verification so that it is possible to append a message that is passed back, not only "denied by user". So like `y, <my reason here>`.
-- FIX bash tool, something is not working as expected for it.
 - ADD "generic sub agent" is like a version of the root agent and has tools, but it cannot call sub agents. The goal is to avoid the root agents context to overflow. This generic agent should be encouraged to create artifacts whenever possible.
 
 ## reference

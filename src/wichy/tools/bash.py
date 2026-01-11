@@ -1,6 +1,8 @@
-from pydantic import BaseModel, Field
-from typing import Optional
 import subprocess
+from typing import Optional
+
+from pydantic import BaseModel, Field
+
 from .base import BaseTool
 from .human_verification import require_human_verification
 
@@ -22,7 +24,8 @@ class BashTool(BaseTool):
         """Execute the given command."""
         try:
             result = subprocess.run(
-                command.split(),
+                command,  # Pass as string, not split
+                shell=True,  # Enable shell processing
                 text=True,
                 stderr=subprocess.STDOUT,
                 stdout=subprocess.PIPE,
