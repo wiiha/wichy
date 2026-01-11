@@ -1,6 +1,6 @@
 # WICHY
 
-This is an initial try for me on building a small agent by the 
+This is an initial try for me on building a small agent by the
 definition of simonw [An LLM agent runs tools in a loop to achive a goal](https://simonwillison.net/2025/Sep/18/agents/).
 
 **some goals**
@@ -8,6 +8,11 @@ definition of simonw [An LLM agent runs tools in a loop to achive a goal](https:
 - all is running locally
 - should be a stepping stone for larger projects
 
+## future todos
+
+- FIX human verification so that it is possible to append a message that is passed back, not only "denied by user". So like `y, <my reason here>`.
+- FIX bash tool, something is not working as expected for it.
+- ADD "generic sub agent" is like a version of the root agent and has tools, but it cannot call sub agents. The goal is to avoid the root agents context to overflow. This generic agent should be encouraged to create artifacts whenever possible.
 
 ## reference
 

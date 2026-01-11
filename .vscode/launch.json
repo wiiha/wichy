@@ -1,31 +1,47 @@
 {
-    // Use IntelliSense to learn about possible attributes.
-    // Hover to view descriptions of existing attributes.
-    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
-    "version": "0.2.0",
-    "configurations": [
-        {
-            "name": "Python Debugger: Wichy",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/src/wichy/__main__.py",
-            "console": "integratedTerminal",
-            "args": []
-        },
-        {
-            "name": "Python Debugger: Wichy (with args)",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/src/wichy/__main__.py",
-            "console": "integratedTerminal",
-            "args": ["--show-log","--log-tools", "--log-agents", "--log-artifacts",]
-        },
-        {
-            "name": "Python Debugger: Current File",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${file}",
-            "console": "integratedTerminal"
-        }
-    ]
+  // Use IntelliSense to learn about possible attributes.
+  // Hover to view descriptions of existing attributes.
+  // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python Debugger: Wichy",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/src/wichy/__main__.py",
+      "console": "integratedTerminal",
+      "args": []
+    },
+    {
+      "name": "Python Debugger: Wichy (with args)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/src/wichy/__main__.py",
+      "console": "integratedTerminal",
+      "args": ["--show-log", "--log-tools", "--log-agents", "--log-artifacts"]
+    },
+    {
+      "name": "Python Debugger: Wichy (with args) Open Router",
+      "type": "debugpy",
+      "request": "launch",
+      //   "justMyCode": false,
+      "program": "${workspaceFolder}/src/wichy/__main__.py",
+      "console": "integratedTerminal",
+      "args": [
+        "--show-log",
+        "--log-tools",
+        "--log-agents",
+        "--log-artifacts",
+        "--model-str",
+        "open_router/mistralai/devstral-2512:free"
+      ]
+    },
+    {
+      "name": "Python Debugger: Current File",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal"
+    }
+  ]
 }
