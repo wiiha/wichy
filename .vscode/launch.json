@@ -18,7 +18,16 @@
       "request": "launch",
       "program": "${workspaceFolder}/src/wichy/__main__.py",
       "console": "integratedTerminal",
-      "args": ["--show-log", "--log-tools", "--log-agents", "--log-artifacts"]
+      "args": [
+        "--show-log",
+        "--log-tools",
+        "--log-agents",
+        "--log-artifacts"
+        // "--tools",
+        // "cat, bash",
+        // "--not-tools",
+        // "cat"
+      ]
     },
     {
       "name": "Python Debugger: Wichy (with args) Open Router",
@@ -35,6 +44,14 @@
         "--model-str",
         "open_router/mistralai/devstral-2512:free"
       ]
+    },
+    {
+      "name": "Python Debugger: Wichy list all tools",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/src/wichy/__main__.py",
+      "console": "integratedTerminal",
+      "args": ["--list-tools"]
     },
     {
       "name": "Python Debugger: Current File",
