@@ -3,6 +3,7 @@ from .bash import BashTool
 from .fetch_webpage import FetchWebPageTool
 from .file_explorer import CatFileContentTool, ListFilesTool, WriteFileTool
 from .file_search_in import SearchRecursiveTool
+from .glob import GlobTool
 from .ping import PingTool
 from .reverse_dns_tool import ReverseDnsTool
 from .search_ddg import SearchDDGTool
@@ -23,6 +24,7 @@ FILE_SYSTEM_TOOLS = [
     WriteFileTool,
     SearchRecursiveTool,
     TreeTool,
+    GlobTool,
 ]
 
 
