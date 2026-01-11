@@ -117,7 +117,7 @@ class ArtifactReference(BaseModel):
     """
 
     id: str = Field(description="Artifact identifier")
-    type: Literal["plan", "research", "analysis", "raw_data"]
+    type: ARTIFACT_TYPES
     title: str
     description: str
     version: int
