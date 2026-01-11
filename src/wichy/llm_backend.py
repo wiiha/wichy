@@ -1,10 +1,13 @@
-from openai import OpenAI
-import time
-from pydantic import BaseModel
-from typing import List, Optional
-from rich import print
-from wichy.helpers.console import console
 import json
+import os
+import time
+from typing import List, Optional
+
+from openai import OpenAI
+from pydantic import BaseModel
+from rich import print
+
+from wichy.helpers.console import console
 
 
 class function(BaseModel):
@@ -81,6 +84,7 @@ def call(context, tool_defs=None, model_str=None, extra_args=None, **extra_kwarg
     backend, model_name = backend_and_model_from_model_str(model_str)
 
     # Configure client based on backend
+    backend_specific_headers: dict = {}
     model = None
     if backend == "ollama":
         client = OpenAI(
@@ -94,6 +98,24 @@ def call(context, tool_defs=None, model_str=None, extra_args=None, **extra_kwarg
     elif backend == "llama_cpp":
         client = OpenAI(base_url="http://localhost:8080/v1", api_key="sk-local")
         model = "model-set-by-llama-server"
+    elif backend == "open_router":
+        api_key = os.environ.get("OPEN_ROUTER_API_KEY", None)
+        if api_key is None:
+            raise ValueError(
+                "using backend open_router requires env variable OPEN_ROUTER_API_KEY, it is missing."
+            )
+        client = OpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=api_key,
+        )
+        model = model_name
+        backend_specific_headers = {
+            "provider": {
+                "allow_fallbacks": True,
+                "sort": "price",
+                # "data_collection": "deny",
+            },
+        }
     else:
         raise ValueError(
             f"Unknown backend: {backend}. Use 'ollama' or 'llama_cpp', got model string: {model_str}"
@@ -131,6 +153,7 @@ def call(context, tool_defs=None, model_str=None, extra_args=None, **extra_kwarg
         messages=context,
         tools=tool_defs,
         **forwarded,
+        extra_body={**backend_specific_headers},
     )
 
     elapsed_time = time.time() - start_time
