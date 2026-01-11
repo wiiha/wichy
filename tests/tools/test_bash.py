@@ -10,7 +10,7 @@ from wichy.tools.bash import BashTool
 @pytest.fixture
 def bash_tool(monkeypatch):
     """Fixture to create a fresh BashTool instance for each test."""
-    # Monkey patch the need for human verification
+    # Monkey patch away the need for human verification
     monkeypatch.setattr("wichy.tools.human_verification.SKIP_HUMAN_VERIFICATION", True)
     return BashTool()
 
