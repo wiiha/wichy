@@ -6,11 +6,13 @@ from .file_search_in import SearchRecursiveTool
 from .ping import PingTool
 from .reverse_dns_tool import ReverseDnsTool
 from .search_ddg import SearchDDGTool
+from .todo import TodoTool
 from .tree import TreeTool
 
 # Different tool collections for different contexts
 BASIC_TOOLS = [
     BashTool(),
+    TodoTool(),
     #    SearchDDGTool(),
     #    FetchWebPageTool(),
 ]
