@@ -13,4 +13,8 @@ ARTIFACT_TOOLS = [
 ]
 
 
+def new_artifact_tool_with_current_session():
+    return NewArtifactTool(session_id=SESSION_ID)
+
+
 __all__ = ["SESSION_ID", "ARTIFACT_TOOLS ", "console"]

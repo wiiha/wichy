@@ -1,9 +1,11 @@
-from pydantic import BaseModel, Field
-from .base import BaseTool
 import asyncio
-from playwright.async_api import async_playwright
-import markdownify
 import random
+
+import markdownify
+from playwright.async_api import async_playwright
+from pydantic import BaseModel, Field
+
+from .base import BaseTool
 
 
 class FetchWebPageParameters(BaseModel):
@@ -11,7 +13,7 @@ class FetchWebPageParameters(BaseModel):
 
 
 class FetchWebPageTool(BaseTool):
-    name = "fetch_webpage"
+    name = "web_fetch"
     description = "Fetch a webpage and return its text content as markdown."
     parameters_model = FetchWebPageParameters
 

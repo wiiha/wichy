@@ -55,6 +55,9 @@ class TodoTool(BaseTool):
     """
     A tool for managing todo tasks.
     Supports create, update, complete, view, list, and in_progress actions.
+    Todo tasks are not shared between instances of the tool. I.e. for two
+    agents to have the same tasks, the tool has to be instantiated and then
+    passed to each agent separately.
     """
 
     name = "todo"

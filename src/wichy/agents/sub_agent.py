@@ -6,7 +6,7 @@ from rich.console import Console
 from rich.markdown import Markdown
 
 from wichy.artifact import SESSION_ID as ARTIFACT_SESSION_ID
-from wichy.artifact import NewArtifactTool
+from wichy.artifact import new_artifact_tool_with_current_session
 from wichy.artifact.store import ArtifactStore
 from wichy.helpers.context import ContextHandler
 from wichy.helpers.markdown import read_markdown_with_frontmatter
@@ -19,6 +19,7 @@ from wichy.tools import (
     ListFilesTool,
     SearchDDGTool,
     SearchRecursiveTool,
+    TodoTool,
     TreeTool,
     WriteFileTool,
     get_tool_definitions,
@@ -30,15 +31,16 @@ console_sub_agents = Console(quiet=True)
 REQ_KEYS = ("name", "description", "model")
 
 tools_map: dict[str, BaseTool] = {
-    "bash": BashTool(),
-    "tree": TreeTool(),
-    "read": CatFileContentTool(),
-    "write": WriteFileTool(),
-    "grep": SearchRecursiveTool(),
-    "ls": ListFilesTool(),
-    "web_search": SearchDDGTool(),
-    "web_fetch": FetchWebPageTool(),
-    "artifact_create": NewArtifactTool(session_id=ARTIFACT_SESSION_ID),
+    "artifact_create": new_artifact_tool_with_current_session,
+    "bash": BashTool,
+    "grep": SearchRecursiveTool,
+    "ls": ListFilesTool,
+    "cat": CatFileContentTool,
+    "todo": TodoTool,
+    "tree": TreeTool,
+    "web_fetch": FetchWebPageTool,
+    "web_search": SearchDDGTool,
+    "write_file": WriteFileTool,
 }
 
 
@@ -81,7 +83,12 @@ class SubAgent:
                     raise ValueError(f"no tool named {tool_name}")
                 tools.append(tool)
 
-        self.tools = tools
+        # instantiate tools
+        in_tools = []
+        for tool in tools:
+            in_tools.append(tool())
+
+        self.tools = in_tools
 
         context = ContextHandler(custom_suffix=self.name, sub_dir="sub_agents")
         context.add(role="system", content=instructions)
