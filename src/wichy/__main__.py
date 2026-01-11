@@ -15,8 +15,8 @@ from rich.markdown import Markdown
 from wichy.agents import SUB_AGENTS
 from wichy.agents.root_agent import RootAgent
 from wichy.agents.sub_agent import console_sub_agents
-from wichy.artifact import ARTIFACT_TOOLS
 from wichy.artifact import console as console_artifacts
+from wichy.artifact import instantiate_artifact_tools_with_current_session_id
 from wichy.helpers.console import console
 from wichy.helpers.string import strip_thinking_content
 from wichy.slash_commands import (
@@ -24,12 +24,8 @@ from wichy.slash_commands import (
     SlashCommandChecker,
     slash_completer,
 )
-from wichy.tools import ALL_TOOLS
-from wichy.tools.base import console_tool_result
-
-TOOLS = ALL_TOOLS
-TOOLS.extend(ARTIFACT_TOOLS)
-TOOLS.extend(SUB_AGENTS)
+from wichy.tools import ALL_TOOLS_UNINSTANTIATED
+from wichy.tools.base import BaseTool, console_tool_result
 
 
 class ArgumentParserWrapper:
@@ -39,6 +35,11 @@ class ArgumentParserWrapper:
         )
         self.parser.add_argument(
             "--show-log", action="store_true", help="Show logs during execution"
+        )
+        self.parser.add_argument(
+            "--list-tools",
+            action="store_true",
+            help="Prints a list of all available tools.",
         )
         self.parser.add_argument(
             "--log-tools",
@@ -66,6 +67,23 @@ class ArgumentParserWrapper:
             default="ollama/hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M",
             help="Specify the model string (format: <backend>/<model>)",
         )
+        self.parser.add_argument(
+            "--tools",
+            default="",
+            help=(
+                "Specify which tools the root agent should have available. Comma separated list of tool names. "
+                + "See --list-tools for all tools. Omitting this flag will give the agent access to all tools. Unless --not-tools is specified."
+            ),
+        )
+        self.parser.add_argument(
+            "--not-tools",
+            default="",
+            help=(
+                "Specify which tools the root agent should not have available. Comma separated list of tool names."
+                + " This filtering happens after --tools, i.e. --tools cat, bash --not-tools bash -> tools = [cat]. "
+                + "See --list-tools for all tools. Omitting this flag will give the agent access to all tools. Unless --tools is specified."
+            ),
+        )
         self.args = None
 
     def parse_args(self):
@@ -86,9 +104,51 @@ def main():
         completer=slash_completer,
     )
 
+    # instantiate tools
+    in_tools: list[BaseTool] = []
+    for tool in ALL_TOOLS_UNINSTANTIATED:
+        in_tools.append(tool())
+
+    in_tools.extend(instantiate_artifact_tools_with_current_session_id())
+    in_tools.extend(SUB_AGENTS)
+
+    in_tools.sort(key=lambda t: t.name)
+
+    if args.list_tools:
+        msg = "# Tools Available\n"
+        for tool in in_tools:
+            msg += "- **" + tool.name + "**: " + tool.description + "\n"
+
+        print(Markdown(msg))
+        exit(0)
+
+    if args.tools.strip() != "":
+        # only subset of tools allowed
+        allowed_tools = args.tools.lower().split(",")
+        allowed_tools: list[str] = [t.strip() for t in allowed_tools]
+
+        new_tools = []
+        for tool in in_tools:
+            if tool.name in allowed_tools:
+                new_tools.append(tool)
+
+        in_tools = new_tools
+
+    if args.not_tools.strip() != "":
+        drop_tools = args.not_tools.lower().split(",")
+        drop_tools: list[str] = [t.strip() for t in drop_tools]
+
+        new_tools = []
+        for tool in in_tools:
+            if tool.name in drop_tools:
+                continue
+            new_tools.append(tool)
+
+        in_tools = new_tools
+
     # print(f"{args.bash_allow_all=}")
 
-    root_agent = RootAgent(model_str=args.model_str, tools=TOOLS)
+    root_agent = RootAgent(model_str=args.model_str, tools=in_tools)
 
     root_agent.context.append(
         {

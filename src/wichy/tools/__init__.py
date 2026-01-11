@@ -11,28 +11,25 @@ from .tree import TreeTool
 
 # Different tool collections for different contexts
 BASIC_TOOLS = [
-    BashTool(),
-    TodoTool(),
-    #    SearchDDGTool(),
-    #    FetchWebPageTool(),
+    BashTool,
+    TodoTool,
+    SearchDDGTool,
+    FetchWebPageTool,
 ]
-
-NETWORK_TOOLS = [PingTool(), ReverseDnsTool()]
 
 FILE_SYSTEM_TOOLS = [
-    ListFilesTool(),
-    CatFileContentTool(),
-    WriteFileTool(),
-    SearchRecursiveTool(),
-    TreeTool(),
+    ListFilesTool,
+    CatFileContentTool,
+    WriteFileTool,
+    SearchRecursiveTool,
+    TreeTool,
 ]
 
 
-# All tools combined
-ALL_TOOLS = []
-ALL_TOOLS.extend(BASIC_TOOLS)
-# ALL_TOOLS.extend(NETWORK_TOOLS)
-ALL_TOOLS.extend(FILE_SYSTEM_TOOLS)
+ALL_TOOLS_UNINSTANTIATED: list[BaseTool] = []
+
+ALL_TOOLS_UNINSTANTIATED.extend(BASIC_TOOLS)
+ALL_TOOLS_UNINSTANTIATED.extend(FILE_SYSTEM_TOOLS)
 
 
 def get_tool_definitions(tools):
@@ -41,9 +38,5 @@ def get_tool_definitions(tools):
 
 
 __all__ = [
-    "BASIC_TOOLS",
-    "FILE_SYSTEM_TOOLS",
-    "NETWORK_TOOLS",
-    "ALL_TOOLS",
     "get_tool_definitions",
 ]

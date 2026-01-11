@@ -21,7 +21,9 @@ class RootAgent:
         self.context = new_context()
         self.model_str = model_str
         self.tools = tools
-        console.log({"model_str": self.model_str})
+        console.log(
+            {"model_str": self.model_str, "tools": ", ".join([t.name for t in tools])}
+        )
 
     def tool_call(self, tools, item: called_tool):
         result = None
