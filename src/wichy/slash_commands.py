@@ -1,8 +1,10 @@
 from prompt_toolkit.completion import NestedCompleter
+from rich.markdown import Markdown
 
 from wichy.agents.root_agent import ContextResetStrategies
 from wichy.agents.sub_agent import console_sub_agents
 from wichy.artifact import SESSION_ID
+from wichy.artifact.artifact import ArtifactReference
 from wichy.artifact.store import ArtifactStore
 from wichy.helpers.console import console
 from wichy.tools.base import console_tool_result
@@ -32,7 +34,7 @@ slash_completer = NestedCompleter.from_nested_dict(
 
 
 class SlashCommandChecker:
-    def check_command(self, line):
+    def check_command(self, line: str):
         if line.startswith("/"):
             command = line.strip().lower()
             if command == "/exit":
@@ -53,12 +55,23 @@ class SlashCommandChecker:
                 raise ContextResetException(strategy=ContextResetStrategies.NUKE)
             if command == "/context reset_by_summary":
                 raise ContextResetException(strategy=ContextResetStrategies.SUMMARY)
-            if command == "/artifacts list":
+            if command.startswith("/artifacts list"):
                 store = ArtifactStore(session_id=SESSION_ID)
                 artifacts = store.all_latest()
                 if not artifacts:
-                    return "No artifacts found in current session."
-                result = "\n\n".join([f"{a.as_text()}" for a in artifacts])
-                return f"Found {len(artifacts)} artifact(s) in current session:\n\n{result}"
+                    return "No artifacts found."
+                if len(artifacts) <= 3:
+                    result = "\n\n".join([f"{a.as_text()}" for a in artifacts])
+                    return f"Found {len(artifacts)} artifact(s):\n\n{result}"
+
+                ars: list[ArtifactReference] = []
+                for a in artifacts:
+                    ars.append(ArtifactReference.from_artifact(a))
+
+                ars.sort(key=lambda ar: ar.created_at)
+
+                result = "\n".join([f"{ar.format_for_prompt()}" for ar in ars])
+                return Markdown(f"**Found {len(ars)} artifact(s):**\n\n{result}")
+
             return f"Unknown command: {command}"
         return None
