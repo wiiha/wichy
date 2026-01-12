@@ -256,3 +256,37 @@ def select_artifacts_by_query(
     ps = c.split("|")
 
     return ps
+
+
+INSTRUCTION_FIND_MISSING = """You are a selector for identifying mistyped artifact ids.
+- User will provide the mistyped artifact id and a list of candidates.
+- respond with exactly on id from the candidate list, return the full id, nothing more."""
+
+
+def find_missing_artifact_id(artifact_id: str, candidates: list[Artifact]) -> str:
+    ctx = ContextHandler(
+        custom_suffix="find_missing_id_artifacts", sub_dir="artifact_store"
+    )
+    ctx.add(
+        role="system",
+        content=(INSTRUCTION_FIND_MISSING.strip()),
+    )
+
+    user_msg = f"# Mistyped artifact id: {artifact_id}\n\n"
+
+    user_msg += "# Candidate ids\n"
+    for candidate in candidates:
+        user_msg += candidate.id + "\n"
+
+    ctx.add(role="user", content=user_msg)
+
+    model_str = "ollama/hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M"
+
+    res = call_llm(context=ctx(), model_str=model_str)
+    ctx.append({"role": "assistant", "content": res.content})
+
+    c = res.content
+    # expect response to have format <ID>
+    c = c.strip().lower()
+
+    return c

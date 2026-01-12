@@ -1,4 +1,4 @@
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from rapidfuzz.distance.DamerauLevenshtein import (
     normalized_similarity as rapidfuzz_normalized_similarity,
@@ -8,6 +8,7 @@ from .artifact import Artifact, ArtifactReference
 from .helpers import (
     artifact_list_to_prompt_format,
     console,
+    find_missing_artifact_id,
     select_artifacts_by_query,
     select_artifacts_for_prompt,
     select_candidate_for_artifact,
@@ -316,10 +317,36 @@ class ArtifactStore:
         for aid in artifact_ids:
             artifact = self.get(aid)
             if artifact is None:
-                console.log(
-                    f"[yellow]warning[/yellow] got id {aid} from LLM, expected match, got None."
-                )
-                continue
+                artifact = self._resolve_failed_artifact_id(artifact_id=aid)
+                if artifact is None:
+                    console.log(
+                        f"[yellow]warning[/yellow] got id {aid} from LLM, expected match, got None."
+                    )
+                    continue
             artifacts.append(artifact)
 
         return artifacts
+
+    def _resolve_failed_artifact_id(
+        self, artifact_id: str, tries=0, max_tries=3
+    ) -> Optional[Artifact]:
+
+        # exit condition
+        if tries >= max_tries:
+            return None
+
+        candidates = self.get_latest()
+        new_suggestion = find_missing_artifact_id(
+            artifact_id=artifact_id, candidates=candidates
+        )
+
+        new_a = self.get(new_suggestion)
+
+        # exit condition
+        if new_a != None:
+            return new_a
+
+        # still haven't found and we have more tries, call it again
+        return self._resolve_failed_artifact_id(
+            artifact_id=artifact_id, tries=tries + 1, max_tries=max_tries
+        )
