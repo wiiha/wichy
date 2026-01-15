@@ -1,8 +1,9 @@
 from abc import ABC, abstractmethod
+from typing import Any, Dict, Type
+
 from pydantic import BaseModel
-from typing import Type, Dict, Any
-from rich.markdown import Markdown
 from rich.console import Console
+from rich.markdown import Markdown
 
 console_tool_result = Console(quiet=True)
 
@@ -34,7 +35,9 @@ class BaseTool(ABC):
                 # and hide these params from being presented to
                 # the LLM model. Not pretty but it works.
                 prop = schema["properties"][prop_name]
-                if "description" in prop and prop["description"].startswith("HIDE_FROM_LLM"):
+                if "description" in prop and prop["description"].startswith(
+                    "HIDE_FROM_LLM"
+                ):
                     props_to_del.append(prop_name)
             for pn in props_to_del:
                 del schema["properties"][pn]
@@ -75,13 +78,22 @@ class BaseTool(ABC):
         # and also catch errors that are not handled by the tool
         # itself.
         res = ""
+        console_panel = Console()
+
         try:
             validated_params = self.parameters_model(**kwargs)
+            console_panel.print(f"[dim][bold]→[/bold] Calling tool:[/dim] {self.name}")
             res = self.execute(**validated_params.model_dump())
+            console_panel.print(f"[green bold]✓[/green bold] {self.name} completed")
+
         except Exception as e:
             res = f"error: {e}"
+            console_panel.print(f"[red bold]✗[/red bold] {self.name} failed")
 
+        # Log detailed error for debugging
         console_tool_result.log(
-            Markdown(f"\n\n---\n\n### tool {self.name}\n\n{res}\n\n---\n\n")
+            Markdown(f"\n\n---\n\n### tool {self.name}\n\n{res}\n\n---\n\n"),
+            log_locals=True,
         )
+
         return res
