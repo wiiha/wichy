@@ -53,7 +53,11 @@ class RootAgent:
             return False
 
         if strip_thinking_content(response.content) != "":
-            result = strip_thinking_content(response.content)
+            result = (
+                "\n---\n\n### Assistant\n"
+                + strip_thinking_content(response.content)
+                + "\n\n---"
+            )
             markdown = Markdown(result)
             print(markdown)
 

@@ -179,9 +179,10 @@ def main():
             if possible_cmd != None:
                 print(possible_cmd)
                 continue
-            print(Markdown("\n---\n\n### Assistant\n"))
+            print(Markdown("---"))
             result = root_agent.process(line)
             result = strip_thinking_content(result)
+            print(Markdown("\n---\n\n### Assistant\n"))
             markdown = Markdown(result)
             print(markdown)
         except ContextResetException as e:
