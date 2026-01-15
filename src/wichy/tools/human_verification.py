@@ -45,13 +45,22 @@ def require_human_verification(func: Callable) -> Callable:
         while True:
             line = prompt_session.prompt("Proceed? (y/n): ")
             response = str(line).strip().lower()
-            if response in ("y", "yes"):
+            if response.startswith("y"):
                 return func(*args, **kwargs)
-            if response in ("n", "no"):
-                raise PermissionError(
-                    f"User denied your suggested execution of: {all_args}"
+            if response.startswith("n"):
+                # check if user also added reason
+                x = (
+                    response.removeprefix("no")
+                    .removeprefix("n")
+                    .removeprefix(",")
+                    .strip()
                 )
-            print("Please enter 'y' or 'n'")
+                msg = f"User denied your suggested execution of: {all_args}"
+                if x != "":
+                    msg += "\nReason for denied execution: " + x
+
+                raise PermissionError(msg)
+            print("Please enter 'y' or 'n <optional reason>'")
 
     return wrapper
 
