@@ -12,7 +12,7 @@ class FetchWebPageParameters(ParametersModel):
     url: str = Field(..., description="The URL to visit.")
 
     def info(self):
-        return "url=" + self.url
+        return 'url="' + self.url + '"'
 
 
 class FetchWebPageTool(BaseTool):

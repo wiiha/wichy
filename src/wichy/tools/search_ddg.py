@@ -13,7 +13,7 @@ class SearchDDGParameters(ParametersModel):
     )
 
     def info(self):
-        return f"query={self.query} max_results={self.max_results}"
+        return f'query="{self.query}" max_results={self.max_results}'
 
 
 class SearchDDGTool(BaseTool):
