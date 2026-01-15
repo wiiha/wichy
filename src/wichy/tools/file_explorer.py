@@ -4,6 +4,8 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
+from wichy.helpers.string import truncate_to_len
+
 from .base import BaseTool, ParametersModel
 
 
@@ -36,11 +38,14 @@ class ListFilesTool(BaseTool):
             return f"error: {e}"
 
 
-class CatFileParameters(BaseModel):
+class CatFileParameters(ParametersModel):
     path: str = Field(
         ".",
         description="path to file for which to look at content of",
     )
+
+    def info(self):
+        return self.path
 
 
 class CatFileContentTool(BaseTool):
@@ -62,12 +67,15 @@ class CatFileContentTool(BaseTool):
             return f"error: {e}"
 
 
-class WriteFileParameters(BaseModel):
+class WriteFileParameters(ParametersModel):
     path: str = Field(
         ...,
         description="path for file to write content into",
     )
     content: str = Field(..., description="content to write")
+
+    def info(self):
+        return f"path={self.path} content={truncate_to_len(self.content)}"
 
 
 class WriteFileTool(BaseTool):

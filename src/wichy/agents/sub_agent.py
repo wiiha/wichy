@@ -10,10 +10,10 @@ from wichy.artifact import instantiate_artifact_tools_with_current_session_id
 from wichy.artifact.store import ArtifactStore
 from wichy.helpers.context import ContextHandler
 from wichy.helpers.markdown import read_markdown_with_frontmatter
-from wichy.helpers.string import strip_thinking_content
+from wichy.helpers.string import strip_thinking_content, truncate_to_len
 from wichy.llm_backend import Message, call, called_tool
 from wichy.tools import ALL_TOOLS_UNINSTANTIATED, get_tool_definitions
-from wichy.tools.base import BaseTool
+from wichy.tools.base import BaseTool, ParametersModel
 
 console_sub_agents = Console(quiet=True)
 
@@ -152,7 +152,7 @@ def new_sub_agent_as_tool(
     markdown_description,
 ):
 
-    class SubAgentParameters(BaseModel):
+    class SubAgentParameters(ParametersModel):
         first_prompt: str = Field(
             "Follow your given instructions and complete your task.",
             description="The initial instructions to give the agent. Unless mentioned, this parameter should be left with its default value.",
@@ -161,6 +161,9 @@ def new_sub_agent_as_tool(
             None,
             description="HIDE_FROM_LLM What model to use. Should be a reference to a valid backend and model.",
         )
+
+        def info(self):
+            return truncate_to_len(self.first_prompt)
 
     class SubAgentTool(BaseTool):
         name = "NOT_SET"
