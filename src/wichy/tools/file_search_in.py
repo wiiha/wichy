@@ -20,7 +20,7 @@ class SearchRecursiveParameters(ParametersModel):
         pattern = self.pattern
         path = self.path
 
-        return f"pattern={pattern} path={path}"
+        return f'pattern="{pattern}" path="{path}"'
 
 
 class SearchRecursiveTool(BaseTool):

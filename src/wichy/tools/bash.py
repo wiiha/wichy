@@ -16,7 +16,7 @@ class BashParameters(ParametersModel):
     )
 
     def info(self):
-        return f"command={truncate_to_len(self.command)} timeout={self.timeout}"
+        return f'command="{truncate_to_len(self.command)}" timeout={self.timeout}'
 
 
 class BashTool(BaseTool):

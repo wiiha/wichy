@@ -18,7 +18,7 @@ class TreeParameters(ParametersModel):
     )
 
     def info(self):
-        return f"path={self.path}"
+        return f'path="{self.path}"'
 
 
 class TreeTool(BaseTool):

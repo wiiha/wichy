@@ -16,7 +16,7 @@ class ListFilesParameters(ParametersModel):
     )
 
     def info(self):
-        return "path=" + self.path
+        return 'path="' + self.path + '"'
 
 
 class ListFilesTool(BaseTool):
@@ -75,7 +75,7 @@ class WriteFileParameters(ParametersModel):
     content: str = Field(..., description="content to write")
 
     def info(self):
-        return f"path={self.path} content={truncate_to_len(self.content)}"
+        return f'path="{self.path}" content="{truncate_to_len(self.content)}"'
 
 
 class WriteFileTool(BaseTool):

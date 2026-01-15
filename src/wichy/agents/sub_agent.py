@@ -163,7 +163,7 @@ def new_sub_agent_as_tool(
         )
 
         def info(self):
-            return truncate_to_len(self.first_prompt)
+            return 'task="' + truncate_to_len(self.first_prompt) + '"'
 
     class SubAgentTool(BaseTool):
         name = "NOT_SET"

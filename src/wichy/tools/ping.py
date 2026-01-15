@@ -11,7 +11,7 @@ class PingParameters(ParametersModel):
     count: Optional[int] = Field(3, description="number of pings to try, max 5")
 
     def info(self):
-        return f"host={self.host} count={self.count}"
+        return f'host="{self.host}" count={self.count}'
 
 
 class PingTool(BaseTool):
