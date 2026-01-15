@@ -116,6 +116,8 @@ def call(context, tool_defs=None, model_str=None, extra_args=None, **extra_kwarg
                 # "data_collection": "deny",
             },
         }
+        if "xiaomi/mimo-v2-flash:free" in model:
+            backend_specific_headers["reasoning"] = {"enabled": False}
     else:
         raise ValueError(
             f"Unknown backend: {backend}. Use 'ollama' or 'llama_cpp', got model string: {model_str}"

@@ -43,6 +43,7 @@
         "--log-artifacts",
         "--model-str",
         "open_router/mistralai/devstral-2512:free"
+        // "open_router/xiaomi/mimo-v2-flash:free"
       ]
     },
     {
