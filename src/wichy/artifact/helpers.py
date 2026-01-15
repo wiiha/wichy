@@ -103,17 +103,16 @@ def select_candidate_for_artifact(a: Artifact, candidates: list[Artifact]):
         content=(INSTRUCTION_COMPARE_MULTIPLE_WITH_MOTIVATION.strip()),
     )
 
-    a_str = ArtifactReference.from_artifact(a).format_for_prompt()
+    # a_str = ArtifactReference.from_artifact(a).format_for_prompt()
 
-    user_msg = (
-        "# new artifact\n\n"
-        + a_str
-        + "\n\n===\n\n# candidates for earlier versions\n\n"
-    )
+    a_str_whole = a.as_text()
+
+    user_msg = "=== NEW ARTIFACT ===\n\n" + a_str_whole + "\n\n=== CANDIDATES ===\n\n"
 
     for candidate in candidates:
-        c_str = ArtifactReference.from_artifact(candidate).format_for_prompt()
-        user_msg += c_str + "\n"
+        # c_str = ArtifactReference.from_artifact(candidate).format_for_prompt()
+        c_str_whole = candidate.as_text()
+        user_msg += f"==== Artifact {candidate.id} ====\n" + c_str_whole + "\n\n"
 
     ctx.add(role="user", content=user_msg)
 
