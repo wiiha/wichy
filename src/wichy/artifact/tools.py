@@ -2,13 +2,14 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
-from wichy.tools.base import BaseTool
+from wichy.helpers.string import truncate_to_len
+from wichy.tools.base import BaseTool, ParametersModel
 
 from .artifact import ARTIFACT_TYPES, Artifact
 from .store import ArtifactStore
 
 
-class NewArtifactParameters(BaseModel):
+class NewArtifactParameters(ParametersModel):
 
     type: ARTIFACT_TYPES = Field(
         ...,
@@ -44,6 +45,9 @@ class NewArtifactParameters(BaseModel):
         "",
         description="HIDE_FROM_LLM Name of the agent that created this artifact",
     )
+
+    def info(self):
+        return self.title
 
 
 class NewArtifactTool(BaseTool):
@@ -87,12 +91,15 @@ class NewArtifactTool(BaseTool):
             return f"error: {e}"
 
 
-class ArtifactByIDParameters(BaseModel):
+class ArtifactByIDParameters(ParametersModel):
 
     id: str = Field(
         ...,
         description="ID for artifact to fetch",
     )
+
+    def info(self):
+        return self.id
 
 
 class ArtifactByIDTool(BaseTool):
@@ -117,7 +124,7 @@ class ArtifactByIDTool(BaseTool):
             return f"error: {e}"
 
 
-class ArtifactByQueryParameters(BaseModel):
+class ArtifactByQueryParameters(ParametersModel):
 
     query: str = Field(
         ...,
@@ -129,6 +136,9 @@ class ArtifactByQueryParameters(BaseModel):
         "",
         description="HIDE_FROM_LLM Name of the intended recipient (usually an agent) for the query results",
     )
+
+    def info(self):
+        return truncate_to_len(self.query)
 
 
 class ArtifactByQueryTool(BaseTool):

@@ -4,14 +4,17 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
-from .base import BaseTool
+from .base import BaseTool, ParametersModel
 
 
-class ListFilesParameters(BaseModel):
+class ListFilesParameters(ParametersModel):
     path: Optional[str] = Field(
         ".",
         description="directory of which to list files for, default=current directory",
     )
+
+    def info(self):
+        return "path=" + self.path
 
 
 class ListFilesTool(BaseTool):

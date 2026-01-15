@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Type
+from typing import Any, Dict, Optional, Type
 
 from pydantic import BaseModel
 from rich.console import Console
@@ -8,12 +8,26 @@ from rich.markdown import Markdown
 console_tool_result = Console(quiet=True)
 
 
+class ParametersModel(BaseModel):
+
+    def info(self) -> str:
+        """
+        Generates a human readable string of the parameters
+        that the model contains. Implementation is up to each
+        tools parameters model.
+
+        :return: Printable human readable string of the params.
+        :rtype: str
+        """
+        return ""
+
+
 class BaseTool(ABC):
     """Base class for all tools in the agent system."""
 
     name: str
     description: str
-    parameters_model: Type[BaseModel]
+    parameters_model: Type[ParametersModel]
 
     @abstractmethod
     def execute(self, **kwargs) -> str:
@@ -78,22 +92,26 @@ class BaseTool(ABC):
         # and also catch errors that are not handled by the tool
         # itself.
         res = ""
-        console_panel = Console()
+        console_cmd_info = Console()
 
         try:
             validated_params = self.parameters_model(**kwargs)
-            console_panel.print(f"[dim][bold]→[/bold] Calling tool:[/dim] {self.name}")
+            cmd_info = validated_params.info()
+            if cmd_info != "":
+                cmd_info = " [pre]" + cmd_info + "[/pre]"
+            console_cmd_info.print(
+                f"[dim][bold]→[/bold] Calling tool:[/dim] [bold]{self.name}[/bold][dim]{cmd_info}[/dim]"
+            )
             res = self.execute(**validated_params.model_dump())
-            console_panel.print(f"[green bold]✓[/green bold] {self.name} completed")
+            console_cmd_info.print(f"[green bold]✓[/green bold] {self.name} completed")
 
         except Exception as e:
             res = f"error: {e}"
-            console_panel.print(f"[red bold]✗[/red bold] {self.name} failed")
+            console_cmd_info.print(f"[red bold]✗[/red bold] {self.name} failed")
 
         # Log detailed error for debugging
         console_tool_result.log(
             Markdown(f"\n\n---\n\n### tool {self.name}\n\n{res}\n\n---\n\n"),
-            log_locals=True,
         )
 
         return res

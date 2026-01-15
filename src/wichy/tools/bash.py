@@ -3,15 +3,20 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
-from .base import BaseTool
+from wichy.helpers.string import truncate_to_len
+
+from .base import BaseTool, ParametersModel
 from .human_verification import require_human_verification
 
 
-class BashParameters(BaseModel):
+class BashParameters(ParametersModel):
     command: str = Field(..., description="The command to execute")
     timeout: Optional[int] = Field(
         30, description="Timeout in seconds for the command execution"
     )
+
+    def info(self):
+        return f"command={truncate_to_len(self.command)} timeout={self.timeout}"
 
 
 class BashTool(BaseTool):

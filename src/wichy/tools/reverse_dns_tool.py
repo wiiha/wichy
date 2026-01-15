@@ -1,11 +1,15 @@
-from pydantic import BaseModel, Field
 import socket
 
-from .base import BaseTool
+from pydantic import BaseModel, Field
+
+from .base import BaseTool, ParametersModel
 
 
-class ReverseDnsParameters(BaseModel):
+class ReverseDnsParameters(ParametersModel):
     ip: str = Field(..., description="IP address to perform reverse DNS lookup on")
+
+    def info(self):
+        return self.ip
 
 
 class ReverseDnsTool(BaseTool):

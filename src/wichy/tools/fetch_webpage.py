@@ -5,11 +5,14 @@ import markdownify
 from playwright.async_api import async_playwright
 from pydantic import BaseModel, Field
 
-from .base import BaseTool
+from .base import BaseTool, ParametersModel
 
 
-class FetchWebPageParameters(BaseModel):
+class FetchWebPageParameters(ParametersModel):
     url: str = Field(..., description="The URL to visit.")
+
+    def info(self):
+        return "url=" + self.url
 
 
 class FetchWebPageTool(BaseTool):

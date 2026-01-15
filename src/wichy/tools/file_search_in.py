@@ -1,10 +1,12 @@
-import subprocess
 import shutil
+import subprocess
+
 from pydantic import BaseModel, Field
-from .base import BaseTool
+
+from .base import BaseTool, ParametersModel
 
 
-class SearchRecursiveParameters(BaseModel):
+class SearchRecursiveParameters(ParametersModel):
     path: str = Field(
         ".",
         description="directory to recursively search in, default=current directory",
@@ -13,6 +15,12 @@ class SearchRecursiveParameters(BaseModel):
         "",
         description="text pattern to search for in files",
     )
+
+    def info(self):
+        pattern = self.pattern
+        path = self.path
+
+        return f"pattern={pattern} path={path}"
 
 
 class SearchRecursiveTool(BaseTool):

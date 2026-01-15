@@ -5,7 +5,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from .base import BaseTool
+from .base import BaseTool, ParametersModel
 
 
 # Task state enum
@@ -38,7 +38,7 @@ class Task(BaseModel):
 
 
 # Todo tool parameters
-class TodoParameters(BaseModel):
+class TodoParameters(ParametersModel):
     action: TodoActions = Field(
         ...,
         description="Action to perform on the todo item: create, update, complete, view, list, in_progress",
@@ -48,6 +48,15 @@ class TodoParameters(BaseModel):
     task_id: Optional[str] = Field(
         None, description="ID of the task to perform action on"
     )
+
+    def info(self):
+        out = f"{self.action}"
+        if self.task_name:
+            out += " " + self.task_name
+        if self.task_id:
+            out += " " + self.task_id
+
+        return out
 
 
 # Todo tool implementation

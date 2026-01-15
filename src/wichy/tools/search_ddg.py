@@ -3,14 +3,17 @@ from typing import Optional
 from ddgs import DDGS  # ref: https://pypi.org/project/ddgs/
 from pydantic import BaseModel, Field
 
-from .base import BaseTool
+from .base import BaseTool, ParametersModel
 
 
-class SearchDDGParameters(BaseModel):
+class SearchDDGParameters(ParametersModel):
     query: str = Field(..., description="The search query string")
     max_results: Optional[int] = Field(
         5, description="Maximum number of results to return (default: 5)"
     )
+
+    def info(self):
+        return f"query={self.query} max_results={self.max_results}"
 
 
 class SearchDDGTool(BaseTool):

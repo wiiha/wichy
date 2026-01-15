@@ -11,6 +11,7 @@ definition of simonw [An LLM agent runs tools in a loop to achive a goal](https:
 ## future todos
 
 - ADD "generic sub agent" is like a version of the root agent and has tools, but it cannot call sub agents. The goal is to avoid the root agents context to overflow. This generic agent should be encouraged to create artifacts whenever possible.
+- CHANGE return from todo tool should contain the full todo list
 
 ## reference
 
