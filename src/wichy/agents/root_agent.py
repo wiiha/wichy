@@ -19,8 +19,9 @@ class ContextResetStrategies(str, Enum):
 
 
 class RootAgent:
-    def __init__(self, model_str, tools: List[BaseTool]):
+    def __init__(self, model_str, tools: List[BaseTool], name: str = "NOT SET"):
         self.context = new_context()
+        self.name = name
         self.model_str = model_str
         self.tools = tools
         console.log(
@@ -31,7 +32,7 @@ class RootAgent:
             tool_str += "\t - " + t.name + "\n"
         print(
             Markdown(
-                f"### Root Agent Info\n - **model string:** {self.model_str}\n- **tools**\n{tool_str}"
+                f"### Root Agent Info\n - **template name:** {self.name}\n- **model string:** {self.model_str}\n- **tools**\n{tool_str}"
             )
         )
 

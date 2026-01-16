@@ -1,3 +1,5 @@
+import sys
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -14,10 +16,12 @@ from rich.markdown import Markdown
 
 from wichy.agents import SUB_AGENTS
 from wichy.agents.root_agent import RootAgent
+from wichy.agents.root_agent_desc_basic import root_agent_desc
 from wichy.agents.sub_agent import console_sub_agents
 from wichy.artifact import console as console_artifacts
 from wichy.artifact import instantiate_artifact_tools_with_current_session_id
 from wichy.helpers.console import console
+from wichy.helpers.markdown import read_markdown_with_frontmatter
 from wichy.helpers.string import strip_thinking_content
 from wichy.slash_commands import (
     ContextResetException,
@@ -65,7 +69,7 @@ class ArgumentParserWrapper:
             "-m",
             "--model-str",
             # default="ollama/ministral-3:3b",
-            default="ollama/hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M",
+            default="",
             help="Specify the model string (format: <backend>/<model>)",
         )
         self.parser.add_argument(
@@ -123,9 +127,40 @@ def main():
         print(Markdown(msg))
         exit(0)
 
-    if args.tools.strip() != "":
+    # load root agent description
+
+    root_agent_props, system_prompt = read_markdown_with_frontmatter(root_agent_desc)
+
+    if system_prompt.strip() == "":
+        print(
+            "[red]error:[/red] Loaded root agent description did not contain a system prompt. It is required.",
+            file=sys.stderr,
+        )
+        exit(1)
+
+    model_str = root_agent_props.get("model") or root_agent_props.get("model_str") or ""
+
+    if args.model_str != "":
+        model_str = args.model_str
+
+    if model_str.strip() == "":
+        print(
+            "[red]error:[/red] No model specified, either specify in frontmatter or using --model-str",
+            file=sys.stderr,
+        )
+        exit(1)
+
+    tools_for_agent = in_tools
+
+    if args.tools.strip() != "" or root_agent_props.get("tools") != None:
         # only subset of tools allowed
-        allowed_tools = args.tools.lower().split(",")
+        allowed_tools_str = root_agent_props.get("tools", "")
+
+        if args.tools.strip() != "":
+            # CLI flag takes precedence over loaded description.
+            allowed_tools_str = args.tools.strip()
+
+        allowed_tools = allowed_tools_str.lower().split(",")
         allowed_tools: list[str] = [t.strip() for t in allowed_tools]
 
         new_tools = []
@@ -133,30 +168,33 @@ def main():
             if tool.name in allowed_tools:
                 new_tools.append(tool)
 
-        in_tools = new_tools
+        tools_for_agent = new_tools
 
     if args.not_tools.strip() != "":
         drop_tools = args.not_tools.lower().split(",")
         drop_tools: list[str] = [t.strip() for t in drop_tools]
 
         new_tools = []
-        for tool in in_tools:
+        for tool in tools_for_agent:
             if tool.name in drop_tools:
                 continue
             new_tools.append(tool)
 
-        in_tools = new_tools
+        tools_for_agent = new_tools
 
-    # print(f"{args.bash_allow_all=}")
+    root_agent = RootAgent(
+        model_str=model_str, tools=tools_for_agent, name=root_agent_props.get("name")
+    )
 
-    root_agent = RootAgent(model_str=args.model_str, tools=in_tools)
+    if root_agent_props.get("include_date", "").lower() == "true":
+        system_prompt += (
+            "\nThe current year is " + str(datetime.date.today().year) + "."
+        )
 
     root_agent.context.append(
         {
             "role": "system",
-            "content": "You are a helpful assistant. Whenever possible, defer tasks to available agents. Agents DO NOT retain memory between requests to them, even if you call the same agent twice. Current year is "
-            + str(datetime.date.today().year)
-            + ". /think",
+            "content": system_prompt,
         }
     )
 
