@@ -70,7 +70,10 @@ class TodoTool(BaseTool):
     """
 
     name = "todo"
-    description = "Manage todo tasks with create, update, complete, view, list, and in_progress actions."
+    description = (
+        "Manage todo tasks with create, update, complete, view, list, and in_progress actions. "
+        + "Todo lists are not shared between agents."
+    )
     parameters_model = TodoParameters
 
     def __init__(self):
