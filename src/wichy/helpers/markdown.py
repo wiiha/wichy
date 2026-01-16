@@ -30,6 +30,8 @@ def read_markdown_with_frontmatter(markdown_string: str) -> Tuple[Dict[str, str]
     frontmatter_text = parts[1].strip()
 
     for line in frontmatter_text.split("\n"):
+        if line.startswith("#") or line.strip() == "":
+            continue
         if ":" in line:
             key, value = line.split(":", 1)
             frontmatter[key.strip()] = value.strip()
