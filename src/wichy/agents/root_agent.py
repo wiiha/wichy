@@ -1,5 +1,6 @@
 import json
 from enum import Enum
+from typing import List
 
 from rich import print
 from rich.markdown import Markdown
@@ -9,6 +10,7 @@ from wichy.helpers.context import new_context
 from wichy.helpers.string import strip_thinking_content
 from wichy.llm_backend import Message, call, called_tool
 from wichy.tools import get_tool_definitions
+from wichy.tools.base import BaseTool
 
 
 class ContextResetStrategies(str, Enum):
@@ -17,12 +19,20 @@ class ContextResetStrategies(str, Enum):
 
 
 class RootAgent:
-    def __init__(self, model_str, tools):
+    def __init__(self, model_str, tools: List[BaseTool]):
         self.context = new_context()
         self.model_str = model_str
         self.tools = tools
         console.log(
             {"model_str": self.model_str, "tools": ", ".join([t.name for t in tools])}
+        )
+        tool_str = ""
+        for t in tools:
+            tool_str += "\t - " + t.name + "\n"
+        print(
+            Markdown(
+                f"### Root Agent Info\n - **model string:** {self.model_str}\n- **tools**\n{tool_str}"
+            )
         )
 
     def tool_call(self, tools, item: called_tool):

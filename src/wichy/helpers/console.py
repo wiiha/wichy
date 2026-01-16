@@ -1,4 +1,3 @@
 from rich.console import Console
 
-
-console = Console(quiet=False)
+console = Console(quiet=True)
