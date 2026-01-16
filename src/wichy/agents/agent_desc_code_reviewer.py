@@ -1,5 +1,5 @@
 agent_code_reviewer = """---
-name: agent-code-reviewer
+name: agent_code_reviewer
 description: Expert code review specialist. Proactively reviews code for quality, security, and maintainability. Use immediately after writing or modifying code.
 tools: cat, grep, bash, tree, ls
 model: inherit

@@ -1,5 +1,5 @@
 agent_code_planner = """---
-name: agent-code-planner
+name: agent_code_planner
 description: Strategic code planning specialist. Analyzes codebases and creates detailed implementation plans. MUST BE USED before making significant changes or starting new features. Creates plans only - never implements code.
 tools: cat, grep, bash, tree, ls, artifact_create
 model: inherit

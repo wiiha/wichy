@@ -1,5 +1,5 @@
 agent_web_researcher = """---
-name: agent-web-researcher
+name: agent_web_researcher
 description: Expert web research specialist. Conducts thorough online research to gather, verify, and synthesize information from multiple sources. ALWAYS USE when you need current information, fact-checking, or comprehensive research on any topic.
 tools: web_search, web_fetch
 model: inherit
@@ -29,7 +29,7 @@ You are an expert web researcher skilled at finding, evaluating, and synthesizin
 
 **Summary**: 2-3 sentence answer with key takeaways
 
-**Key Findings**: 
+**Key Findings**:
 - Main points with source attribution
 - Note any conflicting information
 

@@ -1,5 +1,5 @@
 agent_code_implementer = """---
-name: agent-code-implementer
+name: agent_code_implementer
 description: Tactical code implementation specialist. Executes implementation plans by writing, modifying, and testing code. MUST follow plans from code-planner agent. Works on concrete, well-defined tasks.
 tools: cat, write_file, grep, bash, tree, ls
 model: inherit
