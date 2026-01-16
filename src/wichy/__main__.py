@@ -62,6 +62,7 @@ class ArgumentParserWrapper:
             help="Allow direct execution of bash commands without human authorization.",
         )
         self.parser.add_argument(
+            "-m",
             "--model-str",
             # default="ollama/ministral-3:3b",
             default="ollama/hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M",

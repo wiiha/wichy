@@ -13,7 +13,6 @@ definition of simonw [An LLM agent runs tools in a loop to achive a goal](https:
 - ADD "generic sub agent" is like a version of the root agent and has tools, but it cannot call sub agents. The goal is to avoid the root agents context to overflow. This generic agent should be encouraged to create artifacts whenever possible.
 - CHANGE return from todo tool should contain the full todo list
 - ADD possibility to define the path where `.wichy` dir should be stored.
-- ADD shorthand flag `-m` for `--model-str`.
 - ADD root agents system prompt should be defined separately.
 - ADD functionality for defining conditional parts in root agent and sub agent prompts by beans of a `<conditional>` tag system. Spec below.
 
