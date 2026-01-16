@@ -59,12 +59,12 @@ class SubAgent:
             for tool in tools:
                 if tool.name in allowed_tools:
                     new_tools.append(tool)
-                    continue
 
             all_tool_names = [t.name.lower() for t in tools]
             for t in allowed_tools:
                 if not t in all_tool_names:
                     raise ValueError(f"no tool named {t}")
+            tools = new_tools
 
         self.tools = tools
 
