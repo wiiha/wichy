@@ -27,7 +27,7 @@ class BaseTool(ABC):
 
     name: str
     description: str
-    description_long: Optional[str]
+    description_long: Optional[str] = None
     """
     If a tool contains both a description and description_long. Then description_long
     will be passed to the LLM and description will be shown in the tool listing for
