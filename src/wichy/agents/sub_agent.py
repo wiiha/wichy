@@ -175,6 +175,7 @@ def new_sub_agent_as_tool(
             sa = SubAgent(markdown_description=markdown_description)
             self.name = sa.name
             self.description = sa.description
+            self.description_long = sa.frontmatter.get("description_long", None)
             sa.context.delete()
             self.markdown_description = markdown_description
             self.artifact_session_id = ARTIFACT_SESSION_ID
