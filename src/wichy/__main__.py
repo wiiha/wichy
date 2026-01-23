@@ -17,6 +17,7 @@ from rich.markdown import Markdown
 from wichy.agents import SUB_AGENTS
 from wichy.agents.root_agent import RootAgent
 from wichy.agents.root_agent_desc_basic import root_agent_desc
+from wichy.agents.root_agent_desc_code_advanced import root_agent_desc_code_advanced
 from wichy.agents.sub_agent import console_sub_agents
 from wichy.artifact import console as console_artifacts
 from wichy.artifact import instantiate_artifact_tools_with_current_session_id
@@ -131,7 +132,9 @@ def main():
 
     # load root agent description
 
-    root_agent_props, system_prompt = read_markdown_with_frontmatter(root_agent_desc)
+    root_agent_props, system_prompt = read_markdown_with_frontmatter(
+        root_agent_desc_code_advanced
+    )
 
     if system_prompt.strip() == "":
         print(
