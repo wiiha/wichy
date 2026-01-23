@@ -40,29 +40,91 @@ class ListFilesTool(BaseTool):
 
 class CatFileParameters(ParametersModel):
     path: str = Field(
-        ".",
+        ...,
         description="path to file for which to look at content of",
+    )
+    offset: int = Field(
+        1,
+        description="starting line number (1-indexed), default=1",
+    )
+    limit: int = Field(
+        2000,
+        description="maximum number of lines to read, default=2000",
     )
 
     def info(self):
-        return self.path
+        if self.offset == 1 and self.limit == 2000:
+            return self.path
+        return f"{self.path} (lines {self.offset}-{self.offset + self.limit - 1})"
 
 
 class CatFileContentTool(BaseTool):
     name = "cat"
     description = "Get the content of a file."
+    description_long = """
+Reads a file from the local filesystem. You can access any file directly by using this tool.
+Assume this tool is able to read all files on the machine. If the User provides a path to a file assume that path is valid. It is okay to read a file that does not exist; an error will be returned.
+
+Usage:
+
+- By default, it reads up to 2000 lines starting from the beginning of the file
+- You can optionally specify a line offset and limit (especially handy for long files), but it's recommended to read the whole file by not providing these parameters
+- Any lines longer than 2000 characters will be truncated
+- Results are returned using cat -n format, with line numbers starting at 1
+- This tool can only read files, not directories. To read a directory, use ls tool.
+- You can call multiple tools in a single response. It is always better to speculatively read multiple potentially useful files in parallel.
+- If you read a file that exists but has empty contents you will receive a system reminder warning in place of file contents."""
     parameters_model = CatFileParameters
 
-    def execute(self, path) -> str:
-        """Execute file cat"""
+    MAX_LINE_LENGTH = 2000
+
+    def execute(self, path, offset=1, limit=2000) -> str:
+        """Execute file cat with optional offset and limit"""
         try:
-            result = subprocess.run(
-                ["cat", path],
-                text=True,
-                stderr=subprocess.STDOUT,
-                stdout=subprocess.PIPE,
+            # Read the file
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                lines = f.readlines()
+
+            # Check if file is empty
+            if not lines:
+                return f"warning: file '{path}' exists but is empty"
+
+            # Apply offset and limit (offset is 1-indexed)
+            start_idx = offset - 1
+            end_idx = start_idx + limit
+
+            if start_idx >= len(lines):
+                return (
+                    f"error: offset {offset} exceeds file length ({len(lines)} lines)"
+                )
+
+            selected_lines = lines[start_idx:end_idx]
+
+            # Format with line numbers (cat -n style) and truncate long lines
+            output_lines = []
+            for i, line in enumerate(selected_lines, start=offset):
+                # Remove trailing newline for processing
+                line = line.rstrip("\n")
+
+                # Truncate if longer than MAX_LINE_LENGTH
+                if len(line) > self.MAX_LINE_LENGTH:
+                    line = line[: self.MAX_LINE_LENGTH] + "... [truncated]"
+
+                # Format with line number (6 spaces for alignment like cat -n)
+                output_lines.append(f"{i:6d}  {line}")
+
+            return "\n".join(output_lines)
+
+        except FileNotFoundError:
+            return f"error: file not found: {path}"
+        except IsADirectoryError:
+            return f"error: '{path}' is a directory, not a file. Use ls tool to read directories."
+        except PermissionError:
+            return f"error: permission denied: {path}"
+        except UnicodeDecodeError:
+            return (
+                f"error: file '{path}' appears to be binary and cannot be read as text"
             )
-            return result.stdout
         except Exception as e:
             return f"error: {e}"
 
@@ -82,6 +144,16 @@ class WriteFileTool(BaseTool):
     name = "write_file"
     description = "Write content to file at path. This will always overwrite the current content of a file. Hence, a file update needs to contain the full new version of the content."
     parameters_model = WriteFileParameters
+    description_long = """
+Writes a file to the local filesystem.
+
+Usage:
+
+- This tool will overwrite the existing file if there is one at the provided path. Hence, a file update needs to contain the full new version of the content.
+- If this is an existing file, you MUST use the cat tool first to read the file's contents. This tool will fail if you did not read the file first.
+- ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.
+- NEVER proactively create documentation files (\*.md) or README files. Only create documentation files if explicitly requested by the User.
+- Only use emojis if the user explicitly requests it. Avoid writing emojis to files unless asked."""
 
     def execute(self, path, content) -> str:
         """Execute write file"""

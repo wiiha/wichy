@@ -83,11 +83,17 @@ class BaseTool(ABC):
             # If Pydantic didn't add it, create empty list (all optional)
             schema["required"] = []
 
+        description = self.description
+        if self.description_long:
+            description = self.description_long
+
+        description = description.strip()
+
         return {
             "type": "function",
             "function": {
                 "name": self.name,
-                "description": self.description_long or self.description,
+                "description": description,
                 "parameters": schema,
             },
         }
