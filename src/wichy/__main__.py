@@ -21,6 +21,7 @@ from wichy.agents.sub_agent import console_sub_agents
 from wichy.artifact import console as console_artifacts
 from wichy.artifact import instantiate_artifact_tools_with_current_session_id
 from wichy.helpers.console import console
+from wichy.helpers.environment_info import environment_information
 from wichy.helpers.markdown import read_markdown_with_frontmatter
 from wichy.helpers.prompt import preprocess_prompt
 from wichy.helpers.string import strip_thinking_content
@@ -142,6 +143,7 @@ def main():
     model_str = root_agent_props.get("model") or root_agent_props.get("model_str") or ""
 
     if args.model_str != "":
+        # Model string passed as flag overwrite model spec.
         model_str = args.model_str
 
     if model_str.strip() == "":
@@ -193,9 +195,11 @@ def main():
         prompt=system_prompt, verify_against=verify_against
     )
 
-    if root_agent_props.get("include_date", "").lower() == "true":
+    if root_agent_props.get("include_env_info", "").lower() != "false":
         system_prompt += (
-            "\nThe current year is " + str(datetime.date.today().year) + "."
+            "\n\nHere is useful information about the environment you are running in:\n"
+            + environment_information()
+            + "\n\n"
         )
 
     root_agent.context.append(
