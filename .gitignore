@@ -27,3 +27,4 @@ venv/
 wheels/
 .env
 .coverage
+src/wichy/.DS_Store
