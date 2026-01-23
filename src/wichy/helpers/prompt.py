@@ -31,6 +31,9 @@ def _process_conditional(conditional: str, verify_against: Dict[str, List[str]])
     tag_value = m.group(2)
 
     if not verify_against.get(tag_name, None):
+        tag_name += "s"
+
+    if not verify_against.get(tag_name, None):
         return ""
 
     if not tag_value in verify_against.get(tag_name, []):

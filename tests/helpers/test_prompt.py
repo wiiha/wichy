@@ -101,3 +101,14 @@ def test_malformed_conditional_syntax_error():
 
     # Verify the type and message of the exception
     assert "count mismatch for" in str(excinfo.value)
+
+
+def test_tag_plural_name():
+    prompt = """Hello world!\n<conditional><condition><tool>my_tool</tool></condition>my_tool is here!</conditional>\n\n<conditional><condition><tool>my_other_tool</tool></condition>my_other_tool is here!</conditional>"""
+    correct = """Hello world!\nmy_tool is here!\nmy_other_tool is here!"""
+
+    result = preprocess_prompt(
+        prompt=prompt, verify_against={"tools": ["my_tool", "my_other_tool"]}
+    )
+
+    assert result == correct
