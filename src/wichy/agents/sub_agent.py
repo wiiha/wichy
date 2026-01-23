@@ -10,6 +10,7 @@ from wichy.artifact import instantiate_artifact_tools_with_current_session_id
 from wichy.artifact.store import ArtifactStore
 from wichy.helpers.context import ContextHandler
 from wichy.helpers.markdown import read_markdown_with_frontmatter
+from wichy.helpers.prompt import preprocess_prompt
 from wichy.helpers.string import strip_thinking_content, truncate_to_len
 from wichy.llm_backend import Message, call, called_tool
 from wichy.tools import ALL_TOOLS_UNINSTANTIATED, get_tool_definitions
@@ -67,6 +68,10 @@ class SubAgent:
             tools = new_tools
 
         self.tools = tools
+
+        instructions = preprocess_prompt(
+            prompt=instructions, verify_against={"tools": [x.name for x in self.tools]}
+        )
 
         context = ContextHandler(custom_suffix=self.name, sub_dir="sub_agents")
         context.add(role="system", content=instructions)

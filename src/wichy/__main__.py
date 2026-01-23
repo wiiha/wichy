@@ -22,6 +22,7 @@ from wichy.artifact import console as console_artifacts
 from wichy.artifact import instantiate_artifact_tools_with_current_session_id
 from wichy.helpers.console import console
 from wichy.helpers.markdown import read_markdown_with_frontmatter
+from wichy.helpers.prompt import preprocess_prompt
 from wichy.helpers.string import strip_thinking_content
 from wichy.slash_commands import (
     ContextResetException,
@@ -184,6 +185,12 @@ def main():
 
     root_agent = RootAgent(
         model_str=model_str, tools=tools_for_agent, name=root_agent_props.get("name")
+    )
+
+    verify_against = {"tools": [x.name for x in tools_for_agent]}
+
+    system_prompt = preprocess_prompt(
+        prompt=system_prompt, verify_against=verify_against
     )
 
     if root_agent_props.get("include_date", "").lower() == "true":
