@@ -14,3 +14,4 @@ def print_list(xs: dict[str, TaskAgentDefinitionBase]):
     out = ""
     for x in xs.values():
         out += "- " + x.name + ": " + x.description + "\n"
+    return out

@@ -44,8 +44,8 @@ class TaskAgentParameters(ParametersModel):
 
         if self.subagent_type:
             info_parts.append(f'type="{self.subagent_type}"')
-        if self.model:
-            info_parts.append(f'model="{self.model.value}"')
+        if self.model_str:
+            info_parts.append(f'model="{self.model_str}"')
 
         return " ".join(info_parts)
 
@@ -60,7 +60,8 @@ Launch a new agent to handle complex, multi-step tasks autonomously.
 
 The Task tool launches specialized agents that autonomously handle complex tasks. Each agent type has specific capabilities and tools available to it.
 
-Available agent types and the tools they have access to:"""
+Available agent types and the tools they have access to:
+"""
         + print_list(TASK_AGENT_DEFS)
         + """
 When using the Task tool, you must specify a subagent_type parameter to select which agent type to use.

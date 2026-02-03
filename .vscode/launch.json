@@ -13,6 +13,14 @@
       "args": []
     },
     {
+      "name": "Python Debugger: Wichy (Open Router)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/src/wichy/__main__.py",
+      "console": "integratedTerminal",
+      "args": ["--model-str", "open_router/arcee-ai/trinity-large-preview:free"]
+    },
+    {
       "name": "Python Debugger: Wichy (with args)",
       "type": "debugpy",
       "request": "launch",
@@ -42,8 +50,7 @@
         "--log-agents",
         "--log-artifacts",
         "--model-str",
-        "open_router/mistralai/devstral-2512:free"
-        // "open_router/xiaomi/mimo-v2-flash:free"
+        "open_router/arcee-ai/trinity-large-preview:free"
       ]
     },
     {

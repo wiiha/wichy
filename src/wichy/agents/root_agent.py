@@ -29,10 +29,12 @@ class RootAgent:
         )
         tool_str = ""
         for t in tools:
-            tool_str += "\t - " + t.name + "\n"
+            tool_str += t.name + ", "
+        tool_str = tool_str.removesuffix(", ")
+        tool_str += "\n"
         print(
             Markdown(
-                f"### Root Agent Info\n - **template name:** {self.name}\n- **model string:** {self.model_str}\n- **tools**\n{tool_str}"
+                f"### Root Agent Info\n - **template name:** {self.name}\n- **model string:** {self.model_str}\n- **tools:**\n{tool_str}"
             )
         )
 
@@ -42,9 +44,7 @@ class RootAgent:
         args = json.loads(item.function.arguments)
         console.log({"tool": name, "args": args})
 
-        # Inject extra argument if name has 'agent-' prefix
-        if name.startswith("agent-"):
-            args["model_str"] = self.model_str
+        args["model_str"] = self.model_str
 
         if name.startswith("artifact_"):
             args["creator"] = "root_agent"

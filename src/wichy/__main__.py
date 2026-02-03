@@ -19,6 +19,7 @@ from wichy.agents.root_agent import RootAgent
 from wichy.agents.root_agent_desc_basic import root_agent_desc
 from wichy.agents.root_agent_desc_code_advanced import root_agent_desc_code_advanced
 from wichy.agents.sub_agent import console_sub_agents
+from wichy.agents.task_agent import TaskAgentTool
 from wichy.artifact import console as console_artifacts
 from wichy.artifact import instantiate_artifact_tools_with_current_session_id
 from wichy.helpers.console import console
@@ -33,6 +34,8 @@ from wichy.slash_commands import (
 )
 from wichy.tools import ALL_TOOLS_UNINSTANTIATED
 from wichy.tools.base import BaseTool, console_tool_result
+
+ALL_TOOLS_UNINSTANTIATED.append(TaskAgentTool)
 
 
 class ArgumentParserWrapper:
@@ -116,9 +119,6 @@ def main():
     in_tools: list[BaseTool] = []
     for tool in ALL_TOOLS_UNINSTANTIATED:
         in_tools.append(tool())
-
-    in_tools.extend(instantiate_artifact_tools_with_current_session_id())
-    in_tools.extend(SUB_AGENTS)
 
     in_tools.sort(key=lambda t: t.name)
 

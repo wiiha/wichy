@@ -58,7 +58,7 @@ class TaskAgent:
                     )
             tools = new_tools
 
-        if len(agent_definition.not_tools) > 0:
+        if agent_definition.not_tools and len(agent_definition.not_tools) > 0:
             new_tools = []
             for t in tools:
                 if t.name in agent_definition.not_tools:

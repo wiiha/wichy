@@ -1,5 +1,5 @@
 root_agent_desc_code_advanced = """---
-name: root-agent-basic
+name: root-agent-code-advanced
 description: Agent that the user interacts with. It is up to this agent to decide on what tools or other agents to call.
 
 # Tools specified here can be considered the base tools for the
