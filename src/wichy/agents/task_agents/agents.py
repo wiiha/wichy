@@ -1,13 +1,4 @@
-from pydantic import BaseModel
-
-
-class TaskAgentDefinitionBase(BaseModel):
-    name: str
-    description: str
-    tools: list[str] | None = None
-    not_tools: list[str] | None = None
-    system_prompt: str
-
+from wichy.agents.task_agents.base import TaskAgentDefinitionBase
 
 bash_agent = TaskAgentDefinitionBase(
     name="Bash",
