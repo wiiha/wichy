@@ -51,7 +51,7 @@ class TaskAgentParameters(ParametersModel):
 
 
 class TaskAgentTool(BaseTool):
-    name = "task_agent"
+    name = "task"
     description = "The Task tool launches specialized agents that autonomously handle complex, multi-step tasks like bash operations, codebase exploration, implementation planning, and general-purpose research. Each agent type has specific capabilities and tools."
     parameters_model = TaskAgentParameters
     description_long = (
