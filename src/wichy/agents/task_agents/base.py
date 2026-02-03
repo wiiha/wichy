@@ -8,6 +8,7 @@ from wichy.artifact import SESSION_ID as ARTIFACT_SESSION_ID
 from wichy.artifact import instantiate_artifact_tools_with_current_session_id
 from wichy.artifact.store import ArtifactStore
 from wichy.helpers.context import ContextHandler
+from wichy.helpers.environment_info import environment_information
 from wichy.helpers.markdown import read_markdown_with_frontmatter
 from wichy.helpers.prompt import preprocess_prompt
 from wichy.helpers.string import strip_thinking_content, truncate_to_len
@@ -26,6 +27,7 @@ class TaskAgentDefinitionBase(BaseModel):
     tools: list[str] | None = None
     not_tools: list[str] | None = None
     system_prompt: str
+    include_env_info: bool = False
 
 
 class TaskAgent:
@@ -71,6 +73,13 @@ class TaskAgent:
             prompt=agent_definition.system_prompt,
             verify_against={"tools": [x.name for x in self.tools]},
         )
+
+        if agent_definition.include_env_info:
+            system_prompt += (
+                "\n\nHere is useful information about the environment you are running in:\n"
+                + environment_information()
+                + "\n\n"
+            )
 
         context = ContextHandler(custom_suffix=self.name, sub_dir="task_agents")
         context.add(role="system", content=system_prompt)

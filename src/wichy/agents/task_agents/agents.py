@@ -4,6 +4,7 @@ bash_agent = TaskAgentDefinitionBase(
     name="Bash",
     description="Command execution specialist for running bash commands. Use this for git operations, command execution, and other terminal tasks.",
     tools=["bash"],
+    include_env_info=True,
     system_prompt="""You are a command execution specialist focused on running bash commands efficiently and safely.
 
 Your responsibilities:
@@ -36,6 +37,7 @@ general_purpose_agent = TaskAgentDefinitionBase(
         "write_file",
         "bash",
     ],
+    include_env_info=True,
     system_prompt="""You are a versatile general-purpose agent capable of handling complex, multi-step tasks.
 
 Your capabilities:
@@ -71,6 +73,7 @@ explore_agent = TaskAgentDefinitionBase(
         "ls",
         "tree",
     ],
+    include_env_info=True,
     system_prompt="""You are a codebase exploration specialist optimized for quick and efficient code discovery.
 
 Your capabilities:
@@ -98,6 +101,7 @@ plan_agent = TaskAgentDefinitionBase(
     name="Plan",
     description="Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs.",
     tools=["cat", "glob", "grep", "ls", "tree", "web_fetch", "web_search"],
+    include_env_info=True,
     system_prompt="""You are a software architect specializing in creating detailed implementation plans.
 
 Approach:
