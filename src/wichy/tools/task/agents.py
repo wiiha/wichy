@@ -1,12 +1,11 @@
-from wichy.agents.task_agents.base import TaskAgent, TaskAgentDefinitionBase
-
-from .agents import (
+from .agent_definitions import (
     bash_agent,
     explore_agent,
     general_purpose_agent,
     plan_agent,
     web_research_agent,
 )
+from .base import TaskAgentDefinitionBase
 
 TASK_AGENT_DEFS = {
     bash_agent.name: bash_agent,

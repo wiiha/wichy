@@ -17,7 +17,6 @@ from rich.markdown import Markdown
 from wichy.agents.root_agent import RootAgent
 from wichy.agents.root_agent_desc_basic import root_agent_desc
 from wichy.agents.root_agent_desc_code_advanced import root_agent_desc_code_advanced
-from wichy.agents.task_agent import TaskAgentTool
 from wichy.helpers.console import console
 from wichy.helpers.environment_info import environment_information
 from wichy.helpers.markdown import read_markdown_with_frontmatter
@@ -30,8 +29,6 @@ from wichy.slash_commands import (
 )
 from wichy.tools import ALL_TOOLS_UNINSTANTIATED
 from wichy.tools.base import BaseTool, console_tool_result
-
-ALL_TOOLS_UNINSTANTIATED.append(TaskAgentTool)
 
 
 class ArgumentParserWrapper:

@@ -3,14 +3,14 @@ from typing import Dict, Optional
 
 from pydantic import Field
 
-from wichy.agents.task_agents import (
+from wichy.helpers.string import strip_thinking_content, truncate_to_len
+from wichy.tools.base import BaseTool, ParametersModel
+from wichy.tools.task import (
     TASK_AGENT_DEFS,
     TaskAgent,
     TaskAgentDefinitionBase,
-    print_list,
+    generate_list_from_task_agent_defs,
 )
-from wichy.helpers.string import strip_thinking_content, truncate_to_len
-from wichy.tools.base import BaseTool, ParametersModel
 
 
 class TaskAgentParameters(ParametersModel):
@@ -39,11 +39,9 @@ class TaskAgentParameters(ParametersModel):
 
     def info(self):
 
+        info_parts.append(f'type="{self.subagent_type}"')
         info_parts = [f'description="{self.description}"']
-        # info_parts.append(f'task="{truncate_to_len(self.prompt)}"')
 
-        if self.subagent_type:
-            info_parts.append(f'type="{self.subagent_type}"')
         if self.model_str:
             info_parts.append(f'model="{self.model_str}"')
 
@@ -62,7 +60,7 @@ The Task tool launches specialized agents that autonomously handle complex tasks
 
 Available agent types and the tools they have access to:
 """
-        + print_list(TASK_AGENT_DEFS)
+        + generate_list_from_task_agent_defs(TASK_AGENT_DEFS)
         + """
 When using the Task tool, you must specify a subagent_type parameter to select which agent type to use.
 

@@ -1,4 +1,4 @@
-from wichy.agents.task_agents.base import TaskAgentDefinitionBase
+from .base import TaskAgentDefinitionBase
 
 bash_agent = TaskAgentDefinitionBase(
     name="Bash",

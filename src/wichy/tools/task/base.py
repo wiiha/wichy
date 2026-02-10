@@ -10,7 +10,7 @@ from wichy.helpers.markdown import read_markdown_with_frontmatter
 from wichy.helpers.prompt import preprocess_prompt
 from wichy.helpers.string import strip_thinking_content, truncate_to_len
 from wichy.llm_backend import Message, call, called_tool
-from wichy.tools import ALL_TOOLS_UNINSTANTIATED, get_tool_definitions
+from wichy.tools import get_tool_definitions
 from wichy.tools.base import BaseTool, ParametersModel
 
 console_task_agents = Console(quiet=True)
@@ -29,7 +29,11 @@ class TaskAgentDefinitionBase(BaseModel):
 
 class TaskAgent:
     def __init__(
-        self, agent_definition: TaskAgentDefinitionBase, prompt: str, model: str
+        self,
+        agent_definition: TaskAgentDefinitionBase,
+        prompt: str,
+        model: str,
+        all_tools_not_instantiated: list[BaseTool],
     ):
 
         self.name = agent_definition.name
@@ -37,7 +41,7 @@ class TaskAgent:
         self.model = model
 
         tools: list[BaseTool] = []
-        for t in ALL_TOOLS_UNINSTANTIATED:
+        for t in all_tools_not_instantiated:
             tools.append(t())
 
         allowed_tools = agent_definition.tools
