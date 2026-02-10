@@ -39,8 +39,10 @@ class TaskAgentParameters(ParametersModel):
 
     def info(self):
 
+        info_parts = []
+
         info_parts.append(f'type="{self.subagent_type}"')
-        info_parts = [f'description="{self.description}"']
+        info_parts.append(f'description="{self.description}"')
 
         if self.model_str:
             info_parts.append(f'model="{self.model_str}"')
