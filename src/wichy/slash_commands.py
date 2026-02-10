@@ -4,6 +4,7 @@ from rich.markdown import Markdown
 from wichy.agents.root_agent import ContextResetStrategies
 from wichy.helpers.console import console
 from wichy.tools.base import console_tool_result
+from wichy.tools.task import console_task_agents
 
 
 class ContextResetException(Exception):
@@ -37,13 +38,15 @@ class SlashCommandChecker:
             if command == "/logging on":
                 console.quiet = False
                 console_tool_result.quiet = False
+                console_task_agents.quiet = False
                 return "logging on"
             if command == "/logging off":
                 console.quiet = True
                 console_tool_result.quiet = True
+                console_task_agents.quiet = True
                 return "logging off"
             if command == "/logging":
-                return f"{console.quiet=} {console_tool_result.quiet=}"
+                return f"{console.quiet=} {console_tool_result.quiet=} {console_task_agents.quiet=}"
             if command == "/context reset":
                 raise ContextResetException(strategy=ContextResetStrategies.NUKE)
             if command == "/context reset_by_summary":

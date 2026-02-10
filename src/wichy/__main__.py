@@ -29,6 +29,7 @@ from wichy.slash_commands import (
 )
 from wichy.tools import ALL_TOOLS_UNINSTANTIATED
 from wichy.tools.base import BaseTool, console_tool_result
+from wichy.tools.task import console_task_agents
 
 
 class ArgumentParserWrapper:
@@ -205,6 +206,8 @@ def main():
         console.quiet = False
         if args.log_tools:
             console_tool_result.quiet = False
+        if args.log_agents:
+            console_task_agents.quiet = False
     else:
         console.quiet = True
 
