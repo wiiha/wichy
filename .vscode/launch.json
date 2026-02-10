@@ -28,7 +28,8 @@
       "console": "integratedTerminal",
       "args": [
         "--show-log",
-        "--log-tools"
+        "--log-tools",
+        "--log-agents"
         // "--tools",
         // "cat, bash",
         // "--not-tools",
