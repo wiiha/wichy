@@ -11,7 +11,7 @@ description: Agent that the user interacts with. It is up to this agent to decid
 # Specify model to use for the root agent. The format for specifying model
 # follows that of flag --model-str. User CLI flag takes precedence over the
 # value specified here.
-model: ollama/hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M
+model: ollama/ministral-3:8b
 
 include_env_info: true
 ---
