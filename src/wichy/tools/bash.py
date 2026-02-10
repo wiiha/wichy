@@ -4,9 +4,8 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 from wichy.helpers.string import truncate_to_len
-
-from .base import BaseTool, ParametersModel
-from .human_verification import require_human_verification
+from wichy.tools.base import BaseTool, ParametersModel
+from wichy.tools.human_verification import require_human_verification
 
 
 class BashParameters(ParametersModel):

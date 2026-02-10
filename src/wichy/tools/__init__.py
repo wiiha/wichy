@@ -1,16 +1,16 @@
-from .base import BaseTool
-from .bash import BashTool
-from .fetch_webpage import FetchWebPageTool
-from .file_explorer import CatFileContentTool, ListFilesTool, WriteFileTool
-from .file_search_in import SearchRecursiveTool
-from .glob import GlobTool
-from .helpers import get_tool_definitions
-from .ping import PingTool
-from .reverse_dns_tool import ReverseDnsTool
-from .search_ddg import SearchDDGTool
-from .task_tool import TaskAgentTool
-from .todo import TodoTool
-from .tree import TreeTool
+from wichy.tools.base import BaseTool
+from wichy.tools.bash import BashTool
+from wichy.tools.fetch_webpage import FetchWebPageTool
+from wichy.tools.file_explorer import CatFileContentTool, ListFilesTool, WriteFileTool
+from wichy.tools.file_search_in import SearchRecursiveTool
+from wichy.tools.glob import GlobTool
+from wichy.tools.helpers import get_tool_definitions
+from wichy.tools.ping import PingTool
+from wichy.tools.reverse_dns_tool import ReverseDnsTool
+from wichy.tools.search_ddg import SearchDDGTool
+from wichy.tools.task_tool import TaskAgentTool
+from wichy.tools.todo import TodoTool
+from wichy.tools.tree import TreeTool
 
 # Different tool collections for different contexts
 BASIC_TOOLS = [

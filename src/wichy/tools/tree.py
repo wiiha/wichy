@@ -4,7 +4,7 @@ from typing import Optional
 import pathspec
 from pydantic import BaseModel, Field
 
-from .base import BaseTool, ParametersModel
+from wichy.tools.base import BaseTool, ParametersModel
 
 
 class TreeParameters(ParametersModel):

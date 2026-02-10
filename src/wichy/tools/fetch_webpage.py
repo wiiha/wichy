@@ -5,7 +5,7 @@ import markdownify
 from playwright.async_api import async_playwright
 from pydantic import BaseModel, Field
 
-from .base import BaseTool, ParametersModel
+from wichy.tools.base import BaseTool, ParametersModel
 
 
 class FetchWebPageParameters(ParametersModel):

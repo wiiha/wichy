@@ -5,8 +5,7 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 from wichy.helpers.string import truncate_to_len
-
-from .base import BaseTool, ParametersModel
+from wichy.tools.base import BaseTool, ParametersModel
 
 
 class ListFilesParameters(ParametersModel):

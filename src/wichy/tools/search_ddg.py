@@ -3,7 +3,7 @@ from typing import Optional
 from ddgs import DDGS  # ref: https://pypi.org/project/ddgs/
 from pydantic import BaseModel, Field
 
-from .base import BaseTool, ParametersModel
+from wichy.tools.base import BaseTool, ParametersModel
 
 
 class SearchDDGParameters(ParametersModel):

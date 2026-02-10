@@ -3,7 +3,7 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
-from .base import BaseTool, ParametersModel
+from wichy.tools.base import BaseTool, ParametersModel
 
 
 class PingParameters(ParametersModel):
