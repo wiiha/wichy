@@ -4,9 +4,6 @@ from pydantic import BaseModel, Field
 from rich.console import Console
 from rich.markdown import Markdown
 
-from wichy.artifact import SESSION_ID as ARTIFACT_SESSION_ID
-from wichy.artifact import instantiate_artifact_tools_with_current_session_id
-from wichy.artifact.store import ArtifactStore
 from wichy.helpers.context import ContextHandler
 from wichy.helpers.environment_info import environment_information
 from wichy.helpers.markdown import read_markdown_with_frontmatter

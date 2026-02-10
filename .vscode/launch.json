@@ -29,8 +29,7 @@
       "args": [
         "--show-log",
         "--log-tools",
-        "--log-agents",
-        "--log-artifacts"
+        "--log-agents"
         // "--tools",
         // "cat, bash",
         // "--not-tools",
@@ -48,7 +47,6 @@
         "--show-log",
         "--log-tools",
         "--log-agents",
-        "--log-artifacts",
         "--model-str",
         "open_router/arcee-ai/trinity-large-preview:free"
       ]

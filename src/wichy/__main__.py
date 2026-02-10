@@ -14,14 +14,10 @@ from prompt_toolkit.history import FileHistory
 from rich import print
 from rich.markdown import Markdown
 
-from wichy.agents import SUB_AGENTS
 from wichy.agents.root_agent import RootAgent
 from wichy.agents.root_agent_desc_basic import root_agent_desc
 from wichy.agents.root_agent_desc_code_advanced import root_agent_desc_code_advanced
-from wichy.agents.sub_agent import console_sub_agents
 from wichy.agents.task_agent import TaskAgentTool
-from wichy.artifact import console as console_artifacts
-from wichy.artifact import instantiate_artifact_tools_with_current_session_id
 from wichy.helpers.console import console
 from wichy.helpers.environment_info import environment_information
 from wichy.helpers.markdown import read_markdown_with_frontmatter
@@ -60,11 +56,6 @@ class ArgumentParserWrapper:
             "--log-agents",
             action="store_true",
             help="Show agent results during execution, requires --show-log",
-        )
-        self.parser.add_argument(
-            "--log-artifacts",
-            action="store_true",
-            help="Show activity related to artifacts during execution, requires --show-log",
         )
         self.parser.add_argument(
             "--bash-allow-all",
@@ -217,10 +208,6 @@ def main():
         console.quiet = False
         if args.log_tools:
             console_tool_result.quiet = False
-        if args.log_agents:
-            console_sub_agents.quiet = False
-        if args.log_artifacts:
-            console_artifacts.quiet = False
     else:
         console.quiet = True
 
