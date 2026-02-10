@@ -94,7 +94,9 @@ class TaskAgent:
                 + self.name
                 + " called\n\n- llm model: "
                 + self.model
-                + "\n\n- given task: "
+                + "\n\n- available tools: "
+                + ",".join([t.name for t in self.tools])
+                + "\n\n- given task:\n\n"
                 + (
                     self.context()[1]["content"]
                     if len(self.context) >= 2

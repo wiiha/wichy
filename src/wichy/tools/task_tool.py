@@ -5,12 +5,33 @@ from pydantic import Field
 
 from wichy.helpers.string import strip_thinking_content, truncate_to_len
 from wichy.tools.base import BaseTool, ParametersModel
+from wichy.tools.bash import BashTool
+from wichy.tools.fetch_webpage import FetchWebPageTool
+from wichy.tools.file_explorer import CatFileContentTool, ListFilesTool, WriteFileTool
+from wichy.tools.file_search_in import SearchRecursiveTool
+from wichy.tools.glob import GlobTool
+from wichy.tools.search_ddg import SearchDDGTool
 from wichy.tools.task import (
     TASK_AGENT_DEFS,
     TaskAgent,
     TaskAgentDefinitionBase,
     generate_list_from_task_agent_defs,
 )
+from wichy.tools.todo import TodoTool
+from wichy.tools.tree import TreeTool
+
+TOOLS_FOR_TASK_AGENTS: list[BaseTool] = [
+    BashTool,
+    FetchWebPageTool,
+    CatFileContentTool,
+    ListFilesTool,
+    WriteFileTool,
+    SearchDDGTool,
+    SearchRecursiveTool,
+    GlobTool,
+    TodoTool,
+    TreeTool,
+]
 
 
 class TaskAgentParameters(ParametersModel):
@@ -142,7 +163,12 @@ assistant: "I'm going to use the Task tool to launch the greeting-responder agen
         if not agent_def:
             return f"error: task has no subagent_type named " + subagent_type
 
-        sa = TaskAgent(agent_definition=agent_def, prompt=prompt, model=model_str)
+        sa = TaskAgent(
+            agent_definition=agent_def,
+            prompt=prompt,
+            model=model_str,
+            all_tools_not_instantiated=TOOLS_FOR_TASK_AGENTS,
+        )
 
         try:
             result = sa.run()

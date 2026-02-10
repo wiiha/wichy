@@ -123,7 +123,7 @@ class BaseTool(ABC):
             execution_time = end_time - start_time
 
             # Add timing info to success message if it took more than 5 seconds
-            msg = f"[green bold]✓[/green bold] {self.name} completed"
+            msg = f"[green bold]✓[/green bold] tool {self.name} completed"
             if execution_time > 3:
                 if execution_time > 60:
                     minutes = int(execution_time // 60)
@@ -137,7 +137,7 @@ class BaseTool(ABC):
 
         except Exception as e:
             res = f"error: {e}"
-            console_cmd_info.print(f"[red bold]✗[/red bold] {self.name} failed")
+            console_cmd_info.print(f"[red bold]✗[/red bold] tool {self.name} failed")
 
         # Log detailed error for debugging
         console_tool_result.log(

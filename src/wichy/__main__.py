@@ -14,20 +14,20 @@ from prompt_toolkit.history import FileHistory
 from rich import print
 from rich.markdown import Markdown
 
-from wichy.agents.root_agent import RootAgent
-from wichy.agents.root_agent_desc_basic import root_agent_desc
-from wichy.agents.root_agent_desc_code_advanced import root_agent_desc_code_advanced
 from wichy.helpers.console import console
 from wichy.helpers.environment_info import environment_information
 from wichy.helpers.markdown import read_markdown_with_frontmatter
 from wichy.helpers.prompt import preprocess_prompt
 from wichy.helpers.string import strip_thinking_content
+from wichy.root_agent.root_agent import RootAgent
+from wichy.root_agent.root_agent_desc_basic import root_agent_desc
+from wichy.root_agent.root_agent_desc_code_advanced import root_agent_desc_code_advanced
 from wichy.slash_commands import (
     ContextResetException,
     SlashCommandChecker,
     slash_completer,
 )
-from wichy.tools import ALL_TOOLS_UNINSTANTIATED
+from wichy.tools import ALL_TOOLS_NOT_INSTANTIATED
 from wichy.tools.base import BaseTool, console_tool_result
 from wichy.tools.task import console_task_agents
 
@@ -106,7 +106,7 @@ def main():
 
     # instantiate tools
     in_tools: list[BaseTool] = []
-    for tool in ALL_TOOLS_UNINSTANTIATED:
+    for tool in ALL_TOOLS_NOT_INSTANTIATED:
         in_tools.append(tool())
 
     in_tools.sort(key=lambda t: t.name)

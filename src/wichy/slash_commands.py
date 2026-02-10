@@ -1,8 +1,8 @@
 from prompt_toolkit.completion import NestedCompleter
 from rich.markdown import Markdown
 
-from wichy.agents.root_agent import ContextResetStrategies
 from wichy.helpers.console import console
+from wichy.root_agent.root_agent import ContextResetStrategies
 from wichy.tools.base import console_tool_result
 from wichy.tools.task import console_task_agents
 
