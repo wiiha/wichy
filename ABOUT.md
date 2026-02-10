@@ -12,24 +12,44 @@ Wichy is an **agentic LLM framework** designed for local execution, following Si
 
 ### 1. Agent System
 
-Wichy features a hierarchical agent architecture:
+Wichy features a hierarchical agent architecture with specialized root agent configurations:
 
 - **Root Agent**: The primary interactive agent that maintains conversation context and coordinates task execution
-- **Sub Agents**: Specialized agents for specific domains:
-  - `agent-code-planner`: Strategic planning for code changes (creates plans, never implements)
-  - `agent-code-implementer`: Tactical code implementation (executes plans)
-  - `agent-code-reviewer`: Code quality and security review
-  - `agent-web-researcher`: Comprehensive web research
-  - `agent-web-researcher-lite`: Quick information gathering
+- **Root Agent Configurations**:
+  - `root-agent-basic`: Basic configuration with Ministral-3 model
+  - `root-agent-code-advanced`: Advanced configuration optimized for software engineering tasks with enhanced capabilities
 
 ### 2. Tool System
 
-A comprehensive suite of tools that agents can utilize:
+A comprehensive suite of tools organized into logical categories:
 
-- **File Operations**: `cat`, `write_file`, `grep`, `bash`, `tree`, `ls`
-- **Web Research**: `web_search`, `web_fetch`
-- **Artifact Management**: `artifact_create`, `artifact_search`
-- **System Tools**: `todo`, `ping`, `reverse_dns_tool`
+#### Basic Tools
+
+- **BashTool**: Command line execution with optional human verification
+- **TodoTool**: Task management and planning
+
+#### File System Tools
+
+- **ListFilesTool**: Directory listing and file exploration
+- **CatFileContentTool**: File content reading
+- **WriteFileTool**: File writing and editing
+- **SearchRecursiveTool**: Recursive file content search
+- **TreeTool**: Directory tree visualization
+- **GlobTool**: File pattern matching
+
+#### Web Research Tools
+
+- **SearchDDGTool**: DuckDuckGo web search
+- **FetchWebPageTool**: Web page content fetching
+
+#### Networking Tools
+
+- **PingTool**: Network connectivity testing
+- **ReverseDnsTool**: DNS resolution
+
+#### Sub-Agent Tools
+
+- **TaskAgentTool**: Multi-step task execution with autonomous agents
 
 All tools feature:
 
@@ -79,7 +99,7 @@ Wichy supports multiple LLM backends:
 ### Workflow Example
 
 ```
-User Input → RootAgent → SubAgent Selection → Tool Execution → Artifact Creation → Response
+User Input → RootAgent → Tool Execution → Response
 ```
 
 ---
@@ -93,32 +113,46 @@ User Input → RootAgent → SubAgent Selection → Tool Execution → Artifact 
 python -m wichy
 
 # Specify a model
-python -m wichy --model ollama/hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M
+python -m wichy --model-str ollama/hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M
 
 # List available tools
 python -m wichy --list-tools
 
 # Limit available tools
 python -m wichy --tools cat,bash,grep
+
+# Allow all bash commands without human verification
+python -m wichy --bash-allow-all
 ```
 
 ### Interactive Commands
 
 - **Slash Commands**: Special commands starting with `/`
-- **Normal Input**: Processed by RootAgent and appropriate sub-agents
+- **Normal Input**: Processed by RootAgent and appropriate tools
 - **Context Management**: Reset or summarize conversation history
 
-### Agent Workflow
+### Tool Filtering
 
-1. **Code Tasks**:
+```bash
+# Include specific tools only
+python -m wichy --tools cat,bash,grep
 
-   - Code Planner creates implementation plan
-   - Code Implementer executes the plan
-   - Code Reviewer validates the implementation
+# Exclude specific tools
+python -m wichy --not-tools bash,ping
 
-2. **Research Tasks**:
-   - Web Researcher gathers comprehensive information
-   - Creates research artifacts for future reference
+# Combine inclusion and exclusion
+python -m wichy --tools cat,bash,grep --not-tools bash
+```
+
+### Logging Options
+
+```bash
+# Show logs during execution
+python -m wichy --show-log
+
+# Show tool results (requires --show-log)
+python -m wichy --show-log --log-tools
+```
 
 ---
 
@@ -139,16 +173,14 @@ pytest tests/
 
 ### Extending Wichy
 
-1. **Add New Agents**: Create markdown description files following existing patterns
+1. **Add New Root Agent Configurations**: Create markdown description files following existing patterns
 2. **Add New Tools**: Implement BaseTool subclasses with Pydantic validation
-3. **Add Artifact Types**: Extend the ARTIFACT_TYPES literal
+3. **Add Tool Categories**: Extend the tool organization in tools/**init**.py
 
 ---
 
 ## Future Goals
 
-- Add "generic sub agent" for context isolation
-- Enhance artifact retrieval and relevance algorithms
 - Expand toolset for additional use cases
 
 ---
