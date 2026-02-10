@@ -1,4 +1,5 @@
 import json
+from datetime import date
 
 from pydantic import BaseModel, Field
 from rich.console import Console
@@ -81,6 +82,9 @@ class TaskAgent:
                 + environment_information()
                 + "\n\n"
             )
+        else:
+            today = date.today().isoformat()
+            system_prompt += f"\n\nToday's date: {today}"
 
         context = ContextHandler(custom_suffix=self.name, sub_dir="task_agents")
         context.add(role="system", content=system_prompt)

@@ -281,7 +281,7 @@ When in doubt, use this tool. Being proactive with task management demonstrates 
         # Update in store
         self.task_store[task_id] = current_task
 
-        return f"Marked task '{task_id}' as in progress"
+        return f"Marked task '{task_id}' as in progress. Task: {current_task.task_name}: {current_task.task_description}"
 
     def _view_task(self, task_id: str) -> str:
         """
