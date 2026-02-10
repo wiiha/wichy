@@ -10,6 +10,7 @@ definition of simonw [An LLM agent runs tools in a loop to achive a goal](https:
 
 ## future todos
 
+- CHANGE how model is boot strapped so that it is easier to import and extend in other projects.
 - CHANGE return from todo tool should contain the full todo list
 - ADD possibility to define the path where `.wichy` dir should be stored.
 - ADD feature based on "Tool results and user messages may include <system-reminder> tags. <system-reminder> tags contain useful information and reminders. They are automatically added by the system, and bear no direct relation to the specific tool results or user messages in which they appear."
