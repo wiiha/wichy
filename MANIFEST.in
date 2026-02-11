@@ -1,35 +1,28 @@
 include README.md
-include requirements.txt
 include LICENSE
-recursive-include agents *
-recursive-include helpers *
-recursive-include tools *
-include .gitignore
+recursive-include src/wichy *.py
+recursive-include src/wichy *.sh
+recursive-include src/wichy *.md
 
-# Exclude large binary files and scripts that should not be included in the package
-exclude llama_server_stuff/
-exclude run_llama_server.sh
-
-# Include only specific files if needed
-include setup.py
-include pyproject.toml
-
-# Don't include __pycache__ or compiled Python files
+# Exclude development and build artifacts
 global-exclude __pycache__
-global-exclude *.py[cod]
-global-exclude *$py.class
-
-# Exclude common build artifacts
-exclude build/
-exclude dist/
-exclude .egg-info/
-exclude .pytest_cache/
-exclude .tox/
-exclude .coverage
-exclude .coverage.*
-exclude .mypy_cache/
-exclude .cache/
-exclude .env/
-exclude .venv/
-exclude venv/
-exclude ENV/
+global-exclude *.pyc
+global-exclude *.pyo
+global-exclude *.pyd
+global-exclude .git*
+global-exclude .tox
+global-exclude .coverage
+global-exclude .pytest_cache
+global-exclude *.egg-info
+global-exclude build
+global-exclude dist
+global-exclude venv
+global-exclude .venv
+global-exclude .env
+global-exclude *.log
+global-exclude *.tmp
+global-exclude *.bak
+global-exclude *.swp
+global-exclude .DS_Store
+global-exclude Thumbs.db
+global-exclude desktop.ini
