@@ -1,6 +1,6 @@
 root_agent_desc_code_advanced = """---
 name: root-agent-code-advanced
-description: Agent that the user interacts with. It is up to this agent to decide on what tools or other agents to call.
+description: Advanced code focused agent. The system prompt is long and heavily inspired by Claude Code system prompt from late 2025.
 
 # Tools specified here can be considered the base tools for the
 # root agent. User CLI flags for adding and removing tools will

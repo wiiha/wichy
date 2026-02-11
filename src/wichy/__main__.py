@@ -1,4 +1,5 @@
 import sys
+from typing import Dict
 
 from dotenv import load_dotenv
 
@@ -16,12 +17,12 @@ from rich.markdown import Markdown
 
 from wichy.helpers.console import console
 from wichy.helpers.environment_info import environment_information
-from wichy.helpers.markdown import read_markdown_with_frontmatter
 from wichy.helpers.prompt import preprocess_prompt
 from wichy.helpers.string import strip_thinking_content
+from wichy.root_agent import ALL_ROOT_AGENT_DESC
+from wichy.root_agent.helpers import ParsedRootAgentDesc, parse_root_agent_markdown_desc
 from wichy.root_agent.root_agent import RootAgent
-from wichy.root_agent.root_agent_desc_basic import root_agent_desc
-from wichy.root_agent.root_agent_desc_code_advanced import root_agent_desc_code_advanced
+from wichy.root_agent.root_agent_desc_template import root_agent_desc_template
 from wichy.slash_commands import (
     ContextResetException,
     SlashCommandChecker,
@@ -55,11 +56,11 @@ class ArgumentParserWrapper:
             action="store_true",
             help="Show agent results during execution, requires --show-log",
         )
-        self.parser.add_argument(
-            "--bash-allow-all",
-            action="store_true",
-            help="Allow direct execution of bash commands without human authorization.",
-        )
+        # self.parser.add_argument(
+        #     "--bash-allow-all",
+        #     action="store_true",
+        #     help="Allow direct execution of bash commands without human authorization.",
+        # )
         self.parser.add_argument(
             "-m",
             "--model-str",
@@ -84,6 +85,44 @@ class ArgumentParserWrapper:
                 + "See --list-tools for all tools. Omitting this flag will give the agent access to all tools. Unless --tools is specified."
             ),
         )
+        self.parser.add_argument(
+            "-r",
+            "--root-agent-description",
+            default="root-agent-code-advanced",
+            help="Specify which root agent description to use.",
+        )
+
+        # Add subcommands
+        subparsers = self.parser.add_subparsers(
+            dest="command", help="Available sub commands"
+        )
+
+        # root agent command
+        ra_parser = subparsers.add_parser("ra", help="Root Agent related commands")
+        ra_parser.add_argument(
+            "-t",
+            "--template",
+            action="store_true",
+            help="Print the root agent description template to stdout. Can be piped to file. Your own root agents live in (~/).wichy/root_agent_defs",
+        )
+
+        # ls command
+        ls_parser = subparsers.add_parser("ls", help="List things related to Wichy")
+        ls_subparsers = ls_parser.add_subparsers(
+            dest="ls_command", help="ls subcommands"
+        )
+
+        # TODO: Things to list
+        # available root agent descriptions (ls ra or ls root agents)
+        # available tools (ls tools)
+        # previous contexts in closest .wichy folder (ls ctx or ls contexts)
+
+        ls_subparsers.add_parser("ra", help="List available root agent descriptions")
+        ls_subparsers.add_parser("tools", help="List available tools")
+        ls_subparsers.add_parser(
+            "ctx", help="List previous contexts in closest .wichy folder"
+        )
+
         self.args = None
 
     def parse_args(self):
@@ -111,7 +150,33 @@ def main():
 
     in_tools.sort(key=lambda t: t.name)
 
-    if args.list_tools:
+    # Example of checking if a specific subcommand was called
+    if args.command == "ls" and args.ls_command == "ra":
+        # This means "ls root agents" was called
+        msg = "# Root Agents Available\n"
+        for rad in ALL_ROOT_AGENT_DESC:
+            ra = parse_root_agent_markdown_desc(rad)
+            msg += (
+                "- **"
+                + ra.props.get("name", "WARN missing name prop")
+                + "**: "
+                + ra.props.get("description", "No description")
+                + "\n"
+            )
+            for prop in ra.props:
+                v = ra.props[prop]
+                if prop in ["name", "description"]:
+                    continue
+                msg += "\t- **" + prop + "**: " + v + "\n"
+
+        print(Markdown(msg))
+        exit(0)
+    elif args.command == "ls" and args.ls_command == "ctx":
+        # This means "ls ctx" or "ls contexts" was called
+        print("NOT IMPLEMENTED - Listing previous contexts in .wichy folder")
+        exit(0)
+
+    if args.list_tools or args.command == "ls" and args.ls_command == "tools":
         msg = "# Tools Available\n"
         for tool in in_tools:
             msg += "- **" + tool.name + "**: " + tool.description + "\n"
@@ -119,11 +184,34 @@ def main():
         print(Markdown(msg))
         exit(0)
 
+    if args.command == "ra" and args.template:
+        sys.stdout.write(root_agent_desc_template)
+        sys.stdout.flush()
+        exit(0)
+
+    if args.command in ("ls", "ra"):
+        # At this point if ls is specified, something is wrong.
+        parser.parser.print_usage()
+        exit(1)
+
     # load root agent description
 
-    root_agent_props, system_prompt = read_markdown_with_frontmatter(
-        root_agent_desc_code_advanced
-    )
+    root_agents: Dict[str, ParsedRootAgentDesc] = {}
+    for rad in ALL_ROOT_AGENT_DESC:
+        ra = parse_root_agent_markdown_desc(rad)
+        root_agents[ra.props["name"]] = ra
+
+    selected_root_agent = root_agents.get(args.root_agent_description, None)
+
+    if not selected_root_agent:
+        print(
+            f"[red]error:[/red] Specified root agent [bold]{args.root_agent_description}[/bold] does not exist",
+            file=sys.stderr,
+        )
+        exit(1)
+
+    root_agent_props = selected_root_agent.props
+    system_prompt = selected_root_agent.system_prompt
 
     if system_prompt.strip() == "":
         print(

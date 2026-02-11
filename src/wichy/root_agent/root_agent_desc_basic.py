@@ -1,6 +1,6 @@
 root_agent_desc = """---
 name: root-agent-basic
-description: Agent that the user interacts with. It is up to this agent to decide on what tools or other agents to call.
+description: A general-purpose agent that interprets user requests, delegates to tools/agents when useful, and returns a validated final response. System prompt is rather short and user can have more influence by follow up instructions.
 
 # Tools specified here can be considered the base tools for the
 # root agent. User CLI flags for adding and removing tools will
@@ -13,7 +13,7 @@ description: Agent that the user interacts with. It is up to this agent to decid
 # value specified here.
 model: ollama/ministral-3:8b
 
-include_date: true
+include_env_info: true
 ---
 
 You are a helpful assistant. Whenever possible, defer tasks to available agents. Agents DO NOT retain memory between requests to them, even if you call the same agent twice.
