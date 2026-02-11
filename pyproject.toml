@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Agentic LLM for coding."
 readme = "README.md"
 authors = [
-    {name = "Wilhelm Hansson", email = "jolt-tannery-spool@duck.com"}
+    {name = "Wilhelm Hansson", email = "wilhelm.hansson@pm.me" }
 ]
 license = {text = "MIT"}
 classifiers = [
