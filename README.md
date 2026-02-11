@@ -8,6 +8,8 @@ definition of simonw [An LLM agent runs tools in a loop to achive a goal](https:
 - all is running locally
 - should be a stepping stone for larger projects
 
+**You probably want to go to the [ABOUT.md](ABOUT.md)**
+
 ## future todos
 
 - CHANGE how model is boot strapped so that it is easier to import and extend in other projects.
