@@ -22,15 +22,15 @@ from wichy.tools.tree import TreeTool
 
 TOOLS_FOR_TASK_AGENTS: list[BaseTool] = [
     BashTool,
-    FetchWebPageTool,
     CatFileContentTool,
+    FetchWebPageTool,
+    GlobTool,
     ListFilesTool,
-    WriteFileTool,
     SearchDDGTool,
     SearchRecursiveTool,
-    GlobTool,
     TodoTool,
     TreeTool,
+    WriteFileTool,
 ]
 
 
