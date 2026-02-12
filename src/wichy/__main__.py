@@ -24,6 +24,7 @@ from wichy.root_agent.helpers import ParsedRootAgentDesc, parse_root_agent_markd
 from wichy.root_agent.root_agent import RootAgent
 from wichy.root_agent.root_agent_desc_template import root_agent_desc_template
 from wichy.slash_commands import (
+    ContextDropException,
     ContextResetException,
     SlashCommandChecker,
     slash_completer,
@@ -315,6 +316,8 @@ def main():
             print(markdown)
         except ContextResetException as e:
             root_agent.reset_context(strategy=e.strategy)
+        except ContextDropException:
+            root_agent.drop_last_context_entry()
 
         except KeyboardInterrupt:
             continue

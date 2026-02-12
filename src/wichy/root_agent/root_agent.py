@@ -97,6 +97,13 @@ class RootAgent:
         self.context.append({"role": "assistant", "content": response.content})
         return response.content
 
+    def drop_last_context_entry(self):
+        if len(self.context) < 2:
+            # only system msg left, cant drop that
+            return
+
+        self.context.drop()
+
     def reset_context(self, strategy: ContextResetStrategies):
         first_prompt = self.context()[0]
 

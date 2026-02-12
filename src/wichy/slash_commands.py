@@ -17,13 +17,22 @@ class ContextResetException(Exception):
         return f"{self.message}: strategy='{self.strategy}'"
 
 
+class ContextDropException(Exception):
+    def __init__(self, message="Drop last context entry"):
+        self.message = message
+        super().__init__(self.message)
+
+    def __str__(self):
+        return f"{self.message}"
+
+
 slash_completer = NestedCompleter.from_nested_dict(
     {
         "/logging": {
             "on": None,
             "off": None,
         },
-        "/context": {"reset": None, "reset_by_summary": None},
+        "/context": {"reset": None, "reset_by_summary": None, "drop_last": None},
         "/exit": None,
     }
 )
@@ -51,6 +60,8 @@ class SlashCommandChecker:
                 raise ContextResetException(strategy=ContextResetStrategies.NUKE)
             if command == "/context reset_by_summary":
                 raise ContextResetException(strategy=ContextResetStrategies.SUMMARY)
+            if command == "/context drop_last":
+                raise ContextDropException()
 
             return f"Unknown command: {command}"
         return None
