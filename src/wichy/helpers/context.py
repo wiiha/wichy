@@ -1,9 +1,12 @@
-import time
 import json
 import os
-from os.path import isfile, join
+import time
 from datetime import datetime
+from os.path import isfile, join
+
 from rich import print
+
+from wichy.helpers.file import drop_last_n_lines
 
 CONTEXT_DIR = ".wichy/contexts/"
 CONTEXT_FILE_EXT = ".json"
@@ -104,6 +107,27 @@ class ContextHandler:
         x = {"role": role, "content": content}
         self.append(x)
 
+    def drop(self, n: int = 1):
+        """
+        drops the n last items from the context,
+        this will also modify the corresponding file
+        on disk.
+
+        :param n: Number of items to drop. n < 1 is a no-op.
+        :type n: int
+        """
+        if n < 1:
+            return
+
+        try:
+            drop_last_n_lines(filename=self._gen_save_path(), n=n)
+        except Exception as e:
+            print(f"[red]Error dropping lines from file:[/red] {e}")
+            return
+
+        # all good, remove from context
+        self.context = self.context[:-n]
+
     def _save_to_file(self, new_object):
         """
         Save the new object as a JSON object on a new line in the log file.
@@ -116,16 +140,19 @@ class ContextHandler:
               ID, and custom suffix
             - Writes the object as a JSON string followed by a newline
         """
-        save_path = self.context_dir + self.start_date + "_" + self.id
-        if self.custom_suffix != "":
-            save_path += "_" + self.custom_suffix
-        save_path += CONTEXT_FILE_EXT
-        log_file_path = save_path
+        log_file_path = self._gen_save_path()
         try:
             with open(log_file_path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(new_object) + "\n")
         except Exception as e:
             print(f"[red]Error saving context to file:[/red] {e}")
+
+    def _gen_save_path(self) -> str:
+        save_path = self.context_dir + self.start_date + "_" + self.id
+        if self.custom_suffix != "":
+            save_path += "_" + self.custom_suffix
+        save_path += CONTEXT_FILE_EXT
+        return save_path
 
     def delete(self):
         """
@@ -136,10 +163,7 @@ class ContextHandler:
         Side effects:
             - Removes the context file from disk
         """
-        save_path = self.context_dir + self.start_date + "_" + self.id
-        if self.custom_suffix != "":
-            save_path += "_" + self.custom_suffix
-        save_path += CONTEXT_FILE_EXT
+        save_path = self._gen_save_path()
         os.remove(save_path)
 
 
