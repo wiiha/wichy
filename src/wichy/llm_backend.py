@@ -96,7 +96,7 @@ def call(context, tool_defs=None, model_str=None, extra_args=None, **extra_kwarg
         model = model_name
 
     elif backend == "llama_cpp":
-        client = OpenAI(base_url="http://localhost:8080/v1", api_key="sk-local")
+        client = OpenAI(base_url="http://localhost:8080", api_key="sk-local")
         model = "model-set-by-llama-server"
     elif backend == "open_router":
         api_key = os.environ.get("OPEN_ROUTER_API_KEY", None)
