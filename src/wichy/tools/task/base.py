@@ -165,4 +165,72 @@ class TaskAgent:
             self.context.append({"role": "assistant", "content": response.content})
             return response.content
         except KeyboardInterrupt as e:
-            raise Exception("user aborted execution of " + self.name)
+            return self._handle_user_interrupt()
+
+    def _gen_summary(self):
+        c = (
+            "Your next answer will be your last message. "
+            + "Consider your initial task and try answering "
+            + "it to the best of you ability given the information at hand."
+        )
+        self.context.add(
+            role="user",
+            content=c,
+        )
+        response = call(self.context(), tool_defs=None, model_str=self.model)
+        self.context.append({"role": "assistant", "content": response.content})
+        return response.content
+
+    def _handle_user_interrupt(self):
+        # the goal here is to force an exit and summarize
+        # what the agent managed so far.
+
+        # context could be in a broken state at this point,
+        # meaning there might be tool calls that didn't get answered.
+
+        last_entry = self.context()[-1]
+
+        if last_entry["role"] == "assistant":
+            # if tool calls, drop entry
+            if not last_entry.get("tool_calls", None):
+                self.context.drop()
+            return self._gen_summary()
+
+        if last_entry["role"] == "user":
+            # this should not really happen for an agent,
+            # but let us have it as a case.
+            return self._gen_summary()
+
+        if last_entry["role"] == "tool":
+            # okay, so we aborted somewhere in a
+            # or after a tool exec. We now dont
+            # know if there is additional tool
+            # calls that were never answered.
+            # Let us find the last assistant msg
+            # and see how many tool calls there were
+            observed_tool_answer_ids = []
+            i = len(self.context) - 1
+
+            while i > 1:
+                e = self.context()[i]
+                if e["role"] == "tool":
+                    observed_tool_answer_ids.append(e["tool_call_id"])
+                if e["role"] == "assistant":
+                    # okay, so we are back at the assistant, let us explore the tool calls
+                    tcs = list(e["tool_calls"])
+                    missing_call = False
+                    for tc in tcs:
+                        id = str(tc["id"])
+                        if not (id in observed_tool_answer_ids):
+                            missing_call = True
+                            # only one missing is enough
+                            break
+                    if missing_call:
+                        self.context.drop(n=i)
+                    return self._gen_summary()
+
+                i = i - 1
+
+        # we should never end up here
+        # if we do, give generic error msg
+        raise Exception("user aborted execution of " + self.name)
