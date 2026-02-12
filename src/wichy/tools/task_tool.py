@@ -170,13 +170,10 @@ assistant: "I'm going to use the Task tool to launch the greeting-responder agen
             all_tools_not_instantiated=TOOLS_FOR_TASK_AGENTS,
         )
 
-        try:
-            result = sa.run()
-            old_result = result
-            result = strip_thinking_content(result)
-            if result.strip() == "":
-                # handles the case of an agent only returning thinking content
-                result = old_result
-            return result
-        except Exception as e:
-            return f"error: {e}"
+        result = sa.run()
+        old_result = result
+        result = strip_thinking_content(result)
+        if result.strip() == "":
+            # handles the case of an agent only returning thinking content
+            result = old_result
+        return result
