@@ -10,7 +10,7 @@ from wichy.helpers.environment_info import environment_information
 from wichy.helpers.markdown import read_markdown_with_frontmatter
 from wichy.helpers.prompt import preprocess_prompt
 from wichy.helpers.string import strip_thinking_content, truncate_to_len
-from wichy.llm_backend import Message, call, called_tool
+from wichy.llm_backend import LLMBackendContextLimitReached, Message, call, called_tool
 from wichy.tools import get_tool_definitions
 from wichy.tools.base import BaseTool, ParametersModel
 
@@ -165,23 +165,36 @@ class TaskAgent:
             self.context.append({"role": "assistant", "content": response.content})
             return response.content
         except KeyboardInterrupt as e:
-            return self._handle_user_interrupt()
+            return self._handle_interrupt(
+                fallback_exception=Exception("user aborted execution of " + self.name)
+            )
+        except LLMBackendContextLimitReached as e:
+            # okay, context exploded while working
+            # let us stop agent execution and return
+            # summary. Let us assume that it was the
+            # last context entry that made it go BOOM.
+            self.context.drop()
+            return self._handle_interrupt(fallback_exception=e)
 
     def _gen_summary(self):
         c = (
             "Your next answer will be your last message. "
             + "Consider your initial task and try answering "
-            + "it to the best of you ability given the information at hand."
+            + "it to the best of you ability given the information at hand. "
+            + "However, do not lie, if the the available information isn't enough then just say that."
         )
         self.context.add(
             role="user",
             content=c,
         )
+        # There is a very sad case in which we reach this part of the code
+        # and the context will still explode. For now I think we will just
+        # let the task agent die on us.
         response = call(self.context(), tool_defs=None, model_str=self.model)
         self.context.append({"role": "assistant", "content": response.content})
         return response.content
 
-    def _handle_user_interrupt(self):
+    def _handle_interrupt(self, fallback_exception: Exception):
         # the goal here is to force an exit and summarize
         # what the agent managed so far.
 
@@ -192,7 +205,7 @@ class TaskAgent:
 
         if last_entry["role"] == "assistant":
             # if tool calls, drop entry
-            if not last_entry.get("tool_calls", None):
+            if last_entry.get("tool_calls"):
                 self.context.drop()
             return self._gen_summary()
 
@@ -232,5 +245,5 @@ class TaskAgent:
                 i = i - 1
 
         # we should never end up here
-        # if we do, give generic error msg
-        raise Exception("user aborted execution of " + self.name)
+        # if we do, use fallback error
+        raise fallback_exception

@@ -3,11 +3,27 @@ import os
 import time
 from typing import List, Optional
 
-from openai import OpenAI
+from openai import BadRequestError, OpenAI
 from pydantic import BaseModel
 from rich import print
 
 from wichy.helpers.console import console
+
+
+class LLMBackendContextLimitReached(Exception):
+    def __init__(
+        self,
+        allowed_max,
+        current_count,
+        message="current context exceeds LLM backend limits",
+    ):
+        self.allowed_max = allowed_max
+        self.current_count = current_count
+        self.message = message
+        super().__init__(self.message)
+
+    def __str__(self):
+        return f"{self.message}: allowed_max_tokens={self.allowed_max} current_token_count={self.current_count}"
 
 
 class function(BaseModel):
@@ -150,13 +166,32 @@ def call(context, tool_defs=None, model_str=None, extra_args=None, **extra_kwarg
     console.log(f"calling llm endpoint [backend={backend}, model={model}]")
     start_time = time.time()
 
-    response = client.chat.completions.create(
-        model=model,
-        messages=context,
-        tools=tool_defs,
-        **forwarded,
-        extra_body={**backend_specific_headers},
-    )
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=context,
+            tools=tool_defs,
+            **forwarded,
+            extra_body={**backend_specific_headers},
+        )
+    except BadRequestError as e:
+        if e.type != "exceed_context_size_error":
+            raise e
+
+        b = e.body
+        if not b:
+            raise e
+
+        allowed_max = b.get("n_ctx")
+        current_count = b.get("n_prompt_tokens")
+
+        raise LLMBackendContextLimitReached(
+            allowed_max=allowed_max, current_count=current_count
+        )
+
+    except Exception as e:
+        # something else is not right
+        raise e
 
     elapsed_time = time.time() - start_time
 

@@ -19,6 +19,7 @@ from wichy.helpers.console import console
 from wichy.helpers.environment_info import environment_information
 from wichy.helpers.prompt import preprocess_prompt
 from wichy.helpers.string import strip_thinking_content
+from wichy.llm_backend import LLMBackendContextLimitReached
 from wichy.root_agent import ALL_ROOT_AGENT_DESC
 from wichy.root_agent.helpers import ParsedRootAgentDesc, parse_root_agent_markdown_desc
 from wichy.root_agent.root_agent import RootAgent
@@ -316,8 +317,17 @@ def main():
             print(markdown)
         except ContextResetException as e:
             root_agent.reset_context(strategy=e.strategy)
+            continue
         except ContextDropException:
             root_agent.drop_last_context_entry()
+            continue
+        except LLMBackendContextLimitReached as e:
+            print(
+                "[red bold]Error:[/red bold] "
+                + str(e)
+                + "\n[green bold]Tip:[/green bold] Try dropping some messages or summarizing using slash commands."
+            )
+            continue
 
         except KeyboardInterrupt:
             continue
