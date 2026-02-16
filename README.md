@@ -12,7 +12,6 @@ definition of simonw [An LLM agent runs tools in a loop to achive a goal](https:
 
 ## future todos
 
-- ADD `AskUserQuestionTool`: ref: /Users/wilhelm/projects/wichy/notes/claude-code-prompt-2.1.17.md
 - CHANGE how model is boot strapped so that it is easier to import and extend in other projects.
 - CHANGE return from todo tool should contain the full todo list
 - ADD possibility to define the path where `.wichy` dir should be stored.
