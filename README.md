@@ -13,7 +13,6 @@ definition of simonw [An LLM agent runs tools in a loop to achive a goal](https:
 ## future todos
 
 - ADD @block_on decorator that can be put on a tools execute function. It should work similar to the @require_human_verification in the sense that it can stop execution flow. The idea is that the decorator should be passed a function (or some other way of passing) that contains the logic for deciding wether to block execution or not.
-- ADD first stab at accessing users (markdown based) knowledge store using a certain tool, `KnowledgeStoreTool`. I am thinking a similar interface as the grep tool, regarding output_mode. I guess it will be like the grep tool but with the dir path "locked". Should still be its own tool thou since I plan to have a more advanced implementation with a sqlite backend in the future. An example of a very simple knowledge store is the `notes` dir in this project.
 - ADD `AskUserQuestionTool`: ref: /Users/wilhelm/projects/wichy/notes/claude-code-prompt-2.1.17.md
 - CHANGE how model is boot strapped so that it is easier to import and extend in other projects.
 - CHANGE return from todo tool should contain the full todo list

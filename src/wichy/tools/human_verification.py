@@ -1,5 +1,5 @@
 import functools
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Tuple
 
 from prompt_toolkit import PromptSession
 from rich import print
@@ -63,6 +63,45 @@ def require_human_verification(func: Callable) -> Callable:
             print("Please enter 'y' or 'n <optional reason>'")
 
     return wrapper
+
+
+def block_on(decision_func: Callable) -> Callable:
+    """
+    Decorator that conditionally blocks execution based on a decision function.
+
+    The decision function should have the same signature as the decorated function
+    (including 'self' if applicable) and return a tuple:
+      (should_block: bool, reason: Optional[str])
+
+    - If should_block is True, raises PermissionError with the provided reason.
+    - If should_block is False, executes the function normally.
+
+    Example:
+      def should_block_dangerous_command(self, command: str, timeout: int) -> Tuple[bool, Optional[str]]:
+          if "rm -rf" in command:
+              return True, "Destructive command 'rm -rf' is not allowed"
+          return False, None
+
+      @block_on(should_block_dangerous_command)
+      def execute(self, command: str, timeout: int = 30) -> str:
+          ...
+    """
+
+    def decorator(func: Callable) -> Callable:
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs) -> Any:
+            # Call the decision function with the same arguments
+            should_block, reason = decision_func(*args, **kwargs)
+
+            if should_block:
+                message = reason or f"Execution blocked by {decision_func.__name__}"
+                raise PermissionError(message)
+
+            return func(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
 
 
 @require_human_verification

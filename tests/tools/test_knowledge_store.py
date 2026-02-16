@@ -51,14 +51,14 @@ def test_knowledge_store_custom_path(temp_knowledge_dir):
 def test_knowledge_store_missing_pattern():
     """Test that empty pattern returns an error."""
     tool = KnowledgeStoreTool(knowledge_dir="/nonexistent")
-    result = tool.execute(pattern="")
+    result = tool.execute(pattern="", model_str="ollama/ministral-3:3b")
     assert "error: pattern is required" in result
 
 
 def test_knowledge_store_nonexistent_dir():
     """Test that nonexistent directory returns an error."""
     tool = KnowledgeStoreTool(knowledge_dir="/this/path/does/not/exist")
-    result = tool.execute(pattern="test")
+    result = tool.execute(pattern="test", model_str="ollama/ministral-3:3b")
     assert "error: knowledge store directory" in result
     assert "does not exist" in result
 
@@ -66,7 +66,11 @@ def test_knowledge_store_nonexistent_dir():
 def test_knowledge_store_files_with_matches(temp_knowledge_dir):
     """Test output_mode=FILES_WITH_MATCHES."""
     tool = KnowledgeStoreTool(knowledge_dir=temp_knowledge_dir)
-    result = tool.execute(pattern="Python", output_mode=OutputMode.FILES_WITH_MATCHES)
+    result = tool.execute(
+        pattern="Python",
+        output_mode=OutputMode.FILES_WITH_MATCHES,
+        model_str="ollama/ministral-3:3b",
+    )
 
     files = result.strip().split("\n")
     # Should find 2 files containing "Python" (not js_note.md)
@@ -81,7 +85,11 @@ def test_knowledge_store_files_with_matches(temp_knowledge_dir):
 def test_knowledge_store_content_mode(temp_knowledge_dir):
     """Test output_mode=CONTENT."""
     tool = KnowledgeStoreTool(knowledge_dir=temp_knowledge_dir)
-    result = tool.execute(pattern="Python", output_mode=OutputMode.CONTENT)
+    result = tool.execute(
+        pattern="Python",
+        output_mode=OutputMode.CONTENT,
+        model_str="ollama/ministral-3:3b",
+    )
 
     # Should include matching lines with file paths
     assert "python_note.md" in result or "python_tips.md" in result
@@ -91,7 +99,11 @@ def test_knowledge_store_content_mode(temp_knowledge_dir):
 def test_knowledge_store_count_mode(temp_knowledge_dir):
     """Test output_mode=COUNT."""
     tool = KnowledgeStoreTool(knowledge_dir=temp_knowledge_dir)
-    result = tool.execute(pattern="Python", output_mode=OutputMode.COUNT)
+    result = tool.execute(
+        pattern="Python",
+        output_mode=OutputMode.COUNT,
+        model_str="ollama/ministral-3:3b",
+    )
 
     lines = result.strip().split("\n")
     # Each file with matches should show count
@@ -109,7 +121,9 @@ def test_knowledge_store_count_mode(temp_knowledge_dir):
 def test_knowledge_store_no_matches(temp_knowledge_dir):
     """Test when no matches are found."""
     tool = KnowledgeStoreTool(knowledge_dir=temp_knowledge_dir)
-    result = tool.execute(pattern="nonexistent_pattern_xyz")
+    result = tool.execute(
+        pattern="nonexistent_pattern_xyz", model_str="ollama/ministral-3:3b"
+    )
     assert "no matches found" in result.lower()
 
 
@@ -117,7 +131,9 @@ def test_knowledge_store_glob_pattern(temp_knowledge_dir):
     """Test using a different glob pattern."""
     tool = KnowledgeStoreTool(knowledge_dir=temp_knowledge_dir)
     # Search only in files ending with "tips.md"
-    result = tool.execute(pattern="Python", glob="*tips.md")
+    result = tool.execute(
+        pattern="Python", glob="*tips.md", model_str="ollama/ministral-3:3b"
+    )
 
     # Should only search in python_tips.md
     assert "python_tips.md" in result or "Python tips" in result
@@ -131,7 +147,9 @@ def test_knowledge_store_glob_pattern(temp_knowledge_dir):
 def test_knowledge_store_string_output_mode(temp_knowledge_dir):
     """Test passing output_mode as string instead of enum."""
     tool = KnowledgeStoreTool(knowledge_dir=temp_knowledge_dir)
-    result = tool.execute(pattern="Python", output_mode="content")
+    result = tool.execute(
+        pattern="Python", output_mode="content", model_str="ollama/ministral-3:3b"
+    )
     assert "Python is" in result or "Python tips" in result
 
 
@@ -148,7 +166,12 @@ def test_fallback_with_glob(temp_knowledge_dir, monkeypatch, output_mode):
         shutil, "which", lambda name: False if name == "rg" else original_which(name)
     )
     tool = KnowledgeStoreTool(knowledge_dir=temp_knowledge_dir)
-    result = tool.execute(pattern="Python", output_mode=output_mode, glob="*.md")
+    result = tool.execute(
+        pattern="Python",
+        output_mode=output_mode,
+        glob="*.md",
+        model_str="ollama/ministral-3:3b",
+    )
 
     if output_mode == OutputMode.FILES_WITH_MATCHES:
         files = result.strip().split("\n")
@@ -182,7 +205,12 @@ def test_fallback_simple(temp_knowledge_dir, monkeypatch, output_mode):
         shutil, "which", lambda name: False if name == "rg" else original_which(name)
     )
     tool = KnowledgeStoreTool(knowledge_dir=temp_knowledge_dir)
-    result = tool.execute(pattern="Python", output_mode=output_mode, glob="*")
+    result = tool.execute(
+        pattern="Python",
+        output_mode=output_mode,
+        glob="*",
+        model_str="ollama/ministral-3:3b",
+    )
 
     if output_mode == OutputMode.FILES_WITH_MATCHES:
         files = result.strip().split("\n")
@@ -217,6 +245,7 @@ def test_fallback_with_glob_no_files(temp_knowledge_dir, monkeypatch):
         pattern="Python",
         output_mode=OutputMode.FILES_WITH_MATCHES,
         glob="*.nonexistent",
+        model_str="ollama/ministral-3:3b",
     )
     assert "no files found matching the pattern" in result.lower()
 
@@ -224,5 +253,57 @@ def test_fallback_with_glob_no_files(temp_knowledge_dir, monkeypatch):
 def test_knowledge_store_invalid_output_mode_string(temp_knowledge_dir):
     """Test passing invalid output_mode as string returns an error."""
     tool = KnowledgeStoreTool(knowledge_dir=temp_knowledge_dir)
-    result = tool.execute(pattern="Python", output_mode="invalid_mode")
+    result = tool.execute(
+        pattern="Python", output_mode="invalid_mode", model_str="ollama/ministral-3:3b"
+    )
     assert "error: invalid output_mode" in result
+
+
+# Tests for block_on decorator with open_router blocking
+
+
+def test_block_on_open_router_with_open_router_backend(temp_knowledge_dir):
+    """Test that KnowledgeStoreTool blocks execution when model_str starts with 'open_router'."""
+    tool = KnowledgeStoreTool(knowledge_dir=temp_knowledge_dir)
+
+    with pytest.raises(PermissionError) as exc_info:
+        tool.execute(pattern="Python", model_str="open_router/some-model")
+
+    assert "open_router" in str(exc_info.value)
+    assert "not allowed" in str(exc_info.value).lower()
+    assert (
+        "ollama" in str(exc_info.value).lower()
+        or "llama_cpp" in str(exc_info.value).lower()
+    )
+
+
+def test_block_on_open_router_with_ollama_backend(temp_knowledge_dir):
+    """Test that KnowledgeStoreTool allows execution when model_str starts with 'ollama'."""
+    tool = KnowledgeStoreTool(knowledge_dir=temp_knowledge_dir)
+
+    # Should not raise PermissionError
+    result = tool.execute(pattern="Python", model_str="ollama/ministral-3:3b")
+    assert "python_note.md" in result or "Python" in result
+
+
+def test_block_on_open_router_with_llama_cpp_backend(temp_knowledge_dir):
+    """Test that KnowledgeStoreTool allows execution when model_str starts with 'llama_cpp'."""
+    tool = KnowledgeStoreTool(knowledge_dir=temp_knowledge_dir)
+
+    # Should not raise PermissionError
+    result = tool.execute(pattern="Python", model_str="llama_cpp/llama-2-7b-chat")
+    assert "python_note.md" in result or "Python" in result
+
+
+def test_block_on_open_router_without_model_str(temp_knowledge_dir):
+    """Test that KnowledgeStoreTool blocks execution when model_str is None (unknown backend)."""
+    tool = KnowledgeStoreTool(knowledge_dir=temp_knowledge_dir)
+
+    # Should raise PermissionError because model_str is None
+    with pytest.raises(PermissionError) as exc_info:
+        tool.execute(pattern="Python", model_str=None)
+
+    assert (
+        "cannot be None" in str(exc_info.value)
+        or "requires a known" in str(exc_info.value).lower()
+    )

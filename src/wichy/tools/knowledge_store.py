@@ -4,10 +4,12 @@ import shutil
 import subprocess
 from enum import Enum
 from pathlib import Path
+from typing import Optional
 
 from pydantic import BaseModel, Field
 
 from wichy.tools.base import BaseTool, ParametersModel
+from wichy.tools.human_verification import block_on
 
 
 class OutputMode(str, Enum):
@@ -29,18 +31,55 @@ class KnowledgeStoreParameters(ParametersModel):
         "*.md",
         description="file pattern to filter files (e.g., '*.md', '*.txt', '**/*.md')",
     )
+    model_str: Optional[str] = Field(
+        None,
+        description="HIDE_FROM_LLM The model string for the LLM backend (e.g., ollama/xxx, open_router/xxx)",
+    )
 
     def info(self):
         return f'pattern="{self.pattern}" output_mode="{self.output_mode.value}" glob="{self.glob}"'
+
+
+def block_on_open_router(
+    self,
+    pattern="",
+    output_mode=OutputMode.FILES_WITH_MATCHES,
+    glob="*.md",
+    model_str=None,
+) -> tuple[bool, Optional[str]]:
+    """
+    Decision function to block KnowledgeStoreTool execution when LLM backend is open_router or unknown (None).
+
+    Args:
+        self: The KnowledgeStoreTool instance
+        pattern: Search pattern (from execute params)
+        output_mode: Output mode (from execute params)
+        glob: Glob pattern (from execute params)
+        model_str: The model string passed by RootAgent (e.g., "ollama/ministral-3:3b", "open_router/some-model")
+
+    Returns:
+        (True, reason) if should block, (False, None) otherwise
+    """
+    if model_str is None:
+        return (
+            True,
+            "KnowledgeStoreTool requires a known LLM backend (model_str cannot be None). Please use a local backend like ollama or llama_cpp.",
+        )
+    if model_str.startswith("open_router"):
+        return (
+            True,
+            f"KnowledgeStoreTool is not allowed to be used with open_router backend. Please use a local backend like ollama or llama_cpp. Got: {model_str}",
+        )
+    return False, None
 
 
 class KnowledgeStoreTool(BaseTool):
     name = "knowledge_store"
     description = "Search the user's knowledge store (markdown-based notes) for a pattern. Similar to grep but with a locked directory path. Searches markdown files by default."
     description_long = """
-    Search the user's personal knowledge store for patterns or content.
+    Search your personal knowledge store for patterns or content.
 
-    This tool searches through the user's personal knowledge store, which is
+    This tool searches through your personal knowledge store, which is
     typically stored in markdown format. It works similar to the grep tool but
     operates on a dedicated knowledge directory.
 
@@ -64,8 +103,13 @@ class KnowledgeStoreTool(BaseTool):
             knowledge_dir = os.getenv("KNOWLEDGE_BASE", "notes")
         self.knowledge_dir = Path(knowledge_dir).resolve()
 
+    @block_on(block_on_open_router)
     def execute(
-        self, pattern="", output_mode=OutputMode.FILES_WITH_MATCHES, glob="*.md"
+        self,
+        pattern="",
+        output_mode=OutputMode.FILES_WITH_MATCHES,
+        glob="*.md",
+        model_str=None,
     ) -> str:
         """Execute search in the knowledge store"""
         # Guard clauses for validation
