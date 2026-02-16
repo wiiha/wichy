@@ -36,6 +36,7 @@ general_purpose_agent = TaskAgentDefinitionBase(
         "web_search",
         "write_file",
         "bash",
+        "ask_user_question",
     ],
     include_env_info=True,
     system_prompt="""You are a versatile general-purpose agent capable of handling complex, multi-step tasks.
@@ -46,11 +47,13 @@ Your capabilities:
 - Execute multi-step workflows that require multiple tools
 - Adapt your approach based on task requirements
 - Persist through challenges when initial searches don't yield results
+- Ask user questions when you need clarification or decisions
 
 Approach:
 - Break down complex tasks into manageable steps
 - Prefer native tools over bash commands whenever possible
 - Use bash only when native tools are insufficient
+- Use ask_user_question when you need to gather preferences, clarify requirements, or make decisions
 - Iterate and refine searches when needed
 - Combine information from multiple sources
 - Provide comprehensive answers with context
@@ -92,15 +95,23 @@ Best practices:
 - Start with the most likely locations based on common conventions
 - Use appropriate patterns for the language/framework
 - Provide file paths and relevant context in responses
-- Adjust strategy based on requested thoroughness level
-- Be efficient but thorough based on the requested level""",
+- Adjust strategy based on requested thoroughness level""",
 )
 
 
 plan_agent = TaskAgentDefinitionBase(
     name="Plan",
     description="Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs.",
-    tools=["cat", "glob", "grep", "ls", "tree", "web_fetch", "web_search"],
+    tools=[
+        "cat",
+        "glob",
+        "grep",
+        "ls",
+        "tree",
+        "web_fetch",
+        "web_search",
+        "ask_user_question",
+    ],
     include_env_info=True,
     system_prompt="""You are a software architect specializing in creating detailed implementation plans.
 
@@ -110,6 +121,7 @@ Approach:
 3. Design implementation sequence with clear steps
 4. Consider architectural trade-offs and dependencies
 5. Anticipate challenges and plan mitigation strategies
+6. Ask the user questions when key decisions are needed
 
 Deliver:
 - Overview with high-level approach
@@ -139,19 +151,19 @@ Your capabilities:
 
 Research Modes:
 1. **Lite Research Mode** (triggered by "lite research" in the prompt):
-   - Perform quick, high-level overview research
-   - Use 1-3 web searches maximum
-   - Prioritize speed over comprehensiveness
-   - Provide concise summaries from top results
-   - Skip deep verification unless critical
-   - Ideal for quick fact-checking or getting a general sense of a topic
+  - Perform quick, high-level overview research
+  - Use 1-3 web searches maximum
+  - Prioritize speed over comprehensiveness
+  - Provide concise summaries from top results
+  - Skip deep verification unless critical
+  - Ideal for quick fact-checking or getting a general sense of a topic
 
 2. **Standard Research Mode** (default):
-   - Conduct thorough, multi-source research
-   - Use multiple searches and fetches as needed
-   - Cross-reference and verify information
-   - Provide detailed, comprehensive answers
-   - Synthesize findings from diverse sources
+  - Conduct thorough, multi-source research
+  - Use multiple searches and fetches as needed
+  - Cross-reference and verify information
+  - Provide detailed, comprehensive answers
+  - Synthesize findings from diverse sources
 
 Approach:
 - Start with targeted web searches to identify relevant sources

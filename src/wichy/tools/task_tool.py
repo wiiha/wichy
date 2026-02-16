@@ -4,6 +4,7 @@ from typing import Dict, Optional
 from pydantic import Field
 
 from wichy.helpers.string import strip_thinking_content, truncate_to_len
+from wichy.tools.ask_user_question import AskUserQuestionTool
 from wichy.tools.base import BaseTool, ParametersModel
 from wichy.tools.bash import BashTool
 from wichy.tools.fetch_webpage import FetchWebPageTool
@@ -22,6 +23,7 @@ from wichy.tools.tree import TreeTool
 
 TOOLS_FOR_TASK_AGENTS: list[BaseTool] = [
     BashTool,
+    AskUserQuestionTool,
     CatFileContentTool,
     FetchWebPageTool,
     GlobTool,
@@ -73,7 +75,7 @@ class TaskAgentParameters(ParametersModel):
 
 class TaskAgentTool(BaseTool):
     name = "task"
-    description = "The Task tool launches specialized agents that autonomously handle complex, multi-step tasks like bash operations, codebase exploration, implementation planning, and general-purpose research. Each agent type has specific capabilities and tools."
+    description = "The Task tool launches specialized agents that autonomously handle complex, multi-step tasks like bash operations, codebase exploration, implementation planning, and general-purpose research. Each agent type has specific capabilities and tools available to it."
     parameters_model = TaskAgentParameters
     description_long = (
         """
@@ -90,20 +92,19 @@ When using the Task tool, you must specify a subagent_type parameter to select w
 When NOT to use the Task tool:
 
 - If you want to read a specific file path, use the cat or glob tool instead of the Task tool, to find the match more quickly
-- If you are searching for a specific class definition like "class Foo", use the glob tool instead, to find the match more quickly
+- If you are searching for a specific class definition like "class Foo", use the glob tool instead of the Task tool, to find the match more quickly
 - If you are searching for code within a specific file or set of 2-3 files, use the cat tool instead of the task tool, to find the match more quickly
 - Other tasks that are not related to the agent descriptions above
 
 Usage notes:
 
 - Always include a short description (3-5 words) summarizing what the agent will do
-- Launch multiple agents concurrently whenever possible, to maximize performance; to do that, use a single message with multiple tool uses
+- Launch multiple agents concurrently whenever possible, to maximize performance; that is, use multiple Task tool calls in a single message.
 - When the agent is done, it will return a single message back to you. The result returned by the agent is not visible to the user. To show the user the result, you should send a text message back to the user with a concise summary of the result.
 - Each agent invocation starts fresh and you should provide a detailed task description with all necessary context.
 - Provide clear, detailed prompts so the agent can work autonomously and return exactly the information you need.
 - The agent's outputs should generally be trusted
 - Clearly tell the agent whether you expect it to write code or just to do research (search, file reads, web fetches, etc.), since it is not aware of the user's intent
-- If the agent description mentions that it should be used proactively, then you should try your best to use it without the user having to ask for it first. Use your judgement.
 - If the user specifies that they want you to run agents "in parallel", you MUST send a single message with multiple Task tool use content blocks. For example, if you need to launch both a build-validator agent and a test-runner agent in parallel, send a single message with both tool calls.
 
 Example usage:
@@ -111,7 +112,7 @@ Example usage:
 <example_agent_descriptions>
 "test-runner": use this agent after you are done writing code to run tests
 "greeting-responder": use this agent when to respond to user greetings with a friendly joke
-</example_agent_description>
+</example_agent_descriptions>
 
 <example>
 user: "Please write a function that checks if a number is prime"
@@ -128,7 +129,7 @@ function isPrime(n) {
 }
 </code>
 <commentary>
-Since a significant piece of code was written and the task was completed, now use the test-runner agent to run the tests
+Since a significant piece of code was written, the task was completed, now use the test-runner agent to run the tests
 </commentary>
 assistant: Now let me use the test-runner agent to run the tests
 assistant: Uses the Task tool to launch the test-runner agent

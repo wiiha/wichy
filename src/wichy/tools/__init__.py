@@ -1,5 +1,6 @@
 from wichy.tools.base import BaseTool
 from wichy.tools.bash import BashTool
+from wichy.tools.ask_user_question import AskUserQuestionTool
 from wichy.tools.fetch_webpage import FetchWebPageTool
 from wichy.tools.file_explorer import CatFileContentTool, ListFilesTool, WriteFileTool
 from wichy.tools.file_search_in import SearchRecursiveTool
@@ -17,6 +18,7 @@ from wichy.tools.tree import TreeTool
 BASIC_TOOLS = [
     BashTool,
     TodoTool,
+    AskUserQuestionTool,
 ]
 
 WEB_TOOLS = [SearchDDGTool, FetchWebPageTool]
