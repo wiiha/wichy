@@ -5,6 +5,7 @@ from wichy.tools.file_explorer import CatFileContentTool, ListFilesTool, WriteFi
 from wichy.tools.file_search_in import SearchRecursiveTool
 from wichy.tools.glob import GlobTool
 from wichy.tools.helpers import get_tool_definitions
+from wichy.tools.knowledge_store import KnowledgeStoreTool
 from wichy.tools.ping import PingTool
 from wichy.tools.reverse_dns_tool import ReverseDnsTool
 from wichy.tools.search_ddg import SearchDDGTool
@@ -29,6 +30,7 @@ FILE_SYSTEM_TOOLS = [
     SearchRecursiveTool,
     TreeTool,
     GlobTool,
+    KnowledgeStoreTool,
 ]
 
 SUB_AGENT_TOOLS = [TaskAgentTool]
