@@ -92,6 +92,7 @@ Usage:
             # Try ripgrep first (much faster and respects .gitignore)
             if shutil.which("rg"):
                 rg_cmd = ["rg"]
+                rg_cmd.append("--hidden")
 
                 if output_mode == OutputMode.FILES_WITH_MATCHES:
                     rg_cmd.append("--files-with-matches")
