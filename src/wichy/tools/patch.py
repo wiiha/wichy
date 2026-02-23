@@ -112,16 +112,16 @@ The patch content must be in standard unified diff format with --- and +++ heade
 
         # Check if patch library is available
         if fromstring is None:
-            return "error: patch_ng library not installed. Install with: pip install patch-ng"
+            raise ImportError("patch_ng library not installed. Install with: pip install patch-ng")
 
         try:
             # Parse the patch - patch_ng expects bytes
             try:
                 patch_set = fromstring(patch_content.encode('utf-8'))
                 if patch_set is False:
-                    return "error: failed to parse patch - invalid unified diff format"
+                    raise ValueError("failed to parse patch - invalid unified diff format")
             except Exception as e:
-                return f"error: failed to parse patch: {e}"
+                raise ValueError(f"failed to parse patch: {e}") from e
 
             # Collect affected files (target names are bytes, decode them)
             affected_files: List[str] = []
@@ -131,7 +131,7 @@ The patch content must be in standard unified diff format with --- and +++ heade
                 affected_files.append(target_file)
 
             if not affected_files:
-                return "error: patch contains no file changes"
+                raise ValueError("patch contains no file changes")
 
             # Validate all target files are within allowed boundaries
             if restrict_to_cwd:
@@ -142,7 +142,7 @@ The patch content must be in standard unified diff format with --- and +++ heade
                         result.errors.append(f"'{file_path}' is outside the workspace")
                         result.failed_files.append(file_path)
                 if result.errors:
-                    return "error: patch validation failed:\n" + result.summary()
+                    raise ValueError("patch validation failed:\n" + result.summary())
 
             # If dry run, just report what would be applied
             if dry_run:
@@ -161,7 +161,7 @@ The patch content must be in standard unified diff format with --- and +++ heade
                     target_file = p.target.decode('utf-8', errors='replace')
                     result.failed_files.append(target_file)
                 result.errors.append("Patch application failed")
-                return "error: patch application incomplete with errors:\n" + result.summary()
+                raise RuntimeError("patch application incomplete with errors:\n" + result.summary())
 
         except Exception as e:
-            return f"error: {e}"
+            raise e

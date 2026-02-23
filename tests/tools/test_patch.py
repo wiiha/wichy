@@ -236,13 +236,12 @@ def test_patch_invalid_patch_format(patch_tool, temp_workspace):
     original_cwd = os.getcwd()
     try:
         os.chdir(temp_workspace)
-        result = patch_tool.execute(
-            patch_content=patch_content,
-            dry_run=False,
-            restrict_to_cwd=False,
-        )
-        assert "error" in result
-        assert "parse patch" in result.lower()
+        with pytest.raises(ValueError, match="failed to parse patch"):
+            patch_tool.execute(
+                patch_content=patch_content,
+                dry_run=False,
+                restrict_to_cwd=False,
+            )
     finally:
         os.chdir(original_cwd)
 
@@ -299,13 +298,12 @@ def test_patch_file_not_found_for_update(patch_tool, temp_workspace):
     original_cwd = os.getcwd()
     try:
         os.chdir(temp_workspace)
-        result = patch_tool.execute(
-            patch_content=patch_content,
-            dry_run=False,
-            restrict_to_cwd=False,
-        )
-        # The patch library will fail because the source file doesn't exist
-        assert "error" in result or "Failed:" in result
+        with pytest.raises(RuntimeError, match="Patch application failed"):
+            patch_tool.execute(
+                patch_content=patch_content,
+                dry_run=False,
+                restrict_to_cwd=False,
+            )
     finally:
         os.chdir(original_cwd)
 
