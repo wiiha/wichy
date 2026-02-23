@@ -1,6 +1,6 @@
+from wichy.tools.ask_user_question import AskUserQuestionTool
 from wichy.tools.base import BaseTool
 from wichy.tools.bash import BashTool
-from wichy.tools.ask_user_question import AskUserQuestionTool
 from wichy.tools.fetch_webpage import FetchWebPageTool
 from wichy.tools.file_explorer import CatFileContentTool, ListFilesTool, WriteFileTool
 from wichy.tools.file_search_in import SearchRecursiveTool
@@ -44,6 +44,6 @@ ALL_TOOLS_NOT_INSTANTIATED: list[BaseTool] = []
 
 ALL_TOOLS_NOT_INSTANTIATED.extend(BASIC_TOOLS)
 ALL_TOOLS_NOT_INSTANTIATED.extend(WEB_TOOLS)
-ALL_TOOLS_NOT_INSTANTIATED.extend(NETWORKING_TOOLS)
+# ALL_TOOLS_NOT_INSTANTIATED.extend(NETWORKING_TOOLS) # intensional
 ALL_TOOLS_NOT_INSTANTIATED.extend(FILE_SYSTEM_TOOLS)
 ALL_TOOLS_NOT_INSTANTIATED.extend(SUB_AGENT_TOOLS)

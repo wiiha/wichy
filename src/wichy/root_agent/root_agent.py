@@ -108,35 +108,37 @@ class RootAgent:
         first_prompt = self.context()[0]
 
         if strategy == ContextResetStrategies.SUMMARY:
+            # Keep the original system prompt from the first context entry
             ctx = new_context()
-            ctx.append(
-                {
-                    "role": "system",
-                    "content": "You are a helpful assistant. Your task is to generate a summary of the following conversation between yourself and the user. /think",
-                }
-            )
-
+            ctx.append(first_prompt)
+            # add in messages from old context
             for i in self.context()[1:]:
                 ctx.append(i)
 
+            # Add a summary message to the context
             ctx.add(
                 role="user",
-                content="Now summarize our conversation in a single message. Keep it simple, structured and concise. If external sources has been mentioned, list these.",
+                content="Please summarize our conversation. Keep it concise and structured. Include any external sources mentioned.",
             )
 
+            # Generate the summary
             response = call(context=ctx(), model_str=self.model_str)
 
-            res = "\n\n---\n\n ### Summary of context\n\n" + response.content
+            # Create the summary message
+            summary_msg = "\n\n---\n\n### Summary of context\n\n" + response.content
 
-            print(Markdown(res))
+            # Print the summary
+            print(Markdown(summary_msg))
             ctx.delete()
+
+            # Create new context with original system prompt and summary
             n_ctx = new_context()
             n_ctx.append(first_prompt)
-            n_ctx.add(role="user", content=res)
+            n_ctx.add(role="user", content=summary_msg)
             self.context = n_ctx
             return
 
-        # nuke default case
+        # nuke, default case
         ctx = new_context()
         ctx.append(first_prompt)
         self.context = ctx

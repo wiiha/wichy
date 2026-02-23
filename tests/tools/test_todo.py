@@ -173,34 +173,6 @@ def test_in_progress_invalid_state(todo_tool):
     assert "error: Invalid state transition." in result
 
 
-def test_in_progress_only_one_task(todo_tool):
-    """Test that only one task can be in progress at a time."""
-    # Create two tasks
-    result1 = todo_tool.execute(
-        action="create",
-        task_name="Test Task 1",
-        task_description="This is the first test task.",
-    )
-    task_id1 = result1.split("ID: ")[1]
-
-    result2 = todo_tool.execute(
-        action="create",
-        task_name="Test Task 2",
-        task_description="This is the second test task.",
-    )
-    task_id2 = result2.split("ID: ")[1]
-
-    # Mark the first task as in progress
-    todo_tool.execute(action="in_progress", task_id=task_id1)
-
-    # Attempt to mark the second task as in progress
-    result = todo_tool.execute(action="in_progress", task_id=task_id2)
-    assert (
-        f"error: task {task_id1} is already IN_PROGRESS. Only one task at a time can be in progress"
-        in result
-    )
-
-
 def test_view_task(todo_tool):
     """Test viewing details of a specific task."""
     # Create a task

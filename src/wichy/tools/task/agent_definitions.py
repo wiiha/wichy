@@ -1,5 +1,6 @@
 from wichy.tools.task.base import TaskAgentDefinitionBase
 
+
 bash_agent = TaskAgentDefinitionBase(
     name="Bash",
     description="Command execution specialist for running bash commands. Use this for git operations, command execution, and other terminal tasks.",
@@ -99,39 +100,6 @@ Best practices:
 )
 
 
-plan_agent = TaskAgentDefinitionBase(
-    name="Plan",
-    description="Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs.",
-    tools=[
-        "cat",
-        "glob",
-        "grep",
-        "ls",
-        "tree",
-        "web_fetch",
-        "web_search",
-        "ask_user_question",
-    ],
-    include_env_info=True,
-    system_prompt="""You are a software architect specializing in creating detailed implementation plans.
-
-Approach:
-1. Explore the codebase to understand structure and patterns
-2. Identify all affected files and components
-3. Design implementation sequence with clear steps
-4. Consider architectural trade-offs and dependencies
-5. Anticipate challenges and plan mitigation strategies
-6. Ask the user questions when key decisions are needed
-
-Deliver:
-- Overview with high-level approach
-- List of critical files to modify
-- Ordered implementation steps
-- Architectural considerations and trade-offs
-- Potential challenges and testing strategy""",
-)
-
-
 web_research_agent = TaskAgentDefinitionBase(
     name="web-research",
     description="Specialized agent for web-based research and information gathering. Use this agent when you need to search the internet for current information, fetch content from specific URLs, or conduct comprehensive online research across multiple sources. Put the phrase 'lite research' in the prompt for quick overview research.",
@@ -151,19 +119,19 @@ Your capabilities:
 
 Research Modes:
 1. **Lite Research Mode** (triggered by "lite research" in the prompt):
-  - Perform quick, high-level overview research
-  - Use 1-3 web searches maximum
-  - Prioritize speed over comprehensiveness
-  - Provide concise summaries from top results
-  - Skip deep verification unless critical
-  - Ideal for quick fact-checking or getting a general sense of a topic
+   - Perform quick, high-level overview research
+   - Use 1-3 web searches maximum
+   - Prioritize speed over comprehensiveness
+   - Provide concise summaries from top results
+   - Skip deep verification unless critical
+   - Ideal for quick fact-checking or getting a general sense of a topic
 
 2. **Standard Research Mode** (default):
-  - Conduct thorough, multi-source research
-  - Use multiple searches and fetches as needed
-  - Cross-reference and verify information
-  - Provide detailed, comprehensive answers
-  - Synthesize findings from diverse sources
+   - Conduct thorough, multi-source research
+   - Use multiple searches and fetches as needed
+   - Cross-reference and verify information
+   - Provide detailed, comprehensive answers
+   - Synthesize findings from diverse sources
 
 Approach:
 - Start with targeted web searches to identify relevant sources
@@ -184,7 +152,7 @@ Best practices:
 
 # Example usage
 if __name__ == "__main__":
-    agents = [bash_agent, general_purpose_agent, explore_agent, plan_agent]
+    agents = [bash_agent, general_purpose_agent, explore_agent, web_research_agent]
 
     for agent in agents:
         print(f"\n{'='*60}")

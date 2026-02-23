@@ -270,10 +270,6 @@ When in doubt, use this tool. Being proactive with task management demonstrates 
         if current_task.state != TaskState.PENDING:
             return f"error: Invalid state transition. Task '{task_id}' is in '{current_task.state.value}' state. Only PENDING tasks can be marked as in progress."
 
-        for existing_task in self.task_store.values():
-            if existing_task.state == TaskState.IN_PROGRESS:
-                return f"error: task {existing_task.task_id} is already IN_PROGRESS. Only one task at a time can be in progress"
-
         # Mark task as in progress
         current_task.state = TaskState.IN_PROGRESS
         current_task.updated_at = self._get_timestamp()
