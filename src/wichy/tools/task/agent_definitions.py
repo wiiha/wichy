@@ -1,6 +1,5 @@
 from wichy.tools.task.base import TaskAgentDefinitionBase
 
-
 bash_agent = TaskAgentDefinitionBase(
     name="Bash",
     description="Command execution specialist for running bash commands. Use this for git operations, command execution, and other terminal tasks.",
@@ -38,6 +37,7 @@ general_purpose_agent = TaskAgentDefinitionBase(
         "write_file",
         "bash",
         "ask_user_question",
+        "replace_text",
     ],
     include_env_info=True,
     system_prompt="""You are a versatile general-purpose agent capable of handling complex, multi-step tasks.

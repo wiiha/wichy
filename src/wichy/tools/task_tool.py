@@ -11,6 +11,7 @@ from wichy.tools.fetch_webpage import FetchWebPageTool
 from wichy.tools.file_explorer import CatFileContentTool, ListFilesTool, WriteFileTool
 from wichy.tools.file_search_in import SearchRecursiveTool
 from wichy.tools.glob import GlobTool
+from wichy.tools.replace_text import ReplaceTextTool
 from wichy.tools.search_ddg import SearchDDGTool
 from wichy.tools.task import (
     TASK_AGENT_DEFS,
@@ -22,12 +23,13 @@ from wichy.tools.todo import TodoTool
 from wichy.tools.tree import TreeTool
 
 TOOLS_FOR_TASK_AGENTS: list[BaseTool] = [
-    BashTool,
     AskUserQuestionTool,
+    BashTool,
     CatFileContentTool,
     FetchWebPageTool,
     GlobTool,
     ListFilesTool,
+    ReplaceTextTool,
     SearchDDGTool,
     SearchRecursiveTool,
     TodoTool,
