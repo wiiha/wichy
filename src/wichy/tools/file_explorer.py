@@ -101,6 +101,7 @@ Usage:
 
             # Format with line numbers (cat -n style) and truncate long lines
             output_lines = []
+            truncated_line_warning = False
             for i, line in enumerate(selected_lines, start=offset):
                 # Remove trailing newline for processing
                 line = line.rstrip("\n")
@@ -108,11 +109,22 @@ Usage:
                 # Truncate if longer than MAX_LINE_LENGTH
                 if len(line) > self.MAX_LINE_LENGTH:
                     line = line[: self.MAX_LINE_LENGTH] + "... [truncated]"
+                    truncated_line_warning = True
 
                 # Format with line number (6 spaces for alignment like cat -n)
                 output_lines.append(f"{i:6d}  {line}")
 
-            return "\n".join(output_lines)
+            result = "\n".join(output_lines)
+
+            # Add warning if file is longer than what we read
+            if end_idx < len(lines):
+                result += f"\n\nwarning: file has {len(lines)} lines total, but only showing lines {offset}-{min(end_idx, len(lines))}, do consecutive reads to get the rest if needed."
+
+            # Add warning if any lines were truncated
+            if truncated_line_warning:
+                result += f"\n\nwarning: some lines exceeded {self.MAX_LINE_LENGTH} characters and were truncated"
+
+            return result
 
         except FileNotFoundError:
             return f"error: file not found: {path}"
