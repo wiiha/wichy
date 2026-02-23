@@ -7,7 +7,7 @@ from wichy.tools.file_search_in import SearchRecursiveTool
 from wichy.tools.glob import GlobTool
 from wichy.tools.helpers import get_tool_definitions
 from wichy.tools.knowledge_store import KnowledgeStoreTool
-from wichy.tools.patch import PatchTool
+from wichy.tools.replace_text import ReplaceTextTool
 from wichy.tools.ping import PingTool
 from wichy.tools.reverse_dns_tool import ReverseDnsTool
 from wichy.tools.search_ddg import SearchDDGTool
@@ -34,7 +34,7 @@ FILE_SYSTEM_TOOLS = [
     TreeTool,
     GlobTool,
     KnowledgeStoreTool,
-    PatchTool,
+    ReplaceTextTool,
 ]
 
 SUB_AGENT_TOOLS = [TaskAgentTool]
