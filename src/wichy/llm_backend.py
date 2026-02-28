@@ -197,13 +197,13 @@ def call(context, tool_defs=None, model_str=None, extra_args=None, **extra_kwarg
 
     # Unwrap response
     m = Message.from_choice(response.choices[0])
-    console.log(
-        {
-            "finish reason": m.finish_reason,
-            "elapsed time": f"{elapsed_time:.2f}s",
-            "total tokens": f"{response.usage.total_tokens}",
-        }
-    )
+    log_msg = {
+        "finish reason": m.finish_reason,
+        "model": response.model,
+        "elapsed time": f"{elapsed_time:.2f}s",
+        "total tokens": f"{response.usage.total_tokens}",
+    }
+    console.log(log_msg)
 
     if contains_unparsed_tool_call(m.content):
         console.log(
