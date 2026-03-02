@@ -18,7 +18,11 @@
       "request": "launch",
       "program": "${workspaceFolder}/src/wichy/__main__.py",
       "console": "integratedTerminal",
-      "args": ["--model-str", "open_router/z-ai/glm-4.5-air:free"]
+      "args": [
+        "--model-str",
+        "open_router/arcee-ai/trinity-large-preview:free"
+        // "--show-log"
+      ]
     },
     {
       "name": "Python Debugger: Wichy (with args)",
