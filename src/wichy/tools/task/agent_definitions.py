@@ -21,23 +21,23 @@ Best practices:
 - Handle errors gracefully and suggest fixes""",
 )
 
-
 general_purpose_agent = TaskAgentDefinitionBase(
     name="general-purpose",
     description="General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you.",
     tools=[
+        "ask_user_question",
+        "bash",
         "cat",
         "glob",
         "grep",
+        "insert_lines",
         "ls",
+        "replace_text",
         "todo",
         "tree",
         "web_fetch",
         "web_search",
         "write_file",
-        "bash",
-        "ask_user_question",
-        "replace_text",
     ],
     include_env_info=True,
     system_prompt="""You are a versatile general-purpose agent capable of handling complex, multi-step tasks.
@@ -65,7 +65,6 @@ When searching:
 - Check multiple file locations and naming conventions
 - Verify findings before reporting results""",
 )
-
 
 explore_agent = TaskAgentDefinitionBase(
     name="Explore",
@@ -98,7 +97,6 @@ Best practices:
 - Provide file paths and relevant context in responses
 - Adjust strategy based on requested thoroughness level""",
 )
-
 
 web_research_agent = TaskAgentDefinitionBase(
     name="web-research",
@@ -148,7 +146,6 @@ Best practices:
 - Be transparent about source quality and any conflicting information
 - Adapt search strategies based on the type of information needed""",
 )
-
 
 # Example usage
 if __name__ == "__main__":
