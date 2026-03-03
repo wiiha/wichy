@@ -158,6 +158,7 @@ def call(context, tool_defs=None, model_str=None, extra_args=None, **extra_kwarg
         "frequency_penalty",
         "logit_bias",
         "timeout",
+        "response_format",
     }
     # keep only allowed keys to avoid invalid API errors
     forwarded = {k: v for k, v in forwarded.items() if k in ALLOWED_FORWARD_KEYS}
