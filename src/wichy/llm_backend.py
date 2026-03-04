@@ -206,7 +206,7 @@ def call(context, tool_defs=None, model_str=None, extra_args=None, **extra_kwarg
         "total tokens": f"{response.usage.total_tokens}",
     }
     # Pretty print similar to base.py
-    Console().log(
+    Console().print(
         f"[dim][bold]→[/bold] LLM response:[/dim] "
         f"[bold]{response.model}[/bold]"
         f"[dim] finish={m.finish_reason}, elapsed={elapsed_time:.2f}s, total_tokens={response.usage.total_tokens}[/dim]"
