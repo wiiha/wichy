@@ -13,9 +13,16 @@ class BashParameters(ParametersModel):
     timeout: Optional[int] = Field(
         30, description="Timeout in seconds for the command execution"
     )
+    description: Optional[str] = Field(
+        None, description="Shortly describe purpose of execution"
+    )
 
     def info(self):
-        return f'command="{truncate_to_len(self.command)}" timeout={self.timeout}'
+        s = ""
+
+        if self.description:
+            s += f"description={self.description} "
+        return f'{s}command="{truncate_to_len(self.command)}" timeout={self.timeout}'
 
 
 class BashTool(BaseTool):
@@ -62,7 +69,9 @@ Usage notes:
   </bad-example>"""
 
     @require_human_verification
-    def execute(self, command: str, timeout: int = 30) -> str:
+    def execute(
+        self, command: str, timeout: int = 30, description: Optional[str] = None
+    ) -> str:
         """Execute the given command."""
         try:
             result = subprocess.run(
