@@ -14,8 +14,8 @@ from wichy.helpers.console import console
 class LLMBackendContextLimitReached(Exception):
     def __init__(
         self,
-        allowed_max,
-        current_count,
+        allowed_max=None,
+        current_count=None,
         message="current context exceeds LLM backend limits",
     ):
         self.allowed_max = allowed_max
@@ -24,7 +24,13 @@ class LLMBackendContextLimitReached(Exception):
         super().__init__(self.message)
 
     def __str__(self):
-        return f"{self.message}: allowed_max_tokens={self.allowed_max} current_token_count={self.current_count}"
+        m = f"{self.message}"
+        if self.allowed_max:
+            m += f" allowed_max_tokens={self.allowed_max}"
+
+        if self.current_count:
+            m += f" current_token_count={self.current_count}"
+        return m
 
 
 class function(BaseModel):
@@ -87,6 +93,15 @@ def backend_and_model_from_model_str(model_str: str):
     model = "/".join(parts[1:])
     model = model.strip()
     return (backend, model)
+
+
+def message_indicates_context_length_reached(m: str) -> bool:
+    if "maximum" in m and "context" in m and "length" in m:
+        return True
+
+    # can be extended with more conditions
+
+    return False
 
 
 def call(context, tool_defs=None, model_str=None, extra_args=None, **extra_kwargs):
@@ -177,18 +192,26 @@ def call(context, tool_defs=None, model_str=None, extra_args=None, **extra_kwarg
             extra_body={**backend_specific_headers},
         )
     except BadRequestError as e:
-        if e.type != "exceed_context_size_error":
+        context_len_error = False
+        if e.type == "exceed_context_size_error":
+            context_len_error = True
+
+        if e.message and message_indicates_context_length_reached(e.message):
+            context_len_error = True
+
+        if not context_len_error:
             raise e
 
         b = e.body
-        if not b:
-            raise e
+        allowed_max = None
+        current_count = None
 
-        allowed_max = b.get("n_ctx")
-        current_count = b.get("n_prompt_tokens")
+        if b:
+            allowed_max = b.get("n_ctx")
+            current_count = b.get("n_prompt_tokens")
 
         raise LLMBackendContextLimitReached(
-            allowed_max=allowed_max, current_count=current_count
+            allowed_max=allowed_max, current_count=current_count, message=e.message
         )
 
     except Exception as e:
