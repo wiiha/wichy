@@ -1,14 +1,48 @@
 """
-inspired by: https://github.com/WujiangXu/A-mem-sys/tree/main
+Minimal document store that uses ChromaDB as backend.
 """
 
-from typing import Dict, Optional
+import json
+from typing import Dict, List, Optional
 
 import chromadb
 from chromadb.config import Settings
 from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
 
 from wichy.helpers.gen_id import gen_id
+
+
+def _serialize_metadata(metadata: Dict) -> Dict:
+    """Serialize metadata for ChromaDB storage (convert lists/dicts to JSON strings)."""
+    serialized = {}
+    for k, v in metadata.items():
+        # Skip None values completely
+        if v is None:
+            continue
+        serialized[k] = _serialize_value(v)
+    return serialized
+
+
+def _serialize_value(value):
+    """Serialize a single value."""
+    if isinstance(value, (list, dict)):
+        return json.dumps(value)
+    return value
+
+
+def _deserialize_metadata(metadata: Dict) -> Dict:
+    """Deserialize metadata from ChromaDB (convert JSON strings back to Python objects)."""
+    return {k: _deserialize_value(v) for k, v in metadata.items()}
+
+
+def _deserialize_value(value):
+    """Deserialize a single value."""
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except (json.JSONDecodeError, TypeError):
+            return value
+    return value
 
 
 class DocumentStore:
@@ -47,7 +81,7 @@ class DocumentStore:
             name=collection_name, embedding_function=self.embedding_function
         )
 
-    def add_document(self, document: str, metadata: Dict):
+    def add_document(self, document: str, metadata: Dict) -> str:
         """Add a document to the store.
 
         Args:
@@ -59,7 +93,12 @@ class DocumentStore:
         """
         doc_id = gen_id()
 
-        self.collection.add(documents=[document], metadatas=[metadata], ids=[doc_id])
+        # Serialize metadata before storing
+        serialized_metadata = _serialize_metadata(metadata)
+
+        self.collection.add(
+            documents=[document], metadatas=[serialized_metadata], ids=[doc_id]
+        )
 
         return doc_id
 
@@ -74,9 +113,29 @@ class DocumentStore:
         """
         doc = self.collection.get(ids=[doc_id])
         self.collection.delete(ids=[doc_id])
+        
+        # Deserialize metadata if present
+        if doc.get("metadatas") and doc["metadatas"]:
+            doc["metadatas"] = [_deserialize_metadata(meta) for meta in doc["metadatas"]]
+        
         return doc
 
-    def search(self, query: str, k: int = 5):
+    def update_document(self, doc_id: str, document: str, metadata: Dict):
+        """Update a document in the store.
+
+        Args:
+            doc_id: ID of document to update
+            document: New document content
+            metadata: New metadata dictionary
+        """
+        # Delete old document and add new one
+        self.delete_document(doc_id)
+        serialized_metadata = _serialize_metadata(metadata)
+        self.collection.add(
+            documents=[document], metadatas=[serialized_metadata], ids=[doc_id]
+        )
+
+    def search(self, query: str, k: int = 5) -> Dict:
         """Search for similar documents.
 
         Args:
@@ -88,9 +147,15 @@ class DocumentStore:
         """
         results = self.collection.query(query_texts=[query], n_results=k)
 
+        # Deserialize metadata from storage
+        if "metadatas" in results and results["metadatas"]:
+            results["metadatas"] = [
+                [_deserialize_metadata(meta) for meta in results["metadatas"][0]]
+            ]
+
         return results
 
-    def list(self, limit: int = None, where: Dict = None):
+    def list(self, limit: Optional[int] = None, where: Optional[Dict] = None) -> Dict:
         """List documents in the store.
 
         Args:
@@ -101,6 +166,13 @@ class DocumentStore:
             Dict with documents, metadatas, and ids
         """
         results = self.collection.get(limit=limit, where=where)
+
+        # Deserialize metadata from storage
+        if "metadatas" in results and results["metadatas"]:
+            results["metadatas"] = [
+                _deserialize_metadata(meta) for meta in results["metadatas"]
+            ]
+
         return results
 
     def clear(self):

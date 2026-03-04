@@ -262,3 +262,130 @@ def test_reset_without_allow_reset_raises_error():
 
     with pytest.raises(ValueError, match="Reset is not allowed"):
         store.reset()
+
+
+def test_serialize_list_metadata(doc_store):
+    """Test that lists in metadata are properly serialized and deserialized."""
+    complex_metadata = {
+        "tags": ["python", "chromadb", "testing"],
+        "numbers": [1, 2, 3, 4, 5],
+        "mixed": ["string", 123, True],
+    }
+
+    doc_id = doc_store.add_document(
+        document="Document with list metadata", metadata=complex_metadata
+    )
+
+    # Verify through list
+    results = doc_store.list()
+    idx = results["ids"].index(doc_id)
+    retrieved_metadata = results["metadatas"][idx]
+
+    assert retrieved_metadata["tags"] == ["python", "chromadb", "testing"]
+    assert retrieved_metadata["numbers"] == [1, 2, 3, 4, 5]
+    assert retrieved_metadata["mixed"] == ["string", 123, True]
+
+
+def test_serialize_dict_metadata(doc_store):
+    """Test that nested dicts in metadata are properly serialized and deserialized."""
+    complex_metadata = {
+        "config": {"setting1": "value1", "setting2": 42},
+        "nested": {"deep": {"deeper": "value"}},
+    }
+
+    doc_id = doc_store.add_document(
+        document="Document with dict metadata", metadata=complex_metadata
+    )
+
+    results = doc_store.list()
+    idx = results["ids"].index(doc_id)
+    retrieved_metadata = results["metadatas"][idx]
+
+    assert retrieved_metadata["config"] == {"setting1": "value1", "setting2": 42}
+    assert retrieved_metadata["nested"] == {"deep": {"deeper": "value"}}
+
+
+def test_serialize_mixed_types(doc_store):
+    """Test serialization of mixed simple and complex types."""
+    complex_metadata = {
+        "simple_string": "hello",
+        "simple_number": 42,
+        "simple_bool": True,
+        "list_type": [1, 2, 3],
+        "dict_type": {"key": "value"},
+        "null_value": None,  # This should be skipped
+    }
+
+    doc_id = doc_store.add_document(
+        document="Document with mixed metadata types", metadata=complex_metadata
+    )
+
+    results = doc_store.list()
+    idx = results["ids"].index(doc_id)
+    retrieved_metadata = results["metadatas"][idx]
+
+    assert retrieved_metadata["simple_string"] == "hello"
+    assert retrieved_metadata["simple_number"] == 42
+    assert retrieved_metadata["simple_bool"] is True
+    assert retrieved_metadata["list_type"] == [1, 2, 3]
+    assert retrieved_metadata["dict_type"] == {"key": "value"}
+    assert "null_value" not in retrieved_metadata  # None values are skipped
+
+
+def test_search_returns_deserialized_metadata(doc_store):
+    """Test that search results contain properly deserialized metadata."""
+    # Add documents with complex metadata
+    doc_store.add_document(document="Doc 1", metadata={"tags": ["a", "b"], "count": 1})
+    doc_store.add_document(document="Doc 2", metadata={"tags": ["c", "d"], "count": 2})
+
+    results = doc_store.search(query="Doc", k=2)
+
+    # Search returns nested metadatas (one sublist per query)
+    assert len(results["metadatas"]) == 1
+    metadatas = results["metadatas"][0]
+
+    for meta in metadatas:
+        assert isinstance(meta["tags"], list)
+        assert isinstance(meta["count"], int)
+
+
+def test_update_document_with_complex_metadata(doc_store):
+    """Test updating a document with complex metadata."""
+    # Add initial document
+    doc_id = doc_store.add_document(
+        document="Original", metadata={"tags": ["old"], "count": 1}
+    )
+
+    # Update with new complex metadata
+    doc_store.update_document(
+        doc_id=doc_id,
+        document="Updated",
+        metadata={"tags": ["new", "updated"], "config": {"key": "value"}},
+    )
+
+    results = doc_store.list()
+    idx = results["ids"].index(doc_id)
+    updated_metadata = results["metadatas"][idx]
+
+    assert updated_metadata["tags"] == ["new", "updated"]
+    assert updated_metadata["config"] == {"key": "value"}
+    assert "count" not in updated_metadata  # old field should not exist
+
+
+def test_delete_returns_deserialized_metadata(doc_store):
+    """Test that delete_document returns properly deserialized metadata."""
+    complex_metadata = {
+        "list_field": [1, 2, 3],
+        "dict_field": {"nested": "value"},
+        "simple": "text",
+    }
+
+    doc_id = doc_store.add_document(document="To be deleted", metadata=complex_metadata)
+
+    deleted_doc = doc_store.delete_document(doc_id)
+
+    # Verify the returned document metadata is deserialized
+    returned_metadata = deleted_doc["metadatas"][0]
+    assert returned_metadata["list_field"] == [1, 2, 3]
+    assert returned_metadata["dict_field"] == {"nested": "value"}
+    assert returned_metadata["simple"] == "text"
