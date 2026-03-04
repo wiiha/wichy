@@ -6,6 +6,7 @@ from typing import List, Optional
 from openai import BadRequestError, OpenAI
 from pydantic import BaseModel
 from rich import print
+from rich.console import Console
 
 from wichy.helpers.console import console
 
@@ -204,7 +205,13 @@ def call(context, tool_defs=None, model_str=None, extra_args=None, **extra_kwarg
         "elapsed time": f"{elapsed_time:.2f}s",
         "total tokens": f"{response.usage.total_tokens}",
     }
-    console.log(log_msg)
+    # Pretty print similar to base.py
+    Console().log(
+        f"[dim][bold]→[/bold] LLM response:[/dim] "
+        f"[bold]{response.model}[/bold]"
+        f"[dim] finish={m.finish_reason}, elapsed={elapsed_time:.2f}s, total_tokens={response.usage.total_tokens}[/dim]"
+    )
+    console.log(log_msg)  # raw output
 
     if contains_unparsed_tool_call(m.content):
         console.log(
