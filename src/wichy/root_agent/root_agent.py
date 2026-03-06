@@ -1,6 +1,6 @@
 import json
 from enum import Enum
-from typing import List
+from typing import List, Optional
 
 from rich import print
 from rich.markdown import Markdown
@@ -105,40 +105,52 @@ class RootAgent:
         self.context.drop()
 
     def reset_context(self, strategy: ContextResetStrategies):
-        first_prompt = self.context()[0]
 
         if strategy == ContextResetStrategies.SUMMARY:
-            # Keep the original system prompt from the first context entry
-            ctx = new_context()
-            ctx.append(first_prompt)
-            # add in messages from old context
-            for i in self.context()[1:]:
-                ctx.append(i)
-
-            # Add a summary message to the context
-            ctx.add(
-                role="user",
-                content="Please summarize our conversation. Keep it concise and structured. Include any external sources mentioned.",
-            )
-
-            # Generate the summary
-            response = call(context=ctx(), model_str=self.model_str)
-
-            # Create the summary message
-            summary_msg = "\n\n---\n\n### Summary of context\n\n" + response.content
-
-            # Print the summary
-            print(Markdown(summary_msg))
-            ctx.delete()
-
-            # Create new context with original system prompt and summary
-            n_ctx = new_context()
-            n_ctx.append(first_prompt)
-            n_ctx.add(role="user", content=summary_msg)
-            self.context = n_ctx
-            return
+            return self.compact_context()
 
         # nuke, default case
+        first_prompt = self.context()[0]
         ctx = new_context()
         ctx.append(first_prompt)
         self.context = ctx
+
+    def compact_context(
+        self, guideline_from_user_on_what_to_keep: Optional[str] = None
+    ):
+        first_prompt = self.context()[0]
+        guideline_for_compacting = "Please summarize our conversation. Keep it structured. Include any external sources mentioned."
+        if guideline_from_user_on_what_to_keep:
+            guideline_for_compacting += (
+                " I ask you to focus the summary around: "
+                + guideline_from_user_on_what_to_keep
+            )
+        # Keep the original system prompt from the first context entry
+        ctx = new_context()
+        ctx.append(first_prompt)
+        # add in messages from old context
+        for i in self.context()[1:]:
+            ctx.append(i)
+
+        # Add a summary message to the context
+        ctx.add(
+            role="user",
+            content=guideline_for_compacting,
+        )
+
+        # Generate the summary
+        response = call(context=ctx(), model_str=self.model_str)
+
+        # Create the summary message
+        summary_msg = "\n\n---\n\n### Summary of context\n\n" + response.content
+
+        # Print the summary
+        print(Markdown(summary_msg))
+        ctx.delete()
+
+        # Create new context with original system prompt and summary
+        n_ctx = new_context()
+        n_ctx.append(first_prompt)
+        n_ctx.add(role="user", content=summary_msg)
+        self.context = n_ctx
+        return
