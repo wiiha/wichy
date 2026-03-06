@@ -52,7 +52,7 @@ class DocumentStore:
 
     def __init__(
         self,
-        collection_name: str = "documents",
+        collection_name: str = "documents_" + gen_id(),
         model_name: str = "paraphrase-MiniLM-L6-v2",
         path_persistent_store: Optional[str] = None,
         allow_reset: bool = False,
@@ -113,11 +113,13 @@ class DocumentStore:
         """
         doc = self.collection.get(ids=[doc_id])
         self.collection.delete(ids=[doc_id])
-        
+
         # Deserialize metadata if present
         if doc.get("metadatas") and doc["metadatas"]:
-            doc["metadatas"] = [_deserialize_metadata(meta) for meta in doc["metadatas"]]
-        
+            doc["metadatas"] = [
+                _deserialize_metadata(meta) for meta in doc["metadatas"]
+            ]
+
         return doc
 
     def update_document(self, doc_id: str, document: str, metadata: Dict):
