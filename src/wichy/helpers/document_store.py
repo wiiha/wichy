@@ -91,7 +91,7 @@ class DocumentStore:
         Returns:
             str: id for the newly generated document
         """
-        doc_id = gen_id()
+        doc_id = metadata.get("id", gen_id())
 
         # Serialize metadata before storing
         serialized_metadata = _serialize_metadata(metadata)
