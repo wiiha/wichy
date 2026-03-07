@@ -132,10 +132,8 @@ class DocumentStore:
         """
         # Delete old document and add new one
         self.delete_document(doc_id)
-        serialized_metadata = _serialize_metadata(metadata)
-        self.collection.add(
-            documents=[document], metadatas=[serialized_metadata], ids=[doc_id]
-        )
+        metadata["id"] = doc_id
+        self.add_document(document=document, metadata=metadata)
 
     def search(self, query: str, k: int = 5) -> Dict:
         """Search for similar documents.
