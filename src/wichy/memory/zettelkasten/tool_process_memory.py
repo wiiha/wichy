@@ -3,7 +3,7 @@ from typing import List, Literal, Optional
 from pydantic import BaseModel, Field
 
 from wichy.helpers.string import truncate_to_len
-from wichy.memory.note import MemoryNote
+from wichy.memory.zettelkasten.note import MemoryNote
 from wichy.tools.base import BaseTool, ParametersModel
 
 

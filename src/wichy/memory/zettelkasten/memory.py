@@ -12,13 +12,16 @@ from rich import print
 from wichy.helpers.context import ContextHandler
 from wichy.helpers.document_store import DocumentStore
 from wichy.llm_backend import call
-from wichy.memory.note import MemoryNote
-from wichy.memory.prompts import ANALYZE_CONTENT_PROMPT, EVOLUTION_SYSTEM_PROMPT
-from wichy.memory.tool_analyze_content_answer import (
+from wichy.memory.zettelkasten.note import MemoryNote
+from wichy.memory.zettelkasten.prompts import (
+    ANALYZE_CONTENT_PROMPT,
+    EVOLUTION_SYSTEM_PROMPT,
+)
+from wichy.memory.zettelkasten.tool_analyze_content_answer import (
     AnalyzedContentAnswerParameters,
     AnalyzedContentAnswerTool,
 )
-from wichy.memory.tool_process_memory import (
+from wichy.memory.zettelkasten.tool_process_memory import (
     DoneTool,
     ModifyMemoryTool,
     ModifyNewMemoryParameters,
@@ -34,7 +37,7 @@ class AgenticMemorySystem:
     - Memory creation, retrieval, update, and deletion
     - Content analysis and metadata extraction
     - Memory evolution and relationship management
-    - Hybrid search capabilities
+    - Search capabilities
     """
 
     def __init__(
