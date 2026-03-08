@@ -1,6 +1,5 @@
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
-
 from pydantic import BaseModel, Field, field_validator
 
 # Import the ID generator
@@ -11,7 +10,6 @@ class MemoryNote(BaseModel):
     """
     A single memory/note - the data transfer object for the Memory interface.
     """
-
     content: str
     """The actual text/content to remember"""
 
@@ -33,7 +31,7 @@ class MemoryNote(BaseModel):
     score: Optional[float] = Field(default=None, ge=0.0)
     """Relevance score from search results only (higher = more relevant)"""
 
-    @field_validator("created_at", "last_accessed", mode="before")
+    @field_validator('created_at', 'last_accessed', mode='before')
     @classmethod
     def _coerce_timestamp(cls, v):
         """
@@ -55,12 +53,12 @@ class MemoryNote(BaseModel):
         if isinstance(v, str):
             # Try ISO format first
             try:
-                return datetime.fromisoformat(v.replace("Z", "+00:00"))
+                return datetime.fromisoformat(v.replace('Z', '+00:00'))
             except ValueError:
                 pass
         raise ValueError(f"Cannot parse timestamp: {v}")
 
-    @field_validator("score", mode="before")
+    @field_validator('score', mode='before')
     @classmethod
     def _coerce_score(cls, v):
         """Ensure score is a float or None."""
@@ -89,7 +87,7 @@ class MemoryNote(BaseModel):
         # Header with ID and stats
         header = f"[MEMORY {self.memory_id}"
         if self.created_at:
-            dt_str = self.created_at.strftime("%Y-%m-%d %H:%M:%S")
+            dt_str = self.created_at.strftime('%Y-%m-%d %H:%M:%S')
             header += f" | {dt_str}"
         if self.retrieval_count > 0:
             header += f" | retrieved {self.retrieval_count} time"
@@ -119,7 +117,7 @@ class MemoryNote(BaseModel):
         Importance is calculated from usage patterns:
         - More retrievals → higher score (logarithmic, diminishing returns)
         - Recent access → slight boost (within last 24h)
-        - Very old memories → slight decay (optional, can be extended)
+        - Very old memories → slight decay (after 3 months, linear up to 6 months)
 
         Returns:
             float: Importance score in range [0.0, 1.0]
@@ -135,10 +133,23 @@ class MemoryNote(BaseModel):
             if hours_since_access < 24:
                 recency_boost = 0.2 * (1 - hours_since_access / 24)
 
-        return min(1.0, base + recency_boost)
+        # Age decay: penalty for memories older than 3 months (90 days)
+        # Linear decay: 0 penalty at 90 days, 0.3 penalty at 180 days (6 months)
+        # Capped at 0.3 maximum penalty
+        age_penalty = 0.0
+        if self.created_at:
+            now = datetime.now(timezone.utc)
+            days_age = (now - self.created_at).total_seconds() / 86400
+            if days_age > 90:  # Start decay after 3 months
+                # Linear from 0 at 90 days to 0.3 at 180 days
+                age_penalty = min(0.3, 0.3 * (days_age - 90) / 90)
+
+        # Combine: base + recency_boost - age_penalty
+        raw_score = base + recency_boost - age_penalty
+        return max(0.0, min(1.0, raw_score))  # Clamp to [0.0, 1.0]
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "MemoryNote":
+    def from_dict(cls, data: Dict[str, Any]) -> 'MemoryNote':
         """Deserialize from dict (validates and parses automatically)"""
         return cls.model_validate(data)
 
@@ -151,6 +162,6 @@ class MemoryNote(BaseModel):
                 "created_at": "2024-01-15T10:30:00Z",
                 "retrieval_count": 5,
                 "last_accessed": "2024-01-16T14:20:00Z",
-                "score": 0.87,
+                "score": 0.87
             }
         }
