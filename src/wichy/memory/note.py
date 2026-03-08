@@ -65,10 +65,10 @@ class MemoryNote(BaseModel):
             str: Formatted string with memory_id, timestamp, content, context, keywords, and tags.
         """
         return (
-            f"memory_id:{self.id}\t"
-            f"start time:{self.timestamp}\t"
-            f"content: {self.content}\t"
-            f"context: {self.context}\t"
-            f"keywords: {str(self.keywords)}\t"
+            f"memory_id:{self.id}\n"
+            f"start time:{self.timestamp}\n"
+            f"keywords: {str(self.keywords)}\n"
             f"tags: {str(self.tags)}\n"
+            f"context: {self.context}\n"
+            f"content: {self.content}\n"
         )
