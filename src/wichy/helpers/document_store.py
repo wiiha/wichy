@@ -102,6 +102,70 @@ class DocumentStore:
 
         return doc_id
 
+    def get_document(self, doc_id: str) -> Optional[Dict]:
+        """Get a single document by ID.
+
+        Returns:
+            Dict with keys: 'id', 'document', 'metadata' (all deserialized)
+            or None if not found.
+        """
+        result = self.collection.get(ids=[doc_id])
+        if not result["ids"]:
+            return None
+
+        # Deserialize metadata if present
+        metadata = result["metadatas"][0] if result["metadatas"] else {}
+        metadata = _deserialize_metadata(metadata)
+
+        return {
+            "id": result["ids"][0],
+            "document": result["documents"][0],
+            "metadata": metadata,
+        }
+
+    def get_documents(self, doc_ids: List[str]) -> Dict:
+        """Get multiple documents by IDs.
+
+        Args:
+            doc_ids: List of document IDs to fetch
+
+        Returns:
+            Dict with keys: 'ids', 'documents', 'metadatas' (all deserialized).
+            May return fewer documents than requested if some IDs don't exist.
+        """
+        result = self.collection.get(ids=doc_ids)
+
+        # Deserialize metadata if present
+        if result.get("metadatas"):
+            result["metadatas"] = [
+                _deserialize_metadata(m) for m in result["metadatas"]
+            ]
+
+        return result
+
+    def update_metadata(self, doc_id: str, metadata: Dict, merge: bool = True):
+        """Update metadata for a document without changing its content or embedding.
+
+        Args:
+            doc_id: Document ID
+            metadata: New metadata dict (will be merged with existing if merge=True)
+            merge: If True, merge with existing metadata. If False, replace entirely.
+        """
+        # Get existing document to preserve content and merge metadata
+        existing = self.get_document(doc_id)
+        if not existing:
+            raise ValueError(f"Document {doc_id} not found")
+
+        if merge:
+            merged_metadata = {**existing["metadata"], **metadata}
+        else:
+            merged_metadata = metadata
+
+        # Serialize before storing
+        serialized = _serialize_metadata(merged_metadata)
+
+        self.collection.update(ids=[doc_id], metadatas=[serialized])
+
     def delete_document(self, doc_id: str):
         """Delete a document from ChromaDB.
 
@@ -122,18 +186,26 @@ class DocumentStore:
 
         return doc
 
-    def update_document(self, doc_id: str, document: str, metadata: Dict):
-        """Update a document in the store.
+    def query(
+        self, query_texts: List[str], n_results: int = 5, where: Optional[Dict] = None
+    ) -> Dict:
+        """Query with optional metadata filter.
 
-        Args:
-            doc_id: ID of document to update
-            document: New document content
-            metadata: New metadata dictionary
+        Returns the same format as search(): dict with 'ids', 'documents',
+        'metadatas', 'distances' - all with metadata deserialized.
         """
-        # Delete old document and add new one
-        self.delete_document(doc_id)
-        metadata["id"] = doc_id
-        self.add_document(document=document, metadata=metadata)
+        results = self.collection.query(
+            query_texts=query_texts, n_results=n_results, where=where
+        )
+
+        # Deserialize metadata (same as in search())
+        if "metadatas" in results and results["metadatas"]:
+            results["metadatas"] = [
+                [_deserialize_metadata(meta) for meta in meta_list]
+                for meta_list in results["metadatas"]
+            ]
+
+        return results
 
     def search(self, query: str, k: int = 5) -> Dict:
         """Search for similar documents.
@@ -150,7 +222,8 @@ class DocumentStore:
         # Deserialize metadata from storage
         if "metadatas" in results and results["metadatas"]:
             results["metadatas"] = [
-                [_deserialize_metadata(meta) for meta in results["metadatas"][0]]
+                [_deserialize_metadata(meta) for meta in meta_list]
+                for meta_list in results["metadatas"]
             ]
 
         return results
