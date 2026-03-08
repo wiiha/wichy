@@ -1,5 +1,5 @@
 """
-Minimal document store that uses ChromaDB as backend.
+ChromaDB-based document store implementation.
 """
 
 import json
@@ -9,6 +9,7 @@ import chromadb
 from chromadb.config import Settings
 from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
 
+from wichy.document_store.core import DocumentStore
 from wichy.helpers.gen_id import gen_id
 
 
@@ -45,9 +46,9 @@ def _deserialize_value(value):
     return value
 
 
-class DocumentStore:
+class ChromaDocumentStore(DocumentStore):
     """
-    Document store that uses ChromaDB as backend.
+    ChromaDB-based document store implementation.
     """
 
     def __init__(
@@ -57,7 +58,7 @@ class DocumentStore:
         path_persistent_store: Optional[str] = None,
         allow_reset: bool = False,
     ):
-        """Initialize Document Store.
+        """Initialize ChromaDocumentStore.
 
         Args:
             collection_name: Name of the ChromaDB collection
@@ -166,25 +167,20 @@ class DocumentStore:
 
         self.collection.update(ids=[doc_id], metadatas=[serialized])
 
-    def delete_document(self, doc_id: str):
+    def delete_document(self, doc_id: str) -> bool:
         """Delete a document from ChromaDB.
 
         Args:
             doc_id: ID of document to delete
 
         Returns:
-            document: The document that was just deleted.
+            True if document was deleted, False if not found
         """
-        doc = self.collection.get(ids=[doc_id])
+        result = self.collection.get(ids=[doc_id])
+        if not result["ids"]:
+            return False
         self.collection.delete(ids=[doc_id])
-
-        # Deserialize metadata if present
-        if doc.get("metadatas") and doc["metadatas"]:
-            doc["metadatas"] = [
-                _deserialize_metadata(meta) for meta in doc["metadatas"]
-            ]
-
-        return doc
+        return True
 
     def query(
         self, query_texts: List[str], n_results: int = 5, where: Optional[Dict] = None
@@ -192,7 +188,7 @@ class DocumentStore:
         """Query with optional metadata filter.
 
         Returns the same format as search(): dict with 'ids', 'documents',
-        'metadatas', 'distances' - all with metadata deserialized.
+        'metadatas', 'scores' (distances converted to similarity scores).
         """
         results = self.collection.query(
             query_texts=query_texts, n_results=n_results, where=where
@@ -205,26 +201,16 @@ class DocumentStore:
                 for meta_list in results["metadatas"]
             ]
 
-        return results
-
-    def search(self, query: str, k: int = 5) -> Dict:
-        """Search for similar documents.
-
-        Args:
-            query: Query text
-            k: Number of results to return
-
-        Returns:
-            Dict with documents, metadatas, ids, and distances
-        """
-        results = self.collection.query(query_texts=[query], n_results=k)
-
-        # Deserialize metadata from storage
-        if "metadatas" in results and results["metadatas"]:
-            results["metadatas"] = [
-                [_deserialize_metadata(meta) for meta in meta_list]
-                for meta_list in results["metadatas"]
-            ]
+        # Convert distances to scores (higher = better)
+        # ChromaDB returns L2 distances; we convert to similarity score
+        if "distances" in results and results["distances"]:
+            scores = []
+            for distance_list in results["distances"]:
+                score_list = [
+                    1.0 / (1.0 + d) if d is not None else None for d in distance_list
+                ]
+                scores.append(score_list)
+            results["scores"] = scores
 
         return results
 

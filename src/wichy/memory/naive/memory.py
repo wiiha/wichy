@@ -15,14 +15,14 @@ Retrieval is vector-based using the DocumentStore's embeddings.
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
-from wichy.helpers.document_store import DocumentStore
+from wichy.document_store import ChromaDocumentStore
 from wichy.memory.core.memory import Memory
 from wichy.memory.core.note import MemoryNote
 
 
 class NaiveMemory(Memory):
     """
-    Naive memory implementation that wraps DocumentStore.
+    Naive memory implementation that wraps ChromaDocumentStore.
 
     This implementation stores conversation turns as memories and uses
     vector similarity for retrieval. Access statistics are tracked to
@@ -34,19 +34,19 @@ class NaiveMemory(Memory):
     _KEY_LAST_ACCESSED = "__wichy_last_accessed"
     _KEY_TIMESTAMP = "__wichy_timestamp"  # when this memory was created
 
-    def __init__(self, document_store: Optional[DocumentStore] = None):
+    def __init__(self, document_store: Optional[ChromaDocumentStore] = None):
         """
         Initialize NaiveMemory.
 
         Args:
-            document_store: Optional existing DocumentStore. If None, creates a new one.
+            document_store: Optional existing ChromaDocumentStore. If None, creates a new one.
         """
-        self.store = document_store or DocumentStore()
+        self.store = document_store or ChromaDocumentStore()
 
     def _document_to_note(
         self, doc_result: Dict, score: Optional[float] = None
     ) -> MemoryNote:
-        """Convert DocumentStore result dict to MemoryNote."""
+        """Convert ChromaDocumentStore result dict to MemoryNote."""
         metadata = doc_result["metadata"]
         retrieval_count = metadata.get(self._KEY_RETRIEVAL_COUNT, 0)
         last_accessed_str = metadata.get(self._KEY_LAST_ACCESSED)
@@ -156,7 +156,7 @@ class NaiveMemory(Memory):
         """
         Search memories by semantic similarity.
 
-        Uses DocumentStore's vector search. All returned memories have their
+        Uses ChromaDocumentStore's vector search. All returned memories have their
         access stats (retrieval_count, last_accessed) incremented.
 
         Args:
@@ -185,7 +185,7 @@ class NaiveMemory(Memory):
             results["distances"][0],
         ):
             # Convert distance to score (higher = better)
-            # Using simple reciprocal; could also use 1 - normalized distance
+            # ChromaDB returns L2 distances; convert to similarity
             score = 1.0 / (1.0 + distance) if distance is not None else None
 
             note = self._document_to_note(
