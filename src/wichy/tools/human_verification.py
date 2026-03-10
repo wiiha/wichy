@@ -31,6 +31,9 @@ def require_human_verification(func: Callable) -> Callable:
         if not label:
             label = func.__name__
 
+        if SKIP_HUMAN_VERIFICATION:
+            return func(*args, **kwargs)
+
         message: Optional[str] = getattr(func, "_action_message", None)
 
         print(f"\n[bold yellow]ACTION:[/bold yellow] {label}")
@@ -38,9 +41,6 @@ def require_human_verification(func: Callable) -> Callable:
             print(message)
         if all_args:
             print(all_args)
-
-        if SKIP_HUMAN_VERIFICATION:
-            return func(*args, **kwargs)
 
         while True:
             line = prompt_session.prompt("Proceed? (y/n): ")
