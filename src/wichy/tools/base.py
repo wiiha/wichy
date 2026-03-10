@@ -122,8 +122,13 @@ class BaseTool(ABC):
             end_time = time.time()
             execution_time = end_time - start_time
 
-            # Add timing info to success message if it took more than 5 seconds
+            # Calculate result size metrics
+            char_count = len(res)
+            token_estimate = char_count // 4  # rough estimate: 1 token ≈ 4 chars
+
+            # Build success message with timing and size info
             msg = f"[green bold]✓[/green bold] tool {self.name} completed"
+            size_info = f" [dim]({char_count} chars, ~{token_estimate} tokens)[/dim]"
             if execution_time > 3:
                 if execution_time > 60:
                     minutes = int(execution_time // 60)
@@ -133,6 +138,7 @@ class BaseTool(ABC):
                     time_str = f"{execution_time:.2f}s"
                 msg = f"{msg} in {time_str}"
 
+            msg = f"{msg}{size_info}"
             console_cmd_info.print(msg)
 
         except Exception as e:
