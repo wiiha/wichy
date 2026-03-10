@@ -1,5 +1,5 @@
 """
-Naive memory implementation using DocumentStore (ChromaDB) as backend.
+Naive memory implementation using HybridDocumentStore as backend.
 
 Stores conversation chunks (user+assistant exchanges) as individual memories.
 Each memory includes:
@@ -9,24 +9,25 @@ Each memory includes:
 Access statistics (retrieval_count, last_accessed) are tracked in metadata
 and used for importance scoring.
 
-Retrieval is vector-based using the DocumentStore's embeddings.
+Retrieval uses hybrid search (dense + sparse) combining vector similarity
+and BM25 keyword matching for optimal recall and precision.
 """
 
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
-from wichy.document_store import ChromaDocumentStore
+from wichy.document_store import HybridDocumentStore
 from wichy.memory.core.memory import Memory
 from wichy.memory.core.note import MemoryNote
 
 
 class NaiveMemory(Memory):
     """
-    Naive memory implementation that wraps ChromaDocumentStore.
+    Naive memory implementation that wraps HybridDocumentStore.
 
     This implementation stores conversation turns as memories and uses
-    vector similarity for retrieval. Access statistics are tracked to
-    compute importance scores.
+    hybrid search (dense + sparse) for retrieval. Access statistics are
+    tracked to compute importance scores.
     """
 
     # Internal metadata keys (prefixed to avoid collisions with user metadata)
@@ -34,19 +35,19 @@ class NaiveMemory(Memory):
     _KEY_LAST_ACCESSED = "__wichy_last_accessed"
     _KEY_TIMESTAMP = "__wichy_timestamp"  # when this memory was created
 
-    def __init__(self, document_store: Optional[ChromaDocumentStore] = None):
+    def __init__(self, document_store: Optional[HybridDocumentStore] = None):
         """
         Initialize NaiveMemory.
 
         Args:
-            document_store: Optional existing ChromaDocumentStore. If None, creates a new one.
+            document_store: Optional existing HybridDocumentStore. If None, creates a new one.
         """
-        self.store = document_store or ChromaDocumentStore()
+        self.store = document_store or HybridDocumentStore()
 
     def _document_to_note(
         self, doc_result: Dict, score: Optional[float] = None
     ) -> MemoryNote:
-        """Convert ChromaDocumentStore result dict to MemoryNote."""
+        """Convert document store result dict to MemoryNote."""
         metadata = doc_result["metadata"]
         retrieval_count = metadata.get(self._KEY_RETRIEVAL_COUNT, 0)
         last_accessed_str = metadata.get(self._KEY_LAST_ACCESSED)
@@ -154,15 +155,14 @@ class NaiveMemory(Memory):
         self, query: str, k: int = 5, filter_metadata: Optional[dict] = None
     ) -> List[MemoryNote]:
         """
-        Search memories by semantic similarity.
+        Search memories using hybrid search (dense + sparse).
 
-        Uses ChromaDocumentStore's vector search. All returned memories have their
-        access stats (retrieval_count, last_accessed) incremented.
+        All returned memories have their access stats (retrieval_count, last_accessed) incremented.
 
         Args:
             query: Natural language search query
             k: Maximum number of results
-            filter_metadata: Optional metadata filters passed to ChromaDB's where clause
+            filter_metadata: Optional metadata filters passed to the store's where clause
 
         Returns:
             List of MemoryNote objects sorted by relevance (score descending)
@@ -178,16 +178,16 @@ class NaiveMemory(Memory):
         memory_ids = []
         now_str = datetime.now(timezone.utc).isoformat()
 
-        for doc_id, doc, meta, distance in zip(
-            results["ids"][0],
-            results["documents"][0],
-            results["metadatas"][0],
-            results["distances"][0],
+        # HybridDocumentStore returns RRF scores directly
+        score_values = results["scores"][0]
+        for idx, (doc_id, doc, meta) in enumerate(
+            zip(
+                results["ids"][0],
+                results["documents"][0],
+                results["metadatas"][0],
+            )
         ):
-            # Convert distance to score (higher = better)
-            # ChromaDB returns L2 distances; convert to similarity
-            score = 1.0 / (1.0 + distance) if distance is not None else None
-
+            score = score_values[idx]
             note = self._document_to_note(
                 {"id": doc_id, "document": doc, "metadata": meta}, score=score
             )
@@ -198,9 +198,10 @@ class NaiveMemory(Memory):
         if memory_ids:
             # Fetch current retrieval counts for all memories in one batch
             current_docs = self.store.get_documents(memory_ids)
+            # Build a map: doc_id -> retrieval_count from the parallel lists
             current_counts = {
-                doc["id"]: doc["metadata"].get(self._KEY_RETRIEVAL_COUNT, 0)
-                for doc in current_docs.get("documents", [])
+                doc_id: meta.get(self._KEY_RETRIEVAL_COUNT, 0)
+                for doc_id, meta in zip(current_docs["ids"], current_docs["metadatas"])
             }
 
             # Prepare batch metadata updates
@@ -230,7 +231,7 @@ class NaiveMemory(Memory):
 
     def count(self) -> int:
         """Total number of memories stored."""
-        return self.store.collection.count()  # Simple proxy call
+        return self.store.count()
 
     def delete(self, memory_id: str) -> bool:
         """
