@@ -19,8 +19,11 @@ class ContextResetStrategies(str, Enum):
 
 
 class RootAgent:
-    def __init__(self, model_str, tools: List[BaseTool], name: str = "NOT SET"):
-        self.context = new_context()
+    def __init__(self, model_str, tools: List[BaseTool], name: str = "NOT SET", context=None):
+        if context is not None:
+            self.context = context
+        else:
+            self.context = new_context()
         self.name = name
         self.model_str = model_str
         self.tools = tools

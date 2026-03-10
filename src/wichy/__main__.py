@@ -16,9 +16,10 @@ from rich import print
 from rich.markdown import Markdown
 
 from wichy.helpers.console import console
+from wichy.helpers.context import context_from_file, new_context
 from wichy.helpers.environment_info import environment_information
 from wichy.helpers.prompt import preprocess_prompt
-from wichy.helpers.string import strip_thinking_content
+from wichy.helpers.string import strip_thinking_content, truncate_to_len
 from wichy.llm_backend import LLMBackendContextLimitReached
 from wichy.root_agent import ALL_ROOT_AGENT_DESC
 from wichy.root_agent.helpers import ParsedRootAgentDesc, parse_root_agent_markdown_desc
@@ -93,7 +94,11 @@ class ArgumentParserWrapper:
             default="root-agent-code-advanced",
             help="Specify which root agent description to use.",
         )
-
+        self.parser.add_argument(
+            "--load-ctx",
+            type=str,
+            help="Path to a context JSON file to resume a previous conversation.",
+        )
         # Add subcommands
         subparsers = self.parser.add_subparsers(
             dest="command", help="Available sub commands"
@@ -173,9 +178,67 @@ def main():
 
         print(Markdown(msg))
         exit(0)
-    elif args.command == "ls" and args.ls_command == "ctx":
+    elif args.command == "ls" and (
+        args.ls_command == "ctx" or str(args.ls_command).startswith("context")
+    ):
         # This means "ls ctx" or "ls contexts" was called
-        print("NOT IMPLEMENTED - Listing previous contexts in .wichy folder")
+        import json
+
+        from wichy.helpers.context import previous_conversations
+
+        context_dir = ".wichy/contexts/"
+        try:
+            files = previous_conversations()
+        except FileNotFoundError:
+            print("[yellow]No conversation contexts found.[/yellow]")
+            exit(0)
+
+        if len(files) == 0:
+            print("[yellow]No conversation contexts found.[/yellow]")
+            exit(0)
+
+        msg = "# Conversation Contexts\n\n"
+        for f in sorted(files):
+
+            # Count messages in the file
+            try:
+                with open(context_dir + f, "r") as file:
+                    lines = [line.strip() for line in file if line.strip()]
+                    msg_count = len(lines)
+
+                    # Get first user message and last assistant message if available
+                    first_user = None
+                    last_assistant = None
+                    for line in lines:
+                        try:
+                            data = json.loads(line)
+                            if data.get("role") == "user" and first_user is None:
+                                first_user = truncate_to_len(
+                                    data.get("content", ""), suffix="..."
+                                )
+                            if data.get("role") == "assistant":
+                                last_assistant = truncate_to_len(
+                                    data.get("content", ""), suffix="..."
+                                )
+                        except:
+                            pass
+
+                    preview = ""
+                    if first_user:
+                        preview += f"First: *{first_user}*"
+                    if last_assistant:
+                        if preview:
+                            preview += " | "
+                        preview += f"Last: *{last_assistant}*"
+
+                    msg += f"- **{f}**\n\t- Messages: {msg_count}\n"
+                    if preview:
+                        msg += f"\t- Preview: {preview}\n"
+                    msg += "\n\n"
+            except Exception as e:
+                msg += f"- **{f}**\n\t- Error reading file: {e}\n"
+
+        print(Markdown(msg))
         exit(0)
 
     if args.list_tools or args.command == "ls" and args.ls_command == "tools":
@@ -267,29 +330,54 @@ def main():
 
         tools_for_agent = new_tools
 
+    # Load context from file if specified
+    loaded_context = None
+    if args.load_ctx:
+        try:
+            loaded_context = context_from_file(args.load_ctx)
+            print(f"[green]✓ Loaded conversation context from:[/green] {args.load_ctx}")
+        except Exception as e:
+            print(f"[red]✗ Failed to load context file:[/red] {e}")
+            exit(1)
+
     root_agent = RootAgent(
-        model_str=model_str, tools=tools_for_agent, name=root_agent_props.get("name")
+        model_str=model_str,
+        tools=tools_for_agent,
+        name=root_agent_props.get("name"),
+        context=loaded_context,
     )
 
-    verify_against = {"tools": [x.name for x in tools_for_agent]}
+    # Only add system prompt if we didn't load a context (fresh conversation)
+    if loaded_context is None:
+        verify_against = {"tools": [x.name for x in tools_for_agent]}
 
-    system_prompt = preprocess_prompt(
-        prompt=system_prompt, verify_against=verify_against
-    )
-
-    if root_agent_props.get("include_env_info", "").lower() != "false":
-        system_prompt += (
-            "\n\nHere is useful information about the environment you are running in:\n"
-            + environment_information()
-            + "\n\n"
+        system_prompt = preprocess_prompt(
+            prompt=system_prompt, verify_against=verify_against
         )
 
-    root_agent.context.append(
-        {
-            "role": "system",
-            "content": system_prompt,
-        }
-    )
+        if root_agent_props.get("include_env_info", "").lower() != "false":
+            system_prompt += (
+                "\n\nHere is useful information about the environment you are running in:\n"
+                + environment_information()
+                + "\n\n"
+            )
+
+        root_agent.context.append(
+            {
+                "role": "system",
+                "content": system_prompt,
+            }
+        )
+
+    # If we loaded a context, show a summary
+    if loaded_context is not None:
+        msg_count = len(loaded_context.context)
+        roles = {}
+        for msg in loaded_context.context:
+            role = msg.get("role", "unknown")
+            roles[role] = roles.get(role, 0) + 1
+        role_summary = ", ".join([f"{count} {role}" for role, count in roles.items()])
+        print(f"[blue]Context loaded:[/blue] {msg_count} messages ({role_summary})")
 
     # Set console quiet mode based on --show-log flag
     if args.show_log:

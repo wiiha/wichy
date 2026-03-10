@@ -182,14 +182,26 @@ def context_from_file(path):
     Load a context from a file.
 
     Args:
-        path (str): Path to the context file
+        path (str): Path to the context file. Can be an absolute path, a relative path,
+                    or just a filename (which will be looked up in CONTEXT_DIR).
 
     Returns:
         ContextHandler: A new context handler instance loaded with data from the file
 
     Raises:
-        ValueError: If the file is empty
+        ValueError: If the file is empty or not found
     """
+    # If path is not an existing file, try looking in CONTEXT_DIR
+    if not os.path.isfile(path):
+        # Check if it's a bare filename or relative path
+        candidate = path
+        if not os.path.dirname(candidate):  # No directory part
+            candidate = os.path.join(CONTEXT_DIR, candidate)
+        if os.path.isfile(candidate):
+            path = candidate
+        else:
+            raise ValueError(f"Context file not found: {path}")
+
     lines = []
     with open(path, "r") as f:
         lines = f.readlines()
