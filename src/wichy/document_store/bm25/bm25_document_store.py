@@ -91,7 +91,11 @@ class BM25DocumentStore(DocumentStore):
             self._id_to_idx[doc_id] = idx
             self._idx_to_id.append(doc_id)
 
-        self._bm25 = BM25Okapi(self._tokenized_corpus, k1=self.k1, b=self.b)
+        # Only create BM25 index if we have documents
+        if self._tokenized_corpus:
+            self._bm25 = BM25Okapi(self._tokenized_corpus, k1=self.k1, b=self.b)
+        else:
+            self._bm25 = None
 
     def _save(self):
         """Save index to disk if index_path is set."""
@@ -121,7 +125,11 @@ class BM25DocumentStore(DocumentStore):
         self._idx_to_id = data["idx_to_id"]
         self.k1 = data.get("k1", self.k1)
         self.b = data.get("b", self.b)
-        self._bm25 = BM25Okapi(self._tokenized_corpus, k1=self.k1, b=self.b)
+        # Only create BM25 index if we have documents
+        if self._tokenized_corpus:
+            self._bm25 = BM25Okapi(self._tokenized_corpus, k1=self.k1, b=self.b)
+        else:
+            self._bm25 = None
 
     def add_document(self, document: str, metadata: Dict) -> str:
         """Add a document to the store.
