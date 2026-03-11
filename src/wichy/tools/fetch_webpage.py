@@ -2,9 +2,9 @@ import asyncio
 import random
 
 import markdownify
-from playwright.async_api import async_playwright
-from pydantic import BaseModel, Field
+from pydantic import Field
 
+from wichy.helpers.browser import browser_manager
 from wichy.tools.base import BaseTool, ParametersModel
 
 
@@ -30,43 +30,22 @@ class FetchWebPageTool(BaseTool):
         Returns:
             The text content of the page.
         """
-        # Set up random user agent and other headers
-        user_agents = [
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0",
-        ]
-
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-
-            # Create a new context with custom settings
-            context = await browser.new_context(
-                user_agent=random.choice(user_agents),
-                viewport={"width": 1920, "height": 1080},
-                locale="en-US",
-            )
-
-            page = await context.new_page()
-
-            # Add random delays to mimic human behavior
+        try:
+            # Get the page and add human-like delay before navigation
+            page = await browser_manager.get_page()
             await page.wait_for_timeout(random.randint(1000, 3000))
 
-            # Navigate to the URL
-            await page.goto(url, wait_until="domcontentloaded")
+            # Use the navigate method for consistent navigation
+            nav_result = await browser_manager.navigate(url, wait_until="networkidle")
 
-            # Wait for content to load
-            try:
-                await page.wait_for_selector("body", timeout=30000)
-            except:
-                pass
+            if nav_result.get("status") != "success":
+                return f"error: {nav_result.get('error', 'Navigation failed')}"
 
+            # Get the page content
             content = await page.content()
-
-            await context.close()
-            await browser.close()
-
             return content
+        except Exception as e:
+            return f"error: {str(e)}"
 
     def execute(self, url: str) -> str:
         """
