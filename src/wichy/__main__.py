@@ -25,6 +25,8 @@ from wichy.root_agent import ALL_ROOT_AGENT_DESC
 from wichy.root_agent.helpers import ParsedRootAgentDesc, parse_root_agent_markdown_desc
 from wichy.root_agent.root_agent import RootAgent
 from wichy.root_agent.root_agent_desc_template import root_agent_desc_template
+from wichy.skills import SkillLoader
+from wichy.skills.skill_template import skill_template
 from wichy.slash_commands import (
     ContextDropException,
     ContextResetException,
@@ -112,7 +114,26 @@ class ArgumentParserWrapper:
             action="store_true",
             help="Print the root agent description template to stdout. Can be piped to file. Your own root agents live in (~/).wichy/root_agent_defs",
         )
-
+        # new command
+        new_parser = subparsers.add_parser("new", help="Create new resources")
+        new_subparsers = new_parser.add_subparsers(
+            dest="new_command", help="new subcommands"
+        )
+        new_skill_parser = new_subparsers.add_parser(
+            "skill", help="Create a new skill in ~/.wichy/skills/"
+        )
+        new_skill_parser.add_argument(
+            "-n",
+            "--name",
+            type=str,
+            required=True,
+            help="Name of the skill (will be used as directory name)",
+        )
+        new_skill_parser.add_argument(
+            "--with-script",
+            action="store_true",
+            help="Also create a placeholder script in the skill's scripts/ directory",
+        )
         # ls command
         ls_parser = subparsers.add_parser("ls", help="List things related to Wichy")
         ls_subparsers = ls_parser.add_subparsers(
@@ -129,7 +150,9 @@ class ArgumentParserWrapper:
         ls_subparsers.add_parser(
             "ctx", help="List previous contexts in closest .wichy folder"
         )
-
+        ls_subparsers.add_parser(
+            "skills", help="List available skills in ~/.wichy/skills/"
+        )
         self.args = None
 
     def parse_args(self):
@@ -156,6 +179,10 @@ def main():
         in_tools.append(tool())
 
     in_tools.sort(key=lambda t: t.name)
+
+    # Load skills (so they can be discovered by the agent)
+    skill_loader = SkillLoader()
+    skill_loader.load_all_skills()
 
     # Example of checking if a specific subcommand was called
     if args.command == "ls" and args.ls_command == "ra":
@@ -249,13 +276,97 @@ def main():
         print(Markdown(msg))
         exit(0)
 
+    if args.command == "ls" and args.ls_command == "skills":
+        # Load skills and display them
+        skill_loader = SkillLoader()
+        skills = skill_loader.load_all_skills()
+
+        if not skills:
+            print("[yellow]No skills found in ~/.wichy/skills/[/yellow]")
+            print(
+                "[dim]Create a skill by adding a directory with a skill.md file[/dim]"
+            )
+            exit(0)
+
+        msg = "# Skills Available\n\n"
+        for skill_name, skill in skills.items():
+            msg += f"- **{skill_name}**: {skill.description}\n"
+            if skill.tags:
+                msg += f"\t- Tags: {', '.join(skill.tags)}\n"
+            if skill.scripts:
+                msg += f"\t- Scripts: {len(skill.scripts)}\n"
+                for s in skill.scripts:
+                    msg += f"\t\t- {s.name}\n"
+
+        print(Markdown(msg))
+        exit(0)
+    if args.command == "new" and args.new_command == "skill":
+        # Create a new skill directory structure
+        skill_name = args.name
+        skills_dir = Path.home() / ".wichy" / "skills"
+        skill_dir = skills_dir / skill_name
+
+        # Validate skill name
+        if not skill_name.replace("_", "").replace("-", "").isalnum():
+            print(
+                f"[red]error:[/red] Skill name can only contain alphanumeric characters, hyphens, and underscores",
+                file=sys.stderr,
+            )
+            exit(1)
+
+        # Check if skill already exists
+        if skill_dir.exists():
+            print(
+                f"[red]error:[/red] Skill '{skill_name}' already exists at {skill_dir}",
+                file=sys.stderr,
+            )
+            exit(1)
+
+        # Create skill directory
+        skill_dir.mkdir(parents=True, exist_ok=False)
+
+        # Create skill.md
+        skill_md_content = skill_template.format(skill_name=skill_name)
+        skill_md_path = skill_dir / "skill.md"
+        with open(skill_md_path, "w", encoding="utf-8") as f:
+            f.write(skill_md_content)
+
+        msg = f"[green]Created skill:[/green] {skill_name}\n"
+        msg += f"[dim]Location: {skill_dir}[/dim]\n\n"
+        msg += f"Files created:\n"
+        msg += f"  - skill.md (skill knowledge and documentation)\n"
+
+        # Optionally create scripts directory with placeholder
+        if args.with_script:
+            scripts_dir = skill_dir / "scripts"
+            scripts_dir.mkdir(exist_ok=False)
+            placeholder_script = scripts_dir / "example.sh"
+            script_content = f"""#!/bin/bash
+
+# Example script for the {skill_name} skill
+# Modify or replace this with your own scripts
+
+echo "Hello from {skill_name} skill!"
+"""
+            with open(placeholder_script, "w", encoding="utf-8") as f:
+                f.write(script_content)
+            placeholder_script.chmod(0o755)
+            msg += f"  - scripts/example.sh (placeholder executable script)\n"
+
+        msg += f"\n[dim]Edit skill.md to add your knowledge and documentation.[/dim]"
+        if args.with_script:
+            msg += f"\n[dim]Add executable scripts to scripts/ directory. Mark safe scripts in skill.md frontmatter.[/dim]"
+
+        print(msg)
+        exit(0)
+
     if args.command == "ra" and args.template:
         sys.stdout.write(root_agent_desc_template)
         sys.stdout.flush()
         exit(0)
 
-    if args.command in ("ls", "ra"):
-        # At this point if ls is specified, something is wrong.
+    if args.command in ("ls", "ra", "new"):
+        # At this point if ls/ra/new is specified without a subcommand, something is wrong.
         parser.parser.print_usage()
         exit(1)
 

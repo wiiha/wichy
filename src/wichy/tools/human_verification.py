@@ -25,7 +25,7 @@ def require_human_verification(func: Callable) -> Callable:
         all_args = ", ".join(filter(None, [args_str, kwargs_str]))
 
         # Resolve label/message: explicit attributes -> docstring first line -> function name
-        label: Optional[str] = getattr(func, "_action_label", None)
+        label: Optional[str] = getattr(wrapper, "_action_label", None)
         if not label and func.__doc__:
             label = func.__doc__.strip().splitlines()[0] or None
         if not label:
@@ -34,7 +34,7 @@ def require_human_verification(func: Callable) -> Callable:
         if SKIP_HUMAN_VERIFICATION:
             return func(*args, **kwargs)
 
-        message: Optional[str] = getattr(func, "_action_message", None)
+        message: Optional[str] = getattr(wrapper, "_action_message", None)
 
         print(f"\n[bold yellow]ACTION:[/bold yellow] {label}")
         if message:

@@ -1,3 +1,9 @@
+from wichy.skills import (
+    SkillDiscoveryTool,
+    SkillInfoTool,
+    SkillScriptTool,
+    SkillSearchTool,
+)
 from wichy.tools.ask_user_question import AskUserQuestionTool
 from wichy.tools.base import BaseTool
 from wichy.tools.bash import BashTool
@@ -41,6 +47,13 @@ FILE_SYSTEM_TOOLS = [
 
 SUB_AGENT_TOOLS = [TaskAgentTool]
 
+# Skill tools - for discovering and using skills
+SKILL_TOOLS = [
+    SkillDiscoveryTool,
+    SkillSearchTool,
+    SkillInfoTool,
+    SkillScriptTool,
+]
 
 ALL_TOOLS_NOT_INSTANTIATED: list[BaseTool] = []
 
@@ -49,3 +62,4 @@ ALL_TOOLS_NOT_INSTANTIATED.extend(WEB_TOOLS)
 # ALL_TOOLS_NOT_INSTANTIATED.extend(NETWORKING_TOOLS) # intensional
 ALL_TOOLS_NOT_INSTANTIATED.extend(FILE_SYSTEM_TOOLS)
 ALL_TOOLS_NOT_INSTANTIATED.extend(SUB_AGENT_TOOLS)
+ALL_TOOLS_NOT_INSTANTIATED.extend(SKILL_TOOLS)
