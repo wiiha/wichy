@@ -37,7 +37,8 @@ class BrowserManager:
         """Initialize the browser if not already initialized."""
         if self._browser is None:
             self._playwright = await async_playwright().__aenter__()
-            self._browser = await self._playwright.chromium.launch(headless=False)
+            # self._browser = await self._playwright.chromium.launch(headless=False)
+            self._browser = await self._playwright.chromium.launch(headless=True)
 
             # Create a dedicated context for the persistent page
             user_agents = [
