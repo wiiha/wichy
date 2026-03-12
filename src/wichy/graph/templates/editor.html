@@ -1,0 +1,634 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Graph Editor</title>
+    <script type="text/javascript" src="/static/vis-network.min.js"></script>
+    <link href="/static/vis-network.min.css" rel="stylesheet" type="text/css" />
+    <style type="text/css">
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        margin: 0;
+        padding: 10px;
+        background: #f5f5f5;
+      }
+      #header {
+        background: white;
+        padding: 10px 15px;
+        border-radius: 5px;
+        margin-bottom: 10px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      }
+      #header h1 {
+        margin: 0 0 10px 0;
+        font-size: 18px;
+        color: #333;
+      }
+      #controls {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+      #graph-selector {
+        padding: 6px 10px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        font-size: 14px;
+        min-width: 200px;
+      }
+      #refresh-btn {
+        background: #f0f0f0;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        padding: 6px 10px;
+        cursor: pointer;
+        font-size: 16px;
+      }
+      #refresh-btn:hover {
+        background: #e0e0e0;
+      }
+      #save-btn {
+        background: #4caf50;
+        color: white;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+      }
+      #save-btn:hover {
+        background: #45a049;
+      }
+      #save-btn:disabled {
+        background: #cccccc;
+        cursor: not-allowed;
+      }
+      #status {
+        margin-left: 10px;
+        font-size: 14px;
+        color: #666;
+      }
+      #network-container {
+        background: white;
+        border-radius: 5px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        overflow: hidden;
+      }
+      #network {
+        width: 100%;
+        height: 70vh;
+        border: 1px solid #ddd;
+      }
+      .vis-manipulation {
+        background: #f8f9fa !important;
+        border-bottom: 1px solid #ddd !important;
+      }
+
+      /* Modal dialog styles */
+      .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 10000;
+      }
+      .modal-dialog {
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        min-width: 300px;
+      }
+      .modal-dialog h3 {
+        margin: 0 0 15px 0;
+        color: #333;
+      }
+      .modal-dialog label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: 500;
+        color: #555;
+      }
+      .modal-dialog input[type="text"] {
+        width: 100%;
+        padding: 8px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        margin-bottom: 15px;
+        font-size: 14px;
+        box-sizing: border-box;
+      }
+      .modal-dialog input[type="color"] {
+        width: 60px;
+        height: 30px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        cursor: pointer;
+        margin-bottom: 15px;
+      }
+      .modal-buttons {
+        display: flex;
+        gap: 10px;
+        justify-content: flex-end;
+      }
+      .modal-buttons button {
+        padding: 8px 16px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+      }
+      .modal-buttons .btn-cancel {
+        background: #f0f0f0;
+        color: #333;
+      }
+      .modal-buttons .btn-cancel:hover {
+        background: #e0e0e0;
+      }
+      .modal-buttons .btn-save {
+        background: #4caf50;
+        color: white;
+      }
+      .modal-buttons .btn-save:hover {
+        background: #45a049;
+      }
+      .color-preview {
+        display: inline-block;
+        width: 30px;
+        height: 20px;
+        border: 1px solid #ccc;
+        border-radius: 3px;
+        vertical-align: middle;
+        margin-left: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="header">
+      <h1>Graph Editor</h1>
+      <div id="controls">
+        <select id="graph-selector" onchange="loadSelectedGraph()">
+          <option value="">-- New Graph --</option>
+        </select>
+        <button
+          id="refresh-btn"
+          onclick="loadGraphList()"
+          title="Refresh graph list"
+        >
+          ↻
+        </button>
+        <button id="save-btn" onclick="saveGraph()">Save Graph</button>
+        <span id="status"></span>
+      </div>
+    </div>
+    <div id="network-container">
+      <div id="network"></div>
+    </div>
+
+    <script type="text/javascript">
+      // Create DataSets
+      var nodes = new vis.DataSet([]);
+      var edges = new vis.DataSet([]);
+
+      // Default node colors
+      var defaultColors = [
+        "#97C2FC",
+        "#FB7E81",
+        "#7BE141",
+        "#FFA80B",
+        "#AD85E4",
+        "#6C6C6C",
+        "#FFC470",
+        "#2B7CE9",
+      ];
+      var defaultColorIndex = 0;
+
+      function getNextDefaultColor() {
+        var color = defaultColors[defaultColorIndex % defaultColors.length];
+        defaultColorIndex++;
+        return color;
+      }
+
+      // Modal dialog functions
+      var modalCallback = null;
+
+      function showModal(title, fields, callback) {
+        modalCallback = callback;
+
+        // Create modal overlay
+        var overlay = document.createElement("div");
+        overlay.className = "modal-overlay";
+        overlay.id = "modal-overlay";
+
+        // Create modal dialog
+        var dialog = document.createElement("div");
+        dialog.className = "modal-dialog";
+
+        // Title
+        var h3 = document.createElement("h3");
+        h3.textContent = title;
+        dialog.appendChild(h3);
+
+        // Fields
+        fields.forEach(function (field) {
+          var label = document.createElement("label");
+          label.textContent = field.label;
+          dialog.appendChild(label);
+
+          var input;
+          if (field.type === "color") {
+            input = document.createElement("input");
+            input.type = "color";
+            input.id = "modal-" + field.id;
+            input.value = field.value || "#97C2FC";
+            dialog.appendChild(input);
+
+            // Add color preview
+            var preview = document.createElement("span");
+            preview.className = "color-preview";
+            preview.style.background = input.value;
+            preview.id = "modal-preview-" + field.id;
+            dialog.appendChild(preview);
+
+            // Update preview on change
+            input.addEventListener("input", function () {
+              document.getElementById(
+                "modal-preview-" + field.id,
+              ).style.background = this.value;
+            });
+
+            dialog.appendChild(document.createElement("br"));
+          } else {
+            input = document.createElement("input");
+            input.type = "text";
+            input.id = "modal-" + field.id;
+            input.value = field.value || "";
+            input.placeholder = field.placeholder || "";
+            dialog.appendChild(input);
+          }
+        });
+
+        // Buttons
+        var buttons = document.createElement("div");
+        buttons.className = "modal-buttons";
+
+        var cancelBtn = document.createElement("button");
+        cancelBtn.className = "btn-cancel";
+        cancelBtn.textContent = "Cancel";
+        cancelBtn.onclick = function () {
+          document.body.removeChild(overlay);
+          if (modalCallback) modalCallback(null);
+        };
+
+        var saveBtn = document.createElement("button");
+        saveBtn.className = "btn-save";
+        saveBtn.textContent = "Save";
+        saveBtn.onclick = function () {
+          var result = {};
+          fields.forEach(function (field) {
+            var input = document.getElementById("modal-" + field.id);
+            result[field.id] = input.value;
+          });
+          document.body.removeChild(overlay);
+          if (modalCallback) modalCallback(result);
+        };
+
+        buttons.appendChild(cancelBtn);
+        buttons.appendChild(saveBtn);
+        dialog.appendChild(buttons);
+
+        overlay.appendChild(dialog);
+        document.body.appendChild(overlay);
+
+        // Focus first text input
+        var firstInput = dialog.querySelector('input[type="text"]');
+        if (firstInput) {
+          firstInput.focus();
+        }
+      }
+
+      // Configure network options
+      var options = {
+        interaction: {
+          hover: true,
+          tooltipDelay: 200,
+          zoomView: true,
+          dragView: true,
+          selectConnectedEdges: true,
+          multiselect: true,
+          navigationButtons: true,
+        },
+        physics: {
+          enabled: true,
+          solver: "forceAtlas2Based",
+          forceAtlas2Based: {
+            gravitationalConstant: -80,
+            centralGravity: 0.01,
+            springLength: 200,
+            springConstant: 0.05,
+            avoidOverlap: 0.8,
+          },
+          stabilization: {
+            iterations: 150,
+            fit: true,
+          },
+        },
+        nodes: {
+          shape: "dot",
+          size: 25,
+          font: {
+            size: 14,
+            color: "#333333",
+          },
+          borderWidth: 2,
+          shadow: true,
+          color: {
+            background: "#97C2FC",
+            border: "#2B7CE9",
+            highlight: {
+              background: "#D2E5FF",
+              border: "#2B7CE9",
+            },
+          },
+        },
+        edges: {
+          width: 2,
+          color: {
+            color: "#848484",
+            highlight: "#FFA500",
+            hover: "#848484",
+          },
+          arrows: {
+            to: {
+              enabled: true,
+              scaleFactor: 1,
+            },
+          },
+          smooth: {
+            type: "continuous",
+            roundness: 0.5,
+          },
+          font: {
+            size: 12,
+            align: "middle",
+          },
+        },
+        manipulation: {
+          enabled: true,
+          initiallyActive: false,
+
+          addNode: function (data, callback) {
+            var color = getNextDefaultColor();
+            showModal(
+              "Add Node",
+              [
+                {
+                  id: "label",
+                  label: "Node Label:",
+                  value: "",
+                  placeholder: "Enter node label",
+                },
+                {
+                  id: "color",
+                  label: "Node Color:",
+                  value: color,
+                  type: "color",
+                },
+              ],
+              function (result) {
+                if (result) {
+                  data.label = result.label || "Node";
+                  data.color = result.color;
+                  callback(data);
+                }
+              },
+            );
+          },
+
+          editNode: function (data, callback) {
+            var currentColor = data.color;
+            if (typeof currentColor === "object") {
+              currentColor = currentColor.background || "#97C2FC";
+            }
+            showModal(
+              "Edit Node",
+              [
+                { id: "label", label: "Node Label:", value: data.label || "" },
+                {
+                  id: "color",
+                  label: "Node Color:",
+                  value: currentColor,
+                  type: "color",
+                },
+              ],
+              function (result) {
+                if (result) {
+                  data.label = result.label || "Node";
+                  data.color = result.color;
+                  callback(data);
+                }
+              },
+            );
+          },
+
+          addEdge: function (data, callback) {
+            showModal(
+              "Add Edge",
+              [
+                {
+                  id: "label",
+                  label: "Edge Label:",
+                  value: "",
+                  placeholder: "Enter edge label (optional)",
+                },
+              ],
+              function (result) {
+                if (result) {
+                  data.label = result.label || "";
+                  data.arrows = { to: { enabled: true } };
+                  callback(data);
+                }
+              },
+            );
+          },
+
+          editEdge: function (data, callback) {
+            // Find current edge to get its label
+            var currentEdge = edges.get(data.id);
+            var currentLabel = currentEdge ? currentEdge.label || "" : "";
+
+            showModal(
+              "Edit Edge",
+              [
+                {
+                  id: "label",
+                  label: "Edge Label:",
+                  value: currentLabel,
+                  placeholder: "Enter edge label (optional)",
+                },
+              ],
+              function (result) {
+                if (result) {
+                  data.label = result.label || "";
+                  callback(data);
+                }
+              },
+            );
+          },
+
+          deleteNode: function (data, callback) {
+            callback(data);
+          },
+
+          deleteEdge: function (data, callback) {
+            callback(data);
+          },
+        },
+      };
+
+      // Initialize network
+      var container = document.getElementById("network");
+      var data = { nodes: nodes, edges: edges };
+      var network = new vis.Network(container, data, options);
+
+      // Status feedback
+      var statusEl = document.getElementById("status");
+      var saveBtn = document.getElementById("save-btn");
+      var graphSelector = document.getElementById("graph-selector");
+      var currentGraphFile = null;
+
+      // Load graph list on startup
+      function loadGraphList() {
+        fetch("/graph/list")
+          .then((response) => response.json())
+          .then((data) => {
+            graphSelector.innerHTML =
+              '<option value="">-- New Graph --</option>';
+            data.graphs.forEach(function (g) {
+              var option = document.createElement("option");
+              option.value = g.filename;
+              var date = new Date(g.modified * 1000);
+              var dateStr =
+                date.toLocaleDateString() +
+                " " +
+                date.toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                });
+              option.textContent = g.filename + " (" + dateStr + ")";
+              graphSelector.appendChild(option);
+            });
+            // Select latest.json if it exists
+            var hasLatest = data.graphs.some(
+              (g) => g.filename === "latest.json",
+            );
+            if (hasLatest) {
+              graphSelector.value = "latest.json";
+              loadSelectedGraph();
+            }
+          })
+          .catch((err) => console.error("Failed to load graph list:", err));
+      }
+
+      function loadSelectedGraph() {
+        var filename = graphSelector.value;
+        if (!filename) {
+          // New graph - clear existing
+          nodes.clear();
+          edges.clear();
+          currentGraphFile = null;
+          statusEl.textContent = "New graph";
+          return;
+        }
+
+        statusEl.textContent = "Loading...";
+        fetch("/graph/load/" + encodeURIComponent(filename))
+          .then((response) => response.json())
+          .then((data) => {
+            if (data.error) {
+              statusEl.textContent = "Error: " + data.error;
+              return;
+            }
+            nodes.clear();
+            edges.clear();
+            if (data.nodes) nodes.add(data.nodes);
+            if (data.edges) edges.add(data.edges);
+            currentGraphFile = filename;
+            statusEl.textContent = "Loaded " + filename;
+            setTimeout(function () {
+              statusEl.textContent = "";
+            }, 2000);
+          })
+          .catch((err) => {
+            statusEl.textContent = "Error loading: " + err.message;
+          });
+      }
+
+      // Load graph list on page load
+      loadGraphList();
+
+      network.on("stabilizationIterationsDone", function () {
+        console.log("Stabilization complete");
+      });
+
+      // Save function
+      function saveGraph() {
+        saveBtn.disabled = true;
+        statusEl.textContent = "Saving...";
+
+        var graphData = {
+          nodes: nodes.get(),
+          edges: edges.get(),
+        };
+
+        fetch("/graph/save", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(graphData),
+        })
+          .then((response) => response.json())
+          .then((data) => {
+            if (data.status === "ok") {
+              statusEl.textContent = "Saved! " + data.file;
+              setTimeout(function () {
+                statusEl.textContent = "";
+              }, 3000);
+            } else {
+              statusEl.textContent = "Error: " + data.message;
+              saveBtn.disabled = false;
+            }
+          })
+          .catch((err) => {
+            statusEl.textContent = "Error: " + err.message;
+            saveBtn.disabled = false;
+          });
+      }
+
+      // Auto-save indicator
+      var autoSaveTimeout;
+      network.on("addNode", function () {
+        clearTimeout(autoSaveTimeout);
+        statusEl.textContent = "Modified (unsaved)";
+      });
+      network.on("removeNode", function () {
+        clearTimeout(autoSaveTimeout);
+        statusEl.textContent = "Modified (unsaved)";
+      });
+      network.on("addEdge", function () {
+        clearTimeout(autoSaveTimeout);
+        statusEl.textContent = "Modified (unsaved)";
+      });
+      network.on("removeEdge", function () {
+        clearTimeout(autoSaveTimeout);
+        statusEl.textContent = "Modified (unsaved)";
+      });
+    </script>
+  </body>
+</html>
