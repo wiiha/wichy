@@ -262,7 +262,7 @@ class BashParameters(ParametersModel):
         s = ""
 
         if self.description:
-            s += f"description={self.description} "
+            s += f'description="{self.description}" '
         return f'{s}command="{truncate_to_len(self.command)}" timeout={self.timeout}'
 
 

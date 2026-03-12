@@ -101,6 +101,11 @@ class ArgumentParserWrapper:
             type=str,
             help="Path to a context JSON file to resume a previous conversation.",
         )
+        self.parser.add_argument(
+            "--no-server",
+            action="store_true",
+            help="Do not start the web server (graph editor, etc.)",
+        )
         # Add subcommands
         subparsers = self.parser.add_subparsers(
             dest="command", help="Available sub commands"
@@ -499,6 +504,15 @@ echo "Hello from {skill_name} skill!"
             console_task_agents.quiet = False
     else:
         console.quiet = True
+
+    # Start the web server in background (unless --no-server)
+    if not args.no_server:
+        from wichy.server import start_server_in_background
+
+        actual_port = start_server_in_background(port=7891)
+        print(f"[dim]Web server started on http://127.0.0.1:{actual_port}[/dim]")
+        print(f"[dim]Graph editor: http://127.0.0.1:{actual_port}/tools/graph/[/dim]")
+        print("[dim]Use --no-server to disable.[/dim]")
 
     while True:
         try:

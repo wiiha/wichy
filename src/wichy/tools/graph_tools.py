@@ -1,8 +1,6 @@
 import json
 import os
 import re
-import signal
-import subprocess
 import uuid
 from datetime import datetime
 from typing import List, Optional
@@ -20,12 +18,6 @@ def get_graphs_dir() -> str:
     graphs_dir = os.path.join(workspace, ".wichy", "graphs")
     os.makedirs(graphs_dir, exist_ok=True)
     return graphs_dir
-
-
-def get_pid_file() -> str:
-    """Get path to the graph editor PID file."""
-    workspace = os.getcwd()
-    return os.path.join(workspace, ".wichy", "graph_editor_pid.txt")
 
 
 # --- Tool classes ---
@@ -173,158 +165,6 @@ Node colors are optional (defaults to blue). Edge labels are optional and should
                 json.dump(graph_data, f, indent=2)
 
             return f"Created graph with {len(nodes)} nodes and {len(edges)} edges.\nSaved to: {filename}\n\nYou can view it in the graph editor by refreshing the dropdown and selecting '{filename}' or 'latest.json'."
-
-        except Exception as e:
-            return f"error: {e}"
-
-
-class StartGraphEditorParameters(ParametersModel):
-    port: Optional[int] = Field(
-        7891, description="port to start the graph editor server on, default=7891"
-    )
-
-    def info(self):
-        return f'port="{self.port}"'
-
-
-class StartGraphEditorTool(BaseTool):
-    name = "start_graph_editor"
-    description = "Start the graph editor server and open in browser"
-    description_long = "Launch the vis.js-based graph editor as a local web server. Opens browser for interactive node-link editing."
-    parameters_model = StartGraphEditorParameters
-
-    def _is_running(self, port: int) -> bool:
-        """Check if server is already running on the given port."""
-        try:
-            import socket
-
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            result = sock.connect_ex(("127.0.0.1", port))
-            sock.close()
-            return result == 0
-        except:
-            return False
-
-    def execute(self, port: int = 7891) -> str:
-        """Start the graph editor server."""
-        try:
-            # Check if already running on the port
-            if self._is_running(port):
-                return f"Graph editor already running on port {port}. Open http://127.0.0.1:{port}/graph"
-
-            pid_file = get_pid_file()
-
-            # Check if we have a stale PID file (process recorded but not actually running)
-            if os.path.exists(pid_file):
-                try:
-                    with open(pid_file, "r") as f:
-                        old_pid = int(f.read().strip())
-                    # Check if process exists
-                    os.kill(old_pid, 0)
-                    # If we get here, process exists - but port check said it's not running
-                    # This shouldn't happen, but let's try to kill the orphan
-                    try:
-                        os.kill(old_pid, signal.SIGTERM)
-                    except:
-                        pass
-                except (ProcessLookupError, ValueError, OSError):
-                    # Stale PID file, remove it
-                    pass
-                os.remove(pid_file)
-
-            # Start the server as a subprocess
-            import sys
-
-            server_module = "wichy.graph.server"
-            cmd = [sys.executable, "-m", server_module]
-            workspace = os.getcwd()
-
-            # Don't use start_new_session - we want the server to die when parent dies
-            proc = subprocess.Popen(
-                cmd,
-                cwd=workspace,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-
-            # Save PID and port
-            with open(pid_file, "w") as f:
-                f.write(f"{proc.pid}\n{port}")
-
-            # Wait a moment for server to start
-            import time
-
-            time.sleep(0.5)
-
-            if self._is_running(port):
-                # Try to open browser
-                try:
-                    import webbrowser
-
-                    webbrowser.open(f"http://127.0.0.1:{port}/graph")
-                except:
-                    pass  # Browser opening is best effort
-
-                return f"Graph editor started on http://127.0.0.1:{port}/graph (PID: {proc.pid})"
-            else:
-                return f"Server process started but not responding on port {port}. Check logs."
-
-        except Exception as e:
-            return f"error: {e}"
-
-
-class StopGraphEditorParameters(ParametersModel):
-    pass
-
-    def info(self):
-        return ""
-
-
-class StopGraphEditorTool(BaseTool):
-    name = "stop_graph_editor"
-    description = "Stop the running graph editor server"
-    parameters_model = StopGraphEditorParameters
-
-    def execute(self) -> str:
-        """Stop the graph editor server."""
-        try:
-            pid_file = get_pid_file()
-
-            if not os.path.exists(pid_file):
-                return "No graph editor PID file found. Server may not be running."
-
-            with open(pid_file, "r") as f:
-                lines = f.read().strip().split("\n")
-
-            try:
-                pid = int(lines[0])
-            except (ValueError, IndexError):
-                os.remove(pid_file)
-                return "Invalid PID file. Removed."
-
-            # Try to kill the process
-            try:
-                os.kill(pid, signal.SIGTERM)
-                # Wait a moment and verify it's dead
-                import time
-
-                time.sleep(0.2)
-                try:
-                    os.kill(pid, 0)  # Check if still alive
-                    # Still alive, force kill
-                    os.kill(pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass  # Good, it's dead
-            except ProcessLookupError:
-                # Process already dead
-                pass
-            except PermissionError:
-                return f"Permission denied when trying to stop PID {pid}"
-
-            # Remove PID file
-            os.remove(pid_file)
-
-            return f"Graph editor stopped (PID: {pid})"
 
         except Exception as e:
             return f"error: {e}"

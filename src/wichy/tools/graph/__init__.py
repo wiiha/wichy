@@ -1,15 +1,21 @@
+"""
+Graph tool Blueprint for the central Flask server.
+
+This module provides the web UI for graph editing via a Flask Blueprint.
+The agent tools (create_graph, read_graph, list_graphs) remain in graph_tools.py.
+"""
+
 import json
 import os
-import sys
-from datetime import datetime
+from flask import Blueprint, jsonify, render_template, request, send_from_directory
 
-from flask import Flask, jsonify, render_template, request, send_from_directory
+# Create the blueprint with URL prefix
+bp = Blueprint("graph", __name__, url_prefix="/tools/graph")
 
-app = Flask(
-    __name__,
-    static_folder=os.path.join(os.path.dirname(__file__), "static"),
-    template_folder=os.path.join(os.path.dirname(__file__), "templates"),
-)
+# Static files and templates are in the original graph module
+GRAPH_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+GRAPH_STATIC = os.path.join(GRAPH_DIR, "graph", "static")
+GRAPH_TEMPLATES = os.path.join(GRAPH_DIR, "graph", "templates")
 
 
 def get_graphs_dir():
@@ -20,19 +26,23 @@ def get_graphs_dir():
     return graphs_dir
 
 
-@app.route("/static/<path:filename>")
+@bp.route("/static/<path:filename>")
 def serve_static(filename):
     """Serve static files (vis.js, etc.)."""
-    return send_from_directory(app.static_folder, filename)
+    return send_from_directory(GRAPH_STATIC, filename)
 
 
-@app.route("/graph")
+@bp.route("/")
 def graph_editor():
     """Serve the graph editor HTML page."""
-    return render_template("editor.html")
+    # We need to render the template from the original location
+    # Flask's render_template uses the app's template folder, so we read directly
+    template_path = os.path.join(GRAPH_TEMPLATES, "editor.html")
+    with open(template_path, "r") as f:
+        return f.read()
 
 
-@app.route("/graph/list")
+@bp.route("/api/list")
 def list_graphs():
     """List all available graph files."""
     try:
@@ -40,7 +50,9 @@ def list_graphs():
         files = []
         if os.path.exists(graphs_dir):
             for f in sorted(os.listdir(graphs_dir), reverse=True):
-                if f.endswith(".json") and os.path.isfile(os.path.join(graphs_dir, f)):
+                if f.endswith(".json") and os.path.isfile(
+                    os.path.join(graphs_dir, f)
+                ):
                     filepath = os.path.join(graphs_dir, f)
                     stat = os.stat(filepath)
                     files.append(
@@ -51,7 +63,7 @@ def list_graphs():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/graph/load/<filename>")
+@bp.route("/api/load/<filename>")
 def load_graph(filename):
     """Load a specific graph file."""
     try:
@@ -69,10 +81,12 @@ def load_graph(filename):
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/graph/save", methods=["POST"])
+@bp.route("/api/save", methods=["POST"])
 def save_graph():
     """Save graph data to JSON file."""
     try:
+        from datetime import datetime
+
         data = request.get_json()
         if not data or "nodes" not in data or "edges" not in data:
             return (
@@ -109,10 +123,6 @@ def save_graph():
         return json.dumps({"status": "error", "message": str(e)}), 500
 
 
-def run_server(port=7891):
-    """Run the Flask development server."""
-    app.run(host="127.0.0.1", port=port, debug=False, use_reloader=False)
-
-
-if __name__ == "__main__":
-    run_server()
+def register(app):
+    """Register the graph blueprint with the Flask app."""
+    app.register_blueprint(bp)

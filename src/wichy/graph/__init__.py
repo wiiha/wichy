@@ -1,6 +1,5 @@
 # Graph Editor Module
-# Provides a vis.js-based interactive graph editor
+# Provides static files and templates for vis.js-based interactive graph editor
+# The web server is now handled by src/wichy/server.py
 
-from wichy.graph.server import run_server
-
-__all__ = ['run_server']
+__all__ = []
