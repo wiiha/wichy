@@ -11,25 +11,59 @@ prompt_session = PromptSession()
 
 def require_human_verification(func: Callable) -> Callable:
     """
-    Decorator that requires human y/n verification before executing a function.
-    To provide a custom action/message for a specific function, set attributes
-      func._action_label = "Short label"
-      func._action_message = "Longer explanation"
-    before calling the function (or set them immediately after defining the function).
+    Decorator that conditionally requires human y/n verification before executing
+    a function.
+
+    To provide a custom action/message for a specific function, set attributes:
+        func._action_label = "Short label"
+        func._action_message = "Longer explanation"
+
+    To conditionally skip verification, set a predicate:
+        func._should_verify = lambda *args, **kwargs: True  # Always verify (default)
+        func._should_verify = lambda *args, **kwargs: False  # Never verify
+        func._should_verify = custom_verification_logic     # Custom callable
+
+    The predicate receives the same args/kwargs as the decorated function and should
+    return True if verification is needed, False otherwise.
     """
 
     @functools.wraps(func)
     def wrapper(*args, **kwargs) -> Any:
+        # Check if verification should be skipped based on tool's predicate
+        # IMPORTANT: Access attributes from 'wrapper', not 'func'
+        # When attributes are set after decoration, they're set on the wrapper,
+        # not on the original func that's captured in the closure
+        should_verify_predicate = getattr(wrapper, "_should_verify", None)
+
+        # Default to always verifying if no predicate is set (backwards compatible)
+        if should_verify_predicate is not None:
+            try:
+                needs_verification = should_verify_predicate(*args, **kwargs)
+            except Exception as e:
+                # If predicate fails, err on the side of caution and verify
+                print(f"[yellow]Warning: Verification predicate failed: {e}[/yellow]")
+                needs_verification = True
+        else:
+            # Backwards compatible: always verify if no predicate set
+            needs_verification = True
+
+        # Skip verification entirely if predicate says no and global flag allows
+        if not needs_verification:
+            return func(*args, **kwargs)
+
+        # Build argument string for display
         args_str = ", ".join(getattr(a, "name", repr(a)) for a in args)
         kwargs_str = ", ".join(f"{k}={repr(v)}" for k, v in kwargs.items())
         all_args = ", ".join(filter(None, [args_str, kwargs_str]))
 
-        # Resolve label/message: explicit attributes -> docstring first line -> function name
+        # Resolve label/message: explicit attributes -> docstring first line ->
+        # function name
+        # IMPORTANT: Access attributes from 'wrapper', not 'func'
         label: Optional[str] = getattr(wrapper, "_action_label", None)
-        if not label and func.__doc__:
-            label = func.__doc__.strip().splitlines()[0] or None
+        if not label and wrapper.__doc__:
+            label = wrapper.__doc__.strip().splitlines()[0] or None
         if not label:
-            label = func.__name__
+            label = wrapper.__name__
 
         if SKIP_HUMAN_VERIFICATION:
             return func(*args, **kwargs)
@@ -58,7 +92,6 @@ def require_human_verification(func: Callable) -> Callable:
                 msg = f"User denied your suggested execution of: {all_args}"
                 if x != "":
                     msg += "\nReason for denied execution: " + x
-
                 raise PermissionError(msg)
             print("Please enter 'y' or 'n <optional reason>'")
 
@@ -71,20 +104,21 @@ def block_on(decision_func: Callable) -> Callable:
 
     The decision function should have the same signature as the decorated function
     (including 'self' if applicable) and return a tuple:
-      (should_block: bool, reason: Optional[str])
+        (should_block: bool, reason: Optional[str])
 
     - If should_block is True, raises PermissionError with the provided reason.
     - If should_block is False, executes the function normally.
 
     Example:
-      def should_block_dangerous_command(self, command: str, timeout: int) -> Tuple[bool, Optional[str]]:
-          if "rm -rf" in command:
-              return True, "Destructive command 'rm -rf' is not allowed"
-          return False, None
+        def should_block_dangerous_command(self, command: str, timeout: int) ->
+        Tuple[bool, Optional[str]]:
+            if "rm -rf" in command:
+                return True, "Destructive command 'rm -rf' is not allowed"
+            return False, None
 
-      @block_on(should_block_dangerous_command)
-      def execute(self, command: str, timeout: int = 30) -> str:
-          ...
+        @block_on(should_block_dangerous_command)
+        def execute(self, command: str, timeout: int = 30) -> str:
+            ...
     """
 
     def decorator(func: Callable) -> Callable:
