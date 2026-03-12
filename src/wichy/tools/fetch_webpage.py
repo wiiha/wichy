@@ -1,5 +1,8 @@
 import asyncio
+import base64
+import os
 import random
+import tempfile
 
 import markdownify
 from pydantic import Field
@@ -123,5 +126,155 @@ class FetchWebPageTool(BaseTool):
                 return content_md
             else:
                 return build_content_overview(content_md, limit)
+        except Exception as e:
+            return f"error: {str(e)}"
+
+
+class NavigateParameters(ParametersModel):
+    url: str = Field(..., description="The URL to navigate to.")
+    wait_until: str = Field(
+        "networkidle",
+        description="When to consider navigation complete. Options: 'load', 'domcontentloaded', 'networkidle'.",
+    )
+
+    def info(self):
+        return f'url="{self.url}"'
+
+
+class NavigateTool(BaseTool):
+    name = "browser_navigate"
+    description = "Navigate the browser to a URL."
+    parameters_model = NavigateParameters
+
+    def execute(self, url: str, wait_until: str = "networkidle") -> str:
+        """
+        Navigate the browser to a URL.
+
+        Args:
+            url: The URL to navigate to
+            wait_until: When to consider navigation complete
+
+        Returns:
+            A message indicating the result of the navigation.
+        """
+        try:
+            loop = get_event_loop()
+
+            async def _navigate():
+                page = await browser_manager.get_page()
+                result = await browser_manager.navigate(url, wait_until=wait_until)
+                return result
+
+            result = loop.run_until_complete(_navigate())
+
+            if result.get("status") == "success":
+                return f"Successfully navigated to {result.get('url')}\nTitle: {result.get('title')}"
+            else:
+                return f"error: {result.get('error', 'Navigation failed')}"
+        except Exception as e:
+            return f"error: {str(e)}"
+
+
+class BrowserStatusParameters(ParametersModel):
+    def info(self):
+        return ""
+
+
+class BrowserStatusTool(BaseTool):
+    name = "browser_status"
+    description = "Get the current status of the browser, including the current URL and page title."
+    parameters_model = BrowserStatusParameters
+
+    def execute(self) -> str:
+        """
+        Get the current status of the browser.
+
+        Returns:
+            A message with the current URL and page title, or status if unavailable.
+        """
+        try:
+            loop = get_event_loop()
+
+            async def _status():
+                return await browser_manager.status()
+
+            result = loop.run_until_complete(_status())
+
+            if "url" in result:
+                return f"Current page: {result['url']}\nTitle: {result['title']}"
+            else:
+                return f"Browser status: {result.get('status', 'unknown')}"
+        except Exception as e:
+            return f"error: {str(e)}"
+
+
+class ScreenshotParameters(ParametersModel):
+    filename: str = Field(
+        ...,
+        description="The filename or path where to save the screenshot. Use 'base64' to return raw base64 data instead of saving to file. If only a filename is provided (no directory), the file will be saved to the system temp directory.",
+    )
+    fullpage: bool = Field(
+        False,
+        description="If True, capture the full scrollable page. If False, capture only the viewport.",
+    )
+
+    def info(self):
+        return f'filename="{self.filename}", fullpage={self.fullpage}'
+
+
+class ScreenshotTool(BaseTool):
+    name = "browser_screenshot"
+    description = "Take a screenshot of the current browser page and save it to a file."
+    parameters_model = ScreenshotParameters
+
+    def execute(self, filename: str, fullpage: bool = False) -> str:
+        """
+        Take a screenshot of the current browser page.
+
+        Args:
+            filename: The filename or path where to save the screenshot. Use 'base64' to return
+                      raw base64 data instead of saving. If only a filename is provided, saves
+                      to system temp directory.
+            fullpage: If True, capture the full scrollable page. If False, capture only the viewport.
+
+        Returns:
+            The file path where the screenshot was saved, or base64 data URI if filename is 'base64'.
+        """
+        try:
+
+            loop = get_event_loop()
+
+            async def _screenshot():
+                return await browser_manager.screenshot(fullpage=fullpage)
+
+            screenshot_bytes = loop.run_until_complete(_screenshot())
+
+            # If filename is 'base64', return raw base64 data
+            if filename == "base64":
+                b64_data = base64.b64encode(screenshot_bytes).decode("utf-8")
+                return f"data:image/png;base64,{b64_data}"
+
+            # Determine the file path
+            if os.path.isabs(filename) or os.path.dirname(filename):
+                # Has a directory component - use as-is
+                filepath = filename
+                # Ensure directory exists
+                dir_path = os.path.dirname(filepath)
+                if dir_path and not os.path.exists(dir_path):
+                    os.makedirs(dir_path)
+            else:
+                # Only filename provided - use temp directory
+                temp_dir = tempfile.gettempdir()
+                filepath = os.path.join(temp_dir, filename)
+
+            # Ensure .png extension
+            if not filepath.lower().endswith(".png"):
+                filepath += ".png"
+
+            # Write the screenshot to file
+            with open(filepath, "wb") as f:
+                f.write(screenshot_bytes)
+
+            return filepath
         except Exception as e:
             return f"error: {str(e)}"
