@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wichy"
-version = "0.2.0"
+version = "0.5.0"
 description = "Agentic LLM for coding."
 readme = "README.md"
 authors = [
@@ -69,6 +69,14 @@ dependencies = [
     "tqdm==4.67.1",
     "typing-inspection==0.4.2",
     "typing_extensions==4.15.0",
+    "chromadb>=0.4.0",
+    "rank_bm25>=0.2.2",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
 ]
 
 [project.scripts]
