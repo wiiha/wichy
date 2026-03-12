@@ -2,8 +2,15 @@
 <html>
   <head>
     <title>Graph Editor</title>
-    <script type="text/javascript" src="/static/vis-network.min.js"></script>
-    <link href="/static/vis-network.min.css" rel="stylesheet" type="text/css" />
+    <script
+      type="text/javascript"
+      src="/tools/graph/static/vis-network.min.js"
+    ></script>
+    <link
+      href="/tools/graph/static/vis-network.min.css"
+      rel="stylesheet"
+      type="text/css"
+    />
     <style type="text/css">
       body {
         font-family:
@@ -28,6 +35,26 @@
         display: flex;
         gap: 10px;
         align-items: center;
+        flex-wrap: wrap;
+      }
+      .control-group {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+      }
+      .control-group label {
+        font-size: 13px;
+        color: #555;
+      }
+      .control-group input[type="range"] {
+        width: 100px;
+      }
+      .control-group input[type="number"] {
+        width: 60px;
+        padding: 4px 6px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        font-size: 13px;
       }
       #graph-selector {
         padding: 6px 10px;
@@ -183,6 +210,31 @@
           ↻
         </button>
         <button id="save-btn" onclick="saveGraph()">Save Graph</button>
+        <div class="control-group">
+          <label
+            for="repulsion"
+            title="More negative = nodes repel each other more"
+            >Repulsion:</label
+          >
+          <input
+            type="range"
+            id="repulsion"
+            min="-500"
+            max="-10"
+            step="10"
+            value="-80"
+            onchange="updatePhysics()"
+          />
+          <input
+            type="number"
+            id="repulsion-value"
+            min="-500"
+            max="-10"
+            step="10"
+            value="-80"
+            onchange="updatePhysicsFromNumber()"
+          />
+        </div>
         <span id="status"></span>
       </div>
     </div>
@@ -504,6 +556,38 @@
       var data = { nodes: nodes, edges: edges };
       var network = new vis.Network(container, data, options);
 
+      // Physics controls
+      function updatePhysics() {
+        var repulsion = parseInt(
+          document.getElementById("repulsion").value,
+        );
+        document.getElementById("repulsion-value").value = repulsion;
+        network.setOptions({
+          physics: {
+            forceAtlas2Based: {
+              gravitationalConstant: repulsion,
+            },
+          },
+        });
+      }
+
+      function updatePhysicsFromNumber() {
+        var repulsion = parseInt(
+          document.getElementById("repulsion-value").value,
+        );
+        // Clamp value
+        repulsion = Math.max(-500, Math.min(-10, repulsion));
+        document.getElementById("repulsion-value").value = repulsion;
+        document.getElementById("repulsion").value = repulsion;
+        network.setOptions({
+          physics: {
+            forceAtlas2Based: {
+              gravitationalConstant: repulsion,
+            },
+          },
+        });
+      }
+
       // Status feedback
       var statusEl = document.getElementById("status");
       var saveBtn = document.getElementById("save-btn");
@@ -512,7 +596,7 @@
 
       // Load graph list on startup
       function loadGraphList() {
-        fetch("/graph/list")
+        fetch("/tools/graph/api/list")
           .then((response) => response.json())
           .then((data) => {
             graphSelector.innerHTML =
@@ -555,7 +639,7 @@
         }
 
         statusEl.textContent = "Loading...";
-        fetch("/graph/load/" + encodeURIComponent(filename))
+        fetch("/tools/graph/api/load/" + encodeURIComponent(filename))
           .then((response) => response.json())
           .then((data) => {
             if (data.error) {
@@ -594,7 +678,7 @@
           edges: edges.get(),
         };
 
-        fetch("/graph/save", {
+        fetch("/tools/graph/api/save", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",

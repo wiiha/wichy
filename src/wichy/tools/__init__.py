@@ -20,8 +20,6 @@ from wichy.tools.graph_tools import (
     CreateGraphTool,
     ListGraphsTool,
     ReadGraphTool,
-    StartGraphEditorTool,
-    StopGraphEditorTool,
 )
 from wichy.tools.helpers import get_tool_definitions
 from wichy.tools.insert_lines import InsertLinesTool
@@ -51,8 +49,6 @@ NETWORKING_TOOLS = [PingTool, ReverseDnsTool]
 
 GRAPH_TOOLS = [
     CreateGraphTool,
-    StartGraphEditorTool,
-    StopGraphEditorTool,
     ReadGraphTool,
     ListGraphsTool,
 ]
