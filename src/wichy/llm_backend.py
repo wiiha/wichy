@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from rich import print
 from rich.console import Console
 
+from wichy.config import settings
 from wichy.helpers.console import console
 
 
@@ -166,7 +167,7 @@ def call(context, tool_defs=None, model_str=None, extra_args=None, **extra_kwarg
     model = None
     if backend == "ollama":
         client = OpenAI(
-            base_url="http://localhost:11434/v1",
+            base_url=settings.ollama_base_url,
             api_key="ollama",
         )
         if model_name is None:
@@ -174,16 +175,16 @@ def call(context, tool_defs=None, model_str=None, extra_args=None, **extra_kwarg
         model = model_name
 
     elif backend == "llama_cpp":
-        client = OpenAI(base_url="http://localhost:8080", api_key="sk-local")
+        client = OpenAI(base_url=settings.llama_cpp_base_url, api_key="sk-local")
         model = "model-set-by-llama-server"
     elif backend == "open_router":
-        api_key = os.environ.get("OPEN_ROUTER_API_KEY", None)
+        api_key = settings.openrouter_api_key
         if api_key is None:
             raise ValueError(
                 "using backend open_router requires env variable OPEN_ROUTER_API_KEY, it is missing."
             )
         client = OpenAI(
-            base_url="https://openrouter.ai/api/v1",
+            base_url=settings.openrouter_base_url,
             api_key=api_key,
         )
         model = model_name
@@ -198,7 +199,7 @@ def call(context, tool_defs=None, model_str=None, extra_args=None, **extra_kwarg
             backend_specific_headers["reasoning"] = {"enabled": False}
     elif backend == "generic":
         base_url, model = parse_generic_backend(model_str)
-        api_key = os.environ.get("OPENAI_API_KEY", "sk-generic")
+        api_key = settings.openai_api_key or "sk-generic"
         client = OpenAI(base_url=base_url, api_key=api_key)
     else:
         raise ValueError(

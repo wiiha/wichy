@@ -3,6 +3,7 @@ from typing import Dict, List
 
 from pydantic import BaseModel
 
+from wichy.config import settings
 from wichy.helpers.markdown import read_markdown_with_frontmatter
 
 
@@ -42,8 +43,7 @@ def load_user_root_agents() -> List[str]:
     all_files: List[Path] = []
 
     # check home dir for .wichy
-    home_dir = Path.home()
-    home_defs_dir = home_dir / ".wichy" / "root_agent_defs"
+    home_defs_dir = settings.root_agent_defs_home_dir
     if not home_defs_dir.exists():
         # create dir so users can drop files later
         try:
@@ -55,7 +55,7 @@ def load_user_root_agents() -> List[str]:
     all_files.extend(_collect_md_files_from_dir(home_defs_dir))
 
     # check closest .wichy (project/local)
-    local_defs_dir = Path(".wichy") / "root_agent_defs"
+    local_defs_dir = settings.root_agent_defs_local_dir
     if not local_defs_dir.exists():
         # create dir locally as well
         try:

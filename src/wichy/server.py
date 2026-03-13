@@ -13,11 +13,12 @@ from pathlib import Path
 
 from flask import Flask, jsonify
 
+from wichy.config import settings
+
 
 def get_logs_dir() -> Path:
     """Get the logs directory relative to workspace, creating it if needed."""
-    workspace = Path.cwd()
-    logs_dir = workspace / ".wichy" / "logs"
+    logs_dir = settings.logs_dir
     logs_dir.mkdir(parents=True, exist_ok=True)
     return logs_dir
 
@@ -103,14 +104,16 @@ _server_app: Flask | None = None
 _server_port: int | None = None
 
 
-def run_server(port: int = 7891, host: str = "127.0.0.1") -> None:
+def run_server(port: int | None = None, host: str = "127.0.0.1") -> None:
     """Run the Flask development server in the current thread."""
+    if port is None:
+        port = settings.server_port
     app = create_app()
     app.logger.info(f"Starting wichy server on {host}:{port}")
     app.run(host=host, port=port, debug=False, use_reloader=False, threaded=True)
 
 
-def start_server_in_background(port: int = 7891, host: str = "127.0.0.1") -> int:
+def start_server_in_background(port: int | None = None, host: str = "127.0.0.1") -> int:
     """Start the Flask server in a background thread.
     
     Returns:
@@ -120,6 +123,10 @@ def start_server_in_background(port: int = 7891, host: str = "127.0.0.1") -> int
 
     if _server_thread is not None and _server_thread.is_alive():
         return _server_port  # Server already running, return its port
+
+    # Use settings port if not specified
+    if port is None:
+        port = settings.server_port
 
     # Find an available port
     actual_port = find_available_port(port, host)

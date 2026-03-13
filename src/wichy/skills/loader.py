@@ -6,6 +6,7 @@ import shutil
 from pathlib import Path
 from typing import Dict, List
 
+from wichy.config import settings
 from wichy.skills.registry import SkillRegistry
 from wichy.skills.skill import ScriptInfo, Skill, parse_markdown_frontmatter
 
@@ -17,9 +18,7 @@ class SkillLoader:
     """Discovers and loads skills from the skills directory."""
 
     def __init__(self, skills_dir: Path = None):
-        self.skills_dir = (
-            Path(skills_dir) if skills_dir else Path.home() / ".wichy" / "skills"
-        )
+        self.skills_dir = Path(skills_dir) if skills_dir else settings.skills_dir
         self.registry = SkillRegistry()
 
     def discover_skill_dirs(self) -> List[Path]:

@@ -57,6 +57,7 @@ dependencies = [
     "primp==0.15.0",
     "pydantic==2.12.4",
     "pydantic_core==2.41.5",
+    "pydantic-settings>=2.0.0",
     "pyee==13.0.0",
     "Pygments==2.19.2",
     "prompt-toolkit==3.0.52",

@@ -16,6 +16,7 @@ from prompt_toolkit.history import FileHistory
 from rich import print
 from rich.markdown import Markdown
 
+from wichy.config import settings
 from wichy.helpers.console import console
 from wichy.helpers.context import context_from_file, new_context
 from wichy.helpers.environment_info import environment_information
@@ -173,9 +174,8 @@ def main():
     args = parser.parse_args()
     cmd_checker = SlashCommandChecker()
 
-    home_dir = Path.home()
     prompt_session = PromptSession(
-        history=FileHistory(home_dir / Path(".wichy_history")),
+        history=FileHistory(settings.history_file),
         auto_suggest=AutoSuggestFromHistory(),
         completer=slash_completer,
     )
@@ -223,7 +223,7 @@ def main():
 
         from wichy.helpers.context import previous_conversations
 
-        context_dir = ".wichy/contexts/"
+        context_dir = str(settings.contexts_dir)
         try:
             files = previous_conversations()
         except FileNotFoundError:
@@ -313,7 +313,7 @@ def main():
     if args.command == "new" and args.new_command == "skill":
         # Create a new skill directory structure
         skill_name = args.name
-        skills_dir = Path.home() / ".wichy" / "skills"
+        skills_dir = settings.skills_dir
         skill_dir = skills_dir / skill_name
 
         # Validate skill name (kebab-case: lowercase letters, numbers, and hyphens)

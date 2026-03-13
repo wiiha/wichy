@@ -13,6 +13,8 @@ from typing import Any, Optional
 
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
+from wichy.config import settings
+
 
 class BrowserManager:
     """
@@ -37,19 +39,15 @@ class BrowserManager:
         """Initialize the browser if not already initialized."""
         if self._browser is None:
             self._playwright = await async_playwright().__aenter__()
-            # self._browser = await self._playwright.chromium.launch(headless=False)
-            self._browser = await self._playwright.chromium.launch(headless=True)
+            self._browser = await self._playwright.chromium.launch(
+                headless=settings.browser_headless
+            )
 
             # Create a dedicated context for the persistent page
-            user_agents = [
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0 Safari/537.36",
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0",
-            ]
             self._context = await self._browser.new_context(
-                user_agent=random.choice(user_agents),
-                viewport={"width": 1920, "height": 1080},
-                locale="en-US",
+                user_agent=random.choice(settings.browser_user_agents),
+                viewport=settings.browser_viewport,
+                locale=settings.browser_locale,
             )
             self._page = await self._context.new_page()
 
@@ -67,9 +65,9 @@ class BrowserManager:
         if self._page is None or self._page.is_closed():
             if self._context is None or self._context.is_closed():
                 self._context = await self._browser.new_context(
-                    user_agent=random.choice(self._get_user_agents()),
-                    viewport={"width": 1920, "height": 1080},
-                    locale="en-US",
+                    user_agent=random.choice(settings.browser_user_agents),
+                    viewport=settings.browser_viewport,
+                    locale=settings.browser_locale,
                 )
             self._page = await self._context.new_page()
 
@@ -147,9 +145,9 @@ class BrowserManager:
 
         Args:
             code: A string representing an expression using the page object.
-                  Examples: "title()", ".url", "content()", "screenshot(fullpage=True)",
-                            "wait_for_timeout(5000)", "query_selector('h1').text_content()",
-                            "query_selector('form').fill('input', 'value')"
+              Examples: "title()", ".url", "content()", "screenshot(fullpage=True)",
+                        "wait_for_timeout(5000)", "query_selector('h1').text_content()",
+                        "query_selector('form').fill('input', 'value')"
 
         Returns:
             The result of the evaluated expression.
@@ -285,14 +283,6 @@ class BrowserManager:
 
         else:
             raise ValueError(f"Unsupported expression type: {type(node).__name__}")
-
-    def _get_user_agents(self):
-        """Return list of user agents for randomization."""
-        return [
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0",
-        ]
 
     async def close(self):
         """Close the browser and cleanup resources."""

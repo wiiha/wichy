@@ -9,6 +9,8 @@ import json
 import os
 from flask import Blueprint, jsonify, render_template, request, send_from_directory
 
+from wichy.config import settings
+
 # Create the blueprint with URL prefix
 bp = Blueprint("graph", __name__, url_prefix="/tools/graph")
 
@@ -20,10 +22,9 @@ GRAPH_TEMPLATES = os.path.join(GRAPH_DIR, "graph", "templates")
 
 def get_graphs_dir():
     """Get the graphs directory relative to workspace."""
-    workspace = os.getcwd()
-    graphs_dir = os.path.join(workspace, ".wichy", "graphs")
-    os.makedirs(graphs_dir, exist_ok=True)
-    return graphs_dir
+    graphs_dir = settings.graphs_dir
+    graphs_dir.mkdir(parents=True, exist_ok=True)
+    return str(graphs_dir)
 
 
 @bp.route("/static/<path:filename>")

@@ -6,9 +6,9 @@ from os.path import isfile, join
 
 from rich import print
 
+from wichy.config import settings
 from wichy.helpers.file import drop_last_n_lines
 
-CONTEXT_DIR = ".wichy/contexts/"
 CONTEXT_FILE_EXT = ".json"
 
 
@@ -53,9 +53,9 @@ class ContextHandler:
         This method creates the context directory if it doesn't exist. If a subdirectory
         is specified, it will create that as well.
         """
-        self.context_dir = CONTEXT_DIR
+        self.context_dir = str(settings.contexts_dir)
         if self.sub_dir != "":
-            self.context_dir += self.sub_dir + "/"
+            self.context_dir += "/" + self.sub_dir + "/"
         os.makedirs(self.context_dir, exist_ok=True)
 
     def __len__(self):
@@ -183,7 +183,7 @@ def context_from_file(path):
 
     Args:
         path (str): Path to the context file. Can be an absolute path, a relative path,
-                    or just a filename (which will be looked up in CONTEXT_DIR).
+                    or just a filename (which will be looked up in contexts_dir).
 
     Returns:
         ContextHandler: A new context handler instance loaded with data from the file
@@ -191,12 +191,13 @@ def context_from_file(path):
     Raises:
         ValueError: If the file is empty or not found
     """
-    # If path is not an existing file, try looking in CONTEXT_DIR
+    contexts_dir = str(settings.contexts_dir)
+    # If path is not an existing file, try looking in contexts_dir
     if not os.path.isfile(path):
         # Check if it's a bare filename or relative path
         candidate = path
         if not os.path.dirname(candidate):  # No directory part
-            candidate = os.path.join(CONTEXT_DIR, candidate)
+            candidate = os.path.join(contexts_dir, candidate)
         if os.path.isfile(candidate):
             path = candidate
         else:
@@ -256,7 +257,8 @@ def previous_conversations():
     Returns:
         list: List of context file names in the contexts directory
     """
-    cs = [f for f in os.listdir(CONTEXT_DIR) if isfile(join(CONTEXT_DIR, f))]
+    contexts_dir = str(settings.contexts_dir)
+    cs = [f for f in os.listdir(contexts_dir) if isfile(join(contexts_dir, f))]
     return cs
 
 

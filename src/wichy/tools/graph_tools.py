@@ -7,6 +7,7 @@ from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
+from wichy.config import settings
 from wichy.tools.base import BaseTool, ParametersModel
 
 # --- Module-level helpers ---
@@ -14,10 +15,9 @@ from wichy.tools.base import BaseTool, ParametersModel
 
 def get_graphs_dir() -> str:
     """Get the graphs directory, creating it if needed."""
-    workspace = os.getcwd()
-    graphs_dir = os.path.join(workspace, ".wichy", "graphs")
-    os.makedirs(graphs_dir, exist_ok=True)
-    return graphs_dir
+    graphs_dir = settings.graphs_dir
+    graphs_dir.mkdir(parents=True, exist_ok=True)
+    return str(graphs_dir)
 
 
 # --- Tool classes ---
