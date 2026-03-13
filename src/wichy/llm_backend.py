@@ -95,6 +95,52 @@ def backend_and_model_from_model_str(model_str: str):
     return (backend, model)
 
 
+def parse_generic_backend(model_str: str):
+    """
+    Parse generic backend string: generic/<host>[:<port>]##<model>
+
+    Args:
+        model_str: string in format "generic/<host>[:<port>]##<model>"
+
+    Returns:
+        tuple (base_url, model) where base_url includes the /v1 suffix
+
+    Examples:
+        "generic/localhost:8080##llama-3" -> ("http://localhost:8080/v1", "llama-3")
+        "generic/api.myservice.com##gpt-4" -> ("https://api.myservice.com/v1", "gpt-4")
+        "generic/192.168.1.10:9000##my-model" -> ("http://192.168.1.10:9000/v1", "my-model")
+    """
+    parts = model_str.strip().split("/")
+    if len(parts) < 2:
+        raise ValueError(
+            f"Invalid generic backend format. Expected 'generic/<host>##<model>', got: {model_str}"
+        )
+
+    host_model_part = "/".join(parts[1:])
+    if "##" not in host_model_part:
+        raise ValueError(
+            f"Invalid generic backend format. Expected 'generic/<host>##<model>', got: {model_str}"
+        )
+
+    host_part, model = host_model_part.split("##", 1)
+    model = model.strip()
+
+    if not host_part:
+        raise ValueError(f"Host is empty in generic backend: {model_str}")
+
+    if not model:
+        raise ValueError(f"Model is empty in generic backend: {model_str}")
+
+    # Determine protocol and build base_url
+    # Default to http for localhost/local IPs, https otherwise
+    if host_part.startswith("localhost") or host_part.startswith("127.") or host_part.startswith("192.168.") or host_part.startswith("10.") or host_part.startswith("172."):
+        base_url = f"http://{host_part}/v1"
+    else:
+        base_url = f"https://{host_part}/v1"
+
+    return (base_url, model)
+
+
 def message_indicates_context_length_reached(m: str) -> bool:
     if "maximum" in m and "context" in m and "length" in m:
         return True
@@ -150,9 +196,13 @@ def call(context, tool_defs=None, model_str=None, extra_args=None, **extra_kwarg
         }
         if "xiaomi/mimo-v2-flash:free" in model:
             backend_specific_headers["reasoning"] = {"enabled": False}
+    elif backend == "generic":
+        base_url, model = parse_generic_backend(model_str)
+        api_key = os.environ.get("OPENAI_API_KEY", "sk-generic")
+        client = OpenAI(base_url=base_url, api_key=api_key)
     else:
         raise ValueError(
-            f"Unknown backend: {backend}. Use 'ollama' or 'llama_cpp', got model string: {model_str}"
+            f"Unknown backend: {backend}. Use 'ollama', 'llama_cpp', 'open_router', or 'generic', got model string: {model_str}"
         )
 
     # Build forwarded arguments

@@ -73,7 +73,7 @@ class ArgumentParserWrapper:
             "--model-str",
             # default="ollama/ministral-3:3b",
             default="",
-            help="Specify the model string (format: <backend>/<model>)",
+            help="Specify the model string. Format: <backend>/<model> for ollama/llama_cpp/open_router, or generic/<host>[:<port>]##<model> for OpenAI-compatible backends.",
         )
         self.parser.add_argument(
             "--tools",
