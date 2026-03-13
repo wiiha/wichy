@@ -53,7 +53,7 @@ class ContextHandler:
         This method creates the context directory if it doesn't exist. If a subdirectory
         is specified, it will create that as well.
         """
-        self.context_dir = str(settings.contexts_dir)
+        self.context_dir = str(settings.contexts_dir) + "/"
         if self.sub_dir != "":
             self.context_dir += "/" + self.sub_dir + "/"
         os.makedirs(self.context_dir, exist_ok=True)
