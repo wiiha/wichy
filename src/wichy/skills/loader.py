@@ -63,16 +63,50 @@ class SkillLoader:
             markdown_content = f.read()
 
         # Parse metadata from frontmatter
+        frontmatter, _body = parse_markdown_frontmatter(markdown_content)
 
-        metadata, _body = parse_markdown_frontmatter(markdown_content)
+        # Extract top-level fields
+        name = frontmatter.pop("name", skill_name)
+        description = frontmatter.pop("description", "")
+        safe_scripts_raw = frontmatter.pop("safe_scripts", [])
 
-        # Optional JSON config
+        # Parse safe_scripts (can be string or list)
+        if isinstance(safe_scripts_raw, str):
+            safe_scripts = [s.strip() for s in safe_scripts_raw.split(",")]
+        elif isinstance(safe_scripts_raw, list):
+            safe_scripts = safe_scripts_raw
+        else:
+            safe_scripts = []
+
+        # Extract metadata dict if present, everything else goes into metadata too
+        metadata = frontmatter.pop("metadata", {})
+        # Merge any remaining top-level fields into metadata
+        metadata = {**metadata, **frontmatter}
+
+        # Optional JSON config (merge with frontmatter, frontmatter takes precedence)
         json_config_path = skill_dir / "skill.json"
         if json_config_path.exists():
             with open(json_config_path, "r", encoding="utf-8") as f:
                 json_config = json.load(f)
-                # Merge with markdown metadata (markdown takes precedence if keys overlap)
-                metadata = {**json_config, **metadata}
+                # Extract known fields from JSON
+                json_name = json_config.pop("name", None)
+                json_desc = json_config.pop("description", None)
+                json_safe = json_config.pop("safe_scripts", [])
+                json_meta = json_config.pop("metadata", {})
+                # JSON metadata and remaining fields
+                json_meta = {**json_meta, **json_config}
+                # Merge: JSON is base, frontmatter overwrites
+                if not name and json_name:
+                    name = json_name
+                if not description and json_desc:
+                    description = json_desc
+                if not safe_scripts and json_safe:
+                    safe_scripts = (
+                        json_safe
+                        if isinstance(json_safe, list)
+                        else [s.strip() for s in json_safe.split(",")]
+                    )
+                metadata = {**json_meta, **metadata}
 
         # Discover scripts
         scripts = self._discover_scripts(skill_dir, metadata)
@@ -82,9 +116,11 @@ class SkillLoader:
         assets = self._discover_files(skill_dir / "assets")
 
         skill = Skill(
-            name=skill_name,
+            name=name,
             path=skill_dir,
             markdown_content=markdown_content,
+            description=description,
+            safe_scripts=safe_scripts,
             metadata=metadata,
             scripts=scripts,
             references=references,

@@ -32,7 +32,9 @@ slash_completer = NestedCompleter.from_nested_dict(
             "on": None,
             "off": None,
         },
-        "/context": {"reset": None, "reset_by_summary": None, "drop_last": None},
+        "/reset": None,
+        "/compact": None,
+        "/drop": None,
         "/exit": None,
     }
 )
@@ -56,11 +58,11 @@ class SlashCommandChecker:
                 return "logging off"
             if command == "/logging":
                 return f"{console.quiet=} {console_tool_result.quiet=} {console_task_agents.quiet=}"
-            if command == "/context reset":
+            if command == "/reset":
                 raise ContextResetException(strategy=ContextResetStrategies.NUKE)
-            if command == "/context reset_by_summary":
+            if command == "/compact":
                 raise ContextResetException(strategy=ContextResetStrategies.SUMMARY)
-            if command == "/context drop_last":
+            if command == "/drop":
                 raise ContextDropException()
 
             return f"Unknown command: {command}"

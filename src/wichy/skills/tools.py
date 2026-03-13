@@ -101,7 +101,7 @@ class GetSkillInfoParameters(ParametersModel):
 class SkillInfoTool(BaseTool):
     """Get full details about a skill including its markdown content and scripts."""
 
-    name = "get_skill_info"
+    name = "activate_skill"
     description = "Get detailed information about a specific skill including its markdown content and available scripts"
     description_long = "Returns the full markdown content, metadata, tags, and list of executable scripts for a given skill."
     parameters_model = GetSkillInfoParameters
@@ -121,7 +121,9 @@ class SkillInfoTool(BaseTool):
             "metadata": skill.metadata,
             "tags": skill.tags,
             "scripts": skill.list_scripts(),
-            "references": [str(p.relative_to(skill.path / "references")) for p in skill.references],
+            "references": [
+                str(p.relative_to(skill.path / "references")) for p in skill.references
+            ],
             "assets": [str(p.relative_to(skill.path / "assets")) for p in skill.assets],
         }
         return json.dumps({"skill": result}, indent=2)
@@ -231,7 +233,9 @@ class ReadSkillFileParameters(ParametersModel):
     )
 
     def info(self) -> str:
-        return f'skill="{self.skill_name}" file="{self.file_path}" type="{self.file_type}"'
+        return (
+            f'skill="{self.skill_name}" file="{self.file_path}" type="{self.file_type}"'
+        )
 
 
 class SkillFileTool(BaseTool):
@@ -270,7 +274,9 @@ class SkillFileTool(BaseTool):
                 break
 
         if not target_path:
-            available_files = [str(f.relative_to(skill.path / params.file_type)) for f in files]
+            available_files = [
+                str(f.relative_to(skill.path / params.file_type)) for f in files
+            ]
             return f"error: File '{params.file_path}' not found in skill '{params.skill_name}' {params.file_type}/ directory. Available files: {available_files}"
 
         # Read the file content

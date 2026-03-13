@@ -2,21 +2,22 @@
 
 import json
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Dict, Any
-import re
+from typing import Any, Dict, List, Optional
 
 
 def parse_markdown_frontmatter(content: str) -> tuple[Dict[str, Any], str]:
     """Parse YAML frontmatter from markdown, return (metadata, body)."""
-    pattern = r'^---\s*\n(.*?)\n---\s*\n(.*)$'
+    pattern = r"^---\s*\n(.*?)\n---\s*\n(.*)$"
     match = re.match(pattern, content, re.DOTALL)
     if match:
         frontmatter = match.group(1)
         body = match.group(2)
         try:
             import yaml
+
             metadata = yaml.safe_load(frontmatter) or {}
         except ImportError:
             metadata = {}
@@ -27,6 +28,7 @@ def parse_markdown_frontmatter(content: str) -> tuple[Dict[str, Any], str]:
 @dataclass
 class ScriptInfo:
     """Information about a script within a skill."""
+
     name: str
     path: Path
     executable: bool
@@ -43,43 +45,20 @@ class ScriptInfo:
 @dataclass
 class Skill:
     """Represents a skill with knowledge and optionally executable scripts."""
+
     name: str
     path: Path
     markdown_content: str
+    description: str = ""
+    safe_scripts: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
     scripts: List[ScriptInfo] = field(default_factory=list)
     references: List[Path] = field(default_factory=list)  # Files in references/
     assets: List[Path] = field(default_factory=list)  # Files in assets/
 
     @property
-    def description(self) -> str:
-        """Get a brief description from metadata or first line of content."""
-        if "description" in self.metadata:
-            return self.metadata["description"]
-        # Fallback: first non-empty line of markdown (strip frontmatter)
-        _, body = parse_markdown_frontmatter(self.markdown_content)
-        for line in body.split("\n"):
-            stripped = line.strip()
-            if stripped:
-                return stripped[:100]
-        return f"Skill: {self.name}"
-
-    @property
-    def safe_scripts(self) -> List[str]:
-        """List of script names marked as safe (no human verification).
-        Returns empty list if key is present but empty, or list of scripts if set.
-        Returns empty list if the key is not present in metadata at all.
-        """
-        if "safe_scripts" not in self.metadata:
-            return []
-        safe = self.metadata.get("safe_scripts", [])
-        if isinstance(safe, str):
-            safe = [s.strip() for s in safe.split(",")]
-        return safe if isinstance(safe, list) else []
-
-    @property
     def tags(self) -> List[str]:
-        """Tags for searching."""
+        """Tags for searching (from metadata.tags)."""
         tags = self.metadata.get("tags", [])
         if isinstance(tags, str):
             tags = [t.strip() for t in tags.split(",")]
@@ -117,13 +96,18 @@ class Skill:
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize skill for tool responses."""
-        return {
+        result = {
             "name": self.name,
             "description": self.description,
             "path": str(self.path),
-            "tags": self.tags,
             "scripts": self.list_scripts(),
             "references": [str(p) for p in self.references],
             "assets": [str(p) for p in self.assets],
-            "metadata": self.metadata,
         }
+        if self.safe_scripts:
+            result["safe_scripts"] = self.safe_scripts
+        if self.tags:
+            result["tags"] = self.tags
+        if self.metadata:
+            result["metadata"] = self.metadata
+        return result

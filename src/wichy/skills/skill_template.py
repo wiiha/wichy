@@ -1,8 +1,9 @@
 skill_template = """---
 name: {skill_name}
 description: <What it does + when to use it + key capabilities. Include trigger phrases. Example: "Analyzes Figma files and generates handoff docs. Use when user uploads .fig files, asks for 'design specs' or 'design-to-code handoff'.">
-tags: <comma-separated tags for searching>
 safe_scripts: (optional) <comma-separated script names that can run without verification, or leave out if there is no safe scripts.>
+metadata:
+  tags: [<comma-separated tags for searching>]
 ---
 
 # {skill_name}
@@ -57,4 +58,10 @@ Expected output: <what success looks like>
 > CRITICAL: <Non-negotiable requirements or validations.>
 
 <Additional notes. For detailed reference material, place in references/ and link here.>
+
+<!-- Optional: Add safe_scripts to frontmatter if scripts should run without verification:
+safe_scripts:
+  - script1.sh
+  - script2.sh
+-->
 """

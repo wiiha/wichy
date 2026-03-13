@@ -192,7 +192,7 @@ def main():
     installed = skill_loader.install_default_skills()
     if installed > 0:
         print(f"[dim]Installed {installed} default skill(s)[/dim]")
-    skill_loader.load_all_skills()
+    loaded_skills = skill_loader.load_all_skills()
 
     # Example of checking if a specific subcommand was called
     if args.command == "ls" and args.ls_command == "ra":
@@ -473,6 +473,7 @@ echo "Hello from {skill_name} skill!"
         tools=tools_for_agent,
         name=root_agent_props.get("name"),
         context=loaded_context,
+        skills=loaded_skills,
     )
 
     # Only add system prompt if we didn't load a context (fresh conversation)

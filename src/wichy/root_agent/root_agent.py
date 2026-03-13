@@ -19,7 +19,14 @@ class ContextResetStrategies(str, Enum):
 
 
 class RootAgent:
-    def __init__(self, model_str, tools: List[BaseTool], name: str = "NOT SET", context=None):
+    def __init__(
+        self,
+        model_str,
+        tools: List[BaseTool],
+        name: str = "NOT SET",
+        context=None,
+        skills=None,
+    ):
         if context is not None:
             self.context = context
         else:
@@ -27,6 +34,7 @@ class RootAgent:
         self.name = name
         self.model_str = model_str
         self.tools = tools
+        self.skills = skills or {}
         console.log(
             {"model_str": self.model_str, "tools": ", ".join([t.name for t in tools])}
         )
@@ -34,12 +42,19 @@ class RootAgent:
         for t in tools:
             tool_str += t.name + ", "
         tool_str = tool_str.removesuffix(", ")
-        tool_str += "\n"
-        print(
-            Markdown(
-                f"### Root Agent Info\n - **template name:** {self.name}\n- **model string:** {self.model_str}\n- **tools:**\n{tool_str}"
-            )
-        )
+
+        # Build info string
+        info_lines = [
+            f"### Root Agent Info\n - **template name:** {self.name}\n- **model string:** {self.model_str}\n- **tools:**\n{tool_str}"
+        ]
+
+        # Add skills in alphabetical order
+        if self.skills:
+            skill_names = sorted(self.skills.keys())
+            skills_str = ", ".join(skill_names)
+            info_lines.append(f"- **skills:** {skills_str}")
+
+        print(Markdown("\n".join(info_lines)))
 
     def tool_call(self, tools, item: called_tool):
         result = None
