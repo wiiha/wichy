@@ -10,7 +10,6 @@ from wichy.tools.base import BaseTool, ParametersModel
 from wichy.tools.human_verification import require_human_verification
 
 # Known read-only commands (safe to execute without verification)
-
 READ_ONLY_COMMANDS = {
     # File system - read operations
     "ls",
@@ -157,7 +156,6 @@ DESTRUCTIVE_COMMANDS = {
 }
 
 # Flags that make otherwise safe commands destructive
-
 DESTRUCTIVE_FLAGS = {
     "-i": ["sed", "awk"],  # In-place editing
     "-f": ["rm"],  # Force
@@ -270,7 +268,6 @@ class BashTool(BaseTool):
     name = "bash"
     description = "Execute an arbitrary command using subprocess, imagine it being bash. Calls to this tool will be audited before execution."
     parameters_model = BashParameters
-
     description_long = """
 Executes a given bash command with optional timeout. Working directory persists between commands; shell state (everything else) does not. The shell environment is initialized from the user's profile (bash or zsh).
 
