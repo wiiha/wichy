@@ -223,7 +223,7 @@ def main():
 
         from wichy.helpers.context import previous_conversations
 
-        context_dir = str(settings.contexts_dir)
+        context_dir = settings.contexts_dir
         try:
             files = previous_conversations()
         except FileNotFoundError:
@@ -239,7 +239,7 @@ def main():
 
             # Count messages in the file
             try:
-                with open(context_dir + f, "r") as file:
+                with open(context_dir / f, "r") as file:
                     lines = [line.strip() for line in file if line.strip()]
                     msg_count = len(lines)
 

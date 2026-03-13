@@ -35,7 +35,7 @@ class ContextHandler:
             start_date (str): Date when this context was created (YYYY-MM-DD format).
             custom_suffix (str): Custom suffix for the context file name.
             sub_dir (str): Subdirectory for storing context files.
-            context_dir (str): Full path to the context directory.
+            context_dir (Path): Full path to the context directory.
         """
         self.context = []
         # generating a time based id is fine under the assumption that this will
@@ -53,9 +53,9 @@ class ContextHandler:
         This method creates the context directory if it doesn't exist. If a subdirectory
         is specified, it will create that as well.
         """
-        self.context_dir = str(settings.contexts_dir) + "/"
+        self.context_dir = settings.contexts_dir
         if self.sub_dir != "":
-            self.context_dir += "/" + self.sub_dir + "/"
+            self.context_dir = self.context_dir / self.sub_dir
         os.makedirs(self.context_dir, exist_ok=True)
 
     def __len__(self):
@@ -148,11 +148,12 @@ class ContextHandler:
             print(f"[red]Error saving context to file:[/red] {e}")
 
     def _gen_save_path(self) -> str:
-        save_path = self.context_dir + self.start_date + "_" + self.id
+        filename = self.start_date + "_" + self.id
         if self.custom_suffix != "":
-            save_path += "_" + self.custom_suffix
-        save_path += CONTEXT_FILE_EXT
-        return save_path
+            filename += "_" + self.custom_suffix
+        filename += CONTEXT_FILE_EXT
+        save_path = self.context_dir / filename
+        return str(save_path)
 
     def delete(self):
         """
