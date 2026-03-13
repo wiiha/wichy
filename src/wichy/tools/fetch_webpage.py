@@ -278,3 +278,62 @@ class ScreenshotTool(BaseTool):
             return filepath
         except Exception as e:
             return f"error: {str(e)}"
+
+
+class BrowserRawParameters(ParametersModel):
+    code: str = Field(
+        ...,
+        description="Playwright Page method expression to execute. Examples: 'title()', '.url', 'content()', \"query_selector('h1').text_content()\", \"query_selector_all('a')\", \"wait_for_selector('.item')\", \"evaluate('document.title')\"",
+    )
+
+    def info(self):
+        return f'code="{self.code}"'
+
+
+class BrowserRawTool(BaseTool):
+    name = "browser_raw"
+    description = (
+        "Execute a raw Playwright Page API method on the current browser page. "
+        "Allows querying elements, getting page info, waiting for selectors, and more. "
+        "Examples: 'title()' returns page title, '.url' returns current URL, "
+        "\"query_selector('h1').text_content()\" gets text from first h1 element, "
+        "\"query_selector_all('a')\" returns all links, "
+        "\"wait_for_selector('.item')\" waits for element to appear."
+    )
+    parameters_model = BrowserRawParameters
+
+    def execute(self, code: str) -> str:
+        """
+        Execute raw Playwright code on the browser page.
+
+        Args:
+            code: A Playwright Page method expression (without the 'page.' prefix).
+                  Examples: 'title()', '.url', 'content()', "query_selector('h1').text_content()"
+
+        Returns:
+            The result of the expression as a string representation.
+        """
+        try:
+            loop = get_event_loop()
+
+            async def _raw():
+                return await browser_manager.raw(code)
+
+            result = loop.run_until_complete(_raw())
+
+            # Format result for display
+            if result is None:
+                return "null"
+            elif isinstance(result, (list, tuple)):
+                # Format lists with indices for readability
+                if len(result) > 20:
+                    return f"[{len(result)} items] " + str(result[:20])[:-1] + ", ...]"
+                return str(result)
+            elif isinstance(result, str) and len(result) > 5000:
+                return result[:5000] + "\n... [truncated]"
+            else:
+                return str(result)
+        except ValueError as e:
+            return f"error: {str(e)}"
+        except Exception as e:
+            return f"error: {str(e)}"

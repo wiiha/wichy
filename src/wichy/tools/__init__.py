@@ -1,14 +1,15 @@
 from wichy.skills import (
     SkillDiscoveryTool,
+    SkillFileTool,
     SkillInfoTool,
     SkillScriptTool,
     SkillSearchTool,
-    SkillFileTool,
 )
 from wichy.tools.ask_user_question import AskUserQuestionTool
 from wichy.tools.base import BaseTool
 from wichy.tools.bash import BashTool
 from wichy.tools.fetch_webpage import (
+    BrowserRawTool,
     BrowserStatusTool,
     FetchWebPageTool,
     NavigateTool,
@@ -17,11 +18,7 @@ from wichy.tools.fetch_webpage import (
 from wichy.tools.file_explorer import CatFileContentTool, ListFilesTool, WriteFileTool
 from wichy.tools.file_search_in import SearchRecursiveTool
 from wichy.tools.glob import GlobTool
-from wichy.tools.graph_tools import (
-    CreateGraphTool,
-    ListGraphsTool,
-    ReadGraphTool,
-)
+from wichy.tools.graph_tools import CreateGraphTool, ListGraphsTool, ReadGraphTool
 from wichy.tools.helpers import get_tool_definitions
 from wichy.tools.insert_lines import InsertLinesTool
 from wichy.tools.knowledge_store import KnowledgeStoreTool
@@ -44,7 +41,13 @@ WEB_TOOLS = [
     SearchDDGTool,
 ]
 
-BROWSER_TOOLS = [NavigateTool, BrowserStatusTool, ScreenshotTool, FetchWebPageTool]
+BROWSER_TOOLS = [
+    NavigateTool,
+    BrowserStatusTool,
+    ScreenshotTool,
+    FetchWebPageTool,
+    BrowserRawTool,
+]
 
 NETWORKING_TOOLS = [PingTool, ReverseDnsTool]
 
