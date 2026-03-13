@@ -3,6 +3,7 @@ from wichy.skills import (
     SkillInfoTool,
     SkillScriptTool,
     SkillSearchTool,
+    SkillFileTool,
 )
 from wichy.tools.ask_user_question import AskUserQuestionTool
 from wichy.tools.base import BaseTool
@@ -73,6 +74,7 @@ SKILL_TOOLS = [
     SkillSearchTool,
     SkillInfoTool,
     SkillScriptTool,
+    SkillFileTool,
 ]
 
 ALL_TOOLS_NOT_INSTANTIATED: list[BaseTool] = []

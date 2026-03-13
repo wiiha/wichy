@@ -4,7 +4,7 @@ import json
 import os
 import subprocess
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -42,6 +42,8 @@ class SkillDiscoveryTool(BaseTool):
                     "description": skill.description,
                     "tags": skill.tags,
                     "script_count": len(skill.scripts),
+                    "reference_count": len(skill.references),
+                    "asset_count": len(skill.assets),
                 }
             )
         return json.dumps({"skills": result}, indent=2)
@@ -119,6 +121,8 @@ class SkillInfoTool(BaseTool):
             "metadata": skill.metadata,
             "tags": skill.tags,
             "scripts": skill.list_scripts(),
+            "references": [str(p.relative_to(skill.path / "references")) for p in skill.references],
+            "assets": [str(p.relative_to(skill.path / "assets")) for p in skill.assets],
         }
         return json.dumps({"skill": result}, indent=2)
 
@@ -211,3 +215,68 @@ class SkillScriptTool(BaseTool):
             return f"error: Script execution timed out after {params.timeout} seconds"
         except Exception as e:
             return f"error: Failed to execute script: {str(e)}"
+
+
+class ReadSkillFileParameters(ParametersModel):
+    """Parameters for reading a file from a skill's references/ or assets/ directory."""
+
+    skill_name: str = Field(..., description="Name of the skill")
+    file_path: str = Field(
+        ...,
+        description="Path to the file relative to the skill's references/ or assets/ directory (e.g., 'api-guide.md' or 'examples/demo.md')",
+    )
+    file_type: Literal["references", "assets"] = Field(
+        default="references",
+        description="Type of file to read: 'references' or 'assets'. Defaults to 'references'.",
+    )
+
+    def info(self) -> str:
+        return f'skill="{self.skill_name}" file="{self.file_path}" type="{self.file_type}"'
+
+
+class SkillFileTool(BaseTool):
+    """Read a file from a skill's references/ or assets/ directory."""
+
+    name = "read_skill_file"
+    description = "Read a file from a skill's references/ or assets/ directory. Use this to access detailed documentation, examples, or templates bundled with a skill."
+    description_long = "Reads and returns the content of a file from a skill's references/ or assets/ directory. Use this to access reference documentation, examples, templates, or other resources that supplement the skill's main knowledge."
+    parameters_model = ReadSkillFileParameters
+
+    def execute(self, **kwargs) -> str:
+        """Read a skill file."""
+        params = self.parameters_model(**kwargs)
+        registry = SkillRegistry()
+        skill = registry.get(params.skill_name)
+        if not skill:
+            return f"error: Skill '{params.skill_name}' not found"
+
+        # Determine which directory to search
+        if params.file_type == "assets":
+            files = skill.assets
+        else:  # default to references
+            files = skill.references
+
+        # Find the file
+        target_path = None
+        for file_path in files:
+            # Match by relative path from the skill's directory
+            relative_path = file_path.relative_to(skill.path / params.file_type)
+            if str(relative_path) == params.file_path:
+                target_path = file_path
+                break
+            # Also try matching just the filename
+            if file_path.name == params.file_path:
+                target_path = file_path
+                break
+
+        if not target_path:
+            available_files = [str(f.relative_to(skill.path / params.file_type)) for f in files]
+            return f"error: File '{params.file_path}' not found in skill '{params.skill_name}' {params.file_type}/ directory. Available files: {available_files}"
+
+        # Read the file content
+        try:
+            with open(target_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            return content
+        except Exception as e:
+            return f"error: Failed to read file '{params.file_path}': {str(e)}"

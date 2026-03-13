@@ -1,3 +1,4 @@
+import re
 import sys
 from typing import Dict
 
@@ -27,6 +28,7 @@ from wichy.root_agent.root_agent import RootAgent
 from wichy.root_agent.root_agent_desc_template import root_agent_desc_template
 from wichy.skills import SkillLoader
 from wichy.skills.skill_template import skill_template
+from wichy.skills.skills_info import skills_information
 from wichy.slash_commands import (
     ContextDropException,
     ContextResetException,
@@ -185,8 +187,11 @@ def main():
 
     in_tools.sort(key=lambda t: t.name)
 
-    # Load skills (so they can be discovered by the agent)
+    # Install default skills and load all skills
     skill_loader = SkillLoader()
+    installed = skill_loader.install_default_skills()
+    if installed > 0:
+        print(f"[dim]Installed {installed} default skill(s)[/dim]")
     skill_loader.load_all_skills()
 
     # Example of checking if a specific subcommand was called
@@ -311,10 +316,10 @@ def main():
         skills_dir = Path.home() / ".wichy" / "skills"
         skill_dir = skills_dir / skill_name
 
-        # Validate skill name
-        if not skill_name.replace("_", "").replace("-", "").isalnum():
+        # Validate skill name (kebab-case: lowercase letters, numbers, and hyphens)
+        if not re.match(r"^[a-z0-9]+(-[a-z0-9]+)*$", skill_name):
             print(
-                f"[red]error:[/red] Skill name can only contain alphanumeric characters, hyphens, and underscores",
+                f"[red]error:[/red] Skill name must be kebab-case: lowercase letters, numbers, and hyphens (e.g., 'my-skill-name')",
                 file=sys.stderr,
             )
             exit(1)
@@ -336,10 +341,16 @@ def main():
         with open(skill_md_path, "w", encoding="utf-8") as f:
             f.write(skill_md_content)
 
+        # Create optional directories
+        (skill_dir / "references").mkdir(exist_ok=True)
+        (skill_dir / "assets").mkdir(exist_ok=True)
+
         msg = f"[green]Created skill:[/green] {skill_name}\n"
         msg += f"[dim]Location: {skill_dir}[/dim]\n\n"
         msg += f"Files created:\n"
         msg += f"  - skill.md (skill knowledge and documentation)\n"
+        msg += f"  - references/ (optional documentation)\n"
+        msg += f"  - assets/ (optional templates, etc.)\n"
 
         # Optionally create scripts directory with placeholder
         if args.with_script:
@@ -359,6 +370,7 @@ echo "Hello from {skill_name} skill!"
             msg += f"  - scripts/example.sh (placeholder executable script)\n"
 
         msg += f"\n[dim]Edit skill.md to add your knowledge and documentation.[/dim]"
+        msg += f"\n[dim]Add reference docs to references/, templates to assets/.[/dim]"
         if args.with_script:
             msg += f"\n[dim]Add executable scripts to scripts/ directory. Mark safe scripts in skill.md frontmatter.[/dim]"
 
@@ -470,6 +482,19 @@ echo "Hello from {skill_name} skill!"
         system_prompt = preprocess_prompt(
             prompt=system_prompt, verify_against=verify_against
         )
+
+        # Add skills information before environment (if not disabled)
+        include_skills = (
+            root_agent_props.get("include_skills", "true").lower() != "false"
+        )
+        if include_skills:
+            skills_info = skills_information()
+            if skills_info:
+                system_prompt += (
+                    "\n\nYou have access to the following skills:\n"
+                    + skills_info
+                    + "\n"
+                )
 
         if root_agent_props.get("include_env_info", "").lower() != "false":
             system_prompt += (

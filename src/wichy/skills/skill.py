@@ -48,6 +48,8 @@ class Skill:
     markdown_content: str
     metadata: Dict[str, Any] = field(default_factory=dict)
     scripts: List[ScriptInfo] = field(default_factory=list)
+    references: List[Path] = field(default_factory=list)  # Files in references/
+    assets: List[Path] = field(default_factory=list)  # Files in assets/
 
     @property
     def description(self) -> str:
@@ -64,11 +66,16 @@ class Skill:
 
     @property
     def safe_scripts(self) -> List[str]:
-        """List of script names marked as safe (no human verification)."""
+        """List of script names marked as safe (no human verification).
+        Returns empty list if key is present but empty, or list of scripts if set.
+        Returns empty list if the key is not present in metadata at all.
+        """
+        if "safe_scripts" not in self.metadata:
+            return []
         safe = self.metadata.get("safe_scripts", [])
         if isinstance(safe, str):
             safe = [s.strip() for s in safe.split(",")]
-        return safe
+        return safe if isinstance(safe, list) else []
 
     @property
     def tags(self) -> List[str]:
@@ -94,6 +101,20 @@ class Skill:
         path = self.get_script_path(script_name)
         return path is not None and os.access(path, os.X_OK) if path else False
 
+    def get_reference_path(self, filename: str) -> Optional[Path]:
+        """Resolve a filename to its path in references/ directory."""
+        for ref_path in self.references:
+            if ref_path.name == filename:
+                return ref_path
+        return None
+
+    def get_asset_path(self, filename: str) -> Optional[Path]:
+        """Resolve a filename to its path in assets/ directory."""
+        for asset_path in self.assets:
+            if asset_path.name == filename:
+                return asset_path
+        return None
+
     def to_dict(self) -> Dict[str, Any]:
         """Serialize skill for tool responses."""
         return {
@@ -102,5 +123,7 @@ class Skill:
             "path": str(self.path),
             "tags": self.tags,
             "scripts": self.list_scripts(),
+            "references": [str(p) for p in self.references],
+            "assets": [str(p) for p in self.assets],
             "metadata": self.metadata,
         }
