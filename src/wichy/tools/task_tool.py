@@ -8,11 +8,11 @@ from wichy.tools.ask_user_question import AskUserQuestionTool
 from wichy.tools.base import BaseTool, ParametersModel
 from wichy.tools.bash import BashTool
 from wichy.tools.fetch_webpage import FetchWebPageTool
-from wichy.tools.file_explorer import ReadFileTool, ListFilesTool, WriteFileTool
+from wichy.tools.file_explorer import ListFilesTool, ReadFileTool, WriteFileTool
 from wichy.tools.file_search_in import SearchRecursiveTool
 from wichy.tools.glob import GlobTool
 from wichy.tools.replace_text import ReplaceTextTool
-from wichy.tools.search_ddg import SearchDDGTool
+from wichy.tools.search_ddg import WebSearchTool
 from wichy.tools.task import (
     TASK_AGENT_DEFS,
     TaskAgent,
@@ -30,7 +30,7 @@ TOOLS_FOR_TASK_AGENTS: list[BaseTool] = [
     GlobTool,
     ListFilesTool,
     ReplaceTextTool,
-    SearchDDGTool,
+    WebSearchTool,
     SearchRecursiveTool,
     TodoTool,
     TreeTool,

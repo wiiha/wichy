@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from wichy.tools.base import BaseTool, ParametersModel
 
 
-class SearchDDGParameters(ParametersModel):
+class WebSearchParameters(ParametersModel):
     query: str = Field(..., description="The search query string")
     max_results: Optional[int] = Field(
         5, description="Maximum number of results to return (default: 5)"
@@ -16,7 +16,7 @@ class SearchDDGParameters(ParametersModel):
         return f'query="{self.query}" max_results={self.max_results}'
 
 
-class SearchDDGTool(BaseTool):
+class WebSearchTool(BaseTool):
     name = "web_search"
     description = "Search online for information using DuckDuckGo (DDG) API."
     description_long = """
@@ -44,7 +44,7 @@ IMPORTANT - Use the correct year in search queries:
 - If today's date is 2026-01-02. You MUST use this year when searching for recent information, documentation, or current events.
 - Example: If the user asks for "latest React docs", search for "React documentation 2026", NOT "React documentation 2025"
 """
-    parameters_model = SearchDDGParameters
+    parameters_model = WebSearchParameters
 
     def execute(self, query: str, max_results: int = 5) -> str:
         """Execute DDG search with given parameters."""

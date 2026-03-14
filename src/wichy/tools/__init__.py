@@ -24,7 +24,7 @@ from wichy.tools.insert_lines import InsertLinesTool
 from wichy.tools.knowledge_store import KnowledgeStoreTool
 from wichy.tools.replace_text import ReplaceTextTool
 from wichy.tools.reverse_dns_tool import ReverseDnsTool
-from wichy.tools.search_ddg import SearchDDGTool
+from wichy.tools.search_ddg import WebSearchTool
 from wichy.tools.task_tool import TaskAgentTool
 from wichy.tools.todo import TodoTool
 from wichy.tools.tree import TreeTool
@@ -37,7 +37,7 @@ BASIC_TOOLS = [
 ]
 
 WEB_TOOLS = [
-    SearchDDGTool,
+    WebSearchTool,
 ]
 
 BROWSER_TOOLS = [
