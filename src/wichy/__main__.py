@@ -16,6 +16,7 @@ from prompt_toolkit.history import FileHistory
 from rich import print
 from rich.markdown import Markdown
 
+from wichy.agent_builder import AgentBuilder, AgentBuilderError, build_agent_from_config
 from wichy.cli_parser import CliParser
 from wichy.config import settings
 from wichy.helpers.console import console
@@ -29,6 +30,7 @@ from wichy.root_agent import ALL_ROOT_AGENT_DESC
 from wichy.root_agent.helpers import ParsedRootAgentDesc, parse_root_agent_markdown_desc
 from wichy.root_agent.root_agent import RootAgent
 from wichy.root_agent.root_agent_desc_template import root_agent_desc_template
+from wichy.server_controller import ServerController
 from wichy.skills import SkillLoader
 from wichy.skills.skill_template import skill_template
 from wichy.skills.skills_info import skills_information
@@ -38,6 +40,7 @@ from wichy.slash_commands import (
     SlashCommandChecker,
     slash_completer,
 )
+from wichy.tool_manager import ToolManager
 from wichy.tools import ALL_TOOLS_NOT_INSTANTIATED
 from wichy.tools.base import BaseTool, console_tool_result
 from wichy.tools.task import console_task_agents
@@ -261,78 +264,12 @@ echo "Hello from {skill_name} skill!"
         parser.print_usage()
         exit(1)
 
-    # load root agent description
+    # Parse all root agent descriptions
+    root_agent_descs = [
+        parse_root_agent_markdown_desc(rad) for rad in ALL_ROOT_AGENT_DESC
+    ]
 
-    root_agents: Dict[str, ParsedRootAgentDesc] = {}
-    for rad in ALL_ROOT_AGENT_DESC:
-        ra = parse_root_agent_markdown_desc(rad)
-        root_agents[ra.props["name"]] = ra
-
-    selected_root_agent = root_agents.get(args.root_agent_description, None)
-
-    if not selected_root_agent:
-        print(
-            f"[red]error:[/red] Specified root agent [bold]{args.root_agent_description}[/bold] does not exist",
-            file=sys.stderr,
-        )
-        exit(1)
-
-    root_agent_props = selected_root_agent.props
-    system_prompt = selected_root_agent.system_prompt
-
-    if system_prompt.strip() == "":
-        print(
-            "[red]error:[/red] Loaded root agent description did not contain a system prompt. It is required.",
-            file=sys.stderr,
-        )
-        exit(1)
-
-    model_str = root_agent_props.get("model") or root_agent_props.get("model_str") or ""
-
-    if args.model_str != "":
-        # Model string passed as flag overwrite model spec.
-        model_str = args.model_str
-
-    if model_str.strip() == "":
-        print(
-            "[red]error:[/red] No model specified, either specify in frontmatter or using --model-str",
-            file=sys.stderr,
-        )
-        exit(1)
-
-    tools_for_agent = in_tools
-
-    if args.tools.strip() != "" or root_agent_props.get("tools") != None:
-        # only subset of tools allowed
-        allowed_tools_str = root_agent_props.get("tools", "")
-
-        if args.tools.strip() != "":
-            # CLI flag takes precedence over loaded description.
-            allowed_tools_str = args.tools.strip()
-
-        allowed_tools = allowed_tools_str.lower().split(",")
-        allowed_tools: list[str] = [t.strip() for t in allowed_tools]
-
-        new_tools = []
-        for tool in in_tools:
-            if tool.name in allowed_tools:
-                new_tools.append(tool)
-
-        tools_for_agent = new_tools
-
-    if args.not_tools.strip() != "":
-        drop_tools = args.not_tools.lower().split(",")
-        drop_tools: list[str] = [t.strip() for t in drop_tools]
-
-        new_tools = []
-        for tool in tools_for_agent:
-            if tool.name in drop_tools:
-                continue
-            new_tools.append(tool)
-
-        tools_for_agent = new_tools
-
-    # Load context from file if specified
+    # Load context from file if specified (before building agent)
     loaded_context = None
     if args.load_ctx:
         try:
@@ -342,48 +279,18 @@ echo "Hello from {skill_name} skill!"
             print(f"[red]✗ Failed to load context file:[/red] {e}")
             exit(1)
 
-    root_agent = RootAgent(
-        model_str=model_str,
-        tools=tools_for_agent,
-        name=root_agent_props.get("name"),
-        context=loaded_context,
-        skills=loaded_skills,
-    )
-
-    # Only add system prompt if we didn't load a context (fresh conversation)
-    if loaded_context is None:
-        verify_against = {"tools": [x.name for x in tools_for_agent]}
-
-        system_prompt = preprocess_prompt(
-            prompt=system_prompt, verify_against=verify_against
+    # Build the agent using AgentBuilder
+    try:
+        root_agent = build_agent_from_config(
+            cli_config=args,
+            tools=in_tools,
+            skills=loaded_skills,
+            root_agent_descriptions=root_agent_descs,
+            context=loaded_context,
         )
-
-        # Add skills information before environment (if not disabled)
-        include_skills = (
-            root_agent_props.get("include_skills", "true").lower() != "false"
-        )
-        if include_skills:
-            skills_info = skills_information()
-            if skills_info:
-                system_prompt += (
-                    "\n\nYou have access to the following skills:\n"
-                    + skills_info
-                    + "\n"
-                )
-
-        if root_agent_props.get("include_env_info", "").lower() != "false":
-            system_prompt += (
-                "\n\nHere is useful information about the environment you are running in:\n"
-                + environment_information()
-                + "\n\n"
-            )
-
-        root_agent.context.append(
-            {
-                "role": "system",
-                "content": system_prompt,
-            }
-        )
+    except AgentBuilderError as e:
+        print(f"[red]error:[/red] {e}", file=sys.stderr)
+        exit(1)
 
     # If we loaded a context, show a summary
     if loaded_context is not None:
@@ -394,7 +301,6 @@ echo "Hello from {skill_name} skill!"
             roles[role] = roles.get(role, 0) + 1
         role_summary = ", ".join([f"{count} {role}" for role, count in roles.items()])
         print(f"[blue]Context loaded:[/blue] {msg_count} messages ({role_summary})")
-
     # Set console quiet mode based on --show-log flag
     if args.show_log:
         console.quiet = False
@@ -406,10 +312,10 @@ echo "Hello from {skill_name} skill!"
         console.quiet = True
 
     # Start the web server in background (unless --no-server)
+    server_controller = None
     if not args.no_server:
-        from wichy.server import start_server_in_background
-
-        actual_port = start_server_in_background(port=7891)
+        server_controller = ServerController(port=7891)
+        actual_port = server_controller.start()
         print(f"[dim]Web server started on http://127.0.0.1:{actual_port}[/dim]")
         print(f"[dim]Graph editor: http://127.0.0.1:{actual_port}/tools/graph/[/dim]")
         print("[dim]Use --no-server to disable.[/dim]")
