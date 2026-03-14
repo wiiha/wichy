@@ -16,6 +16,7 @@ from prompt_toolkit.history import FileHistory
 from rich import print
 from rich.markdown import Markdown
 
+from wichy.cli_parser import CliParser
 from wichy.config import settings
 from wichy.helpers.console import console
 from wichy.helpers.context import context_from_file, new_context
@@ -23,6 +24,7 @@ from wichy.helpers.environment_info import environment_information
 from wichy.helpers.prompt import preprocess_prompt
 from wichy.helpers.string import strip_thinking_content, truncate_to_len
 from wichy.llm_backend import LLMBackendContextLimitReached
+from wichy.repl import Repl
 from wichy.root_agent import ALL_ROOT_AGENT_DESC
 from wichy.root_agent.helpers import ParsedRootAgentDesc, parse_root_agent_markdown_desc
 from wichy.root_agent.root_agent import RootAgent
@@ -41,137 +43,9 @@ from wichy.tools.base import BaseTool, console_tool_result
 from wichy.tools.task import console_task_agents
 
 
-class ArgumentParserWrapper:
-    def __init__(self):
-        self.parser = argparse.ArgumentParser(
-            description="Agentic LLM - An interactive command-line interface for an agentic LLM that can perform tasks using available tools."
-        )
-        self.parser.add_argument(
-            "--show-log", action="store_true", help="Show logs during execution"
-        )
-        self.parser.add_argument(
-            "--list-tools",
-            action="store_true",
-            help="Prints a list of all available tools.",
-        )
-        self.parser.add_argument(
-            "--log-tools",
-            action="store_true",
-            help="Show tool results during execution, requires --show-log",
-        )
-        self.parser.add_argument(
-            "--log-agents",
-            action="store_true",
-            help="Show agent results during execution, requires --show-log",
-        )
-        # self.parser.add_argument(
-        #     "--bash-allow-all",
-        #     action="store_true",
-        #     help="Allow direct execution of bash commands without human authorization.",
-        # )
-        self.parser.add_argument(
-            "-m",
-            "--model-str",
-            # default="ollama/ministral-3:3b",
-            default="",
-            help="Specify the model string. Format: <backend>/<model> for ollama/llama_cpp/open_router, or generic/<host>[:<port>]##<model> for OpenAI-compatible backends.",
-        )
-        self.parser.add_argument(
-            "--tools",
-            default="",
-            help=(
-                "Specify which tools the root agent should have available. Comma separated list of tool names. "
-                + "See --list-tools for all tools. Omitting this flag will give the agent access to all tools. Unless --not-tools is specified."
-            ),
-        )
-        self.parser.add_argument(
-            "--not-tools",
-            default="",
-            help=(
-                "Specify which tools the root agent should not have available. Comma separated list of tool names."
-                + " This filtering happens after --tools, i.e. --tools cat, bash --not-tools bash -> tools = [cat]. "
-                + "See --list-tools for all tools. Omitting this flag will give the agent access to all tools. Unless --tools is specified."
-            ),
-        )
-        self.parser.add_argument(
-            "-r",
-            "--root-agent-description",
-            default="root-agent-code-advanced",
-            help="Specify which root agent description to use.",
-        )
-        self.parser.add_argument(
-            "--load-ctx",
-            type=str,
-            help="Path to a context JSON file to resume a previous conversation.",
-        )
-        self.parser.add_argument(
-            "--no-server",
-            action="store_true",
-            help="Do not start the web server (graph editor, etc.)",
-        )
-        # Add subcommands
-        subparsers = self.parser.add_subparsers(
-            dest="command", help="Available sub commands"
-        )
-
-        # root agent command
-        ra_parser = subparsers.add_parser("ra", help="Root Agent related commands")
-        ra_parser.add_argument(
-            "-t",
-            "--template",
-            action="store_true",
-            help="Print the root agent description template to stdout. Can be piped to file. Your own root agents live in (~/).wichy/root_agent_defs",
-        )
-        # new command
-        new_parser = subparsers.add_parser("new", help="Create new resources")
-        new_subparsers = new_parser.add_subparsers(
-            dest="new_command", help="new subcommands"
-        )
-        new_skill_parser = new_subparsers.add_parser(
-            "skill", help="Create a new skill in ~/.wichy/skills/"
-        )
-        new_skill_parser.add_argument(
-            "-n",
-            "--name",
-            type=str,
-            required=True,
-            help="Name of the skill (will be used as directory name)",
-        )
-        new_skill_parser.add_argument(
-            "--with-script",
-            action="store_true",
-            help="Also create a placeholder script in the skill's scripts/ directory",
-        )
-        # ls command
-        ls_parser = subparsers.add_parser("ls", help="List things related to Wichy")
-        ls_subparsers = ls_parser.add_subparsers(
-            dest="ls_command", help="ls subcommands"
-        )
-
-        # TODO: Things to list
-        # available root agent descriptions (ls ra or ls root agents)
-        # available tools (ls tools)
-        # previous contexts in closest .wichy folder (ls ctx or ls contexts)
-
-        ls_subparsers.add_parser("ra", help="List available root agent descriptions")
-        ls_subparsers.add_parser("tools", help="List available tools")
-        ls_subparsers.add_parser(
-            "ctx", help="List previous contexts in closest .wichy folder"
-        )
-        ls_subparsers.add_parser(
-            "skills", help="List available skills in ~/.wichy/skills/"
-        )
-        self.args = None
-
-    def parse_args(self):
-        self.args = self.parser.parse_args()
-        return self.args
-
-
 def main():
-
-    parser = ArgumentParserWrapper()
-    args = parser.parse_args()
+    parser = CliParser()
+    args = parser.parse()
     cmd_checker = SlashCommandChecker()
 
     prompt_session = PromptSession(
@@ -194,7 +68,7 @@ def main():
         print(f"[dim]Installed {installed} default skill(s)[/dim]")
     loaded_skills = skill_loader.load_all_skills()
 
-    # Example of checking if a specific subcommand was called
+    # Handle subcommands that exit early
     if args.command == "ls" and args.ls_command == "ra":
         # This means "ls root agents" was called
         msg = "# Root Agents Available\n"
@@ -312,7 +186,7 @@ def main():
         exit(0)
     if args.command == "new" and args.new_command == "skill":
         # Create a new skill directory structure
-        skill_name = args.name
+        skill_name = args.new_skill_name
         skills_dir = settings.skills_dir
         skill_dir = skills_dir / skill_name
 
@@ -353,7 +227,7 @@ def main():
         msg += f"  - assets/ (optional templates, etc.)\n"
 
         # Optionally create scripts directory with placeholder
-        if args.with_script:
+        if args.new_skill_with_script:
             scripts_dir = skill_dir / "scripts"
             scripts_dir.mkdir(exist_ok=False)
             placeholder_script = scripts_dir / "example.sh"
@@ -371,20 +245,20 @@ echo "Hello from {skill_name} skill!"
 
         msg += f"\n[dim]Edit skill.md to add your knowledge and documentation.[/dim]"
         msg += f"\n[dim]Add reference docs to references/, templates to assets/.[/dim]"
-        if args.with_script:
+        if args.new_skill_with_script:
             msg += f"\n[dim]Add executable scripts to scripts/ directory. Mark safe scripts in skill.md frontmatter.[/dim]"
 
         print(msg)
         exit(0)
 
-    if args.command == "ra" and args.template:
+    if args.command == "ra" and args.ra_template:
         sys.stdout.write(root_agent_desc_template)
         sys.stdout.flush()
         exit(0)
 
     if args.command in ("ls", "ra", "new"):
         # At this point if ls/ra/new is specified without a subcommand, something is wrong.
-        parser.parser.print_usage()
+        parser.print_usage()
         exit(1)
 
     # load root agent description
@@ -540,39 +414,13 @@ echo "Hello from {skill_name} skill!"
         print(f"[dim]Graph editor: http://127.0.0.1:{actual_port}/tools/graph/[/dim]")
         print("[dim]Use --no-server to disable.[/dim]")
 
-    while True:
-        try:
-            print(Markdown("\n\n---\n\n### User"))
-            line = prompt_session.prompt("> ")
-            possible_cmd = cmd_checker.check_command(line)
-            if possible_cmd != None:
-                print(possible_cmd)
-                continue
-            print(Markdown("---"))
-            result = root_agent.process(line)
-            result = strip_thinking_content(result)
-            print(Markdown("\n---\n\n### Assistant\n"))
-            markdown = Markdown(result)
-            print(markdown)
-        except ContextResetException as e:
-            root_agent.reset_context(strategy=e.strategy)
-            continue
-        except ContextDropException:
-            root_agent.drop_last_context_entry()
-            continue
-        except LLMBackendContextLimitReached as e:
-            print(
-                "[red bold]Error:[/red bold] "
-                + str(e)
-                + "\n[green bold]Tip:[/green bold] Try dropping some messages or summarizing using slash commands."
-            )
-            continue
-
-        except KeyboardInterrupt:
-            continue
-        except EOFError:
-            print("\nexiting...")
-            exit(0)
+    # Start the REPL
+    repl = Repl(
+        root_agent=root_agent,
+        prompt_session=prompt_session,
+        cmd_checker=cmd_checker,
+    )
+    repl.run()
 
 
 if __name__ == "__main__":

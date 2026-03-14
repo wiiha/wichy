@@ -1,6 +1,6 @@
 ---
 name: napkin
-description: Maintain a per-repo napkin as a continuously curated runbook. Activate EVERY session. Read and curate it before work, keep only recurring high-value guidance.
+description: Maintain a per-repo napkin as a continuously curated runbook. ALWAYS call `activate_skill('napkin')` at the start of EVERY session. Read and curate it before work, keep only recurring high-value guidance.
 metadata:
   tags: [memory, runbook, workflow]
 ---
