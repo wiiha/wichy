@@ -19,7 +19,7 @@ class ListFilesParameters(ParametersModel):
 
 
 class ListFilesTool(BaseTool):
-    name = "ls"
+    name = "list_files"
     description = "List files in a directory"
     parameters_model = ListFilesParameters
 
@@ -50,7 +50,7 @@ class CatFileParameters(ParametersModel):
         2000,
         description="maximum number of lines to read, default=2000",
     )
-    A: bool = Field(
+    show_none_printable_chars: bool = Field(
         False,
         description="show all non-printing characters (like cat -A): show $ at line ends, TAB as ^I, and other non-printables in ^ notation",
     )
@@ -62,7 +62,7 @@ class CatFileParameters(ParametersModel):
 
 
 class CatFileContentTool(BaseTool):
-    name = "cat"
+    name = "read_file"
     description = "Get the content of a file."
     description_long = """
 Reads a file from the local filesystem. You can access any file directly by using this tool.
@@ -80,6 +80,7 @@ Usage:
     parameters_model = CatFileParameters
 
     MAX_LINE_LENGTH = 2000
+
     def _visualize_line(self, line: str) -> str:
         """Visualize non-printing characters like cat -A"""
         # Show $ at the end to mark line ending
@@ -99,8 +100,10 @@ Usage:
                 visualized.append(char)
         return "".join(visualized)
 
-    def execute(self, path, offset=1, limit=2000, A=False) -> str:
-        """Execute file cat with optional offset, limit, and -A option"""
+    def execute(
+        self, path, offset=1, limit=2000, show_none_printable_chars=False
+    ) -> str:
+        """Execute read_file with optional offset, limit, and show none printable chars option"""
         try:
             # Read the file
             with open(path, "r", encoding="utf-8", errors="replace") as f:
@@ -129,7 +132,7 @@ Usage:
                 line = line.rstrip("\n")
 
                 # Apply -A option: visualize non-printing characters
-                if A:
+                if show_none_printable_chars:
                     line = self._visualize_line(line)
                 else:
                     # Truncate if longer than MAX_LINE_LENGTH (only when not using -A)
@@ -137,7 +140,7 @@ Usage:
                         line = line[: self.MAX_LINE_LENGTH] + "... [truncated]"
                         truncated_line_warning = True
 
-                if A:
+                if show_none_printable_chars:
                     # In -A mode, show as-is without line numbers
                     output_lines.append(line)
                 else:

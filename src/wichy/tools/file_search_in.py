@@ -36,7 +36,7 @@ class SearchRecursiveParameters(ParametersModel):
 
 
 class SearchRecursiveTool(BaseTool):
-    name = "grep"
+    name = "search_in_files"
     description = "Search for a pattern recursively in all files within a directory. Returns lines containing the pattern along with file paths. Under the hood, this function uses ripgrep or grep (fallback). Therefore, take care of using regex patterns."
     description_long = """
 A powerful search tool built on ripgrep

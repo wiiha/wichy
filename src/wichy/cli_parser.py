@@ -9,6 +9,7 @@ from typing import Dict, Optional
 @dataclass
 class CliConfig:
     """Typed configuration from CLI arguments."""
+
     # Global flags
     show_log: bool = False
     list_tools: bool = False
@@ -20,32 +21,32 @@ class CliConfig:
     root_agent_description: str = "root-agent-code-advanced"
     load_ctx: Optional[str] = None
     no_server: bool = False
-    
+
     # Subcommands
     command: Optional[str] = None
-    
+
     # Subcommand: ls
     ls_command: Optional[str] = None
-    
+
     # Subcommand: new (skill)
     new_command: Optional[str] = None
     new_skill_name: Optional[str] = None
     new_skill_with_script: bool = False
-    
+
     # Subcommand: ra
     ra_template: bool = False
 
 
 class CliParser:
     """Standalone CLI argument parser."""
-    
+
     def __init__(self):
         self.parser = argparse.ArgumentParser(
             description="Agentic LLM - An interactive command-line interface for an agentic LLM that can perform tasks using available tools."
         )
         self._add_global_arguments()
         self._add_subcommands()
-    
+
     def _add_global_arguments(self):
         """Add global CLI arguments."""
         self.parser.add_argument(
@@ -85,7 +86,7 @@ class CliParser:
             default="",
             help=(
                 "Specify which tools the root agent should not have available. Comma separated list of tool names."
-                + " This filtering happens after --tools, i.e. --tools cat, bash --not-tools bash -> tools = [cat]. "
+                + " This filtering happens after --tools, i.e. --tools read_file, bash --not-tools bash -> tools = [read_file]. "
                 + "See --list-tools for all tools. Omitting this flag will give the agent access to all tools. Unless --tools is specified."
             ),
         )
@@ -105,13 +106,13 @@ class CliParser:
             action="store_true",
             help="Do not start the web server (graph editor, etc.)",
         )
-    
+
     def _add_subcommands(self):
         """Add subcommands."""
         subparsers = self.parser.add_subparsers(
             dest="command", help="Available sub commands"
         )
-        
+
         # root agent command
         ra_parser = subparsers.add_parser("ra", help="Root Agent related commands")
         ra_parser.add_argument(
@@ -120,7 +121,7 @@ class CliParser:
             action="store_true",
             help="Print the root agent description template to stdout. Can be piped to file. Your own root agents live in (~/).wichy/root_agent_defs",
         )
-        
+
         # new command
         new_parser = subparsers.add_parser("new", help="Create new resources")
         new_subparsers = new_parser.add_subparsers(
@@ -141,7 +142,7 @@ class CliParser:
             action="store_true",
             help="Also create a placeholder script in the skill's scripts/ directory",
         )
-        
+
         # ls command
         ls_parser = subparsers.add_parser("ls", help="List things related to Wichy")
         ls_subparsers = ls_parser.add_subparsers(
@@ -155,19 +156,19 @@ class CliParser:
         ls_subparsers.add_parser(
             "skills", help="List available skills in ~/.wichy/skills/"
         )
-    
+
     def parse(self, args=None) -> CliConfig:
         """
         Parse command line arguments.
-        
+
         Args:
             args: Optional list of arguments (for testing). Defaults to sys.argv.
-            
+
         Returns:
             CliConfig object with parsed configuration.
         """
         parsed = self.parser.parse_args(args)
-        
+
         config = CliConfig(
             show_log=parsed.show_log,
             list_tools=parsed.list_tools,
@@ -184,12 +185,12 @@ class CliParser:
             new_command=getattr(parsed, "new_command", None),
             ra_template=getattr(parsed, "template", False),
         )
-        
+
         # Extract new skill details if applicable
         if parsed.command == "new" and parsed.new_command == "skill":
             config.new_skill_name = parsed.name
             config.new_skill_with_script = parsed.with_script
-        
+
         return config
 
     def print_usage(self):

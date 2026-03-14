@@ -93,9 +93,9 @@ When using the Task tool, you must specify a subagent_type parameter to select w
 
 When NOT to use the Task tool:
 
-- If you want to read a specific file path, use the cat or glob tool instead of the Task tool, to find the match more quickly
+- If you want to read a specific file path, use the read_file or glob tool instead of the Task tool, to find the match more quickly
 - If you are searching for a specific class definition like "class Foo", use the glob tool instead of the Task tool, to find the match more quickly
-- If you are searching for code within a specific file or set of 2-3 files, use the cat tool instead of the task tool, to find the match more quickly
+- If you are searching for code within a specific file or set of 2-3 files, use the read_file tool instead of the task tool, to find the match more quickly
 - Other tasks that are not related to the agent descriptions above
 
 Usage notes:
