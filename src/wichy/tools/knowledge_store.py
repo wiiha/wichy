@@ -55,7 +55,7 @@ def block_on_open_router(
         pattern: Search pattern (from execute params)
         output_mode: Output mode (from execute params)
         glob: Glob pattern (from execute params)
-        model_str: The model string passed by RootAgent (e.g., "ollama/ministral-3:3b", "open_router/some-model")
+        model_str: The model string passed by RootAgent (e.g., "ollama/qwen3.5:4b", "open_router/some-model")
 
     Returns:
         (True, reason) if should block, (False, None) otherwise

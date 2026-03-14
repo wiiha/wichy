@@ -11,7 +11,7 @@ description: Advanced code focused agent. The system prompt is long and heavily 
 # Specify model to use for the root agent. The format for specifying model
 # follows that of flag --model-str. User CLI flag takes precedence over the
 # value specified here.
-model: ollama/ministral-3:8b
+model: ollama/qwen3.5:4b
 
 include_env_info: true
 ---

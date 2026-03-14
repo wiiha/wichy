@@ -19,10 +19,8 @@ from wichy.tools.file_explorer import CatFileContentTool, ListFilesTool, WriteFi
 from wichy.tools.file_search_in import SearchRecursiveTool
 from wichy.tools.glob import GlobTool
 from wichy.tools.graph_tools import CreateGraphTool, ListGraphsTool, ReadGraphTool
-from wichy.tools.helpers import get_tool_definitions
 from wichy.tools.insert_lines import InsertLinesTool
 from wichy.tools.knowledge_store import KnowledgeStoreTool
-from wichy.tools.ping import PingTool
 from wichy.tools.replace_text import ReplaceTextTool
 from wichy.tools.reverse_dns_tool import ReverseDnsTool
 from wichy.tools.search_ddg import SearchDDGTool
@@ -49,7 +47,7 @@ BROWSER_TOOLS = [
     BrowserRawTool,
 ]
 
-NETWORKING_TOOLS = [PingTool, ReverseDnsTool]
+NETWORKING_TOOLS = [ReverseDnsTool]
 
 GRAPH_TOOLS = [
     CreateGraphTool,
@@ -62,7 +60,6 @@ FILE_SYSTEM_TOOLS = [
     CatFileContentTool,
     WriteFileTool,
     SearchRecursiveTool,
-    TreeTool,
     GlobTool,
     KnowledgeStoreTool,
     ReplaceTextTool,

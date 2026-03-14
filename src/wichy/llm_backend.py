@@ -134,7 +134,13 @@ def parse_generic_backend(model_str: str):
 
     # Determine protocol and build base_url
     # Default to http for localhost/local IPs, https otherwise
-    if host_part.startswith("localhost") or host_part.startswith("127.") or host_part.startswith("192.168.") or host_part.startswith("10.") or host_part.startswith("172."):
+    if (
+        host_part.startswith("localhost")
+        or host_part.startswith("127.")
+        or host_part.startswith("192.168.")
+        or host_part.startswith("10.")
+        or host_part.startswith("172.")
+    ):
         base_url = f"http://{host_part}/v1"
     else:
         base_url = f"https://{host_part}/v1"
@@ -195,8 +201,6 @@ def call(context, tool_defs=None, model_str=None, extra_args=None, **extra_kwarg
                 # "data_collection": "deny",
             },
         }
-        if "xiaomi/mimo-v2-flash:free" in model:
-            backend_specific_headers["reasoning"] = {"enabled": False}
     elif backend == "generic":
         base_url, model = parse_generic_backend(model_str)
         api_key = settings.openai_api_key or "sk-generic"
