@@ -112,6 +112,11 @@ def main():
             exit(0)
 
         msg = "# Conversation Contexts\n\n"
+        files = sorted(files)
+        file_max_lim = 10
+        if len(files) > file_max_lim:
+            msg += f"Listing {file_max_lim} of {len(files)} contexts.\n\n"
+        files = files[-file_max_lim:]
         for f in sorted(files):
 
             # Count messages in the file
