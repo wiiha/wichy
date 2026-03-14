@@ -7,6 +7,7 @@ The agent tools (create_graph, read_graph, list_graphs) remain in graph_tools.py
 
 import json
 import os
+
 from flask import Blueprint, jsonify, render_template, request, send_from_directory
 
 from wichy.config import settings
@@ -47,9 +48,7 @@ def list_graphs():
         files = []
         if os.path.exists(graphs_dir):
             for f in sorted(os.listdir(graphs_dir), reverse=True):
-                if f.endswith(".json") and os.path.isfile(
-                    os.path.join(graphs_dir, f)
-                ):
+                if f.endswith(".json") and os.path.isfile(os.path.join(graphs_dir, f)):
                     filepath = os.path.join(graphs_dir, f)
                     stat = os.stat(filepath)
                     files.append(

@@ -31,10 +31,18 @@ def chroma_store_with_docs():
         collection_name=_unique_collection_name(),
         allow_reset=True,
     )
-    store.add_document("Python is a programming language", {"category": "tech", "id": "doc1"})
-    store.add_document("JavaScript runs in the browser", {"category": "tech", "id": "doc2"})
-    store.add_document("The quick brown fox jumps", {"category": "literature", "id": "doc3"})
-    store.add_document("Machine learning with Python", {"category": "tech", "id": "doc4"})
+    store.add_document(
+        "Python is a programming language", {"category": "tech", "id": "doc1"}
+    )
+    store.add_document(
+        "JavaScript runs in the browser", {"category": "tech", "id": "doc2"}
+    )
+    store.add_document(
+        "The quick brown fox jumps", {"category": "literature", "id": "doc3"}
+    )
+    store.add_document(
+        "Machine learning with Python", {"category": "tech", "id": "doc4"}
+    )
     return store
 
 
@@ -61,7 +69,9 @@ class TestChromaDocumentStoreBasic:
 
     def test_add_document_with_custom_id(self, chroma_store):
         """Metadata with 'id' should use that as document ID."""
-        doc_id = chroma_store.add_document("Doc content", {"id": "custom-id", "tag": "custom"})
+        doc_id = chroma_store.add_document(
+            "Doc content", {"id": "custom-id", "tag": "custom"}
+        )
         assert doc_id == "custom-id"
         result = chroma_store.get_document("custom-id")
         assert result["document"] == "Doc content"
@@ -189,7 +199,12 @@ class TestChromaDocumentStoreQuery:
         assert "metadatas" in result
         assert "scores" in result
         # All fields should have matching lengths
-        assert len(result["ids"][0]) == len(result["documents"][0]) == len(result["metadatas"][0]) == len(result["scores"][0])
+        assert (
+            len(result["ids"][0])
+            == len(result["documents"][0])
+            == len(result["metadatas"][0])
+            == len(result["scores"][0])
+        )
 
     def test_query_with_where_filter(self, chroma_store_with_docs):
         """Query should apply metadata filter using ChromaDB's where."""
@@ -266,7 +281,7 @@ class TestChromaDocumentStoreSerialization:
         # Add document with complex metadata
         chroma_store_with_docs.add_document(
             document="Doc with complex metadata",
-            metadata={"tags": ["a", "b"], "count": 1}
+            metadata={"tags": ["a", "b"], "count": 1},
         )
         result = chroma_store_with_docs.query(["doc"])
         metadatas = result["metadatas"][0]

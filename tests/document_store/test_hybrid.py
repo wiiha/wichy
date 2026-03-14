@@ -30,10 +30,18 @@ def hybrid_store_with_docs():
         chroma_collection_name=f"hybrid_{_unique_store_id()}",
         chroma_allow_reset=True,
     )
-    store.add_document("Python is a programming language", {"category": "tech", "id": "doc1"})
-    store.add_document("JavaScript runs in the browser", {"category": "tech", "id": "doc2"})
-    store.add_document("The quick brown fox jumps", {"category": "literature", "id": "doc3"})
-    store.add_document("Machine learning with Python", {"category": "tech", "id": "doc4"})
+    store.add_document(
+        "Python is a programming language", {"category": "tech", "id": "doc1"}
+    )
+    store.add_document(
+        "JavaScript runs in the browser", {"category": "tech", "id": "doc2"}
+    )
+    store.add_document(
+        "The quick brown fox jumps", {"category": "literature", "id": "doc3"}
+    )
+    store.add_document(
+        "Machine learning with Python", {"category": "tech", "id": "doc4"}
+    )
     return store
 
 
@@ -60,7 +68,9 @@ class TestHybridDocumentStoreBasic:
 
     def test_add_document_with_custom_id(self, hybrid_store):
         """Metadata with 'id' should use that as document ID."""
-        doc_id = hybrid_store.add_document("Doc content", {"id": "custom-id", "tag": "custom"})
+        doc_id = hybrid_store.add_document(
+            "Doc content", {"id": "custom-id", "tag": "custom"}
+        )
         assert doc_id == "custom-id"
         result = hybrid_store.get_document("custom-id")
         assert result["document"] == "Doc content"
@@ -128,12 +138,12 @@ class TestHybridDocumentStoreBackendSync:
     def test_add_sync(self, hybrid_store):
         """Adding a document should add it to both backends."""
         doc_id = hybrid_store.add_document("sync test", {"sync": "test"})
-        
+
         # Check ChromaDB
         chroma_doc = hybrid_store.chroma.get_document(doc_id)
         assert chroma_doc is not None
         assert chroma_doc["document"] == "sync test"
-        
+
         # Check BM25
         bm25_doc = hybrid_store.bm25.get_document(doc_id)
         assert bm25_doc is not None
@@ -143,7 +153,7 @@ class TestHybridDocumentStoreBackendSync:
         """Deleting a document should remove it from both backends."""
         doc_id = "doc1"
         hybrid_store_with_docs.delete_document(doc_id)
-        
+
         # Check ChromaDB
         assert hybrid_store_with_docs.chroma.get_document(doc_id) is None
         # Check BM25
@@ -152,11 +162,11 @@ class TestHybridDocumentStoreBackendSync:
     def test_update_metadata_sync(self, hybrid_store_with_docs):
         """Updating metadata should affect both backends."""
         hybrid_store_with_docs.update_metadata("doc1", {"updated": True})
-        
+
         # Check ChromaDB
         chroma_doc = hybrid_store_with_docs.chroma.get_document("doc1")
         assert chroma_doc["metadata"]["updated"] is True
-        
+
         # Check BM25
         bm25_doc = hybrid_store_with_docs.bm25.get_document("doc1")
         assert bm25_doc["metadata"]["updated"] is True
@@ -164,7 +174,7 @@ class TestHybridDocumentStoreBackendSync:
     def test_clear_sync(self, hybrid_store_with_docs):
         """Clearing should remove docs from both backends."""
         hybrid_store_with_docs.clear()
-        
+
         assert hybrid_store_with_docs.chroma.count() == 0
         assert hybrid_store_with_docs.bm25.count() == 0
 
@@ -221,7 +231,12 @@ class TestHybridDocumentStoreQuery:
         assert "metadatas" in result
         assert "scores" in result
         # All fields should have matching lengths
-        assert len(result["ids"][0]) == len(result["documents"][0]) == len(result["metadatas"][0]) == len(result["scores"][0])
+        assert (
+            len(result["ids"][0])
+            == len(result["documents"][0])
+            == len(result["metadatas"][0])
+            == len(result["scores"][0])
+        )
 
     def test_query_returns_scores(self, hybrid_store_with_docs):
         """Query should return RRF scores (float values)."""
@@ -252,9 +267,11 @@ class TestHybridDocumentStoreQuery:
     def test_query_combines_dense_and_sparse(self, hybrid_store):
         """Hybrid query should use both dense and sparse retrieval."""
         # Add documents that might be retrieved differently by each method
-        hybrid_store.add_document("Python programming for beginners", {"id": "dense_fav"})
+        hybrid_store.add_document(
+            "Python programming for beginners", {"id": "dense_fav"}
+        )
         hybrid_store.add_document("python python python", {"id": "sparse_fav"})
-        
+
         # Query for "python" - should combine results from both
         result = hybrid_store.query(["python"], n_results=5)
         ids = result["ids"][0]
@@ -270,7 +287,7 @@ class TestHybridDocumentStoreQuery:
         """
         # The tests with_docs have 4 docs, all containing some tech/literature terms
         result = hybrid_store_with_docs.query(["python"], n_results=10)
-        
+
         # Since we're getting multiple results, some docs may appear in both rankings
         # We can't guarantee exact RRF values without mocking, but we can check
         # that scores are reasonable (positive, descending)
@@ -284,7 +301,7 @@ class TestHybridDocumentStoreQuery:
         ids = result["ids"][0]
         documents = result["documents"][0]
         metadatas = result["metadatas"][0]
-        
+
         # Verify each returned document matches its ID and metadata
         for doc_id, doc, meta in zip(ids, documents, metadatas):
             full_doc = hybrid_store_with_docs.get_document(doc_id)
@@ -298,9 +315,9 @@ class TestHybridDocumentStoreReset:
     def test_reset_clears_all_data(self, hybrid_store_with_docs):
         """reset should clear all data from both backends."""
         assert hybrid_store_with_docs.count() == 4
-        
+
         hybrid_store_with_docs.reset()
-        
+
         assert hybrid_store_with_docs.count() == 0
         # Can still add documents after reset
         hybrid_store_with_docs.add_document("New doc", {"after_reset": True})
@@ -324,7 +341,7 @@ class TestHybridDocumentStoreEdgeCases:
         hybrid_store.add_document("Python for data science", {"id": "doc_b"})
         hybrid_store.add_document("Learn JavaScript", {"id": "doc_c"})
         hybrid_store.add_document("Python basics tutorial", {"id": "doc_d"})
-        
+
         result = hybrid_store.query(["python"], n_results=5)
         # Should get at least some results
         assert len(result["ids"][0]) > 0
@@ -349,16 +366,18 @@ class TestHybridDocumentStoreEdgeCases:
         """Multiple sequential adds should keep both backends in sync."""
         for i in range(10):
             hybrid_store.add_document(f"Document {i}", {"index": i})
-        
+
         assert hybrid_store.chroma.count() == 10
         assert hybrid_store.bm25.count() == 10
-        
+
         # All documents should be retrievable from both
         for i in range(10):
-            doc_id = f"doc_{i}" if i > 0 else "doc1"  # Actually we didn't set IDs, so get generated ones
+            doc_id = (
+                f"doc_{i}" if i > 0 else "doc1"
+            )  # Actually we didn't set IDs, so get generated ones
             # Let's just check count consistency
             pass
-        
+
         # Actually the IDs are generated, so we need to track them
         # But we can check total counts match
         assert hybrid_store.chroma.count() == hybrid_store.bm25.count()
@@ -375,11 +394,11 @@ class TestHybridDocumentStoreConfig:
             rrf_k=30,
         )
         assert store.rrf_k == 30
-        
+
         # Add documents
         store.add_document("Python programming", {"id": "doc1"})
         store.add_document("JavaScript basics", {"id": "doc2"})
-        
+
         result = store.query(["python"])
         # Should still work with custom k
         assert len(result["ids"][0]) > 0
@@ -391,14 +410,14 @@ class TestHybridDocumentStoreConfig:
             chroma_allow_reset=True,
             min_chroma_score=0.6,  # Will filter low-similarity Chroma hits
         )
-        
+
         # Add documents; "Python" should have high similarity, "JavaScript" lower
         store.add_document("Python programming language", {"id": "doc_py"})
         store.add_document("JavaScript web development", {"id": "doc_js"})
-        
+
         results = store.query(["python"])
         ids = results["ids"][0]
-        
+
         # doc_py should appear (high Chroma similarity)
         assert "doc_py" in ids
         # doc_js might not appear if its Chroma score < 0.6, regardless of BM25
@@ -415,9 +434,9 @@ class TestHybridDocumentStoreConfig:
             chroma_collection_name=f"test_bm25_thresh_{_unique_store_id()}",
             chroma_allow_reset=True,
             min_chroma_score=10.0,  # Impossible threshold, disables Chroma
-            min_bm25_score=0.01,    # Only include BM25 matches with positive score
+            min_bm25_score=0.01,  # Only include BM25 matches with positive score
         )
-        
+
         # Add several docs; only some contain the query term "python"
         docs = [
             ("Python programming is awesome", {"id": "doc1"}),
@@ -428,17 +447,19 @@ class TestHybridDocumentStoreConfig:
         ]
         for doc, meta in docs:
             store.add_document(doc, meta)
-        
+
         results = store.query(["python"])
         ids = results["ids"][0]
-        
+
         # Only docs containing "python" should have non-zero BM25 scores and pass threshold
         # That's doc1, doc3, doc5
         for doc_id in ["doc1", "doc3", "doc5"]:
             assert doc_id in ids, f"{doc_id} should be in results (has python term)"
         # Docs without "python" should be filtered out
         for doc_id in ["doc2", "doc4"]:
-            assert doc_id not in ids, f"{doc_id} should not be in results (no python term)"
+            assert (
+                doc_id not in ids
+            ), f"{doc_id} should not be in results (no python term)"
 
     def test_thresholds_combined(self):
         """Both thresholds should be applied together."""
@@ -448,17 +469,17 @@ class TestHybridDocumentStoreConfig:
             min_chroma_score=0.6,  # Increased to ensure doc2 fails Chroma threshold
             min_bm25_score=0.01,
         )
-        
+
         # doc1: strongly related to "python" (high Chroma + high BM25)
         store.add_document("Python programming language", {"id": "doc1"})
         # doc2: unrelated (low Chroma + low BM25)
         store.add_document("Cooking recipes for beginners", {"id": "doc2"})
         # doc3: moderately related (medium Chroma, decent BM25)
         store.add_document("Pythons are snakes", {"id": "doc3"})
-        
+
         results = store.query(["python"])
         ids = results["ids"][0]
-        
+
         # doc1 should definitely appear
         assert "doc1" in ids
         # doc3 might appear depending on its Chroma score (0.5 threshold)
@@ -474,15 +495,14 @@ class TestHybridDocumentStoreConfig:
             chroma_collection_name=f"test_no_thresh_{_unique_store_id()}",
             chroma_allow_reset=True,
         )
-        
+
         store.add_document("Python", {"id": "doc1"})
         store.add_document("JavaScript", {"id": "doc2"})
-        
+
         results = store.query(["java"])  # Matches JS more weakly
         ids = results["ids"][0]
-        
+
         # Both should be returned (no filtering)
         assert "doc1" in ids or "doc2" in ids  # At least one appears
         # Without threshold, we expect some results
         assert len(ids) > 0
-

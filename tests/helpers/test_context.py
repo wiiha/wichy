@@ -24,7 +24,7 @@ def temp_contexts_dir():
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp_path = Path(tmpdir)
         # Patch settings.contexts_dir to use our temp directory
-        with patch('wichy.helpers.context.settings') as mock_settings:
+        with patch("wichy.helpers.context.settings") as mock_settings:
             mock_settings.contexts_dir = tmp_path
             yield tmp_path
 
@@ -66,7 +66,7 @@ class TestContextHandlerBasics:
         ctx.append({"role": "user", "content": "msg1"})
         ctx.add_log({"event": "test"})
         ctx.append({"role": "assistant", "content": "msg2"})
-        
+
         messages = ctx()
         assert len(messages) == 2
         assert messages[0] == {"role": "user", "content": "msg1"}
@@ -83,10 +83,10 @@ class TestContextHandlerBasics:
         """Test append injects timestamp and type if not present."""
         ctx = ContextHandler()
         ctx.append({"role": "user", "content": "test"})
-        
+
         # Check in-memory context (original dict is not mutated)
         assert ctx.context[0] == {"role": "user", "content": "test"}
-        
+
         # Check file content
         save_path = ctx._gen_save_path()
         assert save_path.exists()
@@ -97,16 +97,20 @@ class TestContextHandlerBasics:
         assert data["role"] == "user"
         assert data["content"] == "test"
 
-    def test_append_does_not_override_existing_type_and_timestamp(self, temp_contexts_dir):
+    def test_append_does_not_override_existing_type_and_timestamp(
+        self, temp_contexts_dir
+    ):
         """Test append respects existing type and timestamp."""
         ctx = ContextHandler()
-        ctx.append({
-            "role": "user", 
-            "content": "test",
-            "type": "custom",
-            "timestamp": "2020-01-01T00:00:00"
-        })
-        
+        ctx.append(
+            {
+                "role": "user",
+                "content": "test",
+                "type": "custom",
+                "timestamp": "2020-01-01T00:00:00",
+            }
+        )
+
         save_path = ctx._gen_save_path()
         line = save_path.read_text().strip().split("\n")[0]
         data = json.loads(line)
@@ -121,17 +125,17 @@ class TestContextHandlerLogs:
         """Test add_log creates a log entry with proper structure."""
         ctx = ContextHandler()
         ctx.add_log({"event": "test_event", "value": 42})
-        
+
         assert len(ctx.logs) == 1
         log_entry = ctx.logs[0]
         assert log_entry["type"] == "log"
         assert log_entry["event"] == "test_event"
         assert log_entry["value"] == 42
         assert "timestamp" in log_entry
-        
+
         # Log should not appear in message count
         assert len(ctx) == 0
-        
+
         # Log should be in the file
         save_path = ctx._gen_save_path()
         lines = save_path.read_text().strip().split("\n")
@@ -142,12 +146,14 @@ class TestContextHandlerLogs:
     def test_add_log_forces_type_and_timestamp(self, temp_contexts_dir):
         """Test add_log forces type='log' and sets timestamp, even if provided."""
         ctx = ContextHandler()
-        ctx.add_log({
-            "event": "test",
-            "type": "message",  # Should be overridden
-            "timestamp": "2020-01-01T00:00:00"  # Should be overridden
-        })
-        
+        ctx.add_log(
+            {
+                "event": "test",
+                "type": "message",  # Should be overridden
+                "timestamp": "2020-01-01T00:00:00",  # Should be overridden
+            }
+        )
+
         log_entry = ctx.logs[0]
         assert log_entry["type"] == "log"  # Overridden
         assert log_entry["timestamp"] != "2020-01-01T00:00:00"  # New timestamp set
@@ -159,7 +165,7 @@ class TestContextHandlerLogs:
             ctx.append({"role": "user", "content": f"msg{i}"})
         for i in range(5):
             ctx.add_log({"log_num": i})
-        
+
         assert len(ctx) == 3
         assert len(ctx()) == 3
         assert len(ctx.logs) == 5
@@ -171,11 +177,11 @@ class TestContextHandlerLogs:
         ctx.add_log({"event": "log1"})
         ctx.add_log({"event": "log2"})
         ctx.append({"role": "assistant", "content": "msg2"})
-        
+
         save_path = ctx._gen_save_path()
         lines = save_path.read_text().strip().split("\n")
         assert len(lines) == 4
-        
+
         # Check order is preserved
         entries = [json.loads(line) for line in lines]
         assert entries[0]["type"] == "message"
@@ -193,13 +199,13 @@ class TestContextHandlerDrop:
         ctx.append({"role": "user", "content": "msg1"})
         ctx.append({"role": "assistant", "content": "msg2"})
         ctx.append({"role": "user", "content": "msg3"})
-        
+
         ctx.drop(1)
-        
+
         assert len(ctx) == 2
         assert ctx.context[0] == {"role": "user", "content": "msg1"}
         assert ctx.context[1] == {"role": "assistant", "content": "msg2"}
-        
+
         # Check file was updated
         save_path = ctx._gen_save_path()
         lines = save_path.read_text().strip().split("\n")
@@ -210,9 +216,9 @@ class TestContextHandlerDrop:
         ctx = ContextHandler()
         for i in range(5):
             ctx.append({"role": "user", "content": f"msg{i}"})
-        
+
         ctx.drop(3)
-        
+
         assert len(ctx) == 2
         assert ctx.context[0]["content"] == "msg0"
         assert ctx.context[1]["content"] == "msg1"
@@ -227,19 +233,19 @@ class TestContextHandlerDrop:
         ctx.append({"role": "user", "content": "msg3"})
         ctx.add_log({"event": "log3"})
         ctx.append({"role": "assistant", "content": "msg4"})
-        
+
         # Drop last 2 messages (msg3 and msg4)
         ctx.drop(2)
-        
+
         assert len(ctx) == 2
         assert ctx.context[0]["content"] == "msg1"
         assert ctx.context[1]["content"] == "msg2"
-        
+
         # Check that log1 and log2 are preserved, log3 is dropped (after cutoff)
         save_path = ctx._gen_save_path()
         lines = save_path.read_text().strip().split("\n")
         entries = [json.loads(line) for line in lines]
-        
+
         log_entries = [e for e in entries if e.get("type") == "log"]
         assert len(log_entries) == 2
         assert log_entries[0]["event"] == "log1"
@@ -249,10 +255,10 @@ class TestContextHandlerDrop:
         """Test drop with n < 1 does nothing."""
         ctx = ContextHandler()
         ctx.append({"role": "user", "content": "msg1"})
-        
+
         ctx.drop(0)
         assert len(ctx) == 1
-        
+
         ctx.drop(-1)
         assert len(ctx) == 1
 
@@ -260,10 +266,10 @@ class TestContextHandlerDrop:
         """Test drop handles error when trying to drop more messages than exist."""
         ctx = ContextHandler()
         ctx.append({"role": "user", "content": "msg1"})
-        
+
         # drop() catches the exception and prints error, does not raise
         ctx.drop(2)  # Should not raise
-        
+
         # Context should remain unchanged
         assert len(ctx) == 1
         assert ctx.context[0]["content"] == "msg1"
@@ -272,11 +278,11 @@ class TestContextHandlerDrop:
         """Test drop catches and logs file errors without crashing."""
         ctx = ContextHandler()
         ctx.append({"role": "user", "content": "msg1"})
-        
+
         # Mock open to raise an error during drop's file write
-        with patch('pathlib.Path.write_text', side_effect=OSError("Permission denied")):
+        with patch("pathlib.Path.write_text", side_effect=OSError("Permission denied")):
             ctx.drop(1)  # Should not raise, should print error
-        
+
         assert len(ctx) == 1  # Context still has the message (rollback didn't happen)
 
 
@@ -287,10 +293,10 @@ class TestContextHandlerDelete:
         """Test delete removes the context file."""
         ctx = ContextHandler()
         ctx.append({"role": "user", "content": "test"})
-        
+
         save_path = ctx._gen_save_path()
         assert save_path.exists()
-        
+
         ctx.delete()
         assert not save_path.exists()
 
@@ -300,7 +306,7 @@ class TestContextHandlerDelete:
         # Don't write anything, so file doesn't exist
         save_path = ctx._gen_save_path()
         assert not save_path.exists()
-        
+
         with pytest.raises(OSError):
             ctx.delete()
 
@@ -312,7 +318,7 @@ class TestContextHandlerFileOperations:
         """Test _gen_save_path creates correct filename."""
         ctx = ContextHandler(custom_suffix="mysuffix")
         path = ctx._gen_save_path()
-        
+
         # Should be: <date>_<id>_<suffix>.json
         expected_name = f"{ctx.start_date}_{ctx.id}_mysuffix.json"
         assert path.name == expected_name
@@ -361,11 +367,29 @@ class TestContextFromFile:
     def write_sample_context(self, path):
         """Helper to write a sample context file."""
         lines = [
-            json.dumps({"role": "system", "content": "sys1", "timestamp": "2024-01-01T00:00:00"}),
-            json.dumps({"event": "log1", "type": "log", "timestamp": "2024-01-01T00:00:01"}),
-            json.dumps({"role": "user", "content": "user1", "timestamp": "2024-01-01T00:00:02"}),
-            json.dumps({"role": "assistant", "content": "assist1", "timestamp": "2024-01-01T00:00:03"}),
-            json.dumps({"event": "log2", "type": "log", "timestamp": "2024-01-01T00:00:04"}),
+            json.dumps(
+                {
+                    "role": "system",
+                    "content": "sys1",
+                    "timestamp": "2024-01-01T00:00:00",
+                }
+            ),
+            json.dumps(
+                {"event": "log1", "type": "log", "timestamp": "2024-01-01T00:00:01"}
+            ),
+            json.dumps(
+                {"role": "user", "content": "user1", "timestamp": "2024-01-01T00:00:02"}
+            ),
+            json.dumps(
+                {
+                    "role": "assistant",
+                    "content": "assist1",
+                    "timestamp": "2024-01-01T00:00:03",
+                }
+            ),
+            json.dumps(
+                {"event": "log2", "type": "log", "timestamp": "2024-01-01T00:00:04"}
+            ),
         ]
         path.write_text("\n".join(lines))
 
@@ -373,9 +397,9 @@ class TestContextFromFile:
         """Test context_from_file loads message entries correctly."""
         context_file = temp_contexts_dir / "test_context.json"
         self.write_sample_context(context_file)
-        
+
         ctx = context_from_file(context_file)
-        
+
         assert len(ctx.context) == 3
         assert ctx.context[0] == {"role": "system", "content": "sys1"}
         assert ctx.context[1] == {"role": "user", "content": "user1"}
@@ -385,21 +409,23 @@ class TestContextFromFile:
         """Test context_from_file loads log entries correctly."""
         context_file = temp_contexts_dir / "test_context.json"
         self.write_sample_context(context_file)
-        
+
         ctx = context_from_file(context_file)
-        
+
         assert len(ctx.logs) == 2
         assert ctx.logs[0]["event"] == "log1"
         assert ctx.logs[0]["type"] == "log"
         assert ctx.logs[1]["event"] == "log2"
 
-    def test_context_from_file_strips_timestamp_and_type_from_messages(self, temp_contexts_dir):
+    def test_context_from_file_strips_timestamp_and_type_from_messages(
+        self, temp_contexts_dir
+    ):
         """Test context_from_file removes timestamp and type from message entries."""
         context_file = temp_contexts_dir / "test_context.json"
         self.write_sample_context(context_file)
-        
+
         ctx = context_from_file(context_file)
-        
+
         for msg in ctx.context:
             assert "timestamp" not in msg
             assert "type" not in msg
@@ -409,7 +435,7 @@ class TestContextFromFile:
         # Use proper filename format: date_id[_suffix].json
         context_file = temp_contexts_dir / "2024-03-14_12345_bare.json"
         self.write_sample_context(context_file)
-        
+
         # Pass just the filename, not full path
         ctx = context_from_file("2024-03-14_12345_bare.json")
         assert ctx.context[0]["content"] == "sys1"
@@ -423,7 +449,7 @@ class TestContextFromFile:
         """Test context_from_file raises ValueError if file is empty."""
         empty_file = temp_contexts_dir / "empty.json"
         empty_file.touch()
-        
+
         with pytest.raises(ValueError, match="Context file is empty"):
             context_from_file(empty_file)
 
@@ -435,7 +461,7 @@ class TestContextFromFile:
             json.dumps({"event": "log2", "type": "log"}),
         ]
         log_only_file.write_text("\n".join(lines))
-        
+
         with pytest.raises(ValueError, match="No message entries found"):
             context_from_file(log_only_file)
 
@@ -443,7 +469,7 @@ class TestContextFromFile:
         """Test context_from_file extracts date, id, and suffix from filename."""
         context_file = temp_contexts_dir / "2024-03-14_12345_custom.json"
         self.write_sample_context(context_file)
-        
+
         ctx = context_from_file(context_file)
         assert ctx.start_date == "2024-03-14"
         assert ctx.id == "12345"
@@ -455,7 +481,7 @@ class TestContextFromFile:
         subdir.mkdir()
         context_file = subdir / "2024-03-14_12345_subtest.json"
         self.write_sample_context(context_file)
-        
+
         ctx = context_from_file(context_file)
         assert ctx.sub_dir == "subdir"
         assert ctx.context_dir == subdir
@@ -470,7 +496,7 @@ class TestPreviousConversations:
         (temp_contexts_dir / "ctx1.json").touch()
         (temp_contexts_dir / "ctx2.json").touch()
         (temp_contexts_dir / "notes.txt").touch()
-        
+
         files = previous_conversations()
         assert set(files) == {"ctx1.json", "ctx2.json", "notes.txt"}
 
@@ -478,7 +504,7 @@ class TestPreviousConversations:
         """Test previous_conversations only returns files, not directories."""
         (temp_contexts_dir / "file.json").touch()
         (temp_contexts_dir / "subdir").mkdir()
-        
+
         files = previous_conversations()
         assert "file.json" in files
         assert "subdir" not in files
@@ -500,14 +526,17 @@ class TestDropLastNMessageLines:
     def test_drop_last_n_message_lines_basic(self, temp_contexts_dir):
         """Test dropping last n message lines."""
         path = temp_contexts_dir / "test.jsonl"
-        self.write_lines(path, [
-            {"role": "user", "content": "msg1"},
-            {"role": "assistant", "content": "msg2"},
-            {"role": "user", "content": "msg3"},
-        ])
-        
+        self.write_lines(
+            path,
+            [
+                {"role": "user", "content": "msg1"},
+                {"role": "assistant", "content": "msg2"},
+                {"role": "user", "content": "msg3"},
+            ],
+        )
+
         _drop_last_n_message_lines(path, 1)
-        
+
         remaining = [json.loads(line) for line in path.read_text().splitlines()]
         assert len(remaining) == 2
         assert remaining[-1]["content"] == "msg2"
@@ -515,20 +544,23 @@ class TestDropLastNMessageLines:
     def test_drop_with_logs_interleaved(self, temp_contexts_dir):
         """Test dropping messages also removes later logs."""
         path = temp_contexts_dir / "test.jsonl"
-        self.write_lines(path, [
-            {"role": "user", "content": "msg1"},
-            {"event": "log1", "type": "log"},
-            {"role": "assistant", "content": "msg2"},
-            {"event": "log2", "type": "log"},
-            {"role": "user", "content": "msg3"},
-            {"event": "log3", "type": "log"},
-        ])
-        
+        self.write_lines(
+            path,
+            [
+                {"role": "user", "content": "msg1"},
+                {"event": "log1", "type": "log"},
+                {"role": "assistant", "content": "msg2"},
+                {"event": "log2", "type": "log"},
+                {"role": "user", "content": "msg3"},
+                {"event": "log3", "type": "log"},
+            ],
+        )
+
         # Drop last 2 messages (msg2 and msg3)
         # Cuts from the first of those messages (msg2 at index 2) onward,
         # removing msg2, log2, msg3, log3.
         _drop_last_n_message_lines(path, 2)
-        
+
         remaining = [json.loads(line) for line in path.read_text().splitlines()]
         assert len(remaining) == 2
         assert remaining[0] == {"role": "user", "content": "msg1"}
@@ -537,23 +569,31 @@ class TestDropLastNMessageLines:
     def test_drop_raises_if_not_enough_messages(self, temp_contexts_dir):
         """Test _drop_last_n_message_lines raises if not enough messages."""
         path = temp_contexts_dir / "test.jsonl"
-        self.write_lines(path, [
-            {"role": "user", "content": "msg1"},
-        ])
-        
-        with pytest.raises(ValueError, match="Cannot drop 2 message lines; only 1 exist"):
+        self.write_lines(
+            path,
+            [
+                {"role": "user", "content": "msg1"},
+            ],
+        )
+
+        with pytest.raises(
+            ValueError, match="Cannot drop 2 message lines; only 1 exist"
+        ):
             _drop_last_n_message_lines(path, 2)
 
     def test_drop_handles_missing_type_field(self, temp_contexts_dir):
         """Test dropping works when entries have no type (defaults to message)."""
         path = temp_contexts_dir / "test.jsonl"
-        self.write_lines(path, [
-            {"role": "user", "content": "msg1"},  # No type field -> MESSAGE_TYPE
-            {"role": "assistant", "content": "msg2"},
-        ])
-        
+        self.write_lines(
+            path,
+            [
+                {"role": "user", "content": "msg1"},  # No type field -> MESSAGE_TYPE
+                {"role": "assistant", "content": "msg2"},
+            ],
+        )
+
         _drop_last_n_message_lines(path, 1)
-        
+
         remaining = [json.loads(line) for line in path.read_text().splitlines()]
         assert len(remaining) == 1
         assert remaining[0]["content"] == "msg1"
@@ -562,16 +602,20 @@ class TestDropLastNMessageLines:
         """Test that empty lines are handled correctly."""
         path = temp_contexts_dir / "test.jsonl"
         # Include empty lines in file
-        path.write_text('\n'.join([
-            json.dumps({"role": "user", "content": "msg1"}),
-            "",
-            json.dumps({"role": "assistant", "content": "msg2"}),
-            "   ",  # whitespace-only line
-            json.dumps({"role": "user", "content": "msg3"}),
-        ]))
-        
+        path.write_text(
+            "\n".join(
+                [
+                    json.dumps({"role": "user", "content": "msg1"}),
+                    "",
+                    json.dumps({"role": "assistant", "content": "msg2"}),
+                    "   ",  # whitespace-only line
+                    json.dumps({"role": "user", "content": "msg3"}),
+                ]
+            )
+        )
+
         _drop_last_n_message_lines(path, 1)
-        
+
         remaining = path.read_text().splitlines()
         # Should have 3 non-empty lines (msg1, empty, msg2)
         assert len([l for l in remaining if l.strip()]) == 2

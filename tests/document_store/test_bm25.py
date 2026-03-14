@@ -21,10 +21,18 @@ def bm25_store():
 def bm25_store_with_docs():
     """Create a BM25DocumentStore with sample documents."""
     store = BM25DocumentStore()
-    store.add_document("Python is a programming language", {"category": "tech", "id": "doc1"})
-    store.add_document("JavaScript runs in the browser", {"category": "tech", "id": "doc2"})
-    store.add_document("The quick brown fox jumps", {"category": "literature", "id": "doc3"})
-    store.add_document("Machine learning with Python", {"category": "tech", "id": "doc4"})
+    store.add_document(
+        "Python is a programming language", {"category": "tech", "id": "doc1"}
+    )
+    store.add_document(
+        "JavaScript runs in the browser", {"category": "tech", "id": "doc2"}
+    )
+    store.add_document(
+        "The quick brown fox jumps", {"category": "literature", "id": "doc3"}
+    )
+    store.add_document(
+        "Machine learning with Python", {"category": "tech", "id": "doc4"}
+    )
     return store
 
 
@@ -51,7 +59,9 @@ class TestBM25DocumentStoreBasic:
 
     def test_add_document_with_custom_id(self, bm25_store):
         """Metadata with 'id' should use that as document ID."""
-        doc_id = bm25_store.add_document("Doc content", {"id": "custom-id", "tag": "custom"})
+        doc_id = bm25_store.add_document(
+            "Doc content", {"id": "custom-id", "tag": "custom"}
+        )
         assert doc_id == "custom-id"
         result = bm25_store.get_document("custom-id")
         assert result["document"] == "Doc content"
@@ -205,20 +215,20 @@ class TestBM25DocumentStorePersistence:
         """Store should save to and load from disk."""
         with tempfile.TemporaryDirectory() as tmpdir:
             index_path = Path(tmpdir) / "bm25_index.pkl"
-            
+
             # Create and populate first store
             store1 = BM25DocumentStore(index_path=str(index_path))
             store1.add_document("First document", {"source": "test"})
             store1.add_document("Second document", {"source": "test"})
-            
+
             # Create new store from same index
             store2 = BM25DocumentStore(index_path=str(index_path))
-            
+
             # Verify data persisted
             assert store2.count() == 2
             results = store2.list()
             assert set(results["documents"]) == {"First document", "Second document"}
-            
+
             # Verify query works
             result = store2.query(["first"])
             assert len(result["ids"][0]) > 0
@@ -234,19 +244,19 @@ class TestBM25DocumentStorePersistence:
         """Adding documents after loading should work correctly."""
         with tempfile.TemporaryDirectory() as tmpdir:
             index_path = Path(tmpdir) / "test.pkl"
-            
+
             # Create initial store
             store1 = BM25DocumentStore(index_path=str(index_path))
             store1.add_document("Doc 1", {})
             store1.add_document("Doc 2", {})
-            
+
             # Create new store that loads from same index
             store2 = BM25DocumentStore(index_path=str(index_path))
             assert store2.count() == 2
-            
+
             # Add new doc to store2
             store2.add_document("Doc 3", {})
-            
+
             # Both should now have 3 docs when reloaded
             result = store2.query(["doc"])
             assert len(result["ids"][0]) == 3

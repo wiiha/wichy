@@ -12,7 +12,6 @@ from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunct
 from wichy.document_store.core import DocumentStore
 from wichy.helpers.gen_id import gen_id
 
-
 # Placeholder key for empty metadata (very unlikely to conflict with user keys)
 _EMPTY_METADATA_PLACEHOLDER = "__empty_metadata_placeholder__"
 
@@ -64,7 +63,9 @@ def _clean_returned_metadata(metadata: Dict) -> Dict:
     """Remove placeholder key from metadata when returning to user."""
     if _EMPTY_METADATA_PLACEHOLDER in metadata:
         # Remove placeholder; if nothing left, return empty dict
-        cleaned = {k: v for k, v in metadata.items() if k != _EMPTY_METADATA_PLACEHOLDER}
+        cleaned = {
+            k: v for k, v in metadata.items() if k != _EMPTY_METADATA_PLACEHOLDER
+        }
         return cleaned
     return metadata
 
@@ -183,7 +184,8 @@ class ChromaDocumentStore(DocumentStore):
         # Deserialize metadata if present and clean placeholders
         if result.get("metadatas"):
             result["metadatas"] = [
-                _clean_returned_metadata(_deserialize_metadata(m)) for m in result["metadatas"]
+                _clean_returned_metadata(_deserialize_metadata(m))
+                for m in result["metadatas"]
             ]
 
         return result
@@ -239,10 +241,7 @@ class ChromaDocumentStore(DocumentStore):
         return True
 
     def query(
-        self,
-        query_texts: List[str],
-        n_results: int = 5,
-        where: Optional[Dict] = None
+        self, query_texts: List[str], n_results: int = 5, where: Optional[Dict] = None
     ) -> Dict:
         """Query with optional metadata filter.
 
@@ -250,15 +249,16 @@ class ChromaDocumentStore(DocumentStore):
         'metadatas', 'scores' (distances converted to similarity scores).
         """
         results = self.collection.query(
-            query_texts=query_texts,
-            n_results=n_results,
-            where=where
+            query_texts=query_texts, n_results=n_results, where=where
         )
 
         # Deserialize metadata and clean placeholders
         if "metadatas" in results and results["metadatas"]:
             results["metadatas"] = [
-                [_clean_returned_metadata(_deserialize_metadata(meta)) for meta in meta_list]
+                [
+                    _clean_returned_metadata(_deserialize_metadata(meta))
+                    for meta in meta_list
+                ]
                 for meta_list in results["metadatas"]
             ]
 
@@ -290,7 +290,8 @@ class ChromaDocumentStore(DocumentStore):
         # Deserialize metadata from storage and clean placeholders
         if "metadatas" in results and results["metadatas"]:
             results["metadatas"] = [
-                _clean_returned_metadata(_deserialize_metadata(meta)) for meta in results["metadatas"]
+                _clean_returned_metadata(_deserialize_metadata(meta))
+                for meta in results["metadatas"]
             ]
 
         return results

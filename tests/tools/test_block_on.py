@@ -6,8 +6,8 @@ import pytest
 from typing import Optional
 from wichy.tools.human_verification import block_on
 
-
 # Test fixtures - simple callable classes and functions
+
 
 class MockTool:
     """A mock tool class to test block_on with self parameter."""
@@ -17,7 +17,9 @@ class MockTool:
         self.reason = reason
         self.executed = False
 
-    def should_block(self, command: str, timeout: int = 30) -> tuple[bool, Optional[str]]:
+    def should_block(
+        self, command: str, timeout: int = 30
+    ) -> tuple[bool, Optional[str]]:
         """Decision function that uses self to introspect."""
         return self.blocked, self.reason
 
@@ -31,10 +33,10 @@ class MockTool:
 def test_block_on_blocks_execution_when_decision_true():
     """Test that execution is blocked when decision returns (True, message)."""
     tool = MockTool(blocked=True, reason="Dangerous command")
-    
+
     with pytest.raises(PermissionError) as exc_info:
         tool.execute("rm -rf /", timeout=30)
-    
+
     assert "Dangerous command" in str(exc_info.value)
     assert tool.executed is False  # Ensure execute was not called
 
@@ -42,10 +44,10 @@ def test_block_on_blocks_execution_when_decision_true():
 def test_block_on_blocks_with_default_message_when_no_reason():
     """Test that a default message is used when decision returns (True, None)."""
     tool = MockTool(blocked=True, reason=None)
-    
+
     with pytest.raises(PermissionError) as exc_info:
         tool.execute("some command")
-    
+
     assert "blocked by should_block" in str(exc_info.value).lower()
     assert tool.executed is False
 
@@ -53,9 +55,9 @@ def test_block_on_blocks_with_default_message_when_no_reason():
 def test_block_on_allows_execution_when_decision_false():
     """Test that execution proceeds normally when decision returns (False, _)."""
     tool = MockTool(blocked=False, reason="Not used")
-    
+
     result = tool.execute("ls -la", timeout=10)
-    
+
     assert result == "Executed: ls -la"
     assert tool.executed is True
 
@@ -63,9 +65,12 @@ def test_block_on_allows_execution_when_decision_false():
 def test_block_on_preserves_function_metadata():
     """Test that block_on preserves the wrapped function's name and docstring."""
     tool = MockTool(blocked=False)
-    
+
     assert tool.execute.__name__ == "execute"
-    assert "Mock execute method" in tool.execute.__doc__ or "execute" in tool.execute.__doc__
+    assert (
+        "Mock execute method" in tool.execute.__doc__
+        or "execute" in tool.execute.__doc__
+    )
 
 
 def test_block_on_decision_receives_correct_arguments():
@@ -73,7 +78,9 @@ def test_block_on_decision_receives_correct_arguments():
     received_args = []
     received_kwargs = {}
 
-    def custom_decision(self, command: str, timeout: int = 30) -> tuple[bool, Optional[str]]:
+    def custom_decision(
+        self, command: str, timeout: int = 30
+    ) -> tuple[bool, Optional[str]]:
         received_args.append(command)
         received_kwargs.update({"timeout": timeout})
         return False, None
@@ -94,7 +101,9 @@ def test_block_on_with_positional_and_keyword_args():
     """Test block_on works with mixed positional and keyword arguments."""
     decisions = []
 
-    def tracking_decision(self, command: str, timeout: int = 30) -> tuple[bool, Optional[str]]:
+    def tracking_decision(
+        self, command: str, timeout: int = 30
+    ) -> tuple[bool, Optional[str]]:
         decisions.append((command, timeout))
         return False, None
 
@@ -118,11 +127,14 @@ def test_block_on_with_positional_and_keyword_args():
 
 def test_block_on_with_multiple_parameters():
     """Test block_on with a decision function that inspects multiple parameters."""
+
     class MultiParamTool:
         def __init__(self):
             self.sensitive_mode = True
 
-        def check_security(self, operation: str, path: str, force: bool = False) -> tuple[bool, Optional[str]]:
+        def check_security(
+            self, operation: str, path: str, force: bool = False
+        ) -> tuple[bool, Optional[str]]:
             if self.sensitive_mode and operation == "delete" and not force:
                 return True, "Cannot delete in sensitive mode without force=True"
             return False, None

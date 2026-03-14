@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
+
 from pydantic import BaseModel, Field, field_validator
 
 # Import the ID generator
@@ -10,6 +11,7 @@ class MemoryNote(BaseModel):
     """
     A single memory/note - the data transfer object for the Memory interface.
     """
+
     content: str
     """The actual text/content to remember"""
 
@@ -31,7 +33,7 @@ class MemoryNote(BaseModel):
     score: Optional[float] = Field(default=None, ge=0.0)
     """Relevance score from search results only (higher = more relevant)"""
 
-    @field_validator('created_at', 'last_accessed', mode='before')
+    @field_validator("created_at", "last_accessed", mode="before")
     @classmethod
     def _coerce_timestamp(cls, v):
         """
@@ -53,12 +55,12 @@ class MemoryNote(BaseModel):
         if isinstance(v, str):
             # Try ISO format first
             try:
-                return datetime.fromisoformat(v.replace('Z', '+00:00'))
+                return datetime.fromisoformat(v.replace("Z", "+00:00"))
             except ValueError:
                 pass
         raise ValueError(f"Cannot parse timestamp: {v}")
 
-    @field_validator('score', mode='before')
+    @field_validator("score", mode="before")
     @classmethod
     def _coerce_score(cls, v):
         """Ensure score is a float or None."""
@@ -87,7 +89,7 @@ class MemoryNote(BaseModel):
         # Header with ID and stats
         header = f"[MEMORY {self.memory_id}"
         if self.created_at:
-            dt_str = self.created_at.strftime('%Y-%m-%d %H:%M:%S')
+            dt_str = self.created_at.strftime("%Y-%m-%d %H:%M:%S")
             header += f" | {dt_str}"
         if self.retrieval_count > 0:
             header += f" | retrieved {self.retrieval_count} time"
@@ -149,7 +151,7 @@ class MemoryNote(BaseModel):
         return max(0.0, min(1.0, raw_score))  # Clamp to [0.0, 1.0]
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'MemoryNote':
+    def from_dict(cls, data: Dict[str, Any]) -> "MemoryNote":
         """Deserialize from dict (validates and parses automatically)"""
         return cls.model_validate(data)
 
@@ -162,6 +164,6 @@ class MemoryNote(BaseModel):
                 "created_at": "2024-01-15T10:30:00Z",
                 "retrieval_count": 5,
                 "last_accessed": "2024-01-16T14:20:00Z",
-                "score": 0.87
+                "score": 0.87,
             }
         }

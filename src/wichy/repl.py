@@ -18,7 +18,7 @@ from wichy.slash_commands import (
 
 class Repl:
     """Interactive REPL for wichy."""
-    
+
     def __init__(
         self,
         root_agent: RootAgent,
@@ -27,7 +27,7 @@ class Repl:
     ):
         """
         Initialize the REPL.
-        
+
         Args:
             root_agent: The RootAgent instance to process user input.
             prompt_session: PromptSession for user input with history and completion.
@@ -36,7 +36,7 @@ class Repl:
         self.root_agent = root_agent
         self.prompt_session = prompt_session
         self.cmd_checker = cmd_checker
-    
+
     def run(self) -> None:
         """Run the interactive REPL loop."""
         while True:
@@ -69,15 +69,15 @@ class Repl:
             except EOFError:
                 print("\nexiting...")
                 exit(0)
-    
+
     def _print_user_prompt(self) -> None:
         """Print the user prompt header."""
         print(Markdown("\n\n---\n\n### User"))
-    
+
     def _print_separator(self) -> None:
         """Print separator after user input."""
         print(Markdown("---"))
-    
+
     def _print_assistant_response(self, content: str) -> None:
         """Print the assistant's response as markdown."""
         print(Markdown("\n---\n\n### Assistant\n"))

@@ -34,12 +34,16 @@ def is_port_available(port: int, host: str = "127.0.0.1") -> bool:
         return True
 
 
-def find_available_port(start_port: int = 7891, host: str = "127.0.0.1", max_attempts: int = 100) -> int:
+def find_available_port(
+    start_port: int = 7891, host: str = "127.0.0.1", max_attempts: int = 100
+) -> int:
     """Find an available port starting from start_port."""
     for port in range(start_port, start_port + max_attempts):
         if is_port_available(port, host):
             return port
-    raise RuntimeError(f"Could not find available port after {max_attempts} attempts starting from {start_port}")
+    raise RuntimeError(
+        f"Could not find available port after {max_attempts} attempts starting from {start_port}"
+    )
 
 
 def setup_logging() -> None:
@@ -121,7 +125,7 @@ def run_server(port: int | None = None, host: str = "127.0.0.1") -> None:
 
 def start_server_in_background(port: int | None = None, host: str = "127.0.0.1") -> int:
     """Start the Flask server in a background thread.
-    
+
     Returns:
         The actual port number the server is running on.
     """
@@ -138,7 +142,9 @@ def start_server_in_background(port: int | None = None, host: str = "127.0.0.1")
     actual_port = find_available_port(port, host)
 
     _server_app = create_app()
-    _server_app.logger.info(f"Starting wichy server in background on {host}:{actual_port}")
+    _server_app.logger.info(
+        f"Starting wichy server in background on {host}:{actual_port}"
+    )
 
     def run_app():
         from werkzeug.serving import run_simple

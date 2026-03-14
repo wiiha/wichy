@@ -36,20 +36,21 @@ def test_glob_sorting_by_modification_time(glob_tool):
         # Create files with different modification times
         file1 = os.path.join(tmpdir, "file1.txt")
         file2 = os.path.join(tmpdir, "file2.txt")
-        
+
         with open(file1, "w") as f:
             f.write("old file")
-        
+
         # Sleep to ensure different modification times
         import time
+
         time.sleep(0.1)
-        
+
         with open(file2, "w") as f:
             f.write("new file")
-        
+
         # Execute glob search
         result = glob_tool.execute(pattern="*.txt", path=tmpdir)
-        
+
         # Verify sorting
         assert "file2.txt" in result
         assert "file1.txt" in result
@@ -63,14 +64,14 @@ def test_glob_recursive_search(glob_tool):
     with tempfile.TemporaryDirectory() as tmpdir:
         subdir = os.path.join(tmpdir, "subdir")
         os.makedirs(subdir)
-        
+
         # Create files in subdirectory
         with open(os.path.join(subdir, "nested.txt"), "w") as f:
             f.write("nested file")
-        
+
         # Execute recursive glob search
         result = glob_tool.execute(pattern="**/*.txt", path=tmpdir)
-        
+
         # Verify nested file is found
         assert "nested.txt" in result
 
@@ -85,12 +86,12 @@ def test_glob_default_path(glob_tool):
     """Test glob with default path (current directory)."""
     # Save current directory
     original_dir = os.getcwd()
-    
+
     try:
         # Change to a directory with known files
         os.chdir("src/wichy/tools")
         result = glob_tool.execute(pattern="*.py")
-        
+
         # Verify results
         assert "No files found" not in result
         assert ".py" in result
