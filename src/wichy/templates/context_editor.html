@@ -9,10 +9,10 @@
 <body>
     <div class="container">
         <header class="header">
-            <h1>📝 Context Editor</h1>
+            <h1>Context Editor</h1>
             <p class="subtitle">Edit the active conversation context in real-time</p>
             <div class="nav">
-                <a href="/">← Back to Home</a>
+                <a href="/">Back to Home</a>
             </div>
         </header>
 
@@ -39,8 +39,8 @@
                 </div>
 
                 <div class="sync-status">
-                    <p>🔄 Auto-sync every <span id="sync-interval">3</span>s</p>
-                    <p id="sync-indicator" class="indicator idle">● Idle</p>
+                    <p>Auto-sync every <span id="sync-interval">3</span>s</p>
+                    <p id="sync-indicator" class="indicator idle">Idle</p>
                 </div>
             </aside>
 
@@ -63,6 +63,7 @@
                             <option value="user">user</option>
                             <option value="assistant">assistant</option>
                             <option value="system">system</option>
+                            <option value="tool">tool</option>
                         </select>
                     </div>
                     <div class="form-group">
@@ -85,6 +86,7 @@
                             <option value="user">user</option>
                             <option value="assistant">assistant</option>
                             <option value="system">system</option>
+                            <option value="tool">tool</option>
                         </select>
                     </div>
                     <div class="form-group">
@@ -103,7 +105,7 @@
     <!-- Conflict modal -->
     <div id="conflict-modal" class="modal hidden">
         <div class="modal-content">
-            <h3>⚠️ Conflict Detected</h3>
+            <h3>Conflict Detected</h3>
             <p>The context has been modified by another client (REPL) since you last loaded it.</p>
             <p>Please refresh the page to see the latest changes.</p>
             <button id="btn-refresh-conflict" class="btn primary">Refresh Now</button>

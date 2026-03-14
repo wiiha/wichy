@@ -3,8 +3,12 @@ include LICENSE
 recursive-include src/wichy *.py
 recursive-include src/wichy *.sh
 recursive-include src/wichy *.md
-recursive-include src/wichy/graph/static *
+
+# Include all static assets and templates (find all subdirectories dynamically)
 recursive-include src/wichy/templates *
+recursive-include src/wichy/static *
+recursive-include src/wichy/*/static *
+recursive-include src/wichy/*/*/static *
 
 # Exclude development and build artifacts
 global-exclude __pycache__

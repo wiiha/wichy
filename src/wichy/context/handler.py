@@ -82,9 +82,19 @@ class ContextHandler:
             return len(self.context)
 
     def __call__(self):
-        """Return the message context as a list (log entries excluded)."""
+        """
+        Return the message context as a list (log entries excluded).
+
+        Strips internal metadata fields (like `_truncated_from`) that should
+        not be sent to the LLM.
+        """
         with self._lock:
-            return self.context.copy()
+            result = []
+            for msg in self.context:
+                # Create a copy without internal metadata fields
+                clean_msg = {k: v for k, v in msg.items() if not k.startswith("_")}
+                result.append(clean_msg)
+            return result
 
     def append(self, new_object):
         """
@@ -423,6 +433,128 @@ class ContextHandler:
             lines.pop(cut_index)
 
             # Write back atomically
+            temp_path = self._path.with_suffix(".tmp")
+            temp_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            temp_path.replace(self._path)
+
+            self._reload_from_disk()
+
+    def truncate_message(self, index: int, max_chars: int = 200):
+        """
+        Truncate a message's content, storing the original in _truncated_from.
+
+        Args:
+            index: Zero-based index of message to truncate
+            max_chars: Maximum characters to keep (default 200)
+
+        Raises:
+            IndexError: If index is out of range
+            ValueError: If message is too short to truncate
+        """
+        if index < 0:
+            raise IndexError("Message index cannot be negative")
+
+        with self._lock:
+            if not self._path.exists():
+                raise FileNotFoundError("Context file does not exist")
+
+            lines = self._path.read_text(encoding="utf-8").splitlines()
+
+            # Find message line indices
+            message_indices = [
+                i
+                for i, line in enumerate(lines)
+                if line.strip()
+                and json.loads(line).get("type", MESSAGE_TYPE) == MESSAGE_TYPE
+            ]
+
+            if index >= len(message_indices):
+                raise IndexError(
+                    f"Message index {index} out of range (0-{len(message_indices)-1})"
+                )
+
+            line_idx = message_indices[index]
+            entry = json.loads(lines[line_idx])
+
+            # Only truncate if content is longer than max_chars
+            content = entry.get("content", "")
+            if len(content) <= max_chars:
+                raise ValueError(
+                    f"Message content ({len(content)} chars) is already under {max_chars} chars"
+                )
+
+            # Store original in _truncated_from if not already truncated
+            if "_truncated_from" in entry:
+                # Already truncated, update from the stored original
+                original = entry["_truncated_from"]
+            else:
+                original = content
+
+            # Create truncated version
+            original_size = len(original)
+            truncated_content = (
+                content[:max_chars]
+                + f"... [truncated, original: {original_size} chars]"
+            )
+
+            # Update entry
+            entry["content"] = truncated_content
+            entry["_truncated_from"] = original
+
+            # Write back
+            lines[line_idx] = json.dumps(entry)
+
+            temp_path = self._path.with_suffix(".tmp")
+            temp_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            temp_path.replace(self._path)
+
+            self._reload_from_disk()
+
+    def expand_message(self, index: int):
+        """
+        Restore a truncated message's original content from _truncated_from.
+
+        Args:
+            index: Zero-based index of message to expand
+
+        Raises:
+            IndexError: If index is out of range
+            ValueError: If message is not truncated (no _truncated_from field)
+        """
+        if index < 0:
+            raise IndexError("Message index cannot be negative")
+
+        with self._lock:
+            if not self._path.exists():
+                raise FileNotFoundError("Context file does not exist")
+
+            lines = self._path.read_text(encoding="utf-8").splitlines()
+
+            # Find message line indices
+            message_indices = [
+                i
+                for i, line in enumerate(lines)
+                if line.strip()
+                and json.loads(line).get("type", MESSAGE_TYPE) == MESSAGE_TYPE
+            ]
+
+            if index >= len(message_indices):
+                raise IndexError(
+                    f"Message index {index} out of range (0-{len(message_indices)-1})"
+                )
+
+            line_idx = message_indices[index]
+            entry = json.loads(lines[line_idx])
+
+            if "_truncated_from" not in entry:
+                raise ValueError("Message is not truncated (no _truncated_from field)")
+
+            # Restore original content
+            entry["content"] = entry.pop("_truncated_from")
+
+            # Write back
+            lines[line_idx] = json.dumps(entry)
+
             temp_path = self._path.with_suffix(".tmp")
             temp_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
             temp_path.replace(self._path)

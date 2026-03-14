@@ -28,8 +28,8 @@ from wichy.server_controller import ServerController
 from wichy.skills import SkillLoader
 from wichy.skills.skill_template import skill_template
 from wichy.slash_commands import SlashCommandChecker, slash_completer
-from wichy.tools import ALL_TOOLS_NOT_INSTANTIATED
-from wichy.tools.base import BaseTool, console_tool_result
+from wichy.tool_manager import ToolManager
+from wichy.tools.base import console_tool_result
 from wichy.tools.task import console_task_agents
 
 
@@ -44,12 +44,9 @@ def main():
         completer=slash_completer,
     )
 
-    # instantiate tools
-    in_tools: list[BaseTool] = []
-    for tool in ALL_TOOLS_NOT_INSTANTIATED:
-        in_tools.append(tool())
-
-    in_tools.sort(key=lambda t: t.name)
+    # Tools will be determined after root agent selection
+    # (tools depend on agent-desc tools property + CLI flags)
+    tool_manager = ToolManager()
 
     # Install default skills and load all skills
     skill_loader = SkillLoader()
@@ -257,6 +254,37 @@ echo "Hello from {skill_name} skill!"
     root_agent_descs = [
         parse_root_agent_markdown_desc(rad) for rad in ALL_ROOT_AGENT_DESC
     ]
+
+    # Select root agent to determine tools property
+    root_agent_descs_by_name = {ra.props["name"]: ra for ra in root_agent_descs}
+    selected_ra_name = args.root_agent_description
+    selected_ra = root_agent_descs_by_name.get(selected_ra_name)
+    if not selected_ra:
+        print(
+            f"[red]error:[/red] Root agent '{selected_ra_name}' not found",
+            file=sys.stderr,
+        )
+        exit(1)
+
+    # Determine tools based on priority:
+    # 1. CLI --tools flag (highest priority, overrides agent-desc)
+    # 2. Agent-desc tools property (middle priority)
+    # 3. All tools (default, lowest priority)
+    # Then: --not-tools removes from whichever set was chosen
+    if args.tools:
+        # CLI --tools flag takes highest priority
+        in_tools = tool_manager.create_tools(
+            allowed=args.tools, excluded=args.not_tools
+        )
+    elif "tools" in selected_ra.props and selected_ra.props["tools"]:
+        # Agent-desc tools property (middle priority)
+        agent_desc_tools = selected_ra.props["tools"]
+        in_tools = tool_manager.create_tools(
+            allowed=agent_desc_tools, excluded=args.not_tools
+        )
+    else:
+        # All tools (default)
+        in_tools = tool_manager.create_tools(allowed="", excluded=args.not_tools)
 
     # Load context from file if specified (before building agent)
     loaded_context = None

@@ -1,8 +1,6 @@
 """API endpoints for context editor."""
 
-
 from flask import request, jsonify, Blueprint
-
 
 # Global reference to active context handler (set by __main__)
 _active_context = None  # Will be ContextHandler
@@ -145,3 +143,45 @@ def register_routes(bp: Blueprint):
         return jsonify(
             {"success": True, "dropped": n, "remaining": len(_active_context.context)}
         )
+
+    @bp.route("/api/messages/<int:index>/truncate", methods=["POST"])
+    def truncate_message(index):
+        """Truncate a message's content, storing original in _truncated_from."""
+        if _active_context is None:
+            return jsonify({"error": "No active context"}), 404
+
+        data = request.get_json() or {}
+        max_chars = data.get("max_chars", 200)
+
+        try:
+            max_chars = int(max_chars)
+            if max_chars < 10:
+                return jsonify({"error": "max_chars must be at least 10"}), 400
+        except ValueError:
+            return jsonify({"error": "Invalid max_chars parameter"}), 400
+
+        try:
+            _active_context.truncate_message(index, max_chars)
+            return jsonify({"success": True, "index": index, "max_chars": max_chars})
+        except IndexError as e:
+            return jsonify({"error": str(e)}), 400
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @bp.route("/api/messages/<int:index>/expand", methods=["POST"])
+    def expand_message(index):
+        """Restore a truncated message's original content."""
+        if _active_context is None:
+            return jsonify({"error": "No active context"}), 404
+
+        try:
+            _active_context.expand_message(index)
+            return jsonify({"success": True, "index": index})
+        except IndexError as e:
+            return jsonify({"error": str(e)}), 400
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500

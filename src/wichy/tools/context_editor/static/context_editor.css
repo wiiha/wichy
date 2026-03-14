@@ -11,6 +11,8 @@
     --border: #e2e8f0;
     --text: #1f2937;
     --text-muted: #6b7280;
+    --tool-bg: #fef3c7;
+    --tool-text: #92400e;
 }
 
 * {
@@ -229,8 +231,9 @@ body {
 
 .message-header {
     display: flex;
-    justify-content: space-between;
+    flex-wrap: wrap;
     align-items: center;
+    gap: 8px;
     margin-bottom: 10px;
 }
 
@@ -245,6 +248,35 @@ body {
 .message-role.user { background: #dbeafe; color: #1e40af; }
 .message-role.assistant { background: #dcfce7; color: #166534; }
 .message-role.system { background: #fef3c7; color: #92400e; }
+.message-role.tool { background: #f3e8ff; color: #7c3aed; }
+
+.content-length {
+    font-size: 0.7rem;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: var(--background);
+    color: var(--text-muted);
+    font-family: monospace;
+}
+
+.truncated-badge {
+    font-size: 0.7rem;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: #fef3c7;
+    color: #92400e;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.tool-call-id {
+    font-size: 0.75rem;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: var(--tool-bg);
+    color: var(--tool-text);
+    font-family: monospace;
+}
 
 .message-time {
     font-size: 0.75rem;
@@ -255,6 +287,62 @@ body {
     white-space: pre-wrap;
     font-size: 0.95rem;
     line-height: 1.6;
+}
+
+/* Tool calls section (view-only) */
+.tool-calls-section {
+    margin-top: 12px;
+    padding: 10px;
+    background: #f8fafc;
+    border: 1px dashed var(--border);
+    border-radius: 4px;
+}
+
+.tool-calls-header {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    margin-bottom: 8px;
+}
+
+.tool-call-item {
+    margin-bottom: 8px;
+    padding: 8px;
+    background: white;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+}
+
+.tool-call-item:last-child {
+    margin-bottom: 0;
+}
+
+.tool-call-name {
+    font-weight: 600;
+    font-family: monospace;
+    color: var(--primary);
+    font-size: 0.9rem;
+}
+
+.tool-call-id-small {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    font-family: monospace;
+    margin: 2px 0;
+}
+
+.tool-call-args {
+    font-size: 0.8rem;
+    font-family: monospace;
+    background: var(--background);
+    padding: 8px;
+    border-radius: 4px;
+    margin: 6px 0 0 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 200px;
+    overflow-y: auto;
 }
 
 .message-actions {
@@ -280,6 +368,26 @@ body {
 
 .message-actions button:hover {
     background: var(--background);
+}
+
+.message-actions .btn-truncate {
+    background: #fef3c7;
+    color: #92400e;
+    border-color: #fcd34d;
+}
+
+.message-actions .btn-truncate:hover {
+    background: #fde68a;
+}
+
+.message-actions .btn-expand {
+    background: #dcfce7;
+    color: #166534;
+    border-color: #86efac;
+}
+
+.message-actions .btn-expand:hover {
+    background: #bbf7d0;
 }
 
 /* Forms */
