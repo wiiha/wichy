@@ -8,7 +8,7 @@ from wichy.tools.ask_user_question import AskUserQuestionTool
 from wichy.tools.base import BaseTool, ParametersModel
 from wichy.tools.bash import BashTool
 from wichy.tools.fetch_webpage import FetchWebPageTool
-from wichy.tools.file_explorer import CatFileContentTool, ListFilesTool, WriteFileTool
+from wichy.tools.file_explorer import ReadFileTool, ListFilesTool, WriteFileTool
 from wichy.tools.file_search_in import SearchRecursiveTool
 from wichy.tools.glob import GlobTool
 from wichy.tools.replace_text import ReplaceTextTool
@@ -25,7 +25,7 @@ from wichy.tools.tree import TreeTool
 TOOLS_FOR_TASK_AGENTS: list[BaseTool] = [
     AskUserQuestionTool,
     BashTool,
-    CatFileContentTool,
+    ReadFileTool,
     FetchWebPageTool,
     GlobTool,
     ListFilesTool,

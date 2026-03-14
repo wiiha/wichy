@@ -301,15 +301,16 @@ def call(context, tool_defs=None, model_str=None, extra_args=None, **extra_kwarg
 
 
 def contains_unparsed_tool_call(text):
-    try:
-        str(text).index("<tool_call>")
-        str(text).index("</tool_call>")
-    except ValueError as e:
-        return False
-    except Exception:
-        # Lazy for now
-        return False
-    return True
+    pass
+    # try:
+    #     str(text).index("<tool_call>")
+    #     str(text).index("</tool_call>")
+    # except ValueError as e:
+    #     return False
+    # except Exception:
+    #     # Lazy for now
+    #     return False
+    # return True
 
 
 def extract_tool_calls(text):

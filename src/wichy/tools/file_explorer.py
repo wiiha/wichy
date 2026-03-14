@@ -37,7 +37,7 @@ class ListFilesTool(BaseTool):
             return f"error: {e}"
 
 
-class CatFileParameters(ParametersModel):
+class ReadFileParameters(ParametersModel):
     path: str = Field(
         ...,
         description="path to file for which to look at content of",
@@ -56,12 +56,16 @@ class CatFileParameters(ParametersModel):
     )
 
     def info(self):
-        if self.offset == 1 and self.limit == 2000 and not self.A:
+        if (
+            self.offset == 1
+            and self.limit == 2000
+            and not self.show_none_printable_chars
+        ):
             return self.path
         return f"{self.path} (lines {self.offset}-{self.offset + self.limit - 1})"
 
 
-class CatFileContentTool(BaseTool):
+class ReadFileTool(BaseTool):
     name = "read_file"
     description = "Get the content of a file."
     description_long = """
@@ -77,7 +81,7 @@ Usage:
 - This tool can only read files, not directories. To read a directory, use ls tool.
 - You can call multiple tools in a single response. It is always better to speculatively read multiple potentially useful files in parallel.
 - If you read a file that exists but has empty contents you will receive a system reminder warning in place of file contents."""
-    parameters_model = CatFileParameters
+    parameters_model = ReadFileParameters
 
     MAX_LINE_LENGTH = 2000
 
