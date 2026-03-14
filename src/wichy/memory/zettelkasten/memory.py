@@ -9,7 +9,7 @@ from typing import Dict, List, Optional, Tuple
 
 from rich import print
 
-from wichy.helpers.context import ContextHandler
+from wichy.context.handler import ContextHandler
 from wichy.helpers.document_store import DocumentStore
 from wichy.llm_backend import call
 from wichy.memory.zettelkasten.note import MemoryNote

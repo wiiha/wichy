@@ -37,7 +37,7 @@ def serve_static(filename):
 @bp.route("/")
 def graph_editor():
     """Serve the graph editor HTML page."""
-    return render_template("editor.html")
+    return render_template("graph_editor.html")
 
 
 @bp.route("/api/list")

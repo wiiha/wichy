@@ -215,7 +215,7 @@ class TestAgentBuilder:
         self, mock_cli_config, mock_tools, mock_skills
     ):
         """Test that context is used when provided to build()."""
-        from wichy.helpers.context import ContextHandler
+        from wichy.context.handler import ContextHandler
 
         mock_cli_config.load_ctx = None  # Not used in this test
 
@@ -252,7 +252,7 @@ class TestAgentBuilder:
         self, mock_cli_config, mock_tools, mock_skills
     ):
         """Test that system prompt is not added when context is provided."""
-        from wichy.helpers.context import ContextHandler
+        from wichy.context.handler import ContextHandler
 
         mock_cli_config.load_ctx = None
 

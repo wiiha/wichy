@@ -1,7 +1,5 @@
 """Tests for the CliParser class."""
 
-
-
 from wichy.cli_parser import CliParser
 
 

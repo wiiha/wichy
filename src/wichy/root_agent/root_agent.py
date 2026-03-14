@@ -6,7 +6,7 @@ from rich import print
 from rich.markdown import Markdown
 
 from wichy.helpers.console import console
-from wichy.helpers.context import new_context
+from wichy.context.handler import new_context
 from wichy.helpers.string import strip_thinking_content
 from wichy.llm_backend import Message, call, called_tool
 from wichy.tools import get_tool_definitions
@@ -57,8 +57,10 @@ class RootAgent:
         self.context.add_log(
             {"source": "root_agent", "data": {"info_lines": info_lines}}
         )
-
         print(Markdown("\n".join(info_lines)))
+
+        # Start file watching for live sync with web editor
+        self.context.start_watching(interval=2.0)
 
     def tool_call(self, tools, item: called_tool):
         result = None
@@ -107,7 +109,6 @@ class RootAgent:
         return len(self.context) != osz
 
     def process(self, line):
-
         self.context.append({"role": "user", "content": line})
         tool_defs = get_tool_definitions(self.tools)
         response = call(
@@ -127,20 +128,35 @@ class RootAgent:
         self.context.drop()
 
     def reset_context(self, strategy: ContextResetStrategies):
-
         if strategy == ContextResetStrategies.SUMMARY:
             return self.compact_context()
 
         # nuke, default case
         first_prompt = self.context()[0]
+        old_context = self.context
         ctx = new_context()
         ctx.append(first_prompt)
         self.context = ctx
+        # Start watching new context
+        self.context.start_watching(interval=2.0)
+        # Stop watching old context
+        try:
+            old_context.stop_watching()
+        except Exception:
+            pass
+        # Notify web editor of context change
+        try:
+            from wichy.tools.context_editor import api as context_editor_api
+
+            context_editor_api.set_active_context(self.context)
+        except Exception:
+            pass
 
     def compact_context(
         self, guideline_from_user_on_what_to_keep: Optional[str] = None
     ):
         first_prompt = self.context()[0]
+        old_context = self.context
         guideline_for_compacting = "Please summarize our conversation. Keep it structured. Include any external sources mentioned."
         if guideline_from_user_on_what_to_keep:
             guideline_for_compacting += (
@@ -149,9 +165,10 @@ class RootAgent:
             )
         # Keep the original system prompt from the first context entry
         ctx = new_context()
+        ctx.start_watching(interval=2.0)
         ctx.append(first_prompt)
         # add in messages from old context
-        for i in self.context()[1:]:
+        for i in old_context.context[1:]:
             ctx.append(i)
 
         # Add a summary message to the context
@@ -175,4 +192,17 @@ class RootAgent:
         n_ctx.append(first_prompt)
         n_ctx.add(role="user", content=summary_msg)
         self.context = n_ctx
+        self.context.start_watching(interval=2.0)
+        # Stop watching old context
+        try:
+            old_context.stop_watching()
+        except Exception:
+            pass
+        # Notify web editor of context change
+        try:
+            from wichy.tools.context_editor import api as context_editor_api
+
+            context_editor_api.set_active_context(self.context)
+        except Exception:
+            pass
         return

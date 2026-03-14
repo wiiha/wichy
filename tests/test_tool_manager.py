@@ -1,7 +1,5 @@
 """Tests for the ToolManager class."""
 
-
-
 from wichy.tool_manager import ToolManager
 from wichy.tools.base import BaseTool
 

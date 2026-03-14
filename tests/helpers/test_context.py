@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
-from wichy.helpers.context import (
+from wichy.context.handler import (
     ContextHandler,
     _drop_last_n_message_lines,
     context_from_file,
@@ -23,7 +23,7 @@ def temp_contexts_dir():
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp_path = Path(tmpdir)
         # Patch settings.contexts_dir to use our temp directory
-        with patch("wichy.helpers.context.settings") as mock_settings:
+        with patch("wichy.context.handler.settings") as mock_settings:
             mock_settings.contexts_dir = tmp_path
             yield tmp_path
 

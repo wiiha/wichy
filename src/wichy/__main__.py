@@ -6,6 +6,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+import json
+
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.history import FileHistory
@@ -15,8 +17,8 @@ from rich.markdown import Markdown
 from wichy.agent_builder import AgentBuilderError, build_agent_from_config
 from wichy.cli_parser import CliParser
 from wichy.config import settings
+from wichy.context.handler import context_from_file, previous_conversations
 from wichy.helpers.console import console
-from wichy.helpers.context import context_from_file
 from wichy.helpers.string import truncate_to_len
 from wichy.repl import Repl
 from wichy.root_agent import ALL_ROOT_AGENT_DESC
@@ -25,10 +27,7 @@ from wichy.root_agent.root_agent_desc_template import root_agent_desc_template
 from wichy.server_controller import ServerController
 from wichy.skills import SkillLoader
 from wichy.skills.skill_template import skill_template
-from wichy.slash_commands import (
-    SlashCommandChecker,
-    slash_completer,
-)
+from wichy.slash_commands import SlashCommandChecker, slash_completer
 from wichy.tools import ALL_TOOLS_NOT_INSTANTIATED
 from wichy.tools.base import BaseTool, console_tool_result
 from wichy.tools.task import console_task_agents
@@ -84,9 +83,6 @@ def main():
         args.ls_command == "ctx" or str(args.ls_command).startswith("context")
     ):
         # This means "ls ctx" or "ls contexts" was called
-        import json
-
-        from wichy.helpers.context import previous_conversations
 
         context_dir = settings.contexts_dir
         try:
@@ -311,6 +307,18 @@ echo "Hello from {skill_name} skill!"
         actual_port = server_controller.start()
         print(f"[dim]Web server started on http://127.0.0.1:{actual_port}[/dim]")
         print(f"[dim]Graph editor: http://127.0.0.1:{actual_port}/tools/graph/[/dim]")
+        # Set active context for context editor if server is enabled
+        try:
+            from wichy.tools.context_editor import api as context_editor_api
+
+            context_editor_api.set_active_context(root_agent.context)
+            print(
+                f"[dim]Context editor: http://127.0.0.1:{actual_port}/tools/context/[/dim]"
+            )
+        except Exception as e:
+            print(
+                f"[yellow]Warning: Could not set active context for web editor: {e}[/yellow]"
+            )
         print("[dim]Use --no-server to disable.[/dim]")
 
     # Start the REPL

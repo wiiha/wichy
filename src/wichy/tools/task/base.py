@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from rich.console import Console
 from rich.markdown import Markdown
 
-from wichy.helpers.context import ContextHandler
+from wichy.context.handler import ContextHandler
 from wichy.helpers.environment_info import environment_information
 from wichy.helpers.prompt import preprocess_prompt
 from wichy.llm_backend import LLMBackendContextLimitReached, Message, call, called_tool
@@ -13,7 +13,6 @@ from wichy.tools import get_tool_definitions
 from wichy.tools.base import BaseTool
 
 console_task_agents = Console(quiet=True)
-
 
 
 class TaskAgentDefinitionBase(BaseModel):

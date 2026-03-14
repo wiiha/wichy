@@ -5,7 +5,7 @@ from typing import Dict
 from rich import print
 
 from wichy.cli_parser import CliConfig
-from wichy.helpers.context import context_from_file
+from wichy.context.handler import context_from_file
 from wichy.helpers.environment_info import environment_information
 from wichy.helpers.prompt import preprocess_prompt
 from wichy.root_agent.helpers import ParsedRootAgentDesc, parse_root_agent_markdown_desc

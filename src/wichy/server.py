@@ -105,8 +105,10 @@ def create_app() -> Flask:
 def register_blueprints(app: Flask) -> None:
     """Register all tool blueprints with the Flask app."""
     from wichy.tools.graph import register as register_graph
+    from wichy.tools.context_editor import register as register_context_editor
 
     register_graph(app)
+    register_context_editor(app)
 
 
 _server_thread: threading.Thread | None = None

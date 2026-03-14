@@ -1,4 +1,3 @@
-
 from pydantic import Field
 
 from wichy.helpers.string import truncate_to_len
