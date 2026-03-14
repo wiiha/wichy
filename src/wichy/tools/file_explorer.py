@@ -50,9 +50,13 @@ class CatFileParameters(ParametersModel):
         2000,
         description="maximum number of lines to read, default=2000",
     )
+    A: bool = Field(
+        False,
+        description="show all non-printing characters (like cat -A): show $ at line ends, TAB as ^I, and other non-printables in ^ notation",
+    )
 
     def info(self):
-        if self.offset == 1 and self.limit == 2000:
+        if self.offset == 1 and self.limit == 2000 and not self.A:
             return self.path
         return f"{self.path} (lines {self.offset}-{self.offset + self.limit - 1})"
 
@@ -76,9 +80,27 @@ Usage:
     parameters_model = CatFileParameters
 
     MAX_LINE_LENGTH = 2000
+    def _visualize_line(self, line: str) -> str:
+        """Visualize non-printing characters like cat -A"""
+        # Show $ at the end to mark line ending
+        result = line + "$"
+        # Convert tabs to ^I
+        result = result.replace("\t", "^I")
+        # Convert other non-printing characters to ^ notation
+        # Characters below 32 (except tab, newline, carriage return) and DEL (127)
+        visualized = []
+        for char in result:
+            code = ord(char)
+            if code < 32 and char not in ("\n", "\r", "\t"):
+                visualized.append(f"^{chr(code + 64)}")
+            elif code == 127:
+                visualized.append("^?")
+            else:
+                visualized.append(char)
+        return "".join(visualized)
 
-    def execute(self, path, offset=1, limit=2000) -> str:
-        """Execute file cat with optional offset and limit"""
+    def execute(self, path, offset=1, limit=2000, A=False) -> str:
+        """Execute file cat with optional offset, limit, and -A option"""
         try:
             # Read the file
             with open(path, "r", encoding="utf-8", errors="replace") as f:
@@ -106,13 +128,21 @@ Usage:
                 # Remove trailing newline for processing
                 line = line.rstrip("\n")
 
-                # Truncate if longer than MAX_LINE_LENGTH
-                if len(line) > self.MAX_LINE_LENGTH:
-                    line = line[: self.MAX_LINE_LENGTH] + "... [truncated]"
-                    truncated_line_warning = True
+                # Apply -A option: visualize non-printing characters
+                if A:
+                    line = self._visualize_line(line)
+                else:
+                    # Truncate if longer than MAX_LINE_LENGTH (only when not using -A)
+                    if len(line) > self.MAX_LINE_LENGTH:
+                        line = line[: self.MAX_LINE_LENGTH] + "... [truncated]"
+                        truncated_line_warning = True
 
-                # Format with line number (6 spaces for alignment like cat -n)
-                output_lines.append(f"{i:6d}  {line}")
+                if A:
+                    # In -A mode, show as-is without line numbers
+                    output_lines.append(line)
+                else:
+                    # Format with line number (6 spaces for alignment like cat -n)
+                    output_lines.append(f"{i:6d}  {line}")
 
             result = "\n".join(output_lines)
 
