@@ -1,5 +1,5 @@
 import functools
-from typing import Any, Callable, Optional, Tuple
+from typing import Any, Callable, Optional
 
 from prompt_toolkit import PromptSession
 from rich import print

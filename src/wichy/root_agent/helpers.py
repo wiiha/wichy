@@ -84,7 +84,7 @@ def load_user_root_agents() -> List[str]:
             continue
 
         props = ra.props
-        if not ("name" in props):
+        if "name" not in props:
             continue
 
         # later files override earlier ones (local files were added last)

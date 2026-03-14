@@ -1,5 +1,4 @@
 from prompt_toolkit.completion import NestedCompleter
-from rich.markdown import Markdown
 
 from wichy.helpers.console import console
 from wichy.root_agent.root_agent import ContextResetStrategies

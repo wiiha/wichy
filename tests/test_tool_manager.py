@@ -1,8 +1,6 @@
 """Tests for the ToolManager class."""
 
-from unittest.mock import MagicMock
 
-import pytest
 
 from wichy.tool_manager import ToolManager
 from wichy.tools.base import BaseTool

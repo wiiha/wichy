@@ -1,7 +1,7 @@
 from typing import Optional
 
 from ddgs import DDGS  # ref: https://pypi.org/project/ddgs/
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from wichy.tools.base import BaseTool, ParametersModel
 

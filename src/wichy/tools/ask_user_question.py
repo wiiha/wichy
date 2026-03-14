@@ -3,7 +3,7 @@ from typing import Dict, List, Optional, Union
 
 from prompt_toolkit.shortcuts import checkboxlist_dialog, input_dialog, radiolist_dialog
 from prompt_toolkit.styles import Style
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from wichy.tools.base import BaseTool, ParametersModel
 

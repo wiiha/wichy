@@ -1,22 +1,19 @@
 import json
 from datetime import date
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from rich.console import Console
 from rich.markdown import Markdown
 
 from wichy.helpers.context import ContextHandler
 from wichy.helpers.environment_info import environment_information
-from wichy.helpers.markdown import read_markdown_with_frontmatter
 from wichy.helpers.prompt import preprocess_prompt
-from wichy.helpers.string import strip_thinking_content, truncate_to_len
 from wichy.llm_backend import LLMBackendContextLimitReached, Message, call, called_tool
 from wichy.tools import get_tool_definitions
-from wichy.tools.base import BaseTool, ParametersModel
+from wichy.tools.base import BaseTool
 
 console_task_agents = Console(quiet=True)
 
-from pydantic import BaseModel
 
 
 class TaskAgentDefinitionBase(BaseModel):
@@ -54,7 +51,7 @@ class TaskAgent:
 
             all_tool_names = [t.name.lower() for t in tools]
             for t in allowed_tools:
-                if not t in all_tool_names:
+                if t not in all_tool_names:
                     console_task_agents.log(
                         f"[yellow]warning[/yellow] task agent definition {agent_definition.name} mentions tool {t} which does not exist."
                     )
@@ -164,7 +161,7 @@ class TaskAgent:
                 response = call(self.context(), tool_defs, model_str=self.model)
             self.context.append({"role": "assistant", "content": response.content})
             return response.content
-        except KeyboardInterrupt as e:
+        except KeyboardInterrupt:
             return self._handle_interrupt(
                 fallback_exception=Exception("user aborted execution of " + self.name)
             )
@@ -234,7 +231,7 @@ class TaskAgent:
                     missing_call = False
                     for tc in tcs:
                         id = str(tc["id"])
-                        if not (id in observed_tool_answer_ids):
+                        if id not in observed_tool_answer_ids:
                             missing_call = True
                             # only one missing is enough
                             break

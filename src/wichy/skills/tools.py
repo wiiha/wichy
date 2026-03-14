@@ -4,9 +4,9 @@ import json
 import os
 import subprocess
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional
+from typing import List, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from wichy.skills.registry import SkillRegistry
 from wichy.tools.base import BaseTool, ParametersModel
@@ -171,7 +171,7 @@ class SkillScriptTool(BaseTool):
 
         # Human verification for non-safe scripts
         if not is_safe and not SKIP_HUMAN_VERIFICATION:
-            print(f"\n[bold yellow]ACTION:[/bold yellow] Execute skill script")
+            print("\n[bold yellow]ACTION:[/bold yellow] Execute skill script")
             print(f"skill='{params.skill_name}' script='{params.script_name}'")
             if params.args:
                 print(f"args: {' '.join(params.args)}")

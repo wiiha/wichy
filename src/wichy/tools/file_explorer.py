@@ -2,7 +2,7 @@ import os
 import subprocess
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from wichy.helpers.string import truncate_to_len
 from wichy.tools.base import BaseTool, ParametersModel
@@ -192,8 +192,7 @@ class WriteFileTool(BaseTool):
     name = "write_file"
     description = "Write content to file at path. This will always overwrite the current content of a file. Hence, a file update needs to contain the full new version of the content."
     parameters_model = WriteFileParameters
-    description_long = """
-Writes a file to the local filesystem.
+    description_long = """Writes a file to the local filesystem.
 
 Usage:
 

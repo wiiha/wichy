@@ -2,7 +2,7 @@ import shutil
 import subprocess
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from wichy.tools.base import BaseTool, ParametersModel
 

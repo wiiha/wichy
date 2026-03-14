@@ -36,7 +36,7 @@ def _process_conditional(conditional: str, verify_against: Dict[str, List[str]])
     if not verify_against.get(tag_name, None):
         return ""
 
-    if not tag_value in verify_against.get(tag_name, []):
+    if tag_value not in verify_against.get(tag_name, []):
         return ""
 
     # we know that the condition is met, let us extract the information to return.

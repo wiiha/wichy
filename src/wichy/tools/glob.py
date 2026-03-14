@@ -3,9 +3,8 @@ import os
 from pathlib import Path
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
-from wichy.helpers.string import truncate_to_len
 from wichy.tools.base import BaseTool, ParametersModel
 
 

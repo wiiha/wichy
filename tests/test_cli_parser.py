@@ -1,11 +1,8 @@
 """Tests for the CliParser class."""
 
-import sys
-from unittest.mock import patch
 
-import pytest
 
-from wichy.cli_parser import CliConfig, CliParser
+from wichy.cli_parser import CliParser
 
 
 class TestCliParser:

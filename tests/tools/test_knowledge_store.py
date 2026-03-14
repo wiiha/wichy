@@ -1,6 +1,5 @@
 """Tests for the KnowledgeStoreTool."""
 
-import os
 import shutil
 import tempfile
 from pathlib import Path

@@ -1,6 +1,6 @@
 import socket
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from wichy.tools.base import BaseTool, ParametersModel
 

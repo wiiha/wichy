@@ -1,6 +1,5 @@
 """Skill representation and data structures."""
 
-import json
 import os
 import re
 from dataclasses import dataclass, field

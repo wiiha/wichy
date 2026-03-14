@@ -1,9 +1,9 @@
 import re
 import shlex
 import subprocess
-from typing import Optional, Tuple
+from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from wichy.helpers.string import truncate_to_len
 from wichy.tools.base import BaseTool, ParametersModel

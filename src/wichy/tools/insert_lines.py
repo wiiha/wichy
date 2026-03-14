@@ -5,9 +5,8 @@ Simplified alternative to patch tool that inserts content at line numbers. Usefu
 """
 
 import os
-from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from wichy.tools.base import BaseTool, ParametersModel
 

@@ -1,6 +1,6 @@
 """Tests for the ServerController class."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 

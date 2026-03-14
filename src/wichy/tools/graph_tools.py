@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from wichy.config import settings
 from wichy.tools.base import BaseTool, ParametersModel

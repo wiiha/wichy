@@ -9,7 +9,6 @@ Note: This is a sparse retrieval store - it does NOT use embeddings.
 The `query()` method returns BM25 scores instead of vector similarity.
 """
 
-import os
 import pickle
 from pathlib import Path
 from typing import Dict, List, Optional

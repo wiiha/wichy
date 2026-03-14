@@ -6,7 +6,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from wichy.tools.base import BaseTool, ParametersModel
 from wichy.tools.human_verification import block_on

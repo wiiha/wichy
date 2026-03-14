@@ -1,6 +1,5 @@
 """REPL - interactive read-eval-print loop for wichy."""
 
-from typing import Optional
 
 from prompt_toolkit import PromptSession
 from rich import print

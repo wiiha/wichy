@@ -81,7 +81,7 @@ check-manifest:
 # Linting (requires ruff or flake8)
 lint:
 	@echo "Linting code..."
-	@command -v ruff >/dev/null 2>&1 && ruff . || \
+	@command -v ruff >/dev/null 2>&1 && ruff check --fix || \
 	command -v flake8 >/dev/null 2>&1 && flake8 || \
 	echo "No linter found. Install with: pip install ruff"
 

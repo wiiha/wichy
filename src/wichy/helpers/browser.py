@@ -6,7 +6,6 @@ launching and closing the browser for each webpage fetch operation.
 """
 
 import ast
-import asyncio
 import inspect
 import random
 from typing import Any, Optional
@@ -217,7 +216,7 @@ class BrowserManager:
             if inspect.iscoroutine(func):
                 func = await func
             if not callable(func):
-                raise ValueError(f"Object is not callable")
+                raise ValueError("Object is not callable")
 
             # Evaluate arguments
             args = []

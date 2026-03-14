@@ -1,6 +1,6 @@
-from typing import List, Literal, Optional
+from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from wichy.helpers.string import truncate_to_len
 from wichy.memory.zettelkasten.note import MemoryNote
@@ -126,7 +126,7 @@ class DoneProcessingParameters(ParametersModel):
 
     def info(self):
 
-        return f'"LLM feels done processing memories."'
+        return '"LLM feels done processing memories."'
 
 
 class DoneTool(BaseTool):

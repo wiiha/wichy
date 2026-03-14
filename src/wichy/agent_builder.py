@@ -1,18 +1,13 @@
 """Agent builder - constructs RootAgent with proper configuration."""
 
-import sys
 from typing import Dict
 
 from rich import print
-from rich.markdown import Markdown
 
 from wichy.cli_parser import CliConfig
-from wichy.config import settings
 from wichy.helpers.context import context_from_file
 from wichy.helpers.environment_info import environment_information
 from wichy.helpers.prompt import preprocess_prompt
-from wichy.helpers.string import truncate_to_len
-from wichy.root_agent import ALL_ROOT_AGENT_DESC
 from wichy.root_agent.helpers import ParsedRootAgentDesc, parse_root_agent_markdown_desc
 from wichy.root_agent.root_agent import RootAgent
 from wichy.skills.skills_info import skills_information

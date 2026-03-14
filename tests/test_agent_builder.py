@@ -6,13 +6,10 @@ import pytest
 
 from wichy.agent_builder import (
     AgentBuilder,
-    AgentBuilderError,
     RootAgentNotFoundError,
     ModelNotSpecifiedError,
     SystemPromptEmptyError,
-    ContextLoadError,
 )
-from wichy.root_agent.helpers import ParsedRootAgentDesc
 
 
 class MockRootAgentDesc:

@@ -1,9 +1,8 @@
-from enum import Enum
 from typing import Dict, Optional
 
 from pydantic import Field
 
-from wichy.helpers.string import strip_thinking_content, truncate_to_len
+from wichy.helpers.string import strip_thinking_content
 from wichy.tools.ask_user_question import AskUserQuestionTool
 from wichy.tools.base import BaseTool, ParametersModel
 from wichy.tools.bash import BashTool
@@ -164,7 +163,7 @@ assistant: "I'm going to use the Task tool to launch the greeting-responder agen
 
         agent_def = all_task_agent_defs.get(subagent_type, None)
         if not agent_def:
-            return f"error: task has no subagent_type named " + subagent_type
+            return "error: task has no subagent_type named " + subagent_type
 
         sa = TaskAgent(
             agent_definition=agent_def,

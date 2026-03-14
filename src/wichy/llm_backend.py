@@ -1,5 +1,4 @@
 import json
-import os
 import time
 from typing import List, Optional
 
@@ -335,5 +334,5 @@ def parse_tool_call(text):
     try:
         f = function(json.loads(text))
         print(f)
-    except Exception as e:
+    except Exception:
         return None

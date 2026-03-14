@@ -1,4 +1,3 @@
-from prompt_toolkit import prompt
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.styles import Style
 
@@ -20,5 +19,3 @@ class BottomToolbar:
                 "bottom-toolbar": "#fff",
             }
         )
-
-        return o

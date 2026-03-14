@@ -2,7 +2,6 @@
 Test cases for BM25DocumentStore implementation.
 """
 
-import os
 import tempfile
 from pathlib import Path
 

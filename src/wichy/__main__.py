@@ -1,14 +1,10 @@
 import re
 import sys
-from typing import Dict
 
 from dotenv import load_dotenv
 
 load_dotenv()
 
-import argparse
-import datetime
-from pathlib import Path
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
@@ -16,31 +12,23 @@ from prompt_toolkit.history import FileHistory
 from rich import print
 from rich.markdown import Markdown
 
-from wichy.agent_builder import AgentBuilder, AgentBuilderError, build_agent_from_config
+from wichy.agent_builder import AgentBuilderError, build_agent_from_config
 from wichy.cli_parser import CliParser
 from wichy.config import settings
 from wichy.helpers.console import console
-from wichy.helpers.context import context_from_file, new_context
-from wichy.helpers.environment_info import environment_information
-from wichy.helpers.prompt import preprocess_prompt
-from wichy.helpers.string import strip_thinking_content, truncate_to_len
-from wichy.llm_backend import LLMBackendContextLimitReached
+from wichy.helpers.context import context_from_file
+from wichy.helpers.string import truncate_to_len
 from wichy.repl import Repl
 from wichy.root_agent import ALL_ROOT_AGENT_DESC
-from wichy.root_agent.helpers import ParsedRootAgentDesc, parse_root_agent_markdown_desc
-from wichy.root_agent.root_agent import RootAgent
+from wichy.root_agent.helpers import parse_root_agent_markdown_desc
 from wichy.root_agent.root_agent_desc_template import root_agent_desc_template
 from wichy.server_controller import ServerController
 from wichy.skills import SkillLoader
 from wichy.skills.skill_template import skill_template
-from wichy.skills.skills_info import skills_information
 from wichy.slash_commands import (
-    ContextDropException,
-    ContextResetException,
     SlashCommandChecker,
     slash_completer,
 )
-from wichy.tool_manager import ToolManager
 from wichy.tools import ALL_TOOLS_NOT_INSTANTIATED
 from wichy.tools.base import BaseTool, console_tool_result
 from wichy.tools.task import console_task_agents
@@ -201,7 +189,7 @@ def main():
         # Validate skill name (kebab-case: lowercase letters, numbers, and hyphens)
         if not re.match(r"^[a-z0-9]+(-[a-z0-9]+)*$", skill_name):
             print(
-                f"[red]error:[/red] Skill name must be kebab-case: lowercase letters, numbers, and hyphens (e.g., 'my-skill-name')",
+                "[red]error:[/red] Skill name must be kebab-case: lowercase letters, numbers, and hyphens (e.g., 'my-skill-name')",
                 file=sys.stderr,
             )
             exit(1)
@@ -229,10 +217,10 @@ def main():
 
         msg = f"[green]Created skill:[/green] {skill_name}\n"
         msg += f"[dim]Location: {skill_dir}[/dim]\n\n"
-        msg += f"Files created:\n"
-        msg += f"  - skill.md (skill knowledge and documentation)\n"
-        msg += f"  - references/ (optional documentation)\n"
-        msg += f"  - assets/ (optional templates, etc.)\n"
+        msg += "Files created:\n"
+        msg += "  - skill.md (skill knowledge and documentation)\n"
+        msg += "  - references/ (optional documentation)\n"
+        msg += "  - assets/ (optional templates, etc.)\n"
 
         # Optionally create scripts directory with placeholder
         if args.new_skill_with_script:
@@ -249,12 +237,12 @@ echo "Hello from {skill_name} skill!"
             with open(placeholder_script, "w", encoding="utf-8") as f:
                 f.write(script_content)
             placeholder_script.chmod(0o755)
-            msg += f"  - scripts/example.sh (placeholder executable script)\n"
+            msg += "  - scripts/example.sh (placeholder executable script)\n"
 
-        msg += f"\n[dim]Edit skill.md to add your knowledge and documentation.[/dim]"
-        msg += f"\n[dim]Add reference docs to references/, templates to assets/.[/dim]"
+        msg += "\n[dim]Edit skill.md to add your knowledge and documentation.[/dim]"
+        msg += "\n[dim]Add reference docs to references/, templates to assets/.[/dim]"
         if args.new_skill_with_script:
-            msg += f"\n[dim]Add executable scripts to scripts/ directory. Mark safe scripts in skill.md frontmatter.[/dim]"
+            msg += "\n[dim]Add executable scripts to scripts/ directory. Mark safe scripts in skill.md frontmatter.[/dim]"
 
         print(msg)
         exit(0)
