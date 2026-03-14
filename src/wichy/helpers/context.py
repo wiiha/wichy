@@ -2,23 +2,30 @@ import json
 import os
 import time
 from datetime import datetime
-from os.path import isfile, join
+from pathlib import Path
 
 from rich import print
 
 from wichy.config import settings
-from wichy.helpers.file import drop_last_n_lines
 
 CONTEXT_FILE_EXT = ".json"
+
+# Type constants for JSONL entries
+MESSAGE_TYPE = "message"
+LOG_TYPE = "log"
 
 
 class ContextHandler:
     """
-    A class to handle context management for conversations.
+    Manages a single conversation's context, persisting it as a JSONL file.
 
-    This class manages a list of conversation messages and provides methods to
-    add, save, and delete context data. It also ensures the necessary directory
-    structure exists for storing context files.
+    The JSONL file may contain two kinds of entries:
+
+    - ``type="message"``: LLM conversation turns stored in ``self.context``.
+      Returned by ``__call__`` and counted by ``__len__``.
+    - ``type="log"``: Arbitrary session metadata stored in ``self.logs``.
+      Persisted to the same file but never included in the LLM context and
+      invisible to ``__call__`` / ``__len__``.
     """
 
     def __init__(self, custom_suffix="", sub_dir=""):
@@ -26,20 +33,21 @@ class ContextHandler:
         Initialize a new ContextHandler instance.
 
         Args:
-            custom_suffix (str, optional): Custom suffix to add to the context file name. Defaults to empty string.
-            sub_dir (str, optional): Subdirectory to store context files in. Defaults to empty string.
+            custom_suffix (str): Custom suffix appended to the context file name.
+            sub_dir (str): Subdirectory under contexts_dir to store the file in.
 
         Attributes:
-            context (list): List of conversation messages.
-            id (str): Unique identifier for this context instance (based on current time).
-            start_date (str): Date when this context was created (YYYY-MM-DD format).
-            custom_suffix (str): Custom suffix for the context file name.
-            sub_dir (str): Subdirectory for storing context files.
-            context_dir (Path): Full path to the context directory.
+            context (list): Message-type entries; sent to the LLM.
+            logs (list): Log-type entries; persisted but never sent to the LLM.
+            id (str): Time-based unique identifier for this context.
+            start_date (str): Creation date in ``YYYY-MM-DD`` format.
+            custom_suffix (str): Suffix used in the file name.
+            sub_dir (str): Subdirectory used for the file.
+            context_dir (Path): Resolved path to the storage directory.
         """
         self.context = []
-        # generating a time based id is fine under the assumption that this will
-        # be running on a local machine only and not in a multi user setup.
+        self.logs = []
+        # Time-based ID is fine for local, single-user use.
         self.id = str(time.time()).split(".")[0]
         self.start_date = datetime.now().strftime("%Y-%m-%d")
         self.custom_suffix = custom_suffix
@@ -47,220 +55,256 @@ class ContextHandler:
         self._ensure_context_dir()
 
     def _ensure_context_dir(self):
-        """
-        Ensure the .wichy/contexts directory exists.
-
-        This method creates the context directory if it doesn't exist. If a subdirectory
-        is specified, it will create that as well.
-        """
+        """Create the context storage directory (and any sub_dir) if missing."""
         self.context_dir = settings.contexts_dir
-        if self.sub_dir != "":
+        if self.sub_dir:
             self.context_dir = self.context_dir / self.sub_dir
         os.makedirs(self.context_dir, exist_ok=True)
 
     def __len__(self):
-        """
-        Return the number of messages in the context.
-
-        Returns:
-            int: The number of messages in the context.
-        """
+        """Return the number of message entries (log entries excluded)."""
         return len(self.context)
 
     def __call__(self):
-        """
-        Return the context as a list.
-
-        Returns:
-            list: The current context messages.
-        """
+        """Return the message context as a list (log entries excluded)."""
         return self.context
 
     def append(self, new_object):
         """
-        Append a new object to context and log it to file.
+        Append a message dict to the in-memory context and persist it.
+
+        A ``type`` and ``timestamp`` field are injected into the persisted copy
+        if not already present; the original dict is not mutated.
 
         Args:
-            new_object (dict): The object to add to the context. Should be a dictionary
-                with at least 'role' and 'content' keys.
-
-        Side effects:
-            - Adds the object to the context list
-            - Saves the object to a JSON file
+            new_object (dict): Must contain at least ``role`` and ``content`` keys.
         """
         self.context.append(new_object)
-        self._save_to_file(new_object)
+        self._write_line(new_object, entry_type=MESSAGE_TYPE)
 
     def add(self, role, content):
         """
-        Add a new message to context and log it to file. Helper method.
+        Convenience wrapper: create a message dict and call :meth:`append`.
 
         Args:
-            role (str): The role of the message (e.g., 'user', 'assistant')
-            content (str): The content of the message
-
-        Side effects:
-            - Creates a new message dictionary
-            - Adds it to the context list
-            - Saves it to a JSON file
+            role (str): The message role (e.g. ``"user"``, ``"assistant"``).
+            content (str): The message content.
         """
-        x = {"role": role, "content": content}
-        self.append(x)
+        self.append({"role": role, "content": content})
+
+    def add_log(self, data: dict):
+        """
+        Persist a log entry without adding it to the LLM context.
+
+        The entry is saved to the same JSONL file with ``type="log"`` and kept
+        in ``self.logs`` for in-process inspection, but is never included in
+        ``self.context`` and therefore never sent to the LLM.
+
+        Args:
+            data (dict): Arbitrary data to log. ``"type"`` is always forced to
+                ``LOG_TYPE``; ``"timestamp"`` is always set to the current ISO
+                time.  Both keys overwrite any values already present in *data*.
+        """
+        log_object = {**data, "type": LOG_TYPE, "timestamp": datetime.now().isoformat()}
+        self.logs.append(log_object)
+        self._write_line(log_object, entry_type=None)  # type already set in dict
 
     def drop(self, n: int = 1):
         """
-        drops the n last items from the context,
-        this will also modify the corresponding file
-        on disk.
+        Drop the last *n* message entries from memory and from the JSONL file.
 
-        :param n: Number of items to drop. n < 1 is a no-op.
-        :type n: int
+        Log entries interspersed in the file are left untouched.
+
+        Args:
+            n (int): Number of message entries to drop. Values below 1 are a no-op.
         """
         if n < 1:
             return
 
+        save_path = self._gen_save_path()
         try:
-            drop_last_n_lines(filename=self._gen_save_path(), n=n)
+            _drop_last_n_message_lines(filename=save_path, n=n)
         except Exception as e:
             print(f"[red]Error dropping lines from file:[/red] {e}")
             return
 
-        # all good, remove from context
         self.context = self.context[:-n]
-
-    def _save_to_file(self, new_object):
-        """
-        Save the new object as a JSON object on a new line in the log file.
-
-        Args:
-            new_object (dict): The object to save to file
-
-        Side effects:
-            - Creates or appends to a context file with a name based on start date,
-              ID, and custom suffix
-            - Writes the object as a JSON string followed by a newline
-        """
-        log_file_path = self._gen_save_path()
-        try:
-            with open(log_file_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps(new_object) + "\n")
-        except Exception as e:
-            print(f"[red]Error saving context to file:[/red] {e}")
-
-    def _gen_save_path(self) -> str:
-        filename = self.start_date + "_" + self.id
-        if self.custom_suffix != "":
-            filename += "_" + self.custom_suffix
-        filename += CONTEXT_FILE_EXT
-        save_path = self.context_dir / filename
-        return str(save_path)
 
     def delete(self):
         """
-        Delete the context file.
+        Delete the JSONL context file from disk.
 
-        This method deletes the context file associated with this instance.
-
-        Side effects:
-            - Removes the context file from disk
+        Raises:
+            OSError: If the file cannot be removed.
         """
-        save_path = self._gen_save_path()
-        os.remove(save_path)
+        os.remove(self._gen_save_path())
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _gen_save_path(self) -> Path:
+        """Return the Path for this context's JSONL file."""
+        parts = [self.start_date, self.id]
+        if self.custom_suffix:
+            parts.append(self.custom_suffix)
+        filename = "_".join(parts) + CONTEXT_FILE_EXT
+        return self.context_dir / filename
+
+    def _write_line(self, obj: dict, entry_type: str | None):
+        """
+        Serialize *obj* as a JSON line and append it to the JSONL file.
+
+        Args:
+            obj (dict): The object to serialize. Not mutated.
+            entry_type (str | None): If provided, injected as ``"type"`` only
+                when the key is absent. Pass ``None`` when the type is already
+                set on *obj* (e.g. log entries built by :meth:`add_log`).
+        """
+        record = dict(obj)
+        if entry_type is not None:
+            record.setdefault("type", entry_type)
+        record.setdefault("timestamp", datetime.now().isoformat())
+
+        try:
+            with open(self._gen_save_path(), "a", encoding="utf-8") as f:
+                f.write(json.dumps(record) + "\n")
+        except Exception as e:
+            print(f"[red]Error writing to context file:[/red] {e}")
+
+
+# ----------------------------------------------------------------------
+# Module-level helpers
+# ----------------------------------------------------------------------
 
 
 def new_context():
     """
-    Create a new ContextHandler instance.
+    Create and return a new :class:`ContextHandler` instance.
 
     Returns:
-        ContextHandler: A new context handler instance
+        ContextHandler: A freshly initialised context.
     """
     return ContextHandler()
 
 
 def context_from_file(path):
     """
-    Load a context from a file.
+    Load a :class:`ContextHandler` from an existing JSONL file.
+
+    Message entries (``type="message"`` or missing ``type``) populate
+    ``ContextHandler.context``; log entries (``type="log"``) populate
+    ``ContextHandler.logs``.
+
+    *path* may be an absolute path, a relative path, or a bare filename that
+    will be resolved against ``settings.contexts_dir``.
 
     Args:
-        path (str): Path to the context file. Can be an absolute path, a relative path,
-                    or just a filename (which will be looked up in contexts_dir).
+        path (str | Path): Path to the JSONL context file.
 
     Returns:
-        ContextHandler: A new context handler instance loaded with data from the file
+        ContextHandler: A context handler pre-loaded with the file's contents.
 
     Raises:
-        ValueError: If the file is empty or not found
+        ValueError: If the file cannot be found, is empty, or contains no
+            message entries.
     """
-    contexts_dir = str(settings.contexts_dir)
-    # If path is not an existing file, try looking in contexts_dir
-    if not os.path.isfile(path):
-        # Check if it's a bare filename or relative path
-        candidate = path
-        if not os.path.dirname(candidate):  # No directory part
-            candidate = os.path.join(contexts_dir, candidate)
-        if os.path.isfile(candidate):
+    path = Path(path)
+
+    # Resolve bare filenames against the contexts directory.
+    if not path.is_file():
+        candidate = settings.contexts_dir / path.name
+        if candidate.is_file():
             path = candidate
         else:
             raise ValueError(f"Context file not found: {path}")
 
-    lines = []
-    with open(path, "r") as f:
-        lines = f.readlines()
+    lines = path.read_text(encoding="utf-8").splitlines()
+    if not lines:
+        raise ValueError(f"Context file is empty: {path}")
 
-    if len(lines) == 0:
-        raise ValueError("no lines in context, check content of " + path)
-
-    ctx = []
-    for l in lines:
-        l = l.strip()
-        if l == "":
+    messages, logs = [], []
+    for raw in lines:
+        raw = raw.strip()
+        if not raw:
             continue
-        c = json.loads(l)
-        ctx.append(c)
+        entry = json.loads(raw)
+        if entry.get("type", MESSAGE_TYPE) == LOG_TYPE:
+            logs.append(entry)
+        else:
+            messages.append(
+                {k: v for k, v in entry.items() if k not in ("type", "timestamp")}
+            )
 
-    # id and date can be inferred from path
-    filename = str(path).split("/")[-1]
-    filename = filename[: -len(CONTEXT_FILE_EXT)]
-    parts = filename.split("_")
-    x = []
-    for p in parts:
-        if p.strip() == "":
-            continue
-        x.append(p)
-    parts = x
-    ctx_date = parts[0]
-    ctx_id = parts[1]
-    ctx_suffix = ""
-    if len(parts) > 2:
-        # we have some suffix
-        s = "_".join(parts[2:])
-        ctx_suffix = s
+    if not messages:
+        raise ValueError(f"No message entries found in context file: {path}")
 
-    path_parts = str(path).split("/")
-    ctx_sub_dir = ""
-    if path_parts.index("contexts") != (len(path_parts) - 2):
-        # we have a sub dir
-        ctx_sub_dir = path_parts[-2]
+    # Parse id, date, and optional suffix from the filename.
+    stem_parts = [p for p in path.stem.split("_") if p]
+    ctx_date = stem_parts[0]
+    ctx_id = stem_parts[1]
+    ctx_suffix = "_".join(stem_parts[2:]) if len(stem_parts) > 2 else ""
+
+    # Detect whether the file lives in a named subdirectory of contexts_dir.
+    try:
+        rel = path.parent.relative_to(settings.contexts_dir)
+        ctx_sub_dir = str(rel) if rel != Path(".") else ""
+    except ValueError:
+        ctx_sub_dir = ""
 
     ch = ContextHandler(custom_suffix=ctx_suffix, sub_dir=ctx_sub_dir)
     ch.start_date = ctx_date
     ch.id = ctx_id
-    ch.context = ctx
+    ch.context = messages
+    ch.logs = logs
 
     return ch
 
 
 def previous_conversations():
     """
-    Get a list of previous conversation files.
+    Return the file names of all saved conversation files in ``contexts_dir``.
 
     Returns:
-        list: List of context file names in the contexts directory
+        list[str]: File names (not full paths) of context files in the
+            top-level contexts directory.
     """
-    contexts_dir = str(settings.contexts_dir)
-    cs = [f for f in os.listdir(contexts_dir) if isfile(join(contexts_dir, f))]
-    return cs
+    contexts_dir = settings.contexts_dir
+    return [f.name for f in contexts_dir.iterdir() if f.is_file()]
+
+
+def _drop_last_n_message_lines(filename: Path, n: int):
+    """
+    Remove the last *n* message entries from *filename*, plus any log lines
+    that are interleaved within that tail range.
+
+    Concretely: find the file index of the *n*-th-from-last message line and
+    truncate everything from that index onwards, regardless of entry type.
+    Log lines that appear before the cut-off point are preserved.
+
+    Args:
+        filename (Path): Path to the JSONL file to modify.
+        n (int): Number of message lines to remove.
+
+    Raises:
+        ValueError: If fewer than *n* message lines exist in the file.
+    """
+    lines = Path(filename).read_text(encoding="utf-8").splitlines(keepends=True)
+
+    message_indices = [
+        i
+        for i, line in enumerate(lines)
+        if line.strip() and json.loads(line).get("type", MESSAGE_TYPE) == MESSAGE_TYPE
+    ]
+
+    if len(message_indices) < n:
+        raise ValueError(
+            f"Cannot drop {n} message lines; only {len(message_indices)} exist."
+        )
+
+    # Cut from the first of the n targeted message lines onwards.
+    cut_from = message_indices[-n]
+    Path(filename).write_text("".join(lines[:cut_from]), encoding="utf-8")
 
 
 if __name__ == "__main__":

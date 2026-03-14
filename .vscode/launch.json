@@ -53,7 +53,8 @@
         "--log-tools",
         "--log-agents",
         "--model-str",
-        "open_router/arcee-ai/trinity-large-preview:free"
+        // "open_router/arcee-ai/trinity-large-preview:free"
+        "open_router/stepfun/step-3.5-flash:free"
       ]
     },
     {
