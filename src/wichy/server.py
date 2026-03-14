@@ -11,7 +11,7 @@ import threading
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-from flask import Flask, jsonify
+from flask import Flask, jsonify, render_template
 
 from wichy.config import settings
 
@@ -78,6 +78,12 @@ def create_app() -> Flask:
     setup_logging()
 
     app = Flask(__name__)
+
+    # Landing page route
+    @app.route("/")
+    def landing():
+        """Serve the landing page with links to available tool GUIs."""
+        return render_template("landing.html")
 
     # Health check endpoint
     @app.route("/health")

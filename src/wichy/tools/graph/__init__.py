@@ -36,11 +36,7 @@ def serve_static(filename):
 @bp.route("/")
 def graph_editor():
     """Serve the graph editor HTML page."""
-    # We need to render the template from the original location
-    # Flask's render_template uses the app's template folder, so we read directly
-    template_path = os.path.join(GRAPH_TEMPLATES, "editor.html")
-    with open(template_path, "r") as f:
-        return f.read()
+    return render_template("editor.html")
 
 
 @bp.route("/api/list")

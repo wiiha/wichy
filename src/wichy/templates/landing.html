@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wichy - Web Tools</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+            color: white;
+            padding: 40px 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+            margin-bottom: 20px;
+        }
+
+        .status {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 10px 20px;
+            border-radius: 20px;
+            display: inline-block;
+            font-size: 0.9rem;
+        }
+
+        .tools-section {
+            padding: 40px 30px;
+        }
+
+        .section-title {
+            font-size: 1.8rem;
+            color: #1f2937;
+            margin-bottom: 25px;
+            font-weight: 600;
+        }
+
+        .tools-grid {
+            display: grid;
+            gap: 20px;
+        }
+
+        .tool-card {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 25px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            text-decoration: none;
+            color: inherit;
+        }
+
+        .tool-card:hover {
+            background: #f1f5f9;
+            border-color: #cbd5e1;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .tool-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .tool-icon {
+            width: 50px;
+            height: 50px;
+            background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 15px;
+            color: white;
+            font-size: 1.5rem;
+            font-weight: bold;
+        }
+
+        .tool-title {
+            font-size: 1.3rem;
+            font-weight: 600;
+            color: #1f2937;
+        }
+
+        .tool-description {
+            color: #6b7280;
+            line-height: 1.6;
+            margin-bottom: 15px;
+        }
+
+        .tool-link {
+            color: #4f46e5;
+            font-weight: 500;
+            display: inline-flex;
+            align-items: center;
+            text-decoration: none;
+            transition: color 0.3s ease;
+        }
+
+        .tool-link:hover {
+            color: #7c3aed;
+        }
+
+        .arrow {
+            margin-left: 5px;
+            transition: transform 0.3s ease;
+        }
+
+        .tool-card:hover .arrow {
+            transform: translateX(5px);
+        }
+
+        .coming-soon {
+            background: #fef3c7;
+            border: 1px solid #f59e0b;
+            color: #92400e;
+            padding: 15px 20px;
+            border-radius: 8px;
+            text-align: center;
+            margin-top: 30px;
+        }
+
+        .coming-soon h3 {
+            margin-bottom: 10px;
+            color: #78350f;
+        }
+
+        .footer {
+            background: #f8fafc;
+            padding: 20px 30px;
+            text-align: center;
+            border-top: 1px solid #e2e8f0;
+            color: #6b7280;
+        }
+
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 2rem;
+            }
+            
+            .container {
+                margin: 10px;
+            }
+            
+            .header, .tools-section {
+                padding: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Wichy Web Tools</h1>
+            <p>Interactive web interfaces for your agentic LLM toolkit</p>
+            <div class="status">🟢 Server Running</div>
+        </div>
+
+        <div class="tools-section">
+            <h2 class="section-title">Available Tools</h2>
+            <div class="tools-grid">
+                <a href="/tools/graph/" class="tool-card">
+                    <div class="tool-header">
+                        <div class="tool-icon">📊</div>
+                        <div class="tool-title">Graph Editor</div>
+                    </div>
+                    <div class="tool-description">
+                        Create, edit, and visualize graphs with an interactive interface. 
+                        Build network diagrams, mind maps, and relationship graphs using a simple text-based format.
+                    </div>
+                    <div class="tool-link">
+                        Open Graph Editor <span class="arrow">→</span>
+                    </div>
+                </a>
+            </div>
+
+            <div class="coming-soon">
+                <h3>🚀 More Tools Coming Soon!</h3>
+                <p>We're working on additional web interfaces for file management, code editing, and more.</p>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>Powered by Wichy - Local-first Agentic LLM Framework</p>
+        </div>
+    </div>
+</body>
+</html>

@@ -4,7 +4,7 @@ recursive-include src/wichy *.py
 recursive-include src/wichy *.sh
 recursive-include src/wichy *.md
 recursive-include src/wichy/graph/static *
-recursive-include src/wichy/graph/templates *
+recursive-include src/wichy/templates *
 
 # Exclude development and build artifacts
 global-exclude __pycache__
