@@ -15,11 +15,7 @@ from pathlib import Path
 from rich import print
 
 from wichy.config import settings
-
-# Type constants for JSONL entries
-MESSAGE_TYPE = "message"
-LOG_TYPE = "log"
-CONTEXT_FILE_EXT = ".json"
+from wichy.constants import CONTEXT_FILE_EXT, LOG_TYPE, MESSAGE_TYPE
 
 
 class ContextHandler:

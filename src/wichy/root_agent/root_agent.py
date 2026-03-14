@@ -5,6 +5,7 @@ from typing import List, Optional
 from rich import print
 from rich.markdown import Markdown
 
+from wichy.constants import ROLE_ASSISTANT, ROLE_TOOL, ROLE_USER
 from wichy.helpers.console import console
 from wichy.context.handler import new_context
 from wichy.helpers.string import strip_thinking_content
@@ -77,7 +78,7 @@ class RootAgent:
 
         if result is None:
             result = "There is no tool called " + item.function.name + "."
-        return {"role": "tool", "tool_call_id": item.id, "content": result}
+        return {"role": ROLE_TOOL, "tool_call_id": item.id, "content": result}
 
     def handle_tools(self, tools, response: Message):
         if response.finish_reason != "tool_calls":
@@ -94,7 +95,7 @@ class RootAgent:
 
         self.context.append(
             {
-                "role": "assistant",
+                "role": ROLE_ASSISTANT,
                 "content": response.content,
                 "tool_calls": [t.model_dump() for t in response.tool_calls],
             }
@@ -109,7 +110,7 @@ class RootAgent:
         return len(self.context) != osz
 
     def process(self, line):
-        self.context.append({"role": "user", "content": line})
+        self.context.append({"role": ROLE_USER, "content": line})
         tool_defs = get_tool_definitions(self.tools)
         response = call(
             context=self.context(), tool_defs=tool_defs, model_str=self.model_str
@@ -117,7 +118,7 @@ class RootAgent:
 
         while self.handle_tools(self.tools, response):
             response = call(self.context(), tool_defs, model_str=self.model_str)
-        self.context.append({"role": "assistant", "content": response.content})
+        self.context.append({"role": ROLE_ASSISTANT, "content": response.content})
         return response.content
 
     def drop_last_context_entry(self):

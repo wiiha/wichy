@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from rich.console import Console
 from rich.markdown import Markdown
 
+from wichy.constants import ROLE_ASSISTANT, ROLE_SYSTEM, ROLE_TOOL, ROLE_USER
 from wichy.context.handler import ContextHandler
 from wichy.helpers.environment_info import environment_information
 from wichy.helpers.prompt import preprocess_prompt
@@ -83,8 +84,8 @@ class TaskAgent:
             system_prompt += f"\n\nToday's date: {today}"
 
         context = ContextHandler(custom_suffix=self.name, sub_dir="task_agents")
-        context.add(role="system", content=system_prompt)
-        context.add(role="user", content=prompt)
+        context.add(role=ROLE_SYSTEM, content=system_prompt)
+        context.add(role=ROLE_USER, content=prompt)
         self.context = context
 
     def run(self):
@@ -123,7 +124,7 @@ class TaskAgent:
 
         if result is None:
             result = "There is no tool called " + item.function.name + "."
-        return {"role": "tool", "tool_call_id": item.id, "content": result}
+        return {"role": ROLE_TOOL, "tool_call_id": item.id, "content": result}
 
     def _handle_tools(self, tools, response: Message):
         if response.finish_reason != "tool_calls":
@@ -131,7 +132,7 @@ class TaskAgent:
 
         self.context.append(
             {
-                "role": "assistant",
+                "role": ROLE_ASSISTANT,
                 "content": response.content,
                 "tool_calls": [t.model_dump() for t in response.tool_calls],
             }
@@ -150,7 +151,7 @@ class TaskAgent:
         try:
             tools = self.tools
             if line != "":
-                self.context.add(role="user", content=line)
+                self.context.add(role=ROLE_USER, content=line)
             tool_defs = get_tool_definitions(tools)
             response = call(
                 context=self.context(), tool_defs=tool_defs, model_str=self.model
@@ -158,7 +159,7 @@ class TaskAgent:
 
             while self._handle_tools(tools, response):
                 response = call(self.context(), tool_defs, model_str=self.model)
-            self.context.append({"role": "assistant", "content": response.content})
+            self.context.append({"role": ROLE_ASSISTANT, "content": response.content})
             return response.content
         except KeyboardInterrupt:
             return self._handle_interrupt(
@@ -187,7 +188,7 @@ class TaskAgent:
         # and the context will still explode. For now I think we will just
         # let the task agent die on us.
         response = call(self.context(), tool_defs=None, model_str=self.model)
-        self.context.append({"role": "assistant", "content": response.content})
+        self.context.append({"role": ROLE_ASSISTANT, "content": response.content})
         return response.content
 
     def _handle_interrupt(self, fallback_exception: Exception):

@@ -6,6 +6,8 @@ from pydantic import BaseModel
 from rich.console import Console
 from rich.markdown import Markdown
 
+from wichy.constants import HIDE_FROM_LLM_PREFIX
+
 console_tool_result = Console(quiet=True)
 
 
@@ -57,7 +59,7 @@ class BaseTool(ABC):
                 # the LLM model. Not pretty but it works.
                 prop = schema["properties"][prop_name]
                 if "description" in prop and prop["description"].startswith(
-                    "HIDE_FROM_LLM"
+                    HIDE_FROM_LLM_PREFIX
                 ):
                     props_to_del.append(prop_name)
             for pn in props_to_del:

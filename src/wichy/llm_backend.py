@@ -1,10 +1,8 @@
-import json
 import time
 from typing import List, Optional
 
 from openai import BadRequestError, OpenAI
 from pydantic import BaseModel
-from rich import print
 from rich.console import Console
 
 from wichy.config import settings
@@ -290,49 +288,4 @@ def call(context, tool_defs=None, model_str=None, extra_args=None, **extra_kwarg
     )
     console.log(log_msg)  # raw output
 
-    if contains_unparsed_tool_call(m.content):
-        console.log(
-            "[italic][yellow]found unparsed tool call[/yellow][/italic]",
-            {"unparsed call": extract_tool_calls(m.content)},
-        )
-
     return m
-
-
-def contains_unparsed_tool_call(text):
-    pass
-    # try:
-    #     str(text).index("<tool_call>")
-    #     str(text).index("</tool_call>")
-    # except ValueError as e:
-    #     return False
-    # except Exception:
-    #     # Lazy for now
-    #     return False
-    # return True
-
-
-def extract_tool_calls(text):
-    start = str(text).index("<tool_call>")
-    end = str(text).index("</tool_call>")
-    x = text[start + len("<tool_call>") : end]
-    return x
-
-
-def parse_tool_calls(text):
-
-    x = extract_tool_calls(text)
-
-    calls = []
-    for l in str(x).splitlines():
-        if l.strip() == "":
-            continue
-        c = parse_tool_call(l)
-
-
-def parse_tool_call(text):
-    try:
-        f = function(json.loads(text))
-        print(f)
-    except Exception:
-        return None

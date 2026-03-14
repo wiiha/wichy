@@ -5,6 +5,7 @@ from typing import Dict
 from rich import print
 
 from wichy.cli_parser import CliConfig
+from wichy.constants import ROLE_SYSTEM
 from wichy.context.handler import context_from_file
 from wichy.helpers.environment_info import environment_information
 from wichy.helpers.prompt import preprocess_prompt
@@ -194,7 +195,7 @@ class AgentBuilder:
 
         root_agent.context.append(
             {
-                "role": "system",
+                "role": ROLE_SYSTEM,
                 "content": system_prompt,
             }
         )
