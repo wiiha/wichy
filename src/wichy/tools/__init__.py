@@ -15,8 +15,8 @@ from wichy.tools.fetch_webpage import (
     NavigateTool,
     ScreenshotTool,
 )
-from wichy.tools.file_explorer import ReadFileTool, ListFilesTool, WriteFileTool
-from wichy.tools.file_search_in import SearchRecursiveTool
+from wichy.tools.file_explorer import ListFilesTool, ReadFileTool, WriteFileTool
+from wichy.tools.file_search_in import SearchInFilesTool
 from wichy.tools.glob import GlobTool
 from wichy.tools.graph_tools import CreateGraphTool, ListGraphsTool, ReadGraphTool
 from wichy.tools.helpers import get_tool_definitions
@@ -60,7 +60,7 @@ FILE_SYSTEM_TOOLS = [
     ListFilesTool,
     ReadFileTool,
     WriteFileTool,
-    SearchRecursiveTool,
+    SearchInFilesTool,
     GlobTool,
     KnowledgeStoreTool,
     ReplaceTextTool,

@@ -9,7 +9,7 @@ from wichy.tools.base import BaseTool, ParametersModel
 from wichy.tools.bash import BashTool
 from wichy.tools.fetch_webpage import FetchWebPageTool
 from wichy.tools.file_explorer import ListFilesTool, ReadFileTool, WriteFileTool
-from wichy.tools.file_search_in import SearchRecursiveTool
+from wichy.tools.file_search_in import SearchInFilesTool
 from wichy.tools.glob import GlobTool
 from wichy.tools.replace_text import ReplaceTextTool
 from wichy.tools.search_ddg import WebSearchTool
@@ -31,7 +31,7 @@ TOOLS_FOR_TASK_AGENTS: list[BaseTool] = [
     ListFilesTool,
     ReplaceTextTool,
     WebSearchTool,
-    SearchRecursiveTool,
+    SearchInFilesTool,
     TodoTool,
     TreeTool,
     WriteFileTool,
