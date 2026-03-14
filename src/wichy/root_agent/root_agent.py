@@ -54,6 +54,10 @@ class RootAgent:
             skills_str = ", ".join(skill_names)
             info_lines.append(f"- **skills:** {skills_str}")
 
+        self.context.add_log(
+            {"source": "root_agent", "data": {"info_lines": info_lines}}
+        )
+
         print(Markdown("\n".join(info_lines)))
 
     def tool_call(self, tools, item: called_tool):
