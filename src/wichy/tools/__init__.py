@@ -8,6 +8,12 @@ from wichy.skills import (
 from wichy.tools.ask_user_question import AskUserQuestionTool
 from wichy.tools.base import BaseTool
 from wichy.tools.bash import BashTool
+from wichy.tools.duckdb_load import DuckDBLoadTool
+from wichy.tools.duckdb_persist import DuckDBLoadDBTool, DuckDBPersistTool
+from wichy.tools.duckdb_query import DuckDBQueryTool
+from wichy.tools.duckdb_reset import DuckDBResetTool
+from wichy.tools.duckdb_schema import DuckDBSchemaTool
+from wichy.tools.duckdb_status import DuckDBStatusTool
 from wichy.tools.fetch_webpage import (
     BrowserRawTool,
     BrowserStatusTool,
@@ -66,6 +72,16 @@ FILE_SYSTEM_TOOLS = [
     InsertLinesTool,
 ]
 
+DUCKDB_TOOLS = [
+    DuckDBLoadTool,
+    DuckDBQueryTool,
+    DuckDBSchemaTool,
+    DuckDBStatusTool,
+    DuckDBPersistTool,
+    DuckDBLoadDBTool,
+    DuckDBResetTool,
+]
+
 SUB_AGENT_TOOLS = [TaskAgentTool]
 
 # Skill tools - for discovering and using skills
@@ -87,3 +103,4 @@ ALL_TOOLS_NOT_INSTANTIATED.extend(FILE_SYSTEM_TOOLS)
 ALL_TOOLS_NOT_INSTANTIATED.extend(SUB_AGENT_TOOLS)
 ALL_TOOLS_NOT_INSTANTIATED.extend(SKILL_TOOLS)
 ALL_TOOLS_NOT_INSTANTIATED.extend(GRAPH_TOOLS)
+ALL_TOOLS_NOT_INSTANTIATED.extend(DUCKDB_TOOLS)

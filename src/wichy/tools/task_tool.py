@@ -6,6 +6,12 @@ from wichy.helpers.string import strip_thinking_content
 from wichy.tools.ask_user_question import AskUserQuestionTool
 from wichy.tools.base import BaseTool, ParametersModel
 from wichy.tools.bash import BashTool
+from wichy.tools.duckdb_load import DuckDBLoadTool
+from wichy.tools.duckdb_persist import DuckDBLoadDBTool, DuckDBPersistTool
+from wichy.tools.duckdb_query import DuckDBQueryTool
+from wichy.tools.duckdb_reset import DuckDBResetTool
+from wichy.tools.duckdb_schema import DuckDBSchemaTool
+from wichy.tools.duckdb_status import DuckDBStatusTool
 from wichy.tools.fetch_webpage import FetchWebPageTool
 from wichy.tools.file_explorer import ListFilesTool, ReadFileTool, WriteFileTool
 from wichy.tools.file_search_in import SearchInFilesTool
@@ -34,6 +40,14 @@ TOOLS_FOR_TASK_AGENTS: list[BaseTool] = [
     TodoTool,
     TreeTool,
     WriteFileTool,
+    # DuckDB tools
+    DuckDBLoadTool,
+    DuckDBQueryTool,
+    DuckDBSchemaTool,
+    DuckDBStatusTool,
+    DuckDBPersistTool,
+    DuckDBLoadDBTool,
+    DuckDBResetTool,
 ]
 
 
