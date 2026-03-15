@@ -1,33 +1,48 @@
 # WICHY
 
-This is an initial try for me on building a small agent by the
-definition of simonw [An LLM agent runs tools in a loop to achive a goal](https://simonwillison.net/2025/Sep/18/agents/).
+A local-first agentic LLM framework built on Simon Willison's definition:
+[An LLM agent runs tools in a loop to achieve a goal](https://simonwillison.net/2025/Sep/18/agents/).
 
-**some goals**
+**Goals**
 
-- all is running locally
-- should be a stepping stone for larger projects
+- Run entirely locally (privacy-first)
+- Serve as a foundation for larger projects
+- Provide a rich tool ecosystem for real-world tasks
 
-**You probably want to go to the [ABOUT.md](ABOUT.md)**
+**For full documentation, see [ABOUT.md](ABOUT.md)**
 
-## future todos
+## Quick Start
 
-- CHANGE how model is boot strapped so that it is easier to import and extend in other projects.
-- CHANGE return from todo tool should contain the full todo list
-- ADD possibility to define the path where `.wichy` dir should be stored.
-- ADD feature based on "Tool results and user messages may include <system-reminder> tags. <system-reminder> tags contain useful information and reminders. They are automatically added by the system, and bear no direct relation to the specific tool results or user messages in which they appear."
-- ADD possibility to load old ctx:es to continue conversation
-- ADD auto summary when close to model ctx limit
-- ADD some kind of memory system. Dont know exactly what I want here.
+```bash
+# Install
+pip install -e .
 
-- FIX the artifact matching. The current implementation where an LLM is used to decide on similar artifacts does not yield satisfying results. It usually us to prone on matching things that should not be matched. I am considering some kind of vector based approach. I read that duckdb has implemented an array column type that can be used with an index and special function in order to do vector similarity searches.
+# Run with default model
+wichy
 
-## reference
+# Or specify a model
+wichy --model-str ollama/llama3.2
 
-- https://docs.unsloth.ai/models/ibm-granite-4.0#recommended-inference-settings
-- https://fly.io/blog/everyone-write-an-agent/
-- https://platform.openai.com/docs/guides/function-calling#handling-function-calls
-- https://www.ibm.com/granite/docs/models/granite#tool-calling
-- Qwen thinking mode switch: https://docs.unsloth.ai/models/qwen3-how-to-run-and-fine-tune#switching-between-thinking-and-non-thinking-mode
-- Embedding model: https://ollama.com/library/nomic-embed-text
-- Xiaomi: MiMo-V2-Flash: https://openrouter.ai/xiaomi/mimo-v2-flash:free
+# Resume a previous conversation
+wichy --load-ctx 2025-03-15_1234567890.jsonl
+```
+
+## What's Included
+
+- **28+ Tools**: File operations, web browsing, DuckDB queries, graph editing, and more
+- **Skills System**: Markdown-based knowledge bundles with optional scripts
+- **Web Interface**: Graph editor and context editor at http://127.0.0.1:7891
+- **Multiple LLM Backends**: Ollama, llama.cpp, OpenRouter, or any OpenAI-compatible endpoint
+
+## Roadmap
+
+- **ADD** configurable `.wichy` directory location
+- **ADD** system reminder tags for tool results and user messages
+- **ADD** memory system for cross-session context retention
+
+## References
+
+- [Simon Willison on Agents](https://simonwillison.net/2025/Sep/18/agents/)
+- [OpenAI Function Calling Guide](https://platform.openai.com/docs/guides/function-calling)
+- [IBM Granite Tool Calling](https://www.ibm.com/granite/docs/models/granite#tool-calling)
+- [Qwen Thinking Mode](https://docs.unsloth.ai/models/qwen3-how-to-run-and-fine-tune#switching-between-thinking-and-non-thinking-mode)

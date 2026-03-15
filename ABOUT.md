@@ -1,207 +1,336 @@
 # Wichy - Agentic LLM Framework
 
----
-
-## About Wichy
-
-Wichy is an **agentic LLM framework** designed for local execution, following Simon Willison's definition: "An LLM agent runs tools in a loop to achieve a goal." The system provides a modular architecture with specialized agents, comprehensive tools, and an artifact system for persistent knowledge sharing.
+Wichy is a **local-first agentic LLM framework** implementing Simon Willison's definition: _"An LLM agent runs tools in a loop to achieve a goal."_ It provides a REPL interface with a comprehensive tool ecosystem, skills system, and web-based utilities.
 
 ---
 
-## Core Architecture
-
-### 1. Agent System
-
-Wichy features a hierarchical agent architecture with specialized root agent configurations:
-
-- **Root Agent**: The primary interactive agent that maintains conversation context and coordinates task execution
-- **Root Agent Configurations**:
-  - `root-agent-basic`: Basic configuration with Ministral-3 model
-  - `root-agent-code-advanced`: Advanced configuration optimized for software engineering tasks with enhanced capabilities
-
-### 2. Tool System
-
-A comprehensive suite of tools organized into logical categories:
-
-#### Basic Tools
-
-- **BashTool**: Command line execution with optional human verification
-- **TodoTool**: Task management and planning
-
-#### File System Tools
-
-- **ListFilesTool**: Directory listing and file exploration
-- **CatFileContentTool**: File content reading
-- **WriteFileTool**: File writing and editing
-- **SearchRecursiveTool**: Recursive file content search
-- **TreeTool**: Directory tree visualization
-- **GlobTool**: File pattern matching
-
-#### Web Research Tools
-
-- **SearchDDGTool**: DuckDuckGo web search
-- **FetchWebPageTool**: Web page content fetching
-
-#### Networking Tools
-
-- **PingTool**: Network connectivity testing
-- **ReverseDnsTool**: DNS resolution
-
-#### Sub-Agent Tools
-
-- **TaskAgentTool**: Multi-step task execution with autonomous agents
-
-All tools feature:
-
-- Pydantic-based parameter validation
-- Safe execution with error handling
-- Human verification for sensitive operations
-
-### 3. Artifact System
-
-A persistent knowledge storage system:
-
-- **Immutable Artifacts**: Versioned knowledge objects with types (plan, research, analysis, raw_data)
-- **Automatic Versioning**: New versions replace old ones with proper chaining
-- **LLM-based Deduplication**: Intelligent similarity detection to avoid duplicates
-- **Context Injection**: Automatic artifact retrieval and injection based on task relevance
-
-### 4. Context Management
-
-- Interactive conversation history with reset capabilities
-- Context summarization for long conversations
-- Slash commands for user control:
-  - `/context reset`: Clear context completely
-  - `/context reset_by_summary`: Create summary before reset
-  - `/logging on/off`: Toggle logging visibility
-  - `/artifacts list`: View available artifacts
-
----
-
-## Technical Implementation
-
-### LLM Backend Support
-
-Wichy supports multiple LLM backends:
-
-- **Ollama**: Local model execution
-- **Llama.cpp**: Local inference server
-- **OpenRouter**: Cloud-based model access
-
-### Key Features
-
-1. **Autonomous Decision Making**: RootAgent automatically selects appropriate agents and tools
-2. **Modular Design**: Clear separation between agents, tools, and core systems
-3. **Local-First**: Designed for local execution with privacy and control
-4. **Extensible**: Easy to add new agents, tools, and artifact types
-5. **Safe Execution**: Human verification for sensitive operations
-
-### Workflow Example
-
-```
-User Input → RootAgent → Tool Execution → Response
-```
-
----
-
-## Usage
-
-### Basic Usage
+## Quick Start
 
 ```bash
-# Start Wichy with default model
-python -m wichy
+# Install
+pip install -e .
+
+# Start with default root agent
+wichy
 
 # Specify a model
-python -m wichy --model-str ollama/hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M
+wichy --model-str ollama/llama3.2
+
+# Resume previous conversation
+wichy --load-ctx 2025-03-15_1234567890.jsonl
 
 # List available tools
-python -m wichy --list-tools
+wichy ls tools
 
-# Limit available tools
-python -m wichy --tools cat,bash,grep
+# List available skills
+wichy ls skills
 
-# Allow all bash commands without human verification
-python -m wichy --bash-allow-all
+# Create a new skill
+wichy new skill --name my-skill
 ```
 
-### Interactive Commands
+---
 
-- **Slash Commands**: Special commands starting with `/`
-- **Normal Input**: Processed by RootAgent and appropriate tools
-- **Context Management**: Reset or summarize conversation history
+## Architecture
 
-### Tool Filtering
+### Entry Point
 
-```bash
-# Include specific tools only
-python -m wichy --tools cat,bash,grep
+`wichy` or `python -m wichy` → `__main__.py:main()` → `AgentBuilder.build()` → `Repl.run()`
 
-# Exclude specific tools
-python -m wichy --not-tools bash,ping
+### Core Components
 
-# Combine inclusion and exclusion
-python -m wichy --tools cat,bash,grep --not-tools bash
+```
+┌─────────────────────────────────────────────────────┐
+│                    REPL (repl.py)                   │
+│              PromptSession with history             │
+└─────────────────────┬───────────────────────────────┘
+                      │
+┌─────────────────────▼───────────────────────────────┐
+│                  RootAgent                          │
+│   process() → call LLM → handle_tools() → loop      │
+└─────────────────────┬───────────────────────────────┘
+                      │
+      ┌───────────────┼───────────────┬───────────────┐
+      │               │               │               │
+┌─────▼─────┐   ┌─────▼─────┐   ┌─────▼─────┐   ┌─────▼─────┐
+│   Tools   │   │  Skills   │   │  Context  │   │Web Server │
+│  (28+)    │   │ (markdown)│   │ (JSONL)   │   │  (Flask)  │
+└───────────┘   └───────────┘   └───────────┘   └───────────┘
 ```
 
-### Logging Options
+---
+
+## Tool System
+
+Wichy includes **28+ tools** for various tasks:
+
+### Basic Tools
+
+- **BashTool** - Shell command execution with human verification for destructive operations
+- **TodoTool** - Task management and planning
+- **AskUserQuestion** - Interactive user prompts
+
+### File System Tools
+
+- **ReadFileTool** - Read file contents (supports images via base64)
+- **WriteFileTool** - Write or create files
+- **ListFilesTool** - Directory listing
+- **GlobTool** - Pattern-based file matching
+- **SearchInFilesTool** - Ripgrep-powered content search
+- **ReplaceTextTool** - Targeted text replacement
+- **InsertLinesTool** - Insert content at specific lines
+- **KnowledgeStoreTool** - Search personal knowledge store
+
+### Data Analysis Tools
+
+- **DuckDBLoadTool** - Load CSV/Parquet/JSON into tables
+- **DuckDBQueryTool** - Execute SQL queries
+- **DuckDBSchemaTool** - Inspect table structure
+- **DuckDBStatusTool** - Check session state
+- **DuckDBPersistTool** - Save database to disk
+- **DuckDBLoadDBTool** - Load saved database
+- **DuckDBResetTool** - Clear session
+
+### Web & Browser Tools
+
+- **WebSearchTool** - DuckDuckGo search
+- **FetchWebPageTool** - Fetch webpage content as markdown
+- **NavigateTool** - Browser navigation (Playwright)
+- **BrowserStatusTool** - Current browser state
+- **ScreenshotTool** - Capture browser screenshots
+- **BrowserRawTool** - Execute raw Playwright commands
+
+### Graph Tools
+
+- **CreateGraphTool** - Create graphs from text
+- **ReadGraphTool** - Read graph data
+- **ListGraphsTool** - List saved graphs
+
+### Sub-Agent Tools
+
+- **TaskAgentTool** - Launch specialized agents for complex tasks
+
+### Skill Tools
+
+- **SkillDiscoveryTool** - List available skills
+- **SkillSearchTool** - Search skill content
+- **SkillInfoTool** - Get skill details
+- **SkillScriptTool** - Execute skill scripts
+- **SkillFileTool** - Read skill references/assets
+
+### Networking Tools (not enabled by default)
+
+- **PingTool** - Network connectivity testing
+- **ReverseDnsTool** - DNS resolution
+- **TreeTool** - Directory tree visualization
+
+---
+
+## Skills System
+
+Skills are markdown-based knowledge bundles stored in `~/.wichy/skills/<name>/`:
+
+```
+~/.wichy/skills/my-skill/
+├── skill.md          # Required: knowledge/documentation
+├── references/       # Optional: reference documents
+├── assets/           # Optional: templates, examples
+└── scripts/          # Optional: executable scripts
+```
+
+**skill.md format:**
+
+```markdown
+---
+name: my-skill
+description: What this skill does
+tags: [tag1, tag2]
+safe_scripts: [safe_script.sh] # Scripts that don't require approval
+---
+
+# Skill Knowledge
+
+Your knowledge content here...
+```
+
+---
+
+## LLM Backends
+
+Wichy supports multiple backends via the `--model-str` flag:
+
+| Backend    | Format                             | Example                           |
+| ---------- | ---------------------------------- | --------------------------------- |
+| Ollama     | `ollama/<model>`                   | `ollama/llama3.2`                 |
+| llama.cpp  | `llama_cpp/<model>`                | `llama_cpp/model`                 |
+| OpenRouter | `open_router/<model>`              | `open_router/anthropic/claude-3`  |
+| Generic    | `generic/<host>[:<port>]##<model>` | `generic/localhost:8080##llama-3` |
+
+Configuration via environment variables:
+
+- `WICHY_OLLAMA_BASE_URL` (default: `http://localhost:11434/v1`)
+- `WICHY_LLAMA_CPP_BASE_URL` (default: `http://localhost:8080`)
+- `OPEN_ROUTER_API_KEY` or `WICHY_OPENROUTER_API_KEY`
+
+---
+
+## Context Management
+
+Conversations are persisted as JSONL files in `.wichy/contexts/`:
+
+```python
+# Context structure
+{
+  "type": "message",  # or "log" for metadata
+  "role": "user" | "assistant" | "tool",
+  "content": "...",
+  "timestamp": "2025-03-15T10:30:00"
+}
+```
+
+### Slash Commands
+
+| Command           | Description                   |
+| ----------------- | ----------------------------- |
+| `/reset`          | Clear context completely      |
+| `/compact`        | Summarize context, then reset |
+| `/drop`           | Remove last message           |
+| `/logging on/off` | Toggle verbose logging        |
+| `/exit`           | Exit the REPL                 |
+
+### Context Editor
+
+Web-based context editor at `http://127.0.0.1:7891/tools/context/`:
+
+- Live editing of conversation messages
+- Syncs with REPL via file watching
+- Atomic writes prevent corruption
+
+---
+
+## Root Agents
+
+Root agents define the agent's behavior via markdown descriptions:
+
+**Built-in agents:**
+
+- `root-agent-basic` - Simple configuration
+- `root-agent-code-advanced` - Enhanced for software engineering (default)
+
+**Custom agents:** Create in `~/.wichy/root_agent_defs/` or `.wichy/root_agent_defs/`
 
 ```bash
-# Show logs during execution
-python -m wichy --show-log
+# Get template
+wichy ra --template > my-agent.md
 
-# Show tool results (requires --show-log)
-python -m wichy --show-log --log-tools
+# Place in: ~/.wichy/root_agent_defs/my-agent.md
+```
+
+---
+
+## Web Interface
+
+Wichy starts a Flask server on port 7891 (disable with `--no-server`):
+
+| Path              | Description                 |
+| ----------------- | --------------------------- |
+| `/`               | Landing page with tool GUIs |
+| `/tools/graph/`   | Graph editor                |
+| `/tools/context/` | Context editor              |
+
+Logs: `.wichy/logs/server.log`
+
+---
+
+## Configuration
+
+Settings are managed via pydantic-settings with `WICHY_` prefix:
+
+| Setting                  | Default           | Description           |
+| ------------------------ | ----------------- | --------------------- |
+| `WICHY_CONTEXTS_DIR`     | `.wichy/contexts` | Context storage       |
+| `WICHY_BROWSER_HEADLESS` | `true`            | Browser headless mode |
+| `WICHY_SERVER_PORT`      | `7891`            | Web server port       |
+
+Also loads from `.env` file.
+
+---
+
+## CLI Reference
+
+```bash
+# Global flags
+wichy --model-str <backend/model>
+wichy --root-agent-description <name>
+wichy --tools <tool1,tool2>      # Whitelist tools
+wichy --not-tools <tool1,tool2>  # Blacklist tools
+wichy --load-ctx <file>          # Resume conversation
+wichy --no-server                # Disable web server
+wichy --show-log                 # Verbose logging
+wichy --show-log --log-tools     # Include tool results
+
+# Subcommands
+wichy ls tools    # List available tools
+wichy ls ra       # List root agent descriptions
+wichy ls ctx      # List saved contexts
+wichy ls skills   # List installed skills
+wichy new skill --name <name>    # Create new skill
+wichy ra --template              # Print agent template
 ```
 
 ---
 
 ## Development
 
-### Testing
-
-Wichy includes comprehensive tests:
-
-- Unit tests for core components
-- Tool validation tests
-- Artifact system tests
-
 ```bash
 # Run tests
 pytest tests/
+
+# Install editable
+pip install -e .
+
+# Build
+make build
 ```
-
-### Extending Wichy
-
-1. **Add New Root Agent Configurations**: Create markdown description files following existing patterns
-2. **Add New Tools**: Implement BaseTool subclasses with Pydantic validation
-3. **Add Tool Categories**: Extend the tool organization in tools/**init**.py
 
 ---
 
-## Future Goals
+## Extending Wichy
 
-- Expand toolset for additional use cases
+### Adding a Tool
+
+```python
+# src/wichy/tools/my_tool.py
+from wichy.tools.base import BaseTool, ParametersModel
+
+class MyParams(ParametersModel):
+    query: str
+
+class MyTool(BaseTool):
+    name = "my_tool"
+    description = "Short description"
+    parameters_model = MyParams
+
+    def execute(self, query: str) -> str:
+        return f"Result for: {query}"
+
+# Register in src/wichy/tools/__init__.py
+from wichy.tools.my_tool import MyTool
+```
+
+### Adding a Skill
+
+```bash
+wichy new skill --name my-skill
+# Edit ~/.wichy/skills/my-skill/skill.md
+```
 
 ---
 
 ## Philosophy
 
-Wichy embodies several key principles:
-
-1. **Local Execution**: All processing happens locally for privacy and control
-2. **Modular Design**: Specialized components work together seamlessly
-3. **Persistent Knowledge**: Artifacts enable context sharing without direct communication
-4. **Autonomous Operation**: Agents make decisions based on context and capabilities
-5. **Safety First**: Human verification for sensitive operations
-
----
-
-## Getting Started
-
-1. Install dependencies: `pip install -r requirements.txt`
-2. Set up your LLM backend (Ollama, Llama.cpp, or OpenRouter)
-3. Run Wichy: `python -m wichy`
-4. Start interacting with the system
-
-For more information, see the [README](README.md) and explore the codebase.
+1. **Local-First**: All processing happens locally for privacy
+2. **Modular Design**: Tools, skills, and agents are composable
+3. **Persistent Context**: Conversations survive restarts
+4. **Safe Execution**: Human verification for destructive operations
+5. **Extensible**: Add tools, skills, and agents without core changes
