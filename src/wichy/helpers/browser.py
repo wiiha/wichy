@@ -61,14 +61,21 @@ class BrowserManager:
             await self.initialize()
 
         # If page is closed, recreate it
-        if self._page is None or self._page.is_closed():
-            if self._context is None or self._context.is_closed():
+        if self._page is None or self._page.is_closed:
+            # Note: BrowserContext doesn't have is_closed() method, only Page does
+            # If context exists but is unusable, creating a new page will fail
+            try:
+                if self._context is None:
+                    raise Exception("Context not initialized")
+                self._page = await self._context.new_page()
+            except Exception:
+                # Context may be closed or invalid, recreate it
                 self._context = await self._browser.new_context(
                     user_agent=random.choice(settings.browser_user_agents),
                     viewport=settings.browser_viewport,
                     locale=settings.browser_locale,
                 )
-            self._page = await self._context.new_page()
+                self._page = await self._context.new_page()
 
         return self._page
 
@@ -79,7 +86,7 @@ class BrowserManager:
         Returns:
             A dictionary with 'url' and 'title' keys, or 'error' if unavailable.
         """
-        if self._page is None or self._page.is_closed():
+        if self._page is None or self._page.is_closed:
             return {"status": "no active page"}
 
         try:
