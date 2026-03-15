@@ -11,104 +11,137 @@
       rel="stylesheet"
       type="text/css"
     />
-    <style type="text/css">
+    <link rel="stylesheet" href="/shared/shared.css">
+    <style>
+      /* Graph Editor specific styles */
       body {
-        font-family:
-          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        margin: 0;
-        padding: 10px;
-        background: #f5f5f5;
+        padding: var(--space-md);
       }
+
       #header {
-        background: white;
-        padding: 10px 15px;
-        border-radius: 5px;
-        margin-bottom: 10px;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        background: var(--surface);
+        padding: var(--space-md) var(--space-lg);
+        border-radius: var(--radius-md);
+        margin-bottom: var(--space-md);
+        box-shadow: var(--shadow-sm);
       }
+
       #header h1 {
-        margin: 0 0 10px 0;
-        font-size: 18px;
-        color: #333;
+        margin: 0;
+        font-size: var(--font-size-xl);
+        color: var(--text);
       }
+
+      .header-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: var(--space-md);
+      }
+
+      .header-nav a {
+        color: var(--primary-500);
+        text-decoration: none;
+        font-size: var(--font-size-sm);
+        transition: color var(--transition-fast);
+      }
+
+      .header-nav a:hover {
+        color: var(--primary-700);
+      }
+
       #controls {
         display: flex;
-        gap: 10px;
+        gap: var(--space-md);
         align-items: center;
         flex-wrap: wrap;
       }
+
       .control-group {
         display: flex;
         align-items: center;
-        gap: 5px;
+        gap: var(--space-sm);
       }
+
       .control-group label {
-        font-size: 13px;
-        color: #555;
+        font-size: var(--font-size-sm);
+        color: var(--text-muted);
       }
+
       .control-group input[type="range"] {
         width: 100px;
       }
+
       .control-group input[type="number"] {
         width: 60px;
-        padding: 4px 6px;
-        border: 1px solid #ddd;
-        border-radius: 4px;
-        font-size: 13px;
+        padding: var(--space-xs) var(--space-sm);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        font-size: var(--font-size-sm);
       }
+
       #graph-selector {
-        padding: 6px 10px;
-        border: 1px solid #ddd;
-        border-radius: 4px;
-        font-size: 14px;
+        padding: var(--space-sm) var(--space-md);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+        font-size: var(--font-size-base);
         min-width: 200px;
       }
+
       #refresh-btn {
-        background: #f0f0f0;
-        border: 1px solid #ddd;
-        border-radius: 4px;
-        padding: 6px 10px;
+        background: var(--background);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+        padding: var(--space-sm) var(--space-md);
         cursor: pointer;
-        font-size: 16px;
+        font-size: 1rem;
       }
+
       #refresh-btn:hover {
-        background: #e0e0e0;
+        background: var(--background-alt);
       }
+
       #save-btn {
-        background: #4caf50;
+        background: var(--success);
         color: white;
         border: none;
-        padding: 8px 16px;
-        border-radius: 4px;
+        padding: var(--space-sm) var(--space-lg);
+        border-radius: var(--radius-md);
         cursor: pointer;
-        font-size: 14px;
+        font-size: var(--font-size-base);
       }
+
       #save-btn:hover {
-        background: #45a049;
+        background: #15803d;
       }
+
       #save-btn:disabled {
-        background: #cccccc;
+        background: var(--text-light);
         cursor: not-allowed;
       }
+
       #status {
-        margin-left: 10px;
-        font-size: 14px;
-        color: #666;
+        margin-left: var(--space-md);
+        font-size: var(--font-size-base);
+        color: var(--text-muted);
       }
+
       #network-container {
-        background: white;
-        border-radius: 5px;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        background: var(--surface);
+        border-radius: var(--radius-md);
+        box-shadow: var(--shadow-sm);
         overflow: hidden;
       }
+
       #network {
         width: 100%;
         height: 70vh;
-        border: 1px solid #ddd;
+        border: 1px solid var(--border);
       }
+
       .vis-manipulation {
-        background: #f8f9fa !important;
-        border-bottom: 1px solid #ddd !important;
+        background: var(--background) !important;
+        border-bottom: 1px solid var(--border) !important;
       }
 
       /* Modal dialog styles */
@@ -124,80 +157,97 @@
         align-items: center;
         z-index: 10000;
       }
+
       .modal-dialog {
-        background: white;
-        padding: 20px;
-        border-radius: 8px;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        background: var(--surface);
+        padding: var(--space-2xl);
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-xl);
         min-width: 300px;
       }
+
       .modal-dialog h3 {
-        margin: 0 0 15px 0;
-        color: #333;
+        margin: 0 0 var(--space-lg) 0;
+        color: var(--text);
       }
+
       .modal-dialog label {
         display: block;
-        margin-bottom: 5px;
+        margin-bottom: var(--space-sm);
         font-weight: 500;
-        color: #555;
+        color: var(--text-muted);
       }
+
       .modal-dialog input[type="text"] {
         width: 100%;
-        padding: 8px;
-        border: 1px solid #ddd;
-        border-radius: 4px;
-        margin-bottom: 15px;
-        font-size: 14px;
+        padding: var(--space-sm);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+        margin-bottom: var(--space-lg);
+        font-size: var(--font-size-base);
         box-sizing: border-box;
       }
+
       .modal-dialog input[type="color"] {
         width: 60px;
         height: 30px;
-        border: 1px solid #ddd;
-        border-radius: 4px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
         cursor: pointer;
-        margin-bottom: 15px;
+        margin-bottom: var(--space-lg);
       }
+
       .modal-buttons {
         display: flex;
-        gap: 10px;
+        gap: var(--space-md);
         justify-content: flex-end;
       }
+
       .modal-buttons button {
-        padding: 8px 16px;
+        padding: var(--space-sm) var(--space-lg);
         border: none;
-        border-radius: 4px;
+        border-radius: var(--radius-md);
         cursor: pointer;
-        font-size: 14px;
+        font-size: var(--font-size-base);
       }
+
       .modal-buttons .btn-cancel {
-        background: #f0f0f0;
-        color: #333;
+        background: var(--background);
+        color: var(--text);
       }
+
       .modal-buttons .btn-cancel:hover {
-        background: #e0e0e0;
+        background: var(--background-alt);
       }
+
       .modal-buttons .btn-save {
-        background: #4caf50;
+        background: var(--success);
         color: white;
       }
+
       .modal-buttons .btn-save:hover {
-        background: #45a049;
+        background: #15803d;
       }
+
       .color-preview {
         display: inline-block;
         width: 30px;
         height: 20px;
-        border: 1px solid #ccc;
-        border-radius: 3px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
         vertical-align: middle;
-        margin-left: 10px;
+        margin-left: var(--space-sm);
       }
     </style>
   </head>
   <body>
     <div id="header">
-      <h1>Graph Editor</h1>
+      <div class="header-row">
+        <h1>Graph Editor</h1>
+        <nav class="header-nav">
+          <a href="/">Back to Home</a>
+        </nav>
+      </div>
       <div id="controls">
         <select id="graph-selector" onchange="loadSelectedGraph()">
           <option value="">-- New Graph --</option>

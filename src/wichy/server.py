@@ -11,9 +11,12 @@ import threading
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template
+from flask import Blueprint, Flask, jsonify, render_template
 
 from wichy.config import settings
+
+# Path to shared static files (CSS, JS, etc.)
+SHARED_STATIC_DIR = Path(__file__).parent / "static"
 
 
 def get_logs_dir() -> Path:
@@ -82,6 +85,15 @@ def create_app() -> Flask:
     setup_logging()
 
     app = Flask(__name__)
+
+    # Register shared static files (CSS design system)
+    shared_bp = Blueprint(
+        "shared",
+        __name__,
+        static_folder=str(SHARED_STATIC_DIR),
+        static_url_path="/shared",
+    )
+    app.register_blueprint(shared_bp)
 
     # Landing page route
     @app.route("/")

@@ -4,22 +4,25 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Wichy - Context Editor</title>
+    <link rel="stylesheet" href="/shared/shared.css">
     <link rel="stylesheet" href="{{ url_for('context_editor.static', filename='context_editor.css') }}">
 </head>
 <body>
     <div class="container">
-        <header class="header">
-            <h1>Context Editor</h1>
-            <p class="subtitle">Edit the active conversation context in real-time</p>
-            <div class="nav">
-                <a href="/">Back to Home</a>
+        <header class="header-simple">
+            <div>
+                <h1 class="header-title">Context Editor</h1>
+                <p class="header-subtitle">Edit the active conversation context in real-time</p>
             </div>
+            <nav class="header-nav">
+                <a href="/">Back to Home</a>
+            </nav>
         </header>
 
-        <div class="main">
+        <div class="main-layout">
             <aside class="sidebar">
-                <div class="status-card">
-                    <h3>Status</h3>
+                <div class="sidebar-section">
+                    <h3 class="sidebar-title">Status</h3>
                     <div id="status">
                         <p><strong>Messages:</strong> <span id="msg-count">-</span></p>
                         <p><strong>Logs:</strong> <span id="log-count">-</span></p>
@@ -28,26 +31,28 @@
                     </div>
                 </div>
 
-                <div class="controls">
-                    <h3>Controls</h3>
-                    <button id="btn-refresh" class="btn secondary">Refresh</button>
-                    <button id="btn-drop" class="btn danger">Drop Last</button>
-                    <div class="input-group">
-                        <label for="drop-count">Drop count:</label>
-                        <input type="number" id="drop-count" value="1" min="1" max="100">
+                <div class="sidebar-section">
+                    <h3 class="sidebar-title">Controls</h3>
+                    <div class="sidebar-controls">
+                        <button id="btn-refresh" class="btn btn-secondary">Refresh</button>
+                        <button id="btn-drop" class="btn btn-danger">Drop Last</button>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="drop-count">Drop count:</label>
+                        <input type="number" id="drop-count" class="form-input" value="1" min="1" max="100">
                     </div>
                 </div>
 
-                <div class="sync-status">
-                    <p>Auto-sync every <span id="sync-interval">3</span>s</p>
-                    <p id="sync-indicator" class="indicator idle">Idle</p>
+                <div class="sidebar-section">
+                    <p class="text-sm">Auto-sync every <span id="sync-interval">3</span>s</p>
+                    <p id="sync-indicator" class="status-indicator status-idle">Idle</p>
                 </div>
             </aside>
 
             <main class="editor">
                 <div class="editor-header">
                     <h2>Messages</h2>
-                    <button id="btn-add" class="btn primary">+ Add Message</button>
+                    <button id="btn-add" class="btn btn-primary">+ Add Message</button>
                 </div>
 
                 <div id="messages-container" class="messages-list">
@@ -55,11 +60,11 @@
                 </div>
 
                 <!-- Add message form (hidden by default) -->
-                <div id="add-form" class="add-form hidden">
+                <div id="add-form" class="message-form hidden">
                     <h3>Add New Message</h3>
                     <div class="form-group">
-                        <label for="new-role">Role:</label>
-                        <select id="new-role">
+                        <label class="form-label" for="new-role">Role:</label>
+                        <select id="new-role" class="form-select">
                             <option value="user">user</option>
                             <option value="assistant">assistant</option>
                             <option value="system">system</option>
@@ -67,22 +72,22 @@
                         </select>
                     </div>
                     <div class="form-group">
-                        <label for="new-content">Content:</label>
-                        <textarea id="new-content" rows="4" placeholder="Enter message content..."></textarea>
+                        <label class="form-label" for="new-content">Content:</label>
+                        <textarea id="new-content" class="form-textarea" rows="4" placeholder="Enter message content..."></textarea>
                     </div>
                     <div class="form-actions">
-                        <button id="btn-save-add" class="btn primary">Save</button>
-                        <button id="btn-cancel-add" class="btn secondary">Cancel</button>
+                        <button id="btn-save-add" class="btn btn-primary">Save</button>
+                        <button id="btn-cancel-add" class="btn btn-secondary">Cancel</button>
                     </div>
                 </div>
 
                 <!-- Edit message form (hidden by default) -->
-                <div id="edit-form" class="edit-form hidden">
+                <div id="edit-form" class="message-form hidden">
                     <h3>Edit Message</h3>
                     <input type="hidden" id="edit-index">
                     <div class="form-group">
-                        <label for="edit-role">Role:</label>
-                        <select id="edit-role">
+                        <label class="form-label" for="edit-role">Role:</label>
+                        <select id="edit-role" class="form-select">
                             <option value="user">user</option>
                             <option value="assistant">assistant</option>
                             <option value="system">system</option>
@@ -90,12 +95,12 @@
                         </select>
                     </div>
                     <div class="form-group">
-                        <label for="edit-content">Content:</label>
-                        <textarea id="edit-content" rows="4"></textarea>
+                        <label class="form-label" for="edit-content">Content:</label>
+                        <textarea id="edit-content" class="form-textarea" rows="4"></textarea>
                     </div>
                     <div class="form-actions">
-                        <button id="btn-save-edit" class="btn primary">Save</button>
-                        <button id="btn-cancel-edit" class="btn secondary">Cancel</button>
+                        <button id="btn-save-edit" class="btn btn-primary">Save</button>
+                        <button id="btn-cancel-edit" class="btn btn-secondary">Cancel</button>
                     </div>
                 </div>
             </main>
@@ -103,12 +108,12 @@
     </div>
 
     <!-- Conflict modal -->
-    <div id="conflict-modal" class="modal hidden">
+    <div id="conflict-modal" class="modal-overlay hidden">
         <div class="modal-content">
-            <h3>Conflict Detected</h3>
-            <p>The context has been modified by another client (REPL) since you last loaded it.</p>
-            <p>Please refresh the page to see the latest changes.</p>
-            <button id="btn-refresh-conflict" class="btn primary">Refresh Now</button>
+            <h3 class="modal-title">Conflict Detected</h3>
+            <p class="modal-body">The context has been modified by another client (REPL) since you last loaded it.</p>
+            <p class="modal-body">Please refresh the page to see the latest changes.</p>
+            <button id="btn-refresh-conflict" class="btn btn-primary">Refresh Now</button>
         </div>
     </div>
 
