@@ -207,6 +207,25 @@ class TestErrorIndicatesMultimodalNotSupported:
         error = Exception("unsupported content type")
         assert error_indicates_multimodal_not_supported(error) is True
 
+    def test_openrouter_no_endpoints_error(self):
+        """Test detection of OpenRouter-style 'no endpoints found' error."""
+        # This is the error from: openai.NotFoundError: Error code: 404
+        # {'error': {'message': 'No endpoints found that support image input', 'code': 404}}
+        error = Exception(
+            "Error code: 404 - {'error': {'message': 'No endpoints found that support image input', 'code': 404}}"
+        )
+        assert error_indicates_multimodal_not_supported(error) is True
+
+    def test_openrouter_no_endpoints_error_case_insensitive(self):
+        """Test that the detection is case-insensitive."""
+        error = Exception("NO ENDPOINTS FOUND THAT SUPPORT IMAGE INPUT")
+        assert error_indicates_multimodal_not_supported(error) is True
+
+    def test_image_input_not_supported_error(self):
+        """Test detection of 'image input not supported' error."""
+        error = Exception("image input not supported for this model")
+        assert error_indicates_multimodal_not_supported(error) is True
+
 
 class TestLLMBackendMultimodalNotSupported:
     """Tests for the LLMBackendMultimodalNotSupported exception."""

@@ -178,7 +178,8 @@ def error_indicates_multimodal_not_supported(error) -> bool:
     # Check for various error patterns that indicate multimodal not supported
     error_str = str(error).lower()
 
-    patterns = [
+    # Patterns that indicate multimodal content involvement
+    multimodal_patterns = [
         "image_url",  # OpenAI-style error
         "image",  # Generic image reference
         "multimodal",
@@ -190,7 +191,7 @@ def error_indicates_multimodal_not_supported(error) -> bool:
         "vision",
     ]
 
-    # Must also have some indication this is about content type
+    # Must also have some indication this is about content type not supported
     type_indicators = [
         "unsupported",
         "invalid",
@@ -200,7 +201,21 @@ def error_indicates_multimodal_not_supported(error) -> bool:
         "cannot process",
     ]
 
-    has_pattern = any(p in error_str for p in patterns)
+    # Specific error messages that definitively indicate multimodal not supported
+    # These bypass the pattern + type_indicator requirement
+    definitive_patterns = [
+        "no endpoints found that support image input",  # OpenRouter-style 404
+        "does not support image",
+        "image input not supported",
+        "vision not supported",
+        "multimodal not supported",
+    ]
+
+    # Check definitive patterns first
+    if any(p in error_str for p in definitive_patterns):
+        return True
+
+    has_pattern = any(p in error_str for p in multimodal_patterns)
     has_type_indicator = any(p in error_str for p in type_indicators)
 
     return has_pattern and has_type_indicator
