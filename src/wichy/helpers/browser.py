@@ -13,6 +13,24 @@ from typing import Any, Optional
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
 from wichy.config import settings
+from wichy.helpers.console import console
+
+# Error patterns that indicate the browser process has crashed/disconnected
+BROWSER_CRASH_ERRORS = [
+    "pipe closed by peer",
+    "Connection closed while reading from the driver",
+    "Browser has been closed",
+    "Target closed",
+    "Execution context was destroyed",
+    "Cannot find execution context",
+    "browser disconnected",
+]
+
+
+def is_browser_crash_error(error: Exception) -> bool:
+    """Check if an error indicates the browser process crashed/disconnected."""
+    error_str = str(error).lower()
+    return any(pattern.lower() in error_str for pattern in BROWSER_CRASH_ERRORS)
 
 
 class BrowserManager:
@@ -54,6 +72,48 @@ class BrowserManager:
             )
             self._page = await self._context.new_page()
 
+    async def _is_browser_alive(self) -> bool:
+        """
+        Check if the browser process is still alive and responsive.
+
+        Returns:
+            True if browser is alive and responsive, False otherwise.
+        """
+        if self._browser is None:
+            return False
+
+        try:
+            # Try a simple operation to verify browser is responsive
+            # If browser crashed, this will raise an error
+            contexts = self._browser.contexts
+            return True
+        except Exception as e:
+            if is_browser_crash_error(e):
+                console.log(
+                    f"[yellow]Browser process appears to have crashed: {e}[/yellow]"
+                )
+                return False
+            # Unexpected error, log and treat as alive (let it fail naturally)
+            return True
+
+    async def _recover_from_crash(self):
+        """
+        Recover from a browser crash by fully reinitializing.
+
+        This resets all state and creates a fresh browser instance.
+        """
+        console.log("[yellow]Recovering from browser crash...[/yellow]")
+
+        # Clear stale references
+        self._page = None
+        self._context = None
+        self._browser = None
+        self._playwright = None
+
+        # Reinitialize from scratch
+        await self.initialize()
+        console.log("[green]Browser crash recovery complete[/green]")
+
     async def get_page(self) -> Page:
         """
         Get the persistent page instance.
@@ -61,8 +121,13 @@ class BrowserManager:
         Returns:
             The persistent Page instance.
         """
+        # If browser not initialized, initialize it
         if self._browser is None:
             await self.initialize()
+
+        # Check if browser process is still alive (handles crash recovery)
+        if not await self._is_browser_alive():
+            await self._recover_from_crash()
 
         # If page is closed, recreate it
         if self._page is None or self._page.is_closed():
@@ -70,14 +135,19 @@ class BrowserManager:
                 if self._context is None:
                     raise Exception("Context not initialized")
                 self._page = await self._context.new_page()
-            except Exception:
-                # Context may be closed or invalid, recreate it
-                self._context = await self._browser.new_context(
-                    user_agent=random.choice(settings.browser_user_agents),
-                    viewport=settings.browser_viewport,
-                    locale=settings.browser_locale,
-                )
-                self._page = await self._context.new_page()
+            except Exception as e:
+                if is_browser_crash_error(e):
+                    # Browser crashed during page creation, recover and retry
+                    await self._recover_from_crash()
+                    # After recovery, _page should be ready
+                else:
+                    # Context may be closed or invalid, recreate it
+                    self._context = await self._browser.new_context(
+                        user_agent=random.choice(settings.browser_user_agents),
+                        viewport=settings.browser_viewport,
+                        locale=settings.browser_locale,
+                    )
+                    self._page = await self._context.new_page()
 
         return self._page
 
@@ -96,6 +166,10 @@ class BrowserManager:
             title = await self._page.title()
             return {"url": url, "title": title}
         except Exception as e:
+            if is_browser_crash_error(e):
+                return {
+                    "status": "browser disconnected - will recover on next operation"
+                }
             return {"status": f"error: {str(e)}"}
 
     async def navigate(self, url: str, wait_until: str = "networkidle") -> dict:
@@ -122,6 +196,23 @@ class BrowserManager:
 
             return {"url": current_url, "title": title, "status": "success"}
         except Exception as e:
+            if is_browser_crash_error(e):
+                console.log(
+                    f"[yellow]Browser crash during navigate, recovering: {e}[/yellow]"
+                )
+                await self._recover_from_crash()
+                # Retry once after recovery
+                page = await self.get_page()
+                try:
+                    await page.goto(url, wait_until=wait_until)
+                    await page.wait_for_timeout(1000)
+                    title = await page.title()
+                    return {"url": page.url, "title": title, "status": "success"}
+                except Exception as retry_e:
+                    return {
+                        "status": "error",
+                        "error": f"Failed after recovery: {str(retry_e)}",
+                    }
             return {"status": "error", "error": str(e)}
 
     async def screenshot(self, fullpage: bool = False) -> bytes:
@@ -142,6 +233,14 @@ class BrowserManager:
         try:
             return await page.screenshot(full_page=fullpage)
         except Exception as e:
+            if is_browser_crash_error(e):
+                console.log(f"Browser crash during screenshot, recovering: {e}")
+                await self._recover_from_crash()
+                page = await self.get_page()
+                try:
+                    return await page.screenshot(full_page=fullpage)
+                except Exception as retry_e:
+                    raise RuntimeError(f"Failed after recovery: {str(retry_e)}")
             raise RuntimeError(f"Failed to take screenshot: {str(e)}")
 
     async def raw(self, code: str) -> Any:
@@ -183,6 +282,15 @@ class BrowserManager:
             result = await self._eval_ast(tree.body, page)
             return result
         except Exception as e:
+            if is_browser_crash_error(e):
+                console.log(f"Browser crash during raw(), recovering: {e}")
+                await self._recover_from_crash()
+                page = await self.get_page()
+                try:
+                    result = await self._eval_ast(tree.body, page)
+                    return result
+                except Exception as retry_e:
+                    raise ValueError(f"Failed after recovery: {str(retry_e)}")
             raise ValueError(f"Error executing code: {str(e)}")
 
     async def _eval_ast(self, node: ast.AST, page: Page) -> Any:
