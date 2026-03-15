@@ -7,11 +7,12 @@ Tests cover:
 - Context handling (BrowserContext doesn't have is_closed() method)
 - Navigation, status, and screenshot functionality
 
-Key bug that was fixed: BrowserContext does NOT have is_closed() method,
-only Page does. The code was incorrectly calling context.is_closed().
+Key bugs that were fixed:
+1. BrowserContext does NOT have is_closed() method, only Page does
+2. Page.is_closed() is a METHOD, not a property (must be called with ())
 """
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 
 class TestBrowserManagerInitialization:
@@ -43,8 +44,8 @@ class TestBrowserManagerInitialization:
         mock_browser = AsyncMock()
         mock_context = AsyncMock()
         mock_page = AsyncMock()
-        # is_closed is a sync property in Playwright, not async
-        mock_page.is_closed = False
+        # is_closed is a METHOD in Playwright that returns bool
+        mock_page.is_closed = MagicMock(return_value=False)
 
         manager = BrowserManager()
 
@@ -82,8 +83,8 @@ class TestBrowserManagerGetPage:
         mock_browser = AsyncMock()
         mock_context = AsyncMock()
         mock_page = AsyncMock()
-        # is_closed is a sync property in Playwright, not async
-        mock_page.is_closed = False
+        # is_closed is a METHOD in Playwright that returns bool
+        mock_page.is_closed = MagicMock(return_value=False)
 
         manager = BrowserManager()
         manager._browser = mock_browser
@@ -112,11 +113,11 @@ class TestBrowserManagerGetPage:
         mock_browser = AsyncMock()
         mock_context = AsyncMock()
         mock_page = AsyncMock()
-        # is_closed is a sync property in Playwright, not async
-        mock_page.is_closed = True
+        # is_closed is a METHOD in Playwright that returns bool
+        mock_page.is_closed = MagicMock(return_value=True)
 
         new_page = AsyncMock()
-        new_page.is_closed = False
+        new_page.is_closed = MagicMock(return_value=False)
         mock_context.new_page.return_value = new_page
 
         manager = BrowserManager()
@@ -147,7 +148,7 @@ class TestBrowserManagerGetPage:
 
         mock_context = AsyncMock()
         mock_page = AsyncMock()
-        mock_page.is_closed = False
+        mock_page.is_closed = MagicMock(return_value=False)
         mock_browser.new_context.return_value = mock_context
         mock_context.new_page.return_value = mock_page
 
@@ -186,7 +187,7 @@ class TestBrowserManagerGetPage:
         # Set up new valid context
         new_context = AsyncMock()
         new_page = AsyncMock()
-        new_page.is_closed = False
+        new_page.is_closed = MagicMock(return_value=False)
         mock_browser.new_context.return_value = new_context
         new_context.new_page.return_value = new_page
 
@@ -213,33 +214,38 @@ class TestPageVsContextIsClosedMethod:
     """Tests specifically for Page.is_closed() vs BrowserContext behavior.
 
     This documents the exact bug that was fixed:
-    - Page objects have is_closed property
-    - BrowserContext objects do NOT have is_closed property/method
+    - Page objects have is_closed() METHOD (must be called)
+    - BrowserContext objects do NOT have is_closed at all
     """
 
-    def test_page_has_is_closed_property_in_playwright(self):
-        """Verify that Page objects in Playwright have is_closed property.
+    def test_page_has_is_closed_method_in_playwright(self):
+        """Verify that Page objects in Playwright have is_closed method.
 
         This test uses the actual Playwright Page class to verify the API.
         """
         from playwright.async_api import Page
 
-        # Page class should have is_closed property
-        assert hasattr(Page, "is_closed"), "Page class should have is_closed property"
+        # Page class should have is_closed method
+        assert hasattr(Page, "is_closed"), "Page class should have is_closed method"
+        # Verify it's callable (a method, not a property)
+
+        assert callable(
+            getattr(Page, "is_closed")
+        ), "Page.is_closed should be a callable method"
 
     def test_browser_context_lacks_is_closed_in_playwright(self):
-        """Verify that BrowserContext does NOT have is_closed property.
+        """Verify that BrowserContext does NOT have is_closed method.
 
         This is the exact bug that was fixed - the code was calling
         context.is_closed() which doesn't exist on BrowserContext.
         """
         from playwright.async_api import BrowserContext
 
-        # BrowserContext should NOT have is_closed property
+        # BrowserContext should NOT have is_closed
         # This was the bug: calling context.is_closed() would fail
         assert not hasattr(
             BrowserContext, "is_closed"
-        ), "BrowserContext should NOT have is_closed property - this was the bug!"
+        ), "BrowserContext should NOT have is_closed - this was the bug!"
 
 
 class TestBrowserManagerStatus:
@@ -253,7 +259,7 @@ class TestBrowserManagerStatus:
         manager = BrowserManager()
 
         mock_page = AsyncMock()
-        mock_page.is_closed = False
+        mock_page.is_closed = MagicMock(return_value=False)
         mock_page.url = "https://example.com"
         mock_page.title = AsyncMock(return_value="Example Domain")
         manager._page = mock_page
@@ -275,7 +281,7 @@ class TestBrowserManagerStatus:
         manager = BrowserManager()
 
         mock_page = AsyncMock()
-        mock_page.is_closed = True
+        mock_page.is_closed = MagicMock(return_value=True)
         manager._page = mock_page
 
         import asyncio
@@ -301,7 +307,7 @@ class TestBrowserManagerNavigate:
         mock_browser = AsyncMock()
         mock_context = AsyncMock()
         mock_page = AsyncMock()
-        mock_page.is_closed = False
+        mock_page.is_closed = MagicMock(return_value=False)
         mock_page.url = "https://example.com"
         mock_page.title = AsyncMock(return_value="Example")
 
@@ -339,7 +345,7 @@ class TestBrowserManagerScreenshot:
         mock_browser = AsyncMock()
         mock_context = AsyncMock()
         mock_page = AsyncMock()
-        mock_page.is_closed = False
+        mock_page.is_closed = MagicMock(return_value=False)
         mock_page.screenshot = AsyncMock(return_value=b"fake_png_data")
 
         manager._browser = mock_browser

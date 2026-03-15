@@ -10,16 +10,20 @@ from pydantic import Field
 from wichy.helpers.browser import browser_manager
 from wichy.tools.base import BaseTool, ParametersModel
 
-# Global event loop management
+# Global event loop - persists for entire session
 _loop = None
 
 
 def get_event_loop():
-    """Get or create a global asyncio event loop for this tool."""
+    """
+    Get or create the global asyncio event loop.
+
+    Creates a single persistent loop for the entire session to avoid
+    invalidating browser objects tied to old loops.
+    """
     global _loop
-    if _loop is None or _loop.is_closed():
+    if _loop is None:
         _loop = asyncio.new_event_loop()
-        # Set as current event loop for this thread
         asyncio.set_event_loop(_loop)
     return _loop
 
@@ -169,7 +173,6 @@ class NavigateTool(BaseTool):
             loop = get_event_loop()
 
             async def _navigate():
-                page = await browser_manager.get_page()
                 result = await browser_manager.navigate(url, wait_until=wait_until)
                 return result
 

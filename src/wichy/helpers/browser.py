@@ -1,8 +1,8 @@
 """
 Playwright browser singleton manager for wichy tools.
 
-This module provides a singleton browser instance to avoid repeatedly
-launching and closing the browser for each webpage fetch operation.
+Provides a single persistent browser instance for the entire session.
+This avoids repeated browser launches and preserves session state (cookies, logins).
 """
 
 import ast
@@ -20,19 +20,23 @@ class BrowserManager:
     Singleton manager for Playwright browser instance.
 
     Manages a single browser instance with a persistent page to improve
-    performance and provide status tracking.
+    performance and preserve session state across tool calls.
     """
 
     _instance: Optional["BrowserManager"] = None
-    _playwright = None
-    _browser: Optional[Browser] = None
-    _context: Optional[BrowserContext] = None
-    _page: Optional[Page] = None
 
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
+
+    def __init__(self):
+        if not hasattr(self, "_initialized"):
+            self._playwright = None
+            self._browser: Optional[Browser] = None
+            self._context: Optional[BrowserContext] = None
+            self._page: Optional[Page] = None
+            self._initialized = True
 
     async def initialize(self):
         """Initialize the browser if not already initialized."""
@@ -61,9 +65,7 @@ class BrowserManager:
             await self.initialize()
 
         # If page is closed, recreate it
-        if self._page is None or self._page.is_closed:
-            # Note: BrowserContext doesn't have is_closed() method, only Page does
-            # If context exists but is unusable, creating a new page will fail
+        if self._page is None or self._page.is_closed():
             try:
                 if self._context is None:
                     raise Exception("Context not initialized")
@@ -86,7 +88,7 @@ class BrowserManager:
         Returns:
             A dictionary with 'url' and 'title' keys, or 'error' if unavailable.
         """
-        if self._page is None or self._page.is_closed:
+        if self._page is None or self._page.is_closed():
             return {"status": "no active page"}
 
         try:
