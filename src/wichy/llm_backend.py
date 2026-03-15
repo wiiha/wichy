@@ -1,5 +1,5 @@
 import time
-from typing import List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from openai import BadRequestError, OpenAI
 from pydantic import BaseModel
@@ -31,6 +31,17 @@ class LLMBackendContextLimitReached(Exception):
         return m
 
 
+class LLMBackendMultimodalNotSupported(Exception):
+    """Raised when the backend model doesn't support multimodal content."""
+
+    def __init__(self, message="backend model does not support multimodal content"):
+        self.message = message
+        super().__init__(self.message)
+
+    def __str__(self):
+        return self.message
+
+
 class function(BaseModel):
     arguments: str
     name: str
@@ -43,7 +54,7 @@ class called_tool(BaseModel):
 
 
 class Message(BaseModel):
-    content: str
+    content: Union[str, List[Dict[str, Any]]]
     role: str
     tool_calls: Optional[List[called_tool]] = None
     finish_reason: str
@@ -154,6 +165,47 @@ def message_indicates_context_length_reached(m: str) -> bool:
     return False
 
 
+def error_indicates_multimodal_not_supported(error) -> bool:
+    """
+    Check if an error indicates the model doesn't support multimodal content.
+
+    Args:
+        error: The exception or error object
+
+    Returns:
+        True if the error indicates multimodal content is not supported
+    """
+    # Check for various error patterns that indicate multimodal not supported
+    error_str = str(error).lower()
+
+    patterns = [
+        "image_url",  # OpenAI-style error
+        "image",  # Generic image reference
+        "multimodal",
+        "content type",
+        "invalid content",
+        "unsupported content",
+        "content_part",
+        "does not support image",
+        "vision",
+    ]
+
+    # Must also have some indication this is about content type
+    type_indicators = [
+        "unsupported",
+        "invalid",
+        "not supported",
+        "does not support",
+        "does not have",
+        "cannot process",
+    ]
+
+    has_pattern = any(p in error_str for p in patterns)
+    has_type_indicator = any(p in error_str for p in type_indicators)
+
+    return has_pattern and has_type_indicator
+
+
 def call(context, tool_defs=None, model_str=None, extra_args=None, **extra_kwargs):
     """
     Call an LLM backend with the given context and tools.
@@ -251,6 +303,12 @@ def call(context, tool_defs=None, model_str=None, extra_args=None, **extra_kwarg
         if e.message and message_indicates_context_length_reached(e.message):
             context_len_error = True
 
+        # Check for multimodal not supported error
+        if error_indicates_multimodal_not_supported(e):
+            raise LLMBackendMultimodalNotSupported(
+                message=f"Model does not support multimodal content: {e.message or str(e)}"
+            )
+
         if not context_len_error:
             raise e
 
@@ -267,6 +325,11 @@ def call(context, tool_defs=None, model_str=None, extra_args=None, **extra_kwarg
         )
 
     except Exception as e:
+        # Check for multimodal errors in other exception types
+        if error_indicates_multimodal_not_supported(e):
+            raise LLMBackendMultimodalNotSupported(
+                message=f"Model does not support multimodal content: {str(e)}"
+            )
         # something else is not right
         raise e
 

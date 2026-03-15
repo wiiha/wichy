@@ -1,6 +1,6 @@
 import json
 from enum import Enum
-from typing import List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from rich import print
 from rich.markdown import Markdown
@@ -8,8 +8,18 @@ from rich.markdown import Markdown
 from wichy.constants import ROLE_ASSISTANT, ROLE_TOOL, ROLE_USER
 from wichy.helpers.console import console
 from wichy.context.handler import new_context
+from wichy.helpers.multimodal import (
+    build_multimodal_user_message,
+    extract_multimodal_content,
+    fix_multimodal_context,
+)
 from wichy.helpers.string import strip_thinking_content
-from wichy.llm_backend import Message, call, called_tool
+from wichy.llm_backend import (
+    LLMBackendMultimodalNotSupported,
+    Message,
+    call,
+    called_tool,
+)
 from wichy.tools import get_tool_definitions
 from wichy.tools.base import BaseTool
 
@@ -63,7 +73,15 @@ class RootAgent:
         # Start file watching for live sync with web editor
         self.context.start_watching(interval=2.0)
 
-    def tool_call(self, tools, item: called_tool):
+    def tool_call(
+        self, tools, item: called_tool
+    ) -> Tuple[Dict, Optional[List[Dict[str, Any]]]]:
+        """
+        Execute a tool call and return the result message along with any multimodal content.
+
+        Returns:
+            Tuple of (tool_result_message, multimodal_content_parts or None)
+        """
         result = None
         name = item.function.name
         args = json.loads(item.function.arguments)
@@ -78,7 +96,16 @@ class RootAgent:
 
         if result is None:
             result = "There is no tool called " + item.function.name + "."
-        return {"role": ROLE_TOOL, "tool_call_id": item.id, "content": result}
+
+        # Check for multimodal content in tool result
+        display_content, multimodal_parts = extract_multimodal_content(result)
+
+        tool_message = {
+            "role": ROLE_TOOL,
+            "tool_call_id": item.id,
+            "content": display_content,
+        }
+        return tool_message, multimodal_parts
 
     def handle_tools(self, tools, response: Message):
         if response.finish_reason != "tool_calls":
@@ -105,19 +132,84 @@ class RootAgent:
             "[italic]got " + str(len(response.tool_calls)) + " tool calls[/italic]"
         )
         osz = len(self.context)
+
+        # Collect multimodal content from all tool calls
+        multimodal_parts: List[Dict[str, Any]] = []
+
         for item in response.tool_calls:
-            self.context.append(self.tool_call(tools, item))
+            tool_message, mm_parts = self.tool_call(tools, item)
+            self.context.append(tool_message)
+            if mm_parts:
+                multimodal_parts.extend(mm_parts)
+
+        # If any tool returned multimodal content, inject a user message with it
+        if multimodal_parts:
+            # Build and add multimodal user message
+            multimodal_message = build_multimodal_user_message(multimodal_parts)
+            self.context.append(multimodal_message)
+            console.log("[italic]injected multimodal content into context[/italic]")
+
         return len(self.context) != osz
+
+    def _fix_multimodal_context(self) -> bool:
+        """
+        Find and replace multimodal content in context with text placeholders.
+
+        Returns:
+            True if any multimodal content was found and replaced, False otherwise.
+        """
+        found = fix_multimodal_context(self.context)
+        if found:
+            console.log("[yellow]Fixed multimodal content in context[/yellow]")
+        return found
 
     def process(self, line):
         self.context.append({"role": ROLE_USER, "content": line})
         tool_defs = get_tool_definitions(self.tools)
-        response = call(
-            context=self.context(), tool_defs=tool_defs, model_str=self.model_str
-        )
+
+        try:
+            response = call(
+                context=self.context(), tool_defs=tool_defs, model_str=self.model_str
+            )
+        except LLMBackendMultimodalNotSupported as e:
+            # Try to fix the context by replacing multimodal content with text
+            console.log(f"[yellow]Multimodal not supported: {e.message}[/yellow]")
+            console.log("[yellow]Attempting to fix context...[/yellow]")
+
+            if self._fix_multimodal_context():
+                console.log("[yellow]Fixed context, retrying...[/yellow]")
+                # Retry with fixed context
+                response = call(
+                    context=self.context(),
+                    tool_defs=tool_defs,
+                    model_str=self.model_str,
+                )
+            else:
+                # No multimodal content found, re-raise
+                raise
 
         while self.handle_tools(self.tools, response):
-            response = call(self.context(), tool_defs, model_str=self.model_str)
+            try:
+                response = call(
+                    context=self.context(),
+                    tool_defs=tool_defs,
+                    model_str=self.model_str,
+                )
+            except LLMBackendMultimodalNotSupported as e:
+                # Handle multimodal error during tool loop
+                console.log(f"[yellow]Multimodal not supported: {e.message}[/yellow]")
+                console.log("[yellow]Attempting to fix context...[/yellow]")
+
+                if self._fix_multimodal_context():
+                    console.log("[yellow]Fixed context, retrying...[/yellow]")
+                    response = call(
+                        context=self.context(),
+                        tool_defs=tool_defs,
+                        model_str=self.model_str,
+                    )
+                else:
+                    raise
+
         self.context.append({"role": ROLE_ASSISTANT, "content": response.content})
         return response.content
 

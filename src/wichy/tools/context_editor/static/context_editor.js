@@ -86,15 +86,43 @@ document.addEventListener('DOMContentLoaded', () => {
     btnSaveEdit.addEventListener('click', async () => {
         const index = parseInt(document.getElementById('edit-index').value);
         const role = document.getElementById('edit-role').value;
-        const content = document.getElementById('edit-content').value.trim();
-        if (!content) {
+        const contentText = document.getElementById('edit-content').value.trim();
+        if (!contentText) {
             alert('Content is required');
             return;
+        }
+        
+        // Parse content - handle multimodal (JSON array) vs text
+        let content;
+        const contentTextarea = document.getElementById('edit-content');
+        const isMultimodal = contentTextarea.dataset.multimodal === 'true';
+        
+        if (isMultimodal) {
+            // Try to parse as JSON
+            try {
+                const parsed = JSON.parse(contentText);
+                if (Array.isArray(parsed)) {
+                    content = parsed;
+                } else {
+                    alert('Multimodal content must be a JSON array');
+                    return;
+                }
+            } catch (e) {
+                alert('Invalid JSON for multimodal content: ' + e.message);
+                return;
+            }
+        } else {
+            // Regular text content
+            content = contentText;
         }
         
         // Get the original message from store and merge edited fields
         const originalMsg = messagesStore[index];
         const updatedMsg = { ...originalMsg, role, content };
+        
+        // Clean up the multimodal hint
+        const hintEl = document.getElementById('multimodal-hint');
+        if (hintEl) hintEl.remove();
         
         try {
             const resp = await fetch(`/tools/context/api/messages/${index}`, {
@@ -201,7 +229,28 @@ function renderMessages(messages) {
         const toolCalls = msg.tool_calls || null;
         const toolCallId = msg.tool_call_id || null;
         const isTruncated = msg._truncated_from !== undefined;
-        const contentLength = isTruncated ? msg._truncated_from.length : content.length;
+        
+        // Handle multimodal content (array) vs text content (string)
+        const isMultimodal = Array.isArray(content);
+        let contentText = '';
+        let imageCount = 0;
+        
+        if (isMultimodal) {
+            // Extract text parts and count images
+            const textParts = [];
+            content.forEach(part => {
+                if (part.type === 'text') {
+                    textParts.push(part.text || '');
+                } else if (part.type === 'image_url') {
+                    imageCount++;
+                }
+            });
+            contentText = textParts.join('\n');
+        } else {
+            contentText = content;
+        }
+        
+        const contentLength = isTruncated ? msg._truncated_from.length : contentText.length;
         
         // Build the display HTML
         let html = `<div class="message-item" data-index="${idx}">`;
@@ -209,6 +258,11 @@ function renderMessages(messages) {
         
         // Role badge
         html += `<span class="message-role ${role}">${escapeHtml(role)}</span>`;
+        
+        // Multimodal indicator
+        if (isMultimodal && imageCount > 0) {
+            html += `<span class="multimodal-badge" title="Contains ${imageCount} image(s)">🖼 ${imageCount} image${imageCount > 1 ? 's' : ''}</span>`;
+        }
         
         // Content length indicator
         if (contentLength > 100) {
@@ -228,7 +282,21 @@ function renderMessages(messages) {
         html += '</div>';
         
         // Content
-        html += `<div class="message-content">${escapeHtml(content)}</div>`;
+        html += `<div class="message-content">${escapeHtml(contentText)}</div>`;
+        
+        // Image previews for multimodal content
+        if (isMultimodal && imageCount > 0) {
+            html += '<div class="image-previews">';
+            content.forEach(part => {
+                if (part.type === 'image_url' && part.image_url?.url) {
+                    const url = part.image_url.url;
+                    if (url.startsWith('data:image')) {
+                        html += `<img src="${escapeHtml(url)}" alt="Image" class="content-image-preview" />`;
+                    }
+                }
+            });
+            html += '</div>';
+        }
         
         // Tool calls section (view-only)
         if (toolCalls && Array.isArray(toolCalls) && toolCalls.length > 0) {
@@ -277,7 +345,31 @@ function startEdit(index) {
 
     document.getElementById('edit-index').value = index;
     document.getElementById('edit-role').value = msg.role || 'user';
-    document.getElementById('edit-content').value = msg.content || '';
+    
+    // Handle multimodal content - convert to JSON string for editing
+    const content = msg.content;
+    if (Array.isArray(content)) {
+        // Multimodal content - show as JSON for editing
+        document.getElementById('edit-content').value = JSON.stringify(content, null, 2);
+        // Mark as multimodal for saving
+        const contentTextarea = document.getElementById('edit-content');
+        contentTextarea.dataset.multimodal = 'true';
+        // Show a hint above the textarea
+        let hintEl = document.getElementById('multimodal-hint');
+        if (!hintEl) {
+            hintEl = document.createElement('div');
+            hintEl.id = 'multimodal-hint';
+            hintEl.className = 'multimodal-hint';
+            hintEl.innerHTML = '⚠️ Multimodal content (images). Edit JSON carefully or remove images to convert to text.';
+            contentTextarea.parentNode.insertBefore(hintEl, contentTextarea);
+        }
+    } else {
+        // Regular text content
+        document.getElementById('edit-content').value = content || '';
+        document.getElementById('edit-content').dataset.multimodal = 'false';
+        const hintEl = document.getElementById('multimodal-hint');
+        if (hintEl) hintEl.remove();
+    }
 
     elAddForm.classList.add('hidden');
     elEditForm.classList.remove('hidden');

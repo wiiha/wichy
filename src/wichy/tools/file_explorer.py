@@ -1,3 +1,6 @@
+import base64
+import json
+import mimetypes
 import os
 import subprocess
 from typing import Optional
@@ -6,6 +9,14 @@ from pydantic import Field
 
 from wichy.helpers.string import truncate_to_len
 from wichy.tools.base import BaseTool, ParametersModel
+
+# Supported image MIME types for multimodal LLM APIs
+SUPPORTED_IMAGE_TYPES = {
+    "image/jpeg",
+    "image/png",
+    "image/gif",
+    "image/webp",
+}
 
 
 class ListFilesParameters(ParametersModel):
@@ -54,15 +65,25 @@ class ReadFileParameters(ParametersModel):
         False,
         description="show all non-printing characters (like cat -A): show $ at line ends, TAB as ^I, and other non-printables in ^ notation",
     )
+    media_type: Optional[str] = Field(
+        None,
+        description="For binary/image files: request the file be returned as base64-encoded data. Set to 'auto' to auto-detect based on file extension, or specify a MIME type like 'image/png'. When set, returns a JSON object with 'multimodal_content' containing base64 data suitable for vision-capable LLMs.",
+    )
 
     def info(self):
         if (
             self.offset == 1
             and self.limit == 2000
             and not self.show_none_printable_chars
+            and not self.media_type
         ):
             return self.path
-        return f"{self.path} (lines {self.offset}-{self.offset + self.limit - 1})"
+        parts = [self.path]
+        if self.media_type:
+            parts.append(f"media_type={self.media_type}")
+        elif self.offset != 1 or self.limit != 2000:
+            parts.append(f"lines {self.offset}-{self.offset + self.limit - 1}")
+        return " ".join(parts)
 
 
 class ReadFileTool(BaseTool):
@@ -80,10 +101,72 @@ Usage:
 - Results are returned using cat -n format, with line numbers starting at 1
 - This tool can only read files, not directories. To read a directory, use ls tool.
 - You can call multiple tools in a single response. It is always better to speculatively read multiple potentially useful files in parallel.
-- If you read a file that exists but has empty contents you will receive a system reminder warning in place of file contents."""
+- If you read a file that exists but has empty contents you will receive a system reminder warning in place of file contents.
+
+Multimodal Support (images):
+
+- For image files, set media_type='auto' to return base64-encoded image data
+- The returned JSON contains a 'multimodal_content' field with OpenAI-compatible content blocks
+- Supported formats: JPEG, PNG, GIF, WebP
+- Use this when the user wants to show an image to a vision-capable LLM"""
     parameters_model = ReadFileParameters
 
     MAX_LINE_LENGTH = 2000
+
+    def _detect_mime_type(self, path: str) -> Optional[str]:
+        """Detect MIME type from file extension."""
+        mime_type, _ = mimetypes.guess_type(path)
+        return mime_type
+
+    def _read_as_multimodal(self, path: str, media_type: Optional[str]) -> str:
+        """Read a binary file and return multimodal JSON content."""
+        # Determine MIME type
+        if media_type and media_type != "auto":
+            mime_type = media_type
+        else:
+            mime_type = self._detect_mime_type(path)
+
+        if not mime_type:
+            return json.dumps(
+                {
+                    "error": f"Could not determine MIME type for '{path}'. Specify media_type explicitly."
+                }
+            )
+
+        if mime_type not in SUPPORTED_IMAGE_TYPES:
+            return json.dumps(
+                {
+                    "error": f"Unsupported media type '{mime_type}'. Supported types: {', '.join(sorted(SUPPORTED_IMAGE_TYPES))}"
+                }
+            )
+
+        try:
+            with open(path, "rb") as f:
+                binary_data = f.read()
+
+            base64_data = base64.b64encode(binary_data).decode("utf-8")
+
+            # Return OpenAI-compatible multimodal content structure
+            result = {
+                "multimodal_content": [
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{mime_type};base64,{base64_data}"},
+                    }
+                ],
+                "media_type": mime_type,
+                "file_path": path,
+                "file_size_bytes": len(binary_data),
+                "note": "This content can be passed directly to vision-capable LLMs",
+            }
+            return json.dumps(result, indent=2)
+
+        except FileNotFoundError:
+            return json.dumps({"error": f"File not found: {path}"})
+        except PermissionError:
+            return json.dumps({"error": f"Permission denied: {path}"})
+        except Exception as e:
+            return json.dumps({"error": f"Error reading file: {e}"})
 
     def _visualize_line(self, line: str) -> str:
         """Visualize non-printing characters like cat -A"""
@@ -105,9 +188,30 @@ Usage:
         return "".join(visualized)
 
     def execute(
-        self, path, offset=1, limit=2000, show_none_printable_chars=False
+        self,
+        path,
+        offset=1,
+        limit=2000,
+        show_none_printable_chars=False,
+        media_type=None,
     ) -> str:
-        """Execute read_file with optional offset, limit, and show none printable chars option"""
+        """Execute read_file with optional offset, limit, show none printable chars, and media_type options."""
+        # Handle multimodal request for binary/image files
+        if media_type:
+            return self._read_as_multimodal(path, media_type)
+
+        # Try to detect if this is a binary file that should be read as multimodal
+        detected_type = self._detect_mime_type(path)
+        if detected_type in SUPPORTED_IMAGE_TYPES:
+            # Auto-suggest using media_type parameter
+            return json.dumps(
+                {
+                    "info": f"File '{path}' appears to be an image ({detected_type}). Set media_type='auto' to read as base64 image data for vision-capable LLMs.",
+                    "detected_type": detected_type,
+                    "hint": "Use media_type='auto' to get multimodal content",
+                }
+            )
+
         try:
             # Read the file
             with open(path, "r", encoding="utf-8", errors="replace") as f:
@@ -199,7 +303,6 @@ Usage:
 - This tool will overwrite the existing file if there is one at the provided path. Hence, a file update needs to contain the full new version of the content.
 - If this is an existing file, you MUST use the cat tool first to read the file's contents. This tool will fail if you did not read the file first.
 - ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.
-- NEVER proactively create documentation files (\*.md) or README files. Only create documentation files if explicitly requested by the User.
 - Only use emojis if the user explicitly requests it. Avoid writing emojis to files unless asked."""
 
     def execute(self, path, content) -> str:
