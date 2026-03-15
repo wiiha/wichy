@@ -64,9 +64,13 @@ class FetchWebPageParameters(ParametersModel):
         20000,
         description="Maximum number of characters to return. Default is 20000. If content exceeds this limit, an overview with headings is returned instead of full content.",
     )
+    wait_until: str = Field(
+        "networkidle",
+        description="When to consider navigation complete. Options: 'load' (fires when load event is dispatched), 'domcontentloaded' (fires when DOMContentLoaded event is dispatched), 'networkidle' (fires when there are no more network connections for at least 500ms). Use 'load' or 'domcontentloaded' for faster fetching when you don't need JavaScript-rendered content.",
+    )
 
     def info(self):
-        return f'url="{self.url}", limit={self.limit}'
+        return f'url="{self.url}", limit={self.limit}, wait_until="{self.wait_until}"'
 
 
 class FetchWebPageTool(BaseTool):
@@ -74,12 +78,13 @@ class FetchWebPageTool(BaseTool):
     description = "Fetch a webpage and return its text content as markdown."
     parameters_model = FetchWebPageParameters
 
-    async def _fetch_webpage(self, url: str) -> str:
+    async def _fetch_webpage(self, url: str, wait_until: str = "networkidle") -> str:
         """
         Execute the fetch webpage tool.
 
         Args:
             url: The URL to fetch
+            wait_until: When to consider navigation complete
 
         Returns:
             The text content of the page.
@@ -90,7 +95,7 @@ class FetchWebPageTool(BaseTool):
             await page.wait_for_timeout(random.randint(1000, 3000))
 
             # Use the navigate method for consistent navigation
-            nav_result = await browser_manager.navigate(url, wait_until="networkidle")
+            nav_result = await browser_manager.navigate(url, wait_until=wait_until)
 
             if nav_result.get("status") != "success":
                 return f"error: {nav_result.get('error', 'Navigation failed')}"
@@ -101,20 +106,23 @@ class FetchWebPageTool(BaseTool):
         except Exception as e:
             return f"error: {str(e)}"
 
-    def execute(self, url: str, limit: int = 20000) -> str:
+    def execute(
+        self, url: str, limit: int = 20000, wait_until: str = "networkidle"
+    ) -> str:
         """
         Execute the fetch webpage tool.
 
         Args:
             url: The URL to fetch
             limit: Maximum characters to return (default: 20000)
+            wait_until: When to consider navigation complete (default: "networkidle")
 
         Returns:
             The text content of the page as markdown, or an overview of headings if content exceeds limit.
         """
         try:
             loop = get_event_loop()
-            html_content = loop.run_until_complete(self._fetch_webpage(url))
+            html_content = loop.run_until_complete(self._fetch_webpage(url, wait_until))
 
             # If content is an error message, return it directly
             if html_content.startswith("error:"):
