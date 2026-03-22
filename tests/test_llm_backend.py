@@ -3,8 +3,9 @@ Test cases for llm_backend module functions.
 """
 
 import pytest
+from unittest.mock import MagicMock, patch
 
-from wichy.llm_backend import parse_generic_backend
+from wichy.llm_backend import parse_generic_backend, LLMResponse, Message, call
 
 
 class TestParseGenericBackend:
@@ -94,3 +95,151 @@ class TestParseGenericBackend:
     def test_empty_string(self):
         with pytest.raises(ValueError, match="Invalid generic backend format"):
             parse_generic_backend("")
+
+
+class TestLLMResponse:
+    """Tests for LLMResponse class."""
+
+    def test_llm_response_creation(self):
+        """Test creating an LLMResponse with message and usage."""
+        msg = Message(content="Hello", role="assistant", finish_reason="stop")
+        usage = {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+        response = LLMResponse(message=msg, usage=usage)
+
+        assert response.message == msg
+        assert response.usage == usage
+
+    def test_llm_response_with_none_usage(self):
+        """Test creating an LLMResponse with None usage."""
+        msg = Message(content="Hello", role="assistant", finish_reason="stop")
+        response = LLMResponse(message=msg, usage=None)
+
+        assert response.message == msg
+        assert response.usage is None
+
+
+class TestCallFunction:
+    """Tests for the call() function - token usage tracking."""
+
+    @patch("wichy.llm_backend.OpenAI")
+    @patch("wichy.llm_backend.settings")
+    def test_call_returns_llm_response_with_usage(self, mock_settings, mock_openai):
+        """Test that call() returns an LLMResponse with usage data."""
+        # Setup mock settings
+        mock_settings.ollama_base_url = "http://localhost:11434/v1"
+
+        # Setup mock client and response
+        mock_client = MagicMock()
+        mock_openai.return_value = mock_client
+
+        # Mock usage object
+        mock_usage = MagicMock()
+        mock_usage.prompt_tokens = 15
+        mock_usage.completion_tokens = 25
+        mock_usage.total_tokens = 40
+
+        # Mock choice and message
+        mock_message = MagicMock()
+        mock_message.content = "Test response"
+        mock_message.role = "assistant"
+        mock_message.tool_calls = None
+
+        mock_choice = MagicMock()
+        mock_choice.message = mock_message
+        mock_choice.finish_reason = "stop"
+
+        # Mock response
+        mock_response = MagicMock()
+        mock_response.choices = [mock_choice]
+        mock_response.model = "test-model"
+        mock_response.usage = mock_usage
+
+        mock_client.chat.completions.create.return_value = mock_response
+
+        # Call function
+        context = [{"role": "user", "content": "Hello"}]
+        result = call(context, model_str="ollama/llama2")
+
+        # Verify result is LLMResponse
+        assert isinstance(result, LLMResponse)
+        assert isinstance(result.message, Message)
+        assert result.usage is not None
+        assert result.usage["prompt_tokens"] == 15
+        assert result.usage["completion_tokens"] == 25
+        assert result.usage["total_tokens"] == 40
+
+    @patch("wichy.llm_backend.OpenAI")
+    @patch("wichy.llm_backend.settings")
+    def test_call_handles_missing_usage(self, mock_settings, mock_openai):
+        """Test that call() handles response without usage data gracefully."""
+        # Setup mock settings
+        mock_settings.ollama_base_url = "http://localhost:11434/v1"
+
+        # Setup mock client and response
+        mock_client = MagicMock()
+        mock_openai.return_value = mock_client
+
+        # Mock response without usage
+        mock_message = MagicMock()
+        mock_message.content = "Test response"
+        mock_message.role = "assistant"
+        mock_message.tool_calls = None
+
+        mock_choice = MagicMock()
+        mock_choice.message = mock_message
+        mock_choice.finish_reason = "stop"
+
+        mock_response = MagicMock()
+        mock_response.choices = [mock_choice]
+        mock_response.model = "test-model"
+        mock_response.usage = None  # No usage data
+
+        mock_client.chat.completions.create.return_value = mock_response
+
+        # Call function
+        context = [{"role": "user", "content": "Hello"}]
+        result = call(context, model_str="ollama/llama2")
+
+        # Verify result is LLMResponse with None usage
+        assert isinstance(result, LLMResponse)
+        assert result.usage is None
+        assert result.message.content == "Test response"
+
+    @patch("wichy.llm_backend.OpenAI")
+    @patch("wichy.llm_backend.settings")
+    def test_call_with_partial_usage_attributes(self, mock_settings, mock_openai):
+        """Test handling of usage object with missing attributes (defaults to 0)."""
+        mock_settings.ollama_base_url = "http://localhost:11434/v1"
+
+        mock_client = MagicMock()
+        mock_openai.return_value = mock_client
+
+        # Mock usage with only total_tokens, missing others
+        mock_usage = MagicMock(spec=[])  # No attributes by default
+        del mock_usage.prompt_tokens  # Ensure AttributeError if accessed
+        del mock_usage.completion_tokens
+        mock_usage.total_tokens = 30
+
+        mock_message = MagicMock()
+        mock_message.content = "Test"
+        mock_message.role = "assistant"
+        mock_message.tool_calls = None
+
+        mock_choice = MagicMock()
+        mock_choice.message = mock_message
+        mock_choice.finish_reason = "stop"
+
+        mock_response = MagicMock()
+        mock_response.choices = [mock_choice]
+        mock_response.model = "test-model"
+        mock_response.usage = mock_usage
+
+        mock_client.chat.completions.create.return_value = mock_response
+
+        context = [{"role": "user", "content": "Hello"}]
+        result = call(context, model_str="ollama/llama2")
+
+        # Should use getattr with default 0
+        assert result.usage["prompt_tokens"] == 0
+        assert result.usage["completion_tokens"] == 0
+        assert result.usage["total_tokens"] == 30

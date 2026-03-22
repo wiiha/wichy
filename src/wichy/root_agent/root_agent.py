@@ -191,7 +191,7 @@ class RootAgent:
                 # No multimodal content found, re-raise
                 raise
 
-        while self.handle_tools(self.tools, response):
+        while self.handle_tools(self.tools, response.message):
             try:
                 response = call(
                     context=self.context(),
@@ -213,8 +213,10 @@ class RootAgent:
                 else:
                     raise
 
-        self.context.append({"role": ROLE_ASSISTANT, "content": response.content})
-        return response.content
+        self.context.append(
+            {"role": ROLE_ASSISTANT, "content": response.message.content}
+        )
+        return response.message.content
 
     def drop_last_context_entry(self):
         if len(self.context) < 2:
@@ -277,7 +279,7 @@ class RootAgent:
         response = call(context=ctx(), model_str=self.model_str)
 
         # Create the summary message
-        summary_msg = "\n\n---\n\n### Summary of context\n\n" + response.content
+        summary_msg = "\n\n---\n\n### Summary of context\n\n" + response.message.content
 
         # Print the summary
         print(Markdown(summary_msg))

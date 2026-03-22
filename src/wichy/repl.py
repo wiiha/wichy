@@ -5,7 +5,7 @@ from rich import print
 from rich.markdown import Markdown
 
 from wichy.helpers.string import strip_thinking_content
-from wichy.llm_backend import LLMBackendContextLimitReached
+from wichy.llm_backend import LLMBackendContextLimitReached, LLMBackendRateLimitExceeded
 from wichy.root_agent.root_agent import RootAgent
 from wichy.slash_commands import (
     ContextDropException,
@@ -69,6 +69,13 @@ class Repl:
                     "[red bold]Error:[/red bold] "
                     + str(e)
                     + "\n[green bold]Tip:[/green bold] Try dropping some messages or summarizing using slash commands."
+                )
+                continue
+            except LLMBackendRateLimitExceeded as e:
+                print(
+                    "[red bold]Error:[/red bold] "
+                    + str(e)
+                    + "\n[green bold]Tip:[/green bold] Rate limit reached. Please wait a moment before sending more requests."
                 )
                 continue
             except KeyboardInterrupt:

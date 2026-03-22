@@ -232,7 +232,7 @@ class TaskAgent:
                 else:
                     raise
 
-            while self._handle_tools(tools, response):
+            while self._handle_tools(tools, response.message):
                 try:
                     response = call(self.context(), tool_defs, model_str=self.model)
                 except LLMBackendMultimodalNotSupported as e:
@@ -255,8 +255,10 @@ class TaskAgent:
                     else:
                         raise
 
-            self.context.append({"role": ROLE_ASSISTANT, "content": response.content})
-            return response.content
+            self.context.append(
+                {"role": ROLE_ASSISTANT, "content": response.message.content}
+            )
+            return response.message.content
         except KeyboardInterrupt:
             return self._handle_interrupt(
                 fallback_exception=Exception("user aborted execution of " + self.name)
@@ -284,8 +286,10 @@ class TaskAgent:
         # and the context will still explode. For now I think we will just
         # let the task agent die on us.
         response = call(self.context(), tool_defs=None, model_str=self.model)
-        self.context.append({"role": ROLE_ASSISTANT, "content": response.content})
-        return response.content
+        self.context.append(
+            {"role": ROLE_ASSISTANT, "content": response.message.content}
+        )
+        return response.message.content
 
     def _handle_interrupt(self, fallback_exception: Exception):
         # the goal here is to force an exit and summarize

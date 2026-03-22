@@ -94,7 +94,7 @@ Or a table format. Keep it simple, readable.
    - Or embed parent context filename in sub-agent's filename
    - Improve context viewer to show hierarchy
 
-6. **ESC key interrupt**
+6. SKIPPED **ESC key interrupt**
    - Add key binding in prompt_toolkit `PromptSession` to ESC
    - Should behave like Ctrl+C (interrupt current agent processing)
    - Check existing bindings; likely just add to `key_bindings`

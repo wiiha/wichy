@@ -42,6 +42,23 @@ class LLMBackendMultimodalNotSupported(Exception):
         return self.message
 
 
+class LLMBackendRateLimitExceeded(Exception):
+    """Raised when the LLM backend rate limit is exceeded after maximum retries."""
+
+    def __init__(
+        self, message="rate limit exceeded after maximum retries", retry_count=None
+    ):
+        self.retry_count = retry_count
+        self.message = message
+        super().__init__(self.message)
+
+    def __str__(self):
+        m = self.message
+        if self.retry_count is not None:
+            m += f" (attempted {self.retry_count} retries)"
+        return m
+
+
 class function(BaseModel):
     arguments: str
     name: str
@@ -85,6 +102,15 @@ class Message(BaseModel):
         return cls(
             content=content, role=m.role, tool_calls=x, finish_reason=c.finish_reason
         )
+
+
+class LLMResponse(BaseModel):
+    """Container for LLM response including token usage data."""
+
+    message: Message
+    usage: Optional[Dict[str, int]] = (
+        None  # contains prompt_tokens, completion_tokens, total_tokens
+    )
 
 
 def backend_and_model_from_model_str(model_str: str):
@@ -161,6 +187,17 @@ def message_indicates_context_length_reached(m: str) -> bool:
         return True
 
     # can be extended with more conditions
+
+    return False
+
+
+def message_indicates_rate_limit(error) -> bool:
+    m = str(error).lower()
+    if "temporarily rate-limited upstream" in m:
+        return True
+
+    if "Error code".lower() in m and "429" in m and "rate" in m and "limit" in m:
+        return True
 
     return False
 
@@ -345,6 +382,27 @@ def call(context, tool_defs=None, model_str=None, extra_args=None, **extra_kwarg
             raise LLMBackendMultimodalNotSupported(
                 message=f"Model does not support multimodal content: {str(e)}"
             )
+        if message_indicates_rate_limit(e):
+            MAX_RETRIES = 3
+            retry_count = extra_kwargs.pop("retry_count", 0)
+            if retry_count >= MAX_RETRIES:
+                raise LLMBackendRateLimitExceeded(retry_count=retry_count)
+            backoff = 3 * (2**retry_count)  # 3, 6, 12 seconds
+            console.log(
+                f"got rate limited, will retry in {backoff} seconds (attempt {retry_count + 1})"
+            )
+            Console().print(
+                f"[dim][bold]→[/bold] LLM backend:[/dim] Rate limited, will retry in {backoff} seconds (attempt {retry_count + 1})"
+            )
+            time.sleep(backoff)
+            return call(
+                context=context,
+                tool_defs=tool_defs,
+                model_str=model_str,
+                extra_args=extra_args,
+                retry_count=retry_count + 1,
+                **extra_kwargs,
+            )
         # something else is not right
         raise e
 
@@ -352,18 +410,29 @@ def call(context, tool_defs=None, model_str=None, extra_args=None, **extra_kwarg
 
     # Unwrap response
     m = Message.from_choice(response.choices[0])
+
+    # Extract usage data
+    usage_data = None
+    if hasattr(response, "usage") and response.usage:
+        usage_data = {
+            "prompt_tokens": getattr(response.usage, "prompt_tokens", 0),
+            "completion_tokens": getattr(response.usage, "completion_tokens", 0),
+            "total_tokens": getattr(response.usage, "total_tokens", 0),
+        }
+
     log_msg = {
         "finish reason": m.finish_reason,
         "model": response.model,
         "elapsed time": f"{elapsed_time:.2f}s",
-        "total tokens": f"{response.usage.total_tokens}",
+        "total tokens": f"{usage_data['total_tokens'] if usage_data else 'N/A'}",
     }
     # Pretty print similar to base.py
+    total_tokens_str = str(usage_data["total_tokens"]) if usage_data else "N/A"
     Console().print(
         f"[dim][bold]→[/bold] LLM response:[/dim] "
         f"[bold]{response.model}[/bold]"
-        f"[dim] finish={m.finish_reason}, elapsed={elapsed_time:.2f}s, total_tokens={response.usage.total_tokens}[/dim]"
+        f"[dim] finish={m.finish_reason}, elapsed={elapsed_time:.2f}s, total_tokens={total_tokens_str}[/dim]"
     )
     console.log(log_msg)  # raw output
 
-    return m
+    return LLMResponse(message=m, usage=usage_data)

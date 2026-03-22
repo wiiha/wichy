@@ -145,12 +145,14 @@ class AgenticMemorySystem:
             ctx.append(
                 {
                     "role": "assistant",
-                    "content": response.content,
-                    "tool_calls": [t.model_dump() for t in (response.tool_calls or [])],
+                    "content": response.message.content,
+                    "tool_calls": [
+                        t.model_dump() for t in (response.message.tool_calls or [])
+                    ],
                 }
             )
 
-            if response.finish_reason != "tool_calls":
+            if response.message.finish_reason != "tool_calls":
                 if c == 0:
                     ctx.add(
                         role="user",
@@ -162,13 +164,13 @@ class AgenticMemorySystem:
                 continue  # let us try again
 
             # we have a tool call!
-            if not response.tool_calls:
+            if not response.message.tool_calls:
                 # but doesn't seem to be any tool call around...
                 c += 1
                 continue
 
             # at least one tool call
-            item = response.tool_calls[0]
+            item = response.message.tool_calls[0]
             name = item.function.name
             if name != answer_tool.name:
                 # called tool, but wrong name
@@ -358,12 +360,14 @@ class AgenticMemorySystem:
             ctx.append(
                 {
                     "role": "assistant",
-                    "content": response.content,
-                    "tool_calls": [t.model_dump() for t in (response.tool_calls or [])],
+                    "content": response.message.content,
+                    "tool_calls": [
+                        t.model_dump() for t in (response.message.tool_calls or [])
+                    ],
                 }
             )
 
-            if response.finish_reason != "tool_calls":
+            if response.message.finish_reason != "tool_calls":
                 if c < 1:
                     ctx.add(
                         role="user",
@@ -374,7 +378,7 @@ class AgenticMemorySystem:
 
             # we have a tool call!
             has_error = False
-            for tc in response.tool_calls:
+            for tc in response.message.tool_calls:
                 item = tc
                 name = item.function.name
 
