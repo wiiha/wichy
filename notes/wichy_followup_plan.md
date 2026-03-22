@@ -3,22 +3,26 @@
 ## 1. CORRECTIONS & CLARIFICATIONS
 
 ### First-turn message injection
+
 - **Current state:** No automatic injection occurs. The "you just woke up" message was manually written by you during testing.
 - **Needed:** Both the injection feature AND the `--first` flag to inhibit it.
 - **Implementation location:** Likely in `__main__.py` before entering REPL loop, or in `Repl.run()` before first prompt.
 
 ### Web GUI line wrap issue
+
 - **Problem:** Files with very long lines (e.g., minified JavaScript) cause horizontal overflow/ugliness.
 - **Solution:** CSS `overflow-wrap: anywhere;` or `word-break: break-all;` on the message content container in context editor.
 - **Not** about tool call JSON formatting.
 
 ### `/btw` command
+
 - **Category:** Slash command (handled by `SlashCommandChecker` before reaching RootAgent)
 - **Not** a TaskAgent tool. Should be implemented as a separate command handler.
 - **Behavior:** Spawns a single-turn agent with current context (read-only copy), no tools, returns answer as "[BTW]" to user, does not modify main context.
 - **Implementation:** New method in `Repl` or new slash command class that creates temporary `ContextHandler` from current context, calls LLM with no tools, returns result.
 
 ### Web GUI: User notepad
+
 - **Architecture:** Sibling feature to graph and context editors – separate blueprint/template under `/tools/notes/` or similar.
 - **Storage:** Plain markdown files in `.wichy/notes/`, one per note with UUID filenames.
 - **Frontmatter:** Each file should have frontmatter with metadata including a user-chosen title/name (not just UUID).
@@ -26,11 +30,13 @@
 - **UI:** Simple markdown editor (consider EasyMDE or similar) with preview.
 
 ### Skill output format (activate_skill & skill_search)
+
 **activate_skill** currently returns JSON with markdown_content inside. Desired: return **full markdown directly** (the `skill.md` content including frontmatter and body) as the primary output, not wrapped in JSON.
 
 **skill_search** currently returns JSON array of skill metadata. Should return **markdown** (likely a table or list) for better LLM consumption.
 
 **Additional cleanup:**
+
 - Remove the `path` field from output (filesystem path not needed by agent/user).
 - Deduplicate tags: currently showing twice (once in `metadata` and once as `tags` field). Should only appear once, under `metadata` or as a separate line in markdown output.
 - `markdown_content` field includes frontmatter which duplicates `metadata` – if returning markdown directly, this redundancy disappears.
@@ -40,6 +46,7 @@ Simply return `skill.markdown_content` (the full content of `skill.md`). That's 
 
 **Proposed format for `skill_search`:**
 Return markdown like:
+
 ```markdown
 ## Found 3 skills
 
@@ -47,8 +54,9 @@ Return markdown like:
   - Runbook maintenance tool
 - **web-search** (web, search, ddg)
   - DuckDuckGo search integration
-...
+    ...
 ```
+
 Or a table format. Keep it simple, readable.
 
 ---
@@ -75,7 +83,7 @@ Or a table format. Keep it simple, readable.
    - Retry extraction or prompt model to format properly
    - Research: Implement multi-format parser (Anthropic XML, OpenAI JSON, Gemini functionCall, Ollama narrative)
 
-4. **First-turn injection**
+4. IMPLEMENTED **First-turn injection**
    - Add default behavior: inject "You just woke up..." system message before first user turn
    - Add `--first` / `--no-first-message` flag to disable
    - Implementation: Flag in `CliParser`, condition in `Repl.run()` or before `RootAgent.process()`
