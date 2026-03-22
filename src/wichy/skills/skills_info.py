@@ -33,7 +33,7 @@ def skills_information(skill_names: List[str] = None) -> str:
 
     lines = ["<skills>"]
     for skill in skills.values():
-        lines.append(f"{skill.name}: {skill.description}")
+        lines.append(f"- {skill.name}: {skill.description}")
     lines.append("</skills>")
 
     return "\n".join(lines)
