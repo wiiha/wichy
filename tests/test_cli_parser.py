@@ -113,7 +113,7 @@ class TestCliParser:
         assert args.show_log is False
         assert args.list_tools is False
         assert args.model_str == ""
-        assert args.root_agent_description == "root-agent-code-advanced"
+        assert args.root_agent_description == "root-agent-basic"
         assert args.no_server is False
         assert args.command is None
 
