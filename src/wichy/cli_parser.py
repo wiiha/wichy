@@ -93,7 +93,7 @@ class CliParser:
         self.parser.add_argument(
             "-r",
             "--root-agent-description",
-            default="root-agent-code-advanced",
+            default="root-agent-basic",
             help="Specify which root agent description to use.",
         )
         self.parser.add_argument(
