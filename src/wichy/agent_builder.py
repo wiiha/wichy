@@ -105,6 +105,16 @@ class AgentBuilder:
                 "No model specified, either specify in frontmatter or using --model-str"
             )
 
+        agent_goes_first = True
+
+        if self.cli_config.user_first:
+            # Agent doesn't go first if user specified other using cli flag
+            agent_goes_first = False
+
+        if context != None:
+            # If we load a previous context, then agent dont go first.
+            agent_goes_first = False
+
         # 4. Create RootAgent instance
         root_agent = RootAgent(
             model_str=model_str,
@@ -112,6 +122,7 @@ class AgentBuilder:
             name=selected_root_agent.props.get("name"),
             context=context,
             skills=self.skills,
+            agent_has_first_initiative=agent_goes_first,
         )
 
         # 5. Add system prompt if fresh conversation (no context provided)

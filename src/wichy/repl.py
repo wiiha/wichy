@@ -37,6 +37,15 @@ class Repl:
 
     def run(self) -> None:
         """Run the interactive REPL loop."""
+        if self.root_agent.agent_has_first_initiative:
+            # Execute the "wake up" message for the agent to go first
+            self._print_separator()
+            result = self.root_agent.process(
+                "You just woke up. Perform any tasks you deem necessary before interacting further with the user."
+            )
+            result = strip_thinking_content(result)
+            self._print_assistant_response(result)
+
         while True:
             try:
                 self._print_user_prompt()

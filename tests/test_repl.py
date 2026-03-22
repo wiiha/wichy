@@ -17,6 +17,7 @@ class TestRepl:
         agent.process.return_value = "Test response"
         agent.reset_context = MagicMock()
         agent.drop_last_context_entry = MagicMock()
+        agent.agent_has_first_initiative = False
         return agent
 
     @pytest.fixture

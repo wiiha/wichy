@@ -6,8 +6,8 @@ from rich import print
 from rich.markdown import Markdown
 
 from wichy.constants import ROLE_ASSISTANT, ROLE_TOOL, ROLE_USER
-from wichy.helpers.console import console
 from wichy.context.handler import new_context
+from wichy.helpers.console import console
 from wichy.helpers.multimodal import (
     build_multimodal_user_message,
     extract_multimodal_content,
@@ -37,6 +37,7 @@ class RootAgent:
         name: str = "NOT SET",
         context=None,
         skills=None,
+        agent_has_first_initiative: bool = True,
     ):
         if context is not None:
             self.context = context
@@ -72,6 +73,8 @@ class RootAgent:
 
         # Start file watching for live sync with web editor
         self.context.start_watching(interval=2.0)
+
+        self.agent_has_first_initiative = agent_has_first_initiative
 
     def tool_call(
         self, tools, item: called_tool

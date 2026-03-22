@@ -20,6 +20,7 @@ class CliConfig:
     root_agent_description: str = "root-agent-code-advanced"
     load_ctx: Optional[str] = None
     no_server: bool = False
+    user_first: bool = False
 
     # Subcommands
     command: Optional[str] = None
@@ -105,6 +106,11 @@ class CliParser:
             action="store_true",
             help="Do not start the web server (graph editor, etc.)",
         )
+        self.parser.add_argument(
+            "--first",
+            action="store_true",
+            help='Let the user have the first turn. Default is that agent receives a "wake up" message, thereby getting first initiative.',
+        )
 
     def _add_subcommands(self):
         """Add subcommands."""
@@ -183,6 +189,7 @@ class CliParser:
             ls_command=getattr(parsed, "ls_command", None),
             new_command=getattr(parsed, "new_command", None),
             ra_template=getattr(parsed, "template", False),
+            user_first=parsed.first,
         )
 
         # Extract new skill details if applicable
