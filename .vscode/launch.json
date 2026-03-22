@@ -10,7 +10,7 @@
       "request": "launch",
       "program": "${workspaceFolder}/src/wichy/__main__.py",
       "console": "integratedTerminal",
-      "args": ["-r", "root-agent-basic"]
+      "args": ["-r", "root-agent-basic", "--first"]
     },
     {
       "name": "Python Debugger: Wichy (Open Router)",
@@ -21,8 +21,9 @@
       "args": [
         "--model-str",
         // "open_router/arcee-ai/trinity-large-preview:free"
-        "open_router/stepfun/step-3.5-flash:free"
+        "open_router/stepfun/step-3.5-flash:free",
         // "--show-log"
+        "--first"
       ]
     },
     {

@@ -82,6 +82,8 @@ class SkillSearchTool(BaseTool):
                     "description": skill.description,
                     "tags": skill.tags,
                     "script_count": len(skill.scripts),
+                    "reference_count": len(skill.references),
+                    "asset_count": len(skill.assets),
                     "matches_in_content": params.keyword.lower()
                     in skill.markdown_content.lower(),
                 }
@@ -116,9 +118,8 @@ class SkillInfoTool(BaseTool):
         result = {
             "name": skill.name,
             "description": skill.description,
-            "path": str(skill.path),
+            # "path": str(skill.path),
             "markdown_content": skill.markdown_content,
-            "metadata": skill.metadata,
             "tags": skill.tags,
             "scripts": skill.list_scripts(),
             "references": [
