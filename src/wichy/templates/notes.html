@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wichy - Notes</title>
+    <link rel="stylesheet" href="/shared/shared.css">
+    <link rel="stylesheet" href="/shared/notes.css">
+    <!-- EasyMDE from local static -->
+    <link rel="stylesheet" href="/tools/notes/easymde/easymde.min.css">
+</head>
+<body>
+    <div class="container">
+        <header class="header-simple">
+            <div>
+                <h1 class="header-title">Notes</h1>
+                <p class="header-subtitle">Your scratchpad and personal notes</p>
+            </div>
+            <nav class="header-nav">
+                <a href="/">Back to Home</a>
+            </nav>
+        </header>
+
+        <div class="main-layout">
+            <aside class="sidebar">
+                <div class="sidebar-section">
+                    <button id="btn-new-note" class="btn btn-primary" style="width:100%">+ New Note</button>
+                </div>
+                <div class="sidebar-section">
+                    <input type="text" id="note-search" class="form-input" placeholder="Search notes...">
+                </div>
+                <div class="sidebar-section notes-list-container">
+                    <div id="notes-list">
+                        <!-- Notes rendered here -->
+                    </div>
+                    <div id="empty-state" class="empty-state hidden">
+                        <p>No notes yet.</p>
+                        <p>Create your first note above.</p>
+                    </div>
+                </div>
+            </aside>
+
+            <main class="editor">
+                <div id="no-note-selected" class="no-note-selected">
+                    <p>Select a note from the sidebar or create a new one.</p>
+                </div>
+                <div id="note-editor" class="note-editor hidden">
+                    <div class="editor-header" id="editor-header" data-saving="false">
+                        <div class="note-title-input" id="note-title-wrapper">
+                            <span id="note-title" class="note-title-text" placeholder="Note title..."></span>
+                            <span id="note-title-unsaved" class="note-title-unsaved" title="Unsaved changes"></span>
+                            <span id="note-title-saving" class="note-title-saving">saving…</span>
+                        </div>
+                        <div class="editor-actions">
+                            <button id="btn-pin" class="btn btn-secondary">
+                                <span class="pin-icon">☆</span> Pin as Scratchpad
+                            </button>
+                            <button id="btn-delete" class="btn btn-danger">Delete</button>
+                        </div>
+                    </div>
+                    <div id="editor-toolbar" class="editor-toolbar"></div>
+                    <textarea id="note-content"></textarea>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- EasyMDE from local static -->
+    <script src="/tools/notes/easymde/easymde.min.js"></script>
+    <script src="/shared/notes.js"></script>
+</body>
+</html>

@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     # Paths - Project-local
     contexts_dir: Path = Path(".wichy/contexts")
     graphs_dir_name: str = "graphs"
+    notes_dir_name: str = "notes"
     logs_dir_name: str = "logs"
     root_agent_defs_dir: str = "root_agent_defs"
 
@@ -89,6 +90,16 @@ class Settings(BaseSettings):
     def logs_dir(self) -> Path:
         """Full path to logs directory (relative to workspace)."""
         return Path(".wichy") / self.logs_dir_name
+
+    @property
+    def notes_dir(self) -> Path:
+        """Full path to notes directory (relative to workspace)."""
+        return Path(".wichy") / self.notes_dir_name
+
+    @property
+    def scratchpad_marker_path(self) -> Path:
+        """Full path to scratchpad marker file."""
+        return self.notes_dir / ".scratchpad"
 
     @property
     def browser_viewport(self) -> dict:

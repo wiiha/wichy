@@ -65,7 +65,7 @@ Or a table format. Keep it simple, readable.
 
 ### A. Core Infrastructure & Reliability
 
-1. **Token usage tracking**
+1. IMPLEMENTED **Token usage tracking**
    - Modify `llm_backend.py:call()` to return usage data (prompt_tokens, completion_tokens, total)
    - Track cumulative usage in `RootAgent` (for auto-compaction)
    - Expose via context logs and `/status` endpoint
@@ -114,18 +114,14 @@ Or a table format. Keep it simple, readable.
    - JavaScript: if scroll near bottom before update, auto-scroll to bottom after
    - If user scrolled up, preserve position
 
-4. **User notepad (sibling feature)**
+4. IMPLEMENTED **User notepad (sibling feature)**
    - Blueprint: `src/wichy/tools/notes/` with `/tools/notes/` route
    - Templates: `notes.html`, static: `notes.js`, `notes.css`
-   - Storage: `.wichy/notes/` with markdown files (`uuid.md`) having frontmatter `title: ...`
+   - Storage: `.wichy/notes/<slug>.md` with frontmatter `title`, `created`, `updated`
+   - `.wichy/notes/.scratchpad` JSON marker for pinned note
    - CRUD API: list, create, read, update, delete
-   - Tools: `SearchNotesTool`, `ReadNotesTool` (read-only for now)
-   - Agent cannot write (future enhancement)
-
-5. **Context editor full rewrite instead of truncate**
-   - Extend `ContextHandler.replace_message(index, new_content)` already exists
-   - Add UI: edit button that replaces truncate action with full text editor
-   - Or add "delete" as alternative
+   - Tool: `ReadScratchpadTool` — reads pinned note; returns "scratchpad is empty" if none
+   - EasyMDE locally served from `src/wichy/static/easymde/`
 
 ### C. Advanced Agent Capabilities
 
@@ -137,7 +133,7 @@ Or a table format. Keep it simple, readable.
    - Display with `[BTW]` prefix or special formatting
    - Clean up temporary context
 
-2. **Auto-compaction by token count**
+2. IMPLEMENTED **Auto-compaction by token count**
    - Flag: `--auto-compact <tokens>` (threshold)
    - After each turn, check usage cumulative; if exceeded, trigger compaction before next LLM call
    - Compaction prompt: different from `/compact` – focus on preserving ability to continue current task/mission

@@ -1,0 +1,252 @@
+/**
+ * Notes Tool - Page-specific styles
+ *
+ * This file contains only page-specific styles for the notes editor.
+ * Base styles and design tokens are in /shared/shared.css
+ */
+
+/* Layout */
+.main-layout {
+  display: flex;
+  flex: 1;
+  min-height: calc(100vh - var(--header-height));
+}
+
+.main-layout > aside {
+  flex-shrink: 0;
+}
+
+.main-layout > main {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Sidebar */
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  width: 280px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-xl);
+  overflow: hidden;
+}
+
+.notes-list-container {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* Note items in sidebar */
+.note-item {
+  padding: var(--space-md);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+}
+
+.note-item:last-child {
+  border-bottom: none;
+}
+
+.note-item:hover {
+  background: var(--background);
+}
+
+.note-item.active {
+  background: var(--primary-50);
+  border-left: 3px solid var(--primary-500);
+}
+
+.note-item-star {
+  color: var(--text-light);
+  font-size: var(--font-size-base);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.note-item-star.scratchpad {
+  color: #f59e0b;
+}
+
+.note-item-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.note-item-title {
+  font-weight: 500;
+  font-size: var(--font-size-base);
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
+
+.note-item-date {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* Editor area */
+.editor {
+  flex: 1;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  margin-left: var(--space-xl);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.no-note-selected {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: var(--font-size-lg);
+}
+
+.note-editor {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Editor header row */
+.editor-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg);
+  padding: var(--space-lg) var(--space-xl);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.note-title-input {
+  flex-grow: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+/* Note title (contenteditable span) */
+#note-title {
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: var(--text);
+  border: none;
+  background: transparent;
+  outline: none;
+  font-family: inherit;
+  flex-grow: 1;
+  min-width: 0;
+  cursor: text;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#note-title:empty::before {
+  content: attr(placeholder);
+  color: var(--text-light);
+}
+
+/* Unsaved indicator dot */
+.note-title-unsaved {
+  display: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f59e0b;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+#note-title.unsaved ~ .note-title-unsaved {
+  display: block;
+}
+
+/* Saving indicator */
+.note-title-saving {
+  display: none;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: normal;
+}
+
+.editor-header[data-saving="true"] .note-title-saving {
+  display: block;
+}
+
+/* Override: hide unsaved dot while saving (show saving text instead) */
+.editor-header[data-saving="true"] #note-title.unsaved ~ .note-title-unsaved {
+  display: none;
+}
+
+.editor-actions {
+  display: flex;
+  gap: var(--space-sm);
+  flex-shrink: 0;
+}
+
+/* Pin button state */
+#btn-pin .pin-icon {
+  color: var(--text-muted);
+  transition: color var(--transition-fast);
+}
+
+#btn-pin.pinned .pin-icon {
+  color: #f59e0b;
+}
+
+/* EasyMDE toolbar container */
+.editor-toolbar {
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+/* EasyMDE overrides */
+.editor-toolbar .editor-toolbar {
+  border: none;
+}
+
+#note-content {
+  display: none;
+}
+
+/* Empty state in sidebar */
+.empty-state {
+  text-align: center;
+  padding: var(--space-2xl) var(--space-xl);
+  color: var(--text-muted);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .main-layout {
+    flex-direction: column;
+  }
+
+  .sidebar {
+    width: 100%;
+    max-height: 300px;
+    margin-bottom: var(--space-lg);
+  }
+
+  .editor {
+    margin-left: 0;
+    flex: 1;
+  }
+}
