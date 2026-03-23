@@ -305,16 +305,16 @@ def start_server(root_agent):
     server_controller = ServerController(port=7891)
     actual_port = server_controller.start()
     print(f"[dim]Web server started on http://127.0.0.1:{actual_port}[/dim]")
-    print(f"[dim]Graph editor: http://127.0.0.1:{actual_port}/tools/graph/[/dim]")
+    # print(f"[dim]Graph editor: http://127.0.0.1:{actual_port}/tools/graph/[/dim]")
 
     # Set active context for context editor if server is enabled
     try:
         from wichy.tools.context_editor import api as context_editor_api
 
         context_editor_api.set_active_context(root_agent.context)
-        print(
-            f"[dim]Context editor: http://127.0.0.1:{actual_port}/tools/context/[/dim]"
-        )
+        # print(
+        #     f"[dim]Context editor: http://127.0.0.1:{actual_port}/tools/context/[/dim]"
+        # )
     except Exception as e:
         print(
             f"[yellow]Warning: Could not set active context for web editor: {e}[/yellow]"
