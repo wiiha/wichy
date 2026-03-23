@@ -19,7 +19,6 @@ const noteTitleUnsaved = document.getElementById('note-title-unsaved');
 const noteTitleSaving = document.getElementById('note-title-saving');
 const editorHeader = document.getElementById('editor-header');
 const noteContent = document.getElementById('note-content');
-const editorToolbar = document.getElementById('editor-toolbar');
 const btnPin = document.getElementById('btn-pin');
 const btnDelete = document.getElementById('btn-delete');
 
@@ -228,26 +227,17 @@ async function selectNote(slug) {
         // Reset the textarea
         noteContent.value = note.content || '';
 
-        // Create new EasyMDE instance
+        // Create new EasyMDE instance — no toolbar (user writes raw Markdown).
+        // autoDownloadFontAwesome: false prevents the constructor from injecting any
+        // external stylesheet regardless of what styles are already in the document.
         mde = new EasyMDE({
             element: noteContent,
             toolbar: false,
+            spellChecker: false,
+            autoDownloadFontAwesome: false,
             initialValue: note.content || '',
             status: false,
         });
-
-        // Move EasyMDE toolbar into our toolbar container
-        // Note: EasyMDE renders its .editor-toolbar inside the .EasyMDE wrapper.
-        // We must NOT move #editor-toolbar into itself; instead we just show it
-        // since it IS the EasyMDE toolbar element.
-        editorToolbar.innerHTML = '';
-        const mdeContainer = mde.element.parentElement;
-        const mdeToolbar = mdeContainer.querySelector('.editor-toolbar');
-        if (mdeToolbar && mdeToolbar !== editorToolbar) {
-            editorToolbar.innerHTML = '';
-            editorToolbar.appendChild(mdeToolbar);
-            mdeToolbar.style.display = '';
-        }
 
         // Track changes
         mde.codemirror.on('change', () => {

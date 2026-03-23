@@ -47,7 +47,7 @@
                 <div id="note-editor" class="note-editor hidden">
                     <div class="editor-header" id="editor-header" data-saving="false">
                         <div class="note-title-input" id="note-title-wrapper">
-                            <span id="note-title" class="note-title-text" placeholder="Note title..."></span>
+                            <span id="note-title" class="note-title-text" contenteditable="true" placeholder="Note title..."></span>
                             <span id="note-title-unsaved" class="note-title-unsaved" title="Unsaved changes"></span>
                             <span id="note-title-saving" class="note-title-saving">saving…</span>
                         </div>
@@ -58,7 +58,6 @@
                             <button id="btn-delete" class="btn btn-danger">Delete</button>
                         </div>
                     </div>
-                    <div id="editor-toolbar" class="editor-toolbar"></div>
                     <textarea id="note-content"></textarea>
                 </div>
             </main>

@@ -211,19 +211,22 @@
   color: #f59e0b;
 }
 
-/* EasyMDE toolbar container */
-.editor-toolbar {
-  flex-shrink: 0;
-  border-bottom: 1px solid var(--border);
-}
-
-/* EasyMDE overrides */
-.editor-toolbar .editor-toolbar {
-  border: none;
-}
-
+/* Hide the raw textarea (EasyMDE replaces it with its own editor) */
 #note-content {
   display: none;
+}
+
+/* EasyMDE editor fills remaining space */
+.note-editor .EasyMDE {
+  flex: 1;
+  min-height: 0;
+  border: none;
+  border-radius: 0;
+}
+
+.note-editor .CodeMirror {
+  height: 100%;
+  min-height: 200px;
 }
 
 /* Empty state in sidebar */
