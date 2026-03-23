@@ -101,16 +101,16 @@ Or a table format. Keep it simple, readable.
 
 ### B. Web UI Polish & Features
 
-1. **Force line wrap in context editor**
+1. IMPLEMENTED **Force line wrap in context editor**
    - Add CSS rule: `.message-content { overflow-wrap: anywhere; }` or `word-break: break-word;`
    - Fix long unbroken lines (minified JS, long URLs)
 
-2. **Delete individual messages**
+2. IMPLEMENTED **Delete individual messages**
    - Add `ContextHandler.delete_message(index)` if not exists
    - Add UI button and API endpoint `DELETE /tools/context/api/messages/<index>`
    - Confirm dialog for safety
 
-3. **Smart auto-scroll in context viewer**
+3. IMPLEMENTED **Smart auto-scroll in context viewer**
    - JavaScript: if scroll near bottom before update, auto-scroll to bottom after
    - If user scrolled up, preserve position
 
