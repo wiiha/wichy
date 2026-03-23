@@ -69,23 +69,23 @@
 
 ## Phase 3.5: Pipeline-safe human verification
 
-**Status:** TODO
+**Status:** DONE
 
 **What:** When pipeline mode is active and human verification is required, auto-deny instead of blocking on stdin.
 
 **Changes:**
 
-- `human_verification.py` — add `PIPELINE_MODE = False` module-level flag
-- `__main__.py` — set `PIPELINE_MODE = True` when `--prompt` is set, before agent runs
-- `human_verification.py` — in `require_human_verification` decorator: when `PIPELINE_MODE` is `True` and we reach the `prompt("Proceed? (y/n)")` call, auto-deny by raising `PermissionError` with a clear message (e.g. `"This tool requires human verification and cannot run in pipeline mode"`)
+- `human_verification.py` — added `PIPELINE_MODE = False` module-level flag
+- `__main__.py` — sets `PIPELINE_MODE = True` when `--prompt` is set, before agent runs
+- `human_verification.py` — in `require_human_verification` decorator: when `PIPELINE_MODE` is `True`, raises `PermissionError` with message before reaching `prompt("Proceed? (y/n)")`
+- `skills/tools.py` — `SkillScriptTool.execute()` has its own inline verification loop (not using the decorator); also checks `PIPELINE_MODE` and raises `PermissionError`
+- `cli_parser.py` — added `--prompt` flag to `CliConfig` and `CliParser` (needed to gate on)
 
 **Behavior in pipeline mode:**
 
-- Tool requiring verification → reaches "Proceed? (y/n)" → auto-deny → `PermissionError` → LLM sees error, can retry or explain
+- Tool requiring verification → reaches `PIPELINE_MODE` check → auto-deny → `PermissionError` → LLM sees error, can retry or explain
 - No silent skips, no blocking on stdin
 - `SKIP_HUMAN_VERIFICATION` is ignored in pipeline mode
-
-**Files touched:** `src/wichy/tools/human_verification.py`, `src/wichy/__main__.py`
 
 ---
 

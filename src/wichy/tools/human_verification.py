@@ -2,13 +2,25 @@ import functools
 from typing import Any, Callable, Optional
 
 from prompt_toolkit import PromptSession
-from wichy.console import user_console
 
+from wichy.console import user_console
 from wichy.helpers.needs_user_attention import needs_user_attention
 
 SKIP_HUMAN_VERIFICATION = False
+PIPELINE_MODE = False
 
 prompt_session = PromptSession()
+
+
+def in_pipeline_mode() -> bool:
+    """Returns True when wichy is running in pipeline mode (--prompt)."""
+    return PIPELINE_MODE
+
+
+def set_pipeline_mode(active: bool) -> None:
+    """Enable or disable pipeline mode. Call this before any agent/tool runs."""
+    global PIPELINE_MODE
+    PIPELINE_MODE = active
 
 
 def require_human_verification(func: Callable) -> Callable:
@@ -71,6 +83,13 @@ def require_human_verification(func: Callable) -> Callable:
 
         if SKIP_HUMAN_VERIFICATION:
             return func(*args, **kwargs)
+
+        if in_pipeline_mode():
+            tool_name = getattr(args[0], "name", None) or label if args else label
+            raise PermissionError(
+                f"This tool requires human verification and cannot run in pipeline mode. "
+                f"Tool: {tool_name}, args: {all_args}"
+            )
 
         message: Optional[str] = getattr(wrapper, "_action_message", None)
 

@@ -22,6 +22,7 @@ class CliConfig:
     last_ctx: bool = False
     no_server: bool = False
     user_first: bool = False
+    prompt: Optional[str] = None
     auto_compact_threshold: Optional[int] = None
 
     # Subcommands
@@ -119,6 +120,12 @@ class CliParser:
             help='Let the user have the first turn. Default is that agent receives a "wake up" message, thereby getting first initiative.',
         )
         self.parser.add_argument(
+            "--prompt",
+            type=str,
+            dest="prompt",
+            help="Run in pipeline mode with the given prompt. Bypasses REPL, executes the prompt, handles tool calls and exits. Last root agent response will be sent on stdout.",
+        )
+        self.parser.add_argument(
             "--auto-compact",
             type=int,
             dest="auto_compact_threshold",
@@ -204,6 +211,7 @@ class CliParser:
             new_command=getattr(parsed, "new_command", None),
             ra_template=getattr(parsed, "template", False),
             user_first=parsed.first,
+            prompt=getattr(parsed, "prompt", None),
             auto_compact_threshold=getattr(parsed, "auto_compact_threshold", None),
         )
 

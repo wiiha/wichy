@@ -11,7 +11,11 @@ from pydantic import Field
 from wichy.console import user_console
 from wichy.skills.registry import SkillRegistry
 from wichy.tools.base import BaseTool, ParametersModel
-from wichy.tools.human_verification import SKIP_HUMAN_VERIFICATION, prompt_session
+from wichy.tools.human_verification import (
+    SKIP_HUMAN_VERIFICATION,
+    in_pipeline_mode,
+    prompt_session,
+)
 
 
 class ListSkillsParameters(ParametersModel):
@@ -171,6 +175,11 @@ class SkillScriptTool(BaseTool):
 
         # Human verification for non-safe scripts
         if not is_safe and not SKIP_HUMAN_VERIFICATION:
+            if in_pipeline_mode():
+                raise PermissionError(
+                    f"This skill script requires human verification and cannot run in pipeline mode. "
+                    f"Tool: execute_skill_script, skill={params.skill_name}, script={params.script_name}"
+                )
             user_console.print(
                 "\n[bold yellow]ACTION:[/bold yellow] Execute skill script"
             )

@@ -16,9 +16,13 @@ from rich.markdown import Markdown
 from wichy.agent_builder import AgentBuilderError, build_agent_from_config
 from wichy.cli_parser import CliParser
 from wichy.config import settings
-from wichy.console import user_console
+from wichy.console import user_console, set_user_output_quiet
 from wichy.constants import ROLE_ASSISTANT, ROLE_USER
-from wichy.context.handler import context_from_file, latest_context_file, previous_conversations
+from wichy.context.handler import (
+    context_from_file,
+    latest_context_file,
+    previous_conversations,
+)
 from wichy.helpers.console import console
 from wichy.helpers.string import truncate_to_len
 from wichy.repl import Repl
@@ -31,6 +35,7 @@ from wichy.skills.skill_template import skill_template
 from wichy.slash_commands import SlashCommandChecker, slash_completer
 from wichy.tool_manager import ToolManager
 from wichy.tools.base import console_tool_result
+from wichy.tools import human_verification
 from wichy.tools.task import console_task_agents
 
 
@@ -325,6 +330,12 @@ def start_server(root_agent):
 def main():
     parser = CliParser()
     args = parser.parse()
+
+    # Set pipeline mode when --prompt is given (before any agent/tool runs)
+    if args.prompt is not None:
+        human_verification.set_pipeline_mode(True)
+        set_user_output_quiet(True)
+
     cmd_checker = SlashCommandChecker()
 
     prompt_session = PromptSession(
@@ -373,7 +384,9 @@ def main():
     # Load context from file if specified (before building agent)
     loaded_context = None
     if args.load_ctx and args.last_ctx:
-        user_console.print("[red]error:[/red] --load-ctx and --last-ctx are mutually exclusive")
+        user_console.print(
+            "[red]error:[/red] --load-ctx and --last-ctx are mutually exclusive"
+        )
         exit(1)
 
     if args.load_ctx:

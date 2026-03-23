@@ -671,7 +671,11 @@ def latest_context_file():
         FileNotFoundError: If no context files exist.
     """
     contexts_dir = settings.contexts_dir
-    files = [f for f in contexts_dir.iterdir() if f.is_file() and f.suffix == CONTEXT_FILE_EXT]
+    files = [
+        f
+        for f in contexts_dir.iterdir()
+        if f.is_file() and f.suffix == CONTEXT_FILE_EXT
+    ]
     if not files:
         raise FileNotFoundError(f"No context files found in {contexts_dir}")
     return max(files, key=lambda f: f.stat().st_mtime)
