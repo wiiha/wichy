@@ -368,6 +368,9 @@ class RootAgent:
         # Generate the summary
         response = call(context=ctx(), model_str=self.model_str)
 
+        # we have no more use of the temporary summary context
+        ctx.delete()
+
         summary_msg = response.message.content
 
         if not is_auto_compact:
@@ -378,7 +381,6 @@ class RootAgent:
 
             # Print the summary
             print(Markdown(summary_msg))
-            ctx.delete()
 
         # Create new context with original system prompt and summary
         n_ctx = new_context()
