@@ -660,6 +660,23 @@ def previous_conversations():
     return [f.name for f in contexts_dir.iterdir() if f.is_file()]
 
 
+def latest_context_file():
+    """
+    Return the path to the most recently modified context file.
+
+    Returns:
+        Path: Absolute path to the latest context file.
+
+    Raises:
+        FileNotFoundError: If no context files exist.
+    """
+    contexts_dir = settings.contexts_dir
+    files = [f for f in contexts_dir.iterdir() if f.is_file() and f.suffix == CONTEXT_FILE_EXT]
+    if not files:
+        raise FileNotFoundError(f"No context files found in {contexts_dir}")
+    return max(files, key=lambda f: f.stat().st_mtime)
+
+
 def _drop_last_n_message_lines(filename: Path, n: int):
     """
     Remove the last *n* message entries from *filename*, plus any log lines

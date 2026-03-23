@@ -6,7 +6,7 @@
 
 ## Phase 1: `--last-ctx` flag
 
-**Status:** TODO
+**Status:** DONE
 
 **What:** Find and load the most recent context file by mtime, as shorthand for `--load-ctx`.
 

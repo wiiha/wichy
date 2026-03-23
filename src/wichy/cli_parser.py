@@ -19,6 +19,7 @@ class CliConfig:
     not_tools: str = ""
     root_agent_description: str = "root-agent-code-advanced"
     load_ctx: Optional[str] = None
+    last_ctx: bool = False
     no_server: bool = False
     user_first: bool = False
     auto_compact_threshold: Optional[int] = None
@@ -101,6 +102,11 @@ class CliParser:
             "--load-ctx",
             type=str,
             help="Path to a context JSON file to resume a previous conversation.",
+        )
+        self.parser.add_argument(
+            "--last-ctx",
+            action="store_true",
+            help="Load the most recently saved conversation context.",
         )
         self.parser.add_argument(
             "--no-server",
@@ -191,6 +197,7 @@ class CliParser:
             not_tools=parsed.not_tools,
             root_agent_description=parsed.root_agent_description,
             load_ctx=parsed.load_ctx,
+            last_ctx=parsed.last_ctx,
             no_server=parsed.no_server,
             command=parsed.command,
             ls_command=getattr(parsed, "ls_command", None),

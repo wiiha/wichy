@@ -18,7 +18,7 @@ from wichy.cli_parser import CliParser
 from wichy.config import settings
 from wichy.console import user_console
 from wichy.constants import ROLE_ASSISTANT, ROLE_USER
-from wichy.context.handler import context_from_file, previous_conversations
+from wichy.context.handler import context_from_file, latest_context_file, previous_conversations
 from wichy.helpers.console import console
 from wichy.helpers.string import truncate_to_len
 from wichy.repl import Repl
@@ -372,12 +372,30 @@ def main():
 
     # Load context from file if specified (before building agent)
     loaded_context = None
+    if args.load_ctx and args.last_ctx:
+        user_console.print("[red]error:[/red] --load-ctx and --last-ctx are mutually exclusive")
+        exit(1)
+
     if args.load_ctx:
         try:
             loaded_context = context_from_file(args.load_ctx)
             user_console.print(
                 f"[green]✓ Loaded conversation context from:[/green] {args.load_ctx}"
             )
+        except Exception as e:
+            user_console.print(f"[red]✗ Failed to load context file:[/red] {e}")
+            exit(1)
+
+    if args.last_ctx:
+        try:
+            path = latest_context_file()
+            loaded_context = context_from_file(path)
+            user_console.print(
+                f"[green]✓ Loaded most recent context:[/green] {path.name}"
+            )
+        except FileNotFoundError as e:
+            user_console.print(f"[red]✗ {e}[/red]")
+            exit(1)
         except Exception as e:
             user_console.print(f"[red]✗ Failed to load context file:[/red] {e}")
             exit(1)
