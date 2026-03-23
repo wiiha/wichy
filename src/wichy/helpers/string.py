@@ -41,7 +41,11 @@ def remove_tagged_content(text, tags):
     return result
 
 
-UNWANTED_TAGS = [("<think>", "</think>")]
+UNWANTED_TAGS = [
+    ("<thinking>", "</thinking>"),
+    ("<internal>", "</internal>"),
+    ("<scratchpad>", "</scratchpad>"),
+]
 
 
 def strip_thinking_content(content: str):
