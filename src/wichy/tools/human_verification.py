@@ -4,6 +4,8 @@ from typing import Any, Callable, Optional
 from prompt_toolkit import PromptSession
 from rich import print
 
+from wichy.helpers.needs_user_attention import needs_user_attention
+
 SKIP_HUMAN_VERIFICATION = False
 
 prompt_session = PromptSession()
@@ -76,6 +78,7 @@ def require_human_verification(func: Callable) -> Callable:
         if all_args:
             print(all_args)
 
+        needs_user_attention()
         while True:
             line = prompt_session.prompt("Proceed? (y/n): ")
             response = str(line).strip().lower()

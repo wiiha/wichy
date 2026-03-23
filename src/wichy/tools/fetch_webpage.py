@@ -296,9 +296,16 @@ class BrowserRawParameters(ParametersModel):
         ...,
         description="Playwright Page method expression to execute. Examples: 'title()', '.url', 'content()', \"query_selector('h1').text_content()\", \"query_selector_all('a')\", \"wait_for_selector('.item')\", \"evaluate('document.title')\"",
     )
+    limit: int = Field(
+        20000,
+        description="Maximum number of characters to return. Default is 20000. If limit is exceeded the return data is truncated.",
+    )
 
     def info(self):
-        return f'code="{self.code}"'
+        msg = f'code="{self.code}"'
+        if self.limit:
+            msg += f' limit="{self.limit}"'
+        return msg
 
 
 class BrowserRawTool(BaseTool):
@@ -313,7 +320,7 @@ class BrowserRawTool(BaseTool):
     )
     parameters_model = BrowserRawParameters
 
-    def execute(self, code: str) -> str:
+    def execute(self, code: str, limit: int = 20000) -> str:
         """
         Execute raw Playwright code on the browser page.
 
@@ -336,12 +343,17 @@ class BrowserRawTool(BaseTool):
             if result is None:
                 return "null"
             elif isinstance(result, (list, tuple)):
-                # Format lists with indices for readability
-                if len(result) > 20:
-                    return f"[{len(result)} items] " + str(result[:20])[:-1] + ", ...]"
+                # # Format lists with indices for readability
+                # if len(result) > 20:
+                #     return f"[{len(result)} items] " + str(result[:20])[:-1] + ", ...]"
                 return str(result)
-            elif isinstance(result, str) and len(result) > 5000:
-                return result[:5000] + "\n... [truncated]"
+            elif isinstance(result, str) and len(result) > limit:
+                msg = (
+                    result[:limit]
+                    + "\n... [truncated]"
+                    + f" {len(result) - limit} chars were truncated."
+                )
+                return msg
             else:
                 return str(result)
         except ValueError as e:

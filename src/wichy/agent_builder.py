@@ -123,6 +123,7 @@ class AgentBuilder:
             context=context,
             skills=self.skills,
             agent_has_first_initiative=agent_goes_first,
+            auto_compact_threshold=self.cli_config.auto_compact_threshold,
         )
 
         # 5. Add system prompt if fresh conversation (no context provided)

@@ -3,6 +3,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
 from rich import print
+from rich.console import Console
 from rich.markdown import Markdown
 
 from wichy.constants import ROLE_ASSISTANT, ROLE_TOOL, ROLE_USER
@@ -38,6 +39,7 @@ class RootAgent:
         context=None,
         skills=None,
         agent_has_first_initiative: bool = True,
+        auto_compact_threshold: Optional[int] = None,
     ):
         if context is not None:
             self.context = context
@@ -75,6 +77,8 @@ class RootAgent:
         self.context.start_watching(interval=2.0)
 
         self.agent_has_first_initiative = agent_has_first_initiative
+        self.auto_compact_threshold = auto_compact_threshold
+        self.current_prompt_tokens = 0
 
     def tool_call(
         self, tools, item: called_tool
@@ -154,6 +158,50 @@ class RootAgent:
 
         return len(self.context) != osz
 
+    def _update_token_counts(self, usage):
+        """
+        Update token counts from usage information.
+
+        Args:
+            usage: Dictionary containing token usage information
+        """
+        if usage:
+            self.current_prompt_tokens = usage.get("prompt_tokens", 0)
+
+    def check_token_threshold(self) -> bool:
+        """
+        Check if current token count exceeds auto_compact_threshold.
+
+        Returns:
+            True if threshold is exceeded, False otherwise
+        """
+        return bool(
+            self.auto_compact_threshold
+            and self.current_prompt_tokens >= self.auto_compact_threshold
+        )
+
+    def _auto_compact_context(self):
+        """
+        Auto-compact context when token threshold is exceeded.
+        """
+        console.log("[yellow]Auto-compacting...[/yellow]")
+        Console().print(
+            "[dim][bold]→[/bold] Root Agent: [yellow]Auto-compacting...[/yellow][/dim]"
+        )
+        self.current_prompt_tokens = 0
+
+        msg = (
+            "This is an auto compaction mid session. The summary you generate should contain:\n"
+            "- The over all goal of the current session.\n"
+            "- Gotchas and other key things from the current session.\n"
+            "- Any tool results that are of particular importance.\n"
+            "- What the current task is and what is the next step in order to reach task completion."
+        )
+
+        self.compact_context(
+            guideline_from_user_on_what_to_keep=msg, is_auto_compact=True
+        )
+
     def _fix_multimodal_context(self) -> bool:
         """
         Find and replace multimodal content in context with text placeholders.
@@ -191,6 +239,22 @@ class RootAgent:
                 # No multimodal content found, re-raise
                 raise
 
+        # Update token counts
+        self._update_token_counts(response.usage)
+        # Log token usage after first LLM call
+        if response.usage:
+            self.context.add_log(
+                {
+                    "type": "token_usage",
+                    "prompt_tokens": response.usage.get("prompt_tokens", 0),
+                    "completion_tokens": response.usage.get("completion_tokens", 0),
+                    "total_tokens": response.usage.get("total_tokens", 0),
+                    "current_prompt_tokens": self.current_prompt_tokens,
+                }
+            )
+        # might need to already do a compaction
+        if self.check_token_threshold():
+            self._auto_compact_context()
         while self.handle_tools(self.tools, response.message):
             try:
                 response = call(
@@ -213,9 +277,33 @@ class RootAgent:
                 else:
                     raise
 
+        # Log token usage before final assistant response
+        if response.usage:
+            self.context.add_log(
+                {
+                    "type": "token_usage",
+                    "prompt_tokens": response.usage.get("prompt_tokens", 0),
+                    "completion_tokens": response.usage.get("completion_tokens", 0),
+                    "total_tokens": response.usage.get("total_tokens", 0),
+                    "current_prompt_tokens": self.current_prompt_tokens,
+                }
+            )
+
         self.context.append(
             {"role": ROLE_ASSISTANT, "content": response.message.content}
         )
+        # Final token update after processing complete
+        self._update_token_counts(response.usage)
+        if self.check_token_threshold():
+            self._auto_compact_context()
+            # in the case we auto compacted,
+            # I still want the last response
+            # from the model to be part of
+            # the context.
+            self.context.append(
+                {"role": ROLE_ASSISTANT, "content": response.message.content}
+            )
+
         return response.message.content
 
     def drop_last_context_entry(self):
@@ -251,19 +339,21 @@ class RootAgent:
             pass
 
     def compact_context(
-        self, guideline_from_user_on_what_to_keep: Optional[str] = None
+        self,
+        guideline_from_user_on_what_to_keep: Optional[str] = None,
+        is_auto_compact=False,
     ):
         first_prompt = self.context()[0]
         old_context = self.context
         guideline_for_compacting = "Please summarize our conversation. Keep it structured. Include any external sources mentioned."
         if guideline_from_user_on_what_to_keep:
             guideline_for_compacting += (
-                " I ask you to focus the summary around: "
+                " Further guidelines to follow when summarizing:\n"
                 + guideline_from_user_on_what_to_keep
             )
         # Keep the original system prompt from the first context entry
         ctx = new_context()
-        ctx.start_watching(interval=2.0)
+        ctx.start_watching()
         ctx.append(first_prompt)
         # add in messages from old context
         for i in old_context.context[1:]:
@@ -278,12 +368,17 @@ class RootAgent:
         # Generate the summary
         response = call(context=ctx(), model_str=self.model_str)
 
-        # Create the summary message
-        summary_msg = "\n\n---\n\n### Summary of context\n\n" + response.message.content
+        summary_msg = response.message.content
 
-        # Print the summary
-        print(Markdown(summary_msg))
-        ctx.delete()
+        if not is_auto_compact:
+            # Create the summary message
+            summary_msg = (
+                "\n\n---\n\n### Summary of context\n\n" + response.message.content
+            )
+
+            # Print the summary
+            print(Markdown(summary_msg))
+            ctx.delete()
 
         # Create new context with original system prompt and summary
         n_ctx = new_context()

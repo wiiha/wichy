@@ -60,6 +60,9 @@ class Settings(BaseSettings):
     server_port: int = 7891
 
     # Skills settings
+
+    # User attention script
+    needs_user_attention_script: Optional[str] = None
     skills_dir_name: str = "skills"
 
     @property

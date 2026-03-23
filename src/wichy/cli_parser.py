@@ -21,6 +21,7 @@ class CliConfig:
     load_ctx: Optional[str] = None
     no_server: bool = False
     user_first: bool = False
+    auto_compact_threshold: Optional[int] = None
 
     # Subcommands
     command: Optional[str] = None
@@ -111,6 +112,12 @@ class CliParser:
             action="store_true",
             help='Let the user have the first turn. Default is that agent receives a "wake up" message, thereby getting first initiative.',
         )
+        self.parser.add_argument(
+            "--auto-compact",
+            type=int,
+            dest="auto_compact_threshold",
+            help="Auto-compact context when it exceeds this number of tokens",
+        )
 
     def _add_subcommands(self):
         """Add subcommands."""
@@ -190,6 +197,7 @@ class CliParser:
             new_command=getattr(parsed, "new_command", None),
             ra_template=getattr(parsed, "template", False),
             user_first=parsed.first,
+            auto_compact_threshold=getattr(parsed, "auto_compact_threshold", None),
         )
 
         # Extract new skill details if applicable

@@ -4,6 +4,7 @@ from prompt_toolkit import PromptSession
 from rich import print
 from rich.markdown import Markdown
 
+from wichy.helpers.needs_user_attention import needs_user_attention
 from wichy.helpers.string import strip_thinking_content
 from wichy.llm_backend import LLMBackendContextLimitReached, LLMBackendRateLimitExceeded
 from wichy.root_agent.root_agent import RootAgent
@@ -49,6 +50,7 @@ class Repl:
         while True:
             try:
                 self._print_user_prompt()
+                needs_user_attention()
                 line = self.prompt_session.prompt("> ")
                 possible_cmd = self.cmd_checker.check_command(line)
                 if possible_cmd is not None:
