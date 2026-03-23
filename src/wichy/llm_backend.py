@@ -183,7 +183,11 @@ def parse_generic_backend(model_str: str):
 
 
 def message_indicates_context_length_reached(m: str) -> bool:
+    m = m.lower()
     if "maximum" in m and "context" in m and "length" in m:
+        return True
+
+    if "context" in m and "exceeds" in m and "limit" in m:
         return True
 
     # can be extended with more conditions
@@ -368,7 +372,7 @@ def call(context, tool_defs=None, model_str=None, extra_args=None, **extra_kwarg
         allowed_max = None
         current_count = None
 
-        if b:
+        if b and isinstance(b, dict):
             allowed_max = b.get("n_ctx")
             current_count = b.get("n_prompt_tokens")
 
