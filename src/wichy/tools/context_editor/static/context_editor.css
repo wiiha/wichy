@@ -158,9 +158,11 @@
 }
 
 .message-content {
-  white-space: pre-wrap;
-  font-size: var(--font-size-base);
-  line-height: 1.6;
+    white-space: pre-wrap;
+    font-size: var(--font-size-base);
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 /* Tool calls section (view-only) */
@@ -347,4 +349,15 @@
   margin-bottom: var(--space-sm);
   font-size: var(--font-size-sm);
   color: var(--warning-dark, #856404);
+}
+
+/* Delete button */
+.message-actions .btn-delete {
+  background: var(--danger-bg, #fee2e2);
+  color: var(--danger-text, #991b1b);
+  border-color: #fca5a5;
+}
+
+.message-actions .btn-delete:hover {
+  background: #fecaca;
 }

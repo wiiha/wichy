@@ -4,6 +4,22 @@ let currentMtime = null;
 let syncInterval = null;
 const POLL_INTERVAL = 3000; // 3 seconds
 
+// Threshold in pixels — if user is within this distance of the bottom, treat as "at bottom"
+const SCROLL_NEAR_BOTTOM_THRESHOLD = 100;
+
+function isScrolledNearBottom() {
+    const el = elMessagesContainer;
+    if (!el) return true;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    return distanceFromBottom <= SCROLL_NEAR_BOTTOM_THRESHOLD;
+}
+
+function scrollToBottom() {
+    const el = elMessagesContainer;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+}
+
 // In-memory store of full message objects (preserves all properties)
 let messagesStore = [];
 
@@ -200,8 +216,12 @@ async function fetchMessages() {
         if (resp.ok) {
             const messages = await resp.json();
             // Store full message objects in memory (preserves all properties)
+            const wasAtBottom = isScrolledNearBottom();
             messagesStore = messages;
             renderMessages(messages);
+            if (wasAtBottom) {
+                scrollToBottom();
+            }
             setSyncState('idle');
         } else if (resp.status === 404) {
             messagesStore = [];
@@ -331,6 +351,8 @@ function renderMessages(messages) {
             html += `<button class="btn-truncate" onclick="truncateMessage(${idx})">Truncate</button>`;
         }
         
+        html += `<button class="btn-delete" onclick="deleteMessage(${idx})">Delete</button>`;
+        
         html += '</div>';
         
         html += '</div>';
@@ -405,15 +427,39 @@ async function truncateMessage(index) {
 async function expandMessage(index) {
     const msg = messagesStore[index];
     if (!msg) return;
-    
+
     if (!confirm('Restore this message to its original content?')) {
         return;
     }
-    
+
     try {
         const resp = await fetch(`/tools/context/api/messages/${index}/expand`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
+        });
+        if (resp.ok) {
+            fetchMessages();
+            fetchStatus();
+        } else {
+            const err = await resp.json();
+            alert('Error: ' + (err.error || 'Unknown'));
+        }
+    } catch (e) {
+        alert('Network error: ' + e);
+    }
+}
+
+async function deleteMessage(index) {
+    const msg = messagesStore[index];
+    if (!msg) return;
+
+    if (!confirm(`Delete this message?\nRole: ${msg.role}\nThis cannot be undone.`)) {
+        return;
+    }
+
+    try {
+        const resp = await fetch(`/tools/context/api/messages/${index}`, {
+            method: 'DELETE',
         });
         if (resp.ok) {
             fetchMessages();
@@ -470,7 +516,11 @@ async function checkForChanges() {
             if (currentMtime !== null && data.mtime !== currentMtime) {
                 // File changed externally! Reload messages
                 console.log('Context file changed, reloading...');
+                const wasAtBottom = isScrolledNearBottom();
                 await fetchMessages();
+                if (wasAtBottom) {
+                    scrollToBottom();
+                }
             }
             // Update status count if changed
             if (parseInt(elMsgCount.textContent) !== data.message_count) {
