@@ -2,7 +2,7 @@
 
 from typing import Dict
 
-from rich import print
+from wichy.console import user_console
 
 from wichy.cli_parser import CliConfig
 from wichy.constants import ROLE_SYSTEM
@@ -220,7 +220,9 @@ class AgentBuilder:
             role = msg.get("role", "unknown")
             roles[role] = roles.get(role, 0) + 1
         role_summary = ", ".join([f"{count} {role}" for role, count in roles.items()])
-        print(f"[blue]Context loaded:[/blue] {msg_count} messages ({role_summary})")
+        user_console.print(
+            f"[blue]Context loaded:[/blue] {msg_count} messages ({role_summary})"
+        )
 
 
 def build_agent_from_config(

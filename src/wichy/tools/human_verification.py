@@ -2,7 +2,7 @@ import functools
 from typing import Any, Callable, Optional
 
 from prompt_toolkit import PromptSession
-from rich import print
+from wichy.console import user_console
 
 from wichy.helpers.needs_user_attention import needs_user_attention
 
@@ -43,7 +43,9 @@ def require_human_verification(func: Callable) -> Callable:
                 needs_verification = should_verify_predicate(*args, **kwargs)
             except Exception as e:
                 # If predicate fails, err on the side of caution and verify
-                print(f"[yellow]Warning: Verification predicate failed: {e}[/yellow]")
+                user_console.print(
+                    f"[yellow]Warning: Verification predicate failed: {e}[/yellow]"
+                )
                 needs_verification = True
         else:
             # Backwards compatible: always verify if no predicate set
@@ -72,11 +74,11 @@ def require_human_verification(func: Callable) -> Callable:
 
         message: Optional[str] = getattr(wrapper, "_action_message", None)
 
-        print(f"\n[bold yellow]ACTION:[/bold yellow] {label}")
+        user_console.print(f"\n[bold yellow]ACTION:[/bold yellow] {label}")
         if message:
-            print(message)
+            user_console.print(message)
         if all_args:
-            print(all_args)
+            user_console.print(all_args)
 
         needs_user_attention()
         while True:
@@ -96,7 +98,7 @@ def require_human_verification(func: Callable) -> Callable:
                 if x != "":
                     msg += "\nReason for denied execution: " + x
                 raise PermissionError(msg)
-            print("Please enter 'y' or 'n <optional reason>'")
+            user_console.print("Please enter 'y' or 'n <optional reason>'")
 
     return wrapper
 
@@ -144,22 +146,22 @@ def block_on(decision_func: Callable) -> Callable:
 @require_human_verification
 def reboot_server(hostname: str):
     """Reboot remote server"""
-    print(f"Rebooting {hostname}...")
+    user_console.print(f"Rebooting {hostname}...")
     return f"Reboot command issued to {hostname}"
 
 
 # Usage
 if __name__ == "__main__":
     try:
-        print(reboot_server("db-01.example.com"))
+        user_console.print(reboot_server("db-01.example.com"))
     except PermissionError as e:
-        print("Denied:", e)
+        user_console.print("Denied:", e)
 
 
 @require_human_verification
 def delete_file(path: str):
     """Delete a file permanently"""
-    print(f"Deleting: {path}")
+    user_console.print(f"Deleting: {path}")
     return f"Deleted {path}"
 
 
@@ -173,6 +175,6 @@ delete_file._action_message = (
 if __name__ == "__main__":
     try:
         result = delete_file("/tmp/test.txt")
-        print("Result:", result)
+        user_console.print("Result:", result)
     except PermissionError as e:
-        print("Denied:", e)
+        user_console.print("Denied:", e)

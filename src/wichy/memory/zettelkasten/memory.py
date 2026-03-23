@@ -7,8 +7,7 @@ and was later modified.
 import json
 from typing import Dict, List, Optional, Tuple
 
-from rich import print
-
+from wichy.console import user_console
 from wichy.context.handler import ContextHandler
 from wichy.helpers.document_store import DocumentStore
 from wichy.llm_backend import call
@@ -87,7 +86,7 @@ class AgenticMemorySystem:
         metadata = note.model_dump()
         id_in_store = self.ds.add_document(note.content, metadata)
         if note.id != id_in_store:
-            print(
+            user_console.print(
                 "[yellow]Warning:[/yellow]: Memory note received a new id from store, that is unexpected but will work."
             )
             note.id = id_in_store

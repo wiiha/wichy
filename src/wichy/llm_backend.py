@@ -3,9 +3,9 @@ from typing import Any, Dict, List, Optional, Union
 
 from openai import BadRequestError, OpenAI
 from pydantic import BaseModel
-from rich.console import Console
 
 from wichy.config import settings
+from wichy.console import user_console
 from wichy.helpers.console import console
 
 
@@ -395,7 +395,7 @@ def call(context, tool_defs=None, model_str=None, extra_args=None, **extra_kwarg
             console.log(
                 f"got rate limited, will retry in {backoff} seconds (attempt {retry_count + 1})"
             )
-            Console().print(
+            user_console.print(
                 f"[dim][bold]→[/bold] LLM backend:[/dim] Rate limited, will retry in {backoff} seconds (attempt {retry_count + 1})"
             )
             time.sleep(backoff)
@@ -432,7 +432,7 @@ def call(context, tool_defs=None, model_str=None, extra_args=None, **extra_kwarg
     }
     # Pretty print similar to base.py
     total_tokens_str = str(usage_data["total_tokens"]) if usage_data else "N/A"
-    Console().print(
+    user_console.print(
         f"[dim][bold]→[/bold] LLM response:[/dim] "
         f"[bold]{response.model}[/bold]"
         f"[dim] finish={m.finish_reason}, elapsed={elapsed_time:.2f}s, total_tokens={total_tokens_str}[/dim]"

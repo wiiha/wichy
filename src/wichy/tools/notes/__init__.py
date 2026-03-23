@@ -10,13 +10,17 @@ from wichy.config import settings
 
 def _get_easymde_dir():
     """Return the absolute path to the shared EasyMDE static files."""
-    wichy_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    wichy_root = os.path.dirname(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    )
     return os.path.join(wichy_root, "static", "easymde")
 
 
 # Create the blueprint with URL prefix
 # static_folder is set dynamically at registration time (after imports) to point to easymde
-bp = Blueprint("notes", __name__, url_prefix="/tools/notes", template_folder="templates")
+bp = Blueprint(
+    "notes", __name__, url_prefix="/tools/notes", template_folder="templates"
+)
 
 
 def register(app):

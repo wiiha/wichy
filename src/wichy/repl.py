@@ -1,9 +1,9 @@
 """REPL - interactive read-eval-print loop for wichy."""
 
 from prompt_toolkit import PromptSession
-from rich import print
 from rich.markdown import Markdown
 
+from wichy.console import user_console
 from wichy.helpers.needs_user_attention import needs_user_attention
 from wichy.helpers.string import strip_thinking_content
 from wichy.llm_backend import LLMBackendContextLimitReached, LLMBackendRateLimitExceeded
@@ -54,7 +54,7 @@ class Repl:
                 line = self.prompt_session.prompt("> ")
                 possible_cmd = self.cmd_checker.check_command(line)
                 if possible_cmd is not None:
-                    print(possible_cmd)
+                    user_console.print(possible_cmd)
                     continue
                 self._print_separator()
                 result = self.root_agent.process(line)
@@ -67,14 +67,14 @@ class Repl:
                 self.root_agent.drop_last_context_entry()
                 continue
             except LLMBackendContextLimitReached as e:
-                print(
+                user_console.print(
                     "[red bold]Error:[/red bold] "
                     + str(e)
                     + "\n[green bold]Tip:[/green bold] Try dropping some messages or summarizing using slash commands."
                 )
                 continue
             except LLMBackendRateLimitExceeded as e:
-                print(
+                user_console.print(
                     "[red bold]Error:[/red bold] "
                     + str(e)
                     + "\n[green bold]Tip:[/green bold] Rate limit reached. Please wait a moment before sending more requests."
@@ -83,19 +83,19 @@ class Repl:
             except KeyboardInterrupt:
                 continue
             except EOFError:
-                print("\nexiting...")
+                user_console.print("\nexiting...")
                 exit(0)
 
     def _print_user_prompt(self) -> None:
         """Print the user prompt header."""
-        print(Markdown("\n\n---\n\n### User"))
+        user_console.print(Markdown("\n\n---\n\n### User"))
 
     def _print_separator(self) -> None:
         """Print separator after user input."""
-        print(Markdown("---"))
+        user_console.print(Markdown("---"))
 
     def _print_assistant_response(self, content: str) -> None:
         """Print the assistant's response as markdown."""
-        print(Markdown("\n---\n\n### Assistant\n"))
+        user_console.print(Markdown("\n---\n\n### Assistant\n"))
         markdown = Markdown(content)
-        print(markdown)
+        user_console.print(markdown)

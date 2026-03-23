@@ -8,6 +8,7 @@ from typing import List, Literal
 
 from pydantic import Field
 
+from wichy.console import user_console
 from wichy.skills.registry import SkillRegistry
 from wichy.tools.base import BaseTool, ParametersModel
 from wichy.tools.human_verification import SKIP_HUMAN_VERIFICATION, prompt_session
@@ -155,8 +156,6 @@ class SkillScriptTool(BaseTool):
 
     def execute(self, **kwargs) -> str:
         """Execute a skill script."""
-        from rich import print
-
         params = self.parameters_model(**kwargs)
         registry = SkillRegistry()
         skill = registry.get(params.skill_name)
@@ -172,10 +171,14 @@ class SkillScriptTool(BaseTool):
 
         # Human verification for non-safe scripts
         if not is_safe and not SKIP_HUMAN_VERIFICATION:
-            print("\n[bold yellow]ACTION:[/bold yellow] Execute skill script")
-            print(f"skill='{params.skill_name}' script='{params.script_name}'")
+            user_console.print(
+                "\n[bold yellow]ACTION:[/bold yellow] Execute skill script"
+            )
+            user_console.print(
+                f"skill='{params.skill_name}' script='{params.script_name}'"
+            )
             if params.args:
-                print(f"args: {' '.join(params.args)}")
+                user_console.print(f"args: {' '.join(params.args)}")
 
             while True:
                 line = prompt_session.prompt("Proceed? (y/n): ")
@@ -193,7 +196,7 @@ class SkillScriptTool(BaseTool):
                     if reason:
                         msg += f"\nReason: {reason}"
                     return f"error: {msg}"
-                print("Please enter 'y' or 'n <optional reason>'")
+                user_console.print("Please enter 'y' or 'n <optional reason>'")
 
         # Build command
         command = [str(script_path)] + params.args

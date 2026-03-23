@@ -166,7 +166,10 @@ def register_routes(bp: Blueprint):
             if new_slug != slug:
                 # Title changed — need to check for conflicts
                 if _slug_exists(new_slug):
-                    return jsonify({"error": "A note with this title already exists"}), 409
+                    return (
+                        jsonify({"error": "A note with this title already exists"}),
+                        409,
+                    )
                 new_slug = _make_unique_slug(new_slug)
 
             # If slug changed, delete old file and write new one

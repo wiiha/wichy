@@ -12,9 +12,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from rich import print
-
 from wichy.config import settings
+from wichy.console import user_console
 from wichy.constants import CONTEXT_FILE_EXT, LOG_TYPE, MESSAGE_TYPE
 
 
@@ -152,7 +151,7 @@ class ContextHandler:
                     _drop_last_n_message_lines(filename=self._path, n=n)
                     self._reload_from_disk()
                 except Exception as e:
-                    print(f"[red]Error dropping lines:[/red] {e}")
+                    user_console.print(f"[red]Error dropping lines:[/red] {e}")
 
     def delete(self):
         """
@@ -168,7 +167,7 @@ class ContextHandler:
             try:
                 os.remove(self._path)
             except Exception as e:
-                print(f"[red]Error deleting context file:[/red] {e}")
+                user_console.print(f"[red]Error deleting context file:[/red] {e}")
                 raise
 
     # ------------------------------------------------------------------
@@ -301,7 +300,7 @@ class ContextHandler:
                 f.write(json.dumps(record) + "\n")
             self._file_mtime = self._path.stat().st_mtime
         except Exception as e:
-            print(f"[red]Error writing to context file:[/red] {e}")
+            user_console.print(f"[red]Error writing to context file:[/red] {e}")
 
     def replace_all(self, messages: list):
         """
@@ -346,7 +345,7 @@ class ContextHandler:
                 temp_path.replace(self._path)
                 self._reload_from_disk()
             except Exception as e:
-                print(f"[red]Error replacing context: {e}[/red]")
+                user_console.print(f"[red]Error replacing context: {e}[/red]")
                 raise
 
     def update_message(self, index: int, new_msg: dict):

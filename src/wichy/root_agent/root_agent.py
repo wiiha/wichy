@@ -2,8 +2,7 @@ import json
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
-from rich import print
-from rich.console import Console
+from wichy.console import user_console
 from rich.markdown import Markdown
 
 from wichy.constants import ROLE_ASSISTANT, ROLE_TOOL, ROLE_USER
@@ -71,7 +70,7 @@ class RootAgent:
         self.context.add_log(
             {"source": "root_agent", "data": {"info_lines": info_lines}}
         )
-        print(Markdown("\n".join(info_lines)))
+        user_console.print(Markdown("\n".join(info_lines)))
 
         # Start file watching for live sync with web editor
         self.context.start_watching(interval=2.0)
@@ -125,7 +124,7 @@ class RootAgent:
                 + "\n\n---"
             )
             markdown = Markdown(result)
-            print(markdown)
+            user_console.print(markdown)
 
         self.context.append(
             {
@@ -185,7 +184,7 @@ class RootAgent:
         Auto-compact context when token threshold is exceeded.
         """
         console.log("[yellow]Auto-compacting...[/yellow]")
-        Console().print(
+        user_console.print(
             "[dim][bold]→[/bold] Root Agent: [yellow]Auto-compacting...[/yellow][/dim]"
         )
         self.current_prompt_tokens = 0
@@ -380,7 +379,7 @@ class RootAgent:
             )
 
             # Print the summary
-            print(Markdown(summary_msg))
+            user_console.print(Markdown(summary_msg))
 
         # Create new context with original system prompt and summary
         n_ctx = new_context()

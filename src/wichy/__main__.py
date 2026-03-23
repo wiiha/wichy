@@ -11,12 +11,12 @@ import json
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.history import FileHistory
-from rich import print
 from rich.markdown import Markdown
 
 from wichy.agent_builder import AgentBuilderError, build_agent_from_config
 from wichy.cli_parser import CliParser
 from wichy.config import settings
+from wichy.console import user_console
 from wichy.constants import ROLE_ASSISTANT, ROLE_USER
 from wichy.context.handler import context_from_file, previous_conversations
 from wichy.helpers.console import console
@@ -52,7 +52,7 @@ def handle_list_root_agents():
                 continue
             msg += "\t- **" + prop + "**: " + v + "\n"
 
-    print(Markdown(msg))
+    user_console.print(Markdown(msg))
 
 
 def handle_list_contexts():
@@ -61,11 +61,11 @@ def handle_list_contexts():
     try:
         files = previous_conversations()
     except FileNotFoundError:
-        print("[yellow]No conversation contexts found.[/yellow]")
+        user_console.print("[yellow]No conversation contexts found.[/yellow]")
         return
 
     if len(files) == 0:
-        print("[yellow]No conversation contexts found.[/yellow]")
+        user_console.print("[yellow]No conversation contexts found.[/yellow]")
         return
 
     msg = "# Conversation Contexts\n\n"
@@ -114,7 +114,7 @@ def handle_list_contexts():
         except Exception as e:
             msg += f"- **{f}**\n\t- Error reading file: {e}\n"
 
-    print(Markdown(msg))
+    user_console.print(Markdown(msg))
 
 
 def handle_list_tools(tools):
@@ -123,7 +123,7 @@ def handle_list_tools(tools):
     for tool in tools:
         msg += "- **" + tool.name + "**: " + tool.description + "\n"
 
-    print(Markdown(msg))
+    user_console.print(Markdown(msg))
 
 
 def handle_list_skills():
@@ -132,8 +132,10 @@ def handle_list_skills():
     skills = skill_loader.load_all_skills()
 
     if not skills:
-        print("[yellow]No skills found in ~/.wichy/skills/[/yellow]")
-        print("[dim]Create a skill by adding a directory with a skill.md file[/dim]")
+        user_console.print("[yellow]No skills found in ~/.wichy/skills/[/yellow]")
+        user_console.print(
+            "[dim]Create a skill by adding a directory with a skill.md file[/dim]"
+        )
         return
 
     msg = "# Skills Available\n\n"
@@ -146,7 +148,7 @@ def handle_list_skills():
             for s in skill.scripts:
                 msg += f"\t\t- {s.name}\n"
 
-    print(Markdown(msg))
+    user_console.print(Markdown(msg))
 
 
 def handle_new_skill(args):
@@ -157,17 +159,15 @@ def handle_new_skill(args):
 
     # Validate skill name (kebab-case: lowercase letters, numbers, and hyphens)
     if not re.match(r"^[a-z0-9]+(-[a-z0-9]+)*$", skill_name):
-        print(
+        user_console.print(
             "[red]error:[/red] Skill name must be kebab-case: lowercase letters, numbers, and hyphens (e.g., 'my-skill-name')",
-            file=sys.stderr,
         )
         exit(1)
 
     # Check if skill already exists
     if skill_dir.exists():
-        print(
+        user_console.print(
             f"[red]error:[/red] Skill '{skill_name}' already exists at {skill_dir}",
-            file=sys.stderr,
         )
         exit(1)
 
@@ -213,7 +213,7 @@ echo "Hello from {skill_name} skill!"
     if args.new_skill_with_script:
         msg += "\n[dim]Add executable scripts to scripts/ directory. Mark safe scripts in skill.md frontmatter.[/dim]"
 
-    print(msg)
+    user_console.print(msg)
 
 
 def handle_ls_commands(args, tool_manager):
@@ -268,7 +268,7 @@ def initialize_skills():
     skill_loader = SkillLoader()
     installed = skill_loader.install_default_skills()
     if installed > 0:
-        print(f"[dim]Installed {installed} default skill(s)[/dim]")
+        user_console.print(f"[dim]Installed {installed} default skill(s)[/dim]")
     return skill_loader.load_all_skills()
 
 
@@ -304,22 +304,20 @@ def start_server(root_agent):
     """Start the web server and return the controller."""
     server_controller = ServerController(port=7891)
     actual_port = server_controller.start()
-    print(f"[dim]Web server started on http://127.0.0.1:{actual_port}[/dim]")
-    # print(f"[dim]Graph editor: http://127.0.0.1:{actual_port}/tools/graph/[/dim]")
+    user_console.print(
+        f"[dim]Web server started on http://127.0.0.1:{actual_port}[/dim]"
+    )
 
     # Set active context for context editor if server is enabled
     try:
         from wichy.tools.context_editor import api as context_editor_api
 
         context_editor_api.set_active_context(root_agent.context)
-        # print(
-        #     f"[dim]Context editor: http://127.0.0.1:{actual_port}/tools/context/[/dim]"
-        # )
     except Exception as e:
-        print(
+        user_console.print(
             f"[yellow]Warning: Could not set active context for web editor: {e}[/yellow]"
         )
-    print("[dim]Use --no-server to disable.[/dim]")
+    user_console.print("[dim]Use --no-server to disable.[/dim]")
 
     return server_controller
 
@@ -364,9 +362,8 @@ def main():
     selected_ra_name = args.root_agent_description
     selected_ra = root_agent_descs_by_name.get(selected_ra_name)
     if not selected_ra:
-        print(
+        user_console.print(
             f"[red]error:[/red] Root agent '{selected_ra_name}' not found",
-            file=sys.stderr,
         )
         exit(1)
 
@@ -378,9 +375,11 @@ def main():
     if args.load_ctx:
         try:
             loaded_context = context_from_file(args.load_ctx)
-            print(f"[green]✓ Loaded conversation context from:[/green] {args.load_ctx}")
+            user_console.print(
+                f"[green]✓ Loaded conversation context from:[/green] {args.load_ctx}"
+            )
         except Exception as e:
-            print(f"[red]✗ Failed to load context file:[/red] {e}")
+            user_console.print(f"[red]✗ Failed to load context file:[/red] {e}")
             exit(1)
 
     # Build the agent using AgentBuilder
@@ -393,7 +392,7 @@ def main():
             context=loaded_context,
         )
     except AgentBuilderError as e:
-        print(f"[red]error:[/red] {e}", file=sys.stderr)
+        user_console.print(f"[red]error:[/red] {e}")
         exit(1)
 
     # If we loaded a context, show a summary
@@ -404,7 +403,9 @@ def main():
             role = msg.get("role", "unknown")
             roles[role] = roles.get(role, 0) + 1
         role_summary = ", ".join([f"{count} {role}" for role, count in roles.items()])
-        print(f"[blue]Context loaded:[/blue] {msg_count} messages ({role_summary})")
+        user_console.print(
+            f"[blue]Context loaded:[/blue] {msg_count} messages ({role_summary})"
+        )
 
     # Set console quiet mode based on --show-log flag
     setup_console_logging(args)
