@@ -3,17 +3,27 @@
 from prompt_toolkit import PromptSession
 from rich.markdown import Markdown
 
-from wichy.console import user_console
 from wichy.config import settings
+from wichy.console import user_console
+from wichy.constants import ROLE_SYSTEM
+from wichy.context.handler import new_context
 from wichy.helpers.needs_user_attention import needs_user_attention
 from wichy.helpers.string import strip_thinking_content
 from wichy.llm_backend import LLMBackendContextLimitReached, LLMBackendRateLimitExceeded
 from wichy.root_agent.root_agent import RootAgent
 from wichy.slash_commands import (
+    BtwException,
     ContextDropException,
     ContextResetException,
     SlashCommandChecker,
 )
+
+# How many messages (from the end of the main conversation) to include in a
+# /btw one-shot agent call.
+# Set to None to include the full conversation history.
+# Set to 0 in order to not include any of the previous ctx,
+# besides the initial system prompt.
+BTW_CONTEXT_MESSAGES = 10
 
 
 class Repl:
@@ -65,6 +75,10 @@ class Repl:
             except ContextDropException:
                 self.root_agent.drop_last_context_entry()
                 continue
+            except BtwException as e:
+                self._print_separator()
+                self._run_btw(e.question, e.model_str, e.btw_tools)
+                continue
             except LLMBackendContextLimitReached as e:
                 user_console.print(
                     "[red bold]Error:[/red bold] "
@@ -89,6 +103,10 @@ class Repl:
         """Print the user prompt header."""
         user_console.print(Markdown("\n\n---\n\n### User"))
 
+    def _print_btw_prompt(self) -> None:
+        """Print the btw prompt header."""
+        user_console.print(Markdown("\n\n---\n\n### BTW"))
+
     def _print_separator(self) -> None:
         """Print separator after user input."""
         user_console.print(Markdown("---"))
@@ -98,3 +116,65 @@ class Repl:
         user_console.print(Markdown("\n---\n\n### Assistant\n"))
         markdown = Markdown(content)
         user_console.print(markdown)
+
+    # ------------------------------------------------------------------
+    # /btw
+    # ------------------------------------------------------------------
+
+    def _run_btw(self, question: str, model_str: str, tools: list) -> None:
+        """
+        Run a one-shot /btw question via a temporary RootAgent.
+
+        The agent:
+        - Uses a fresh context persisted under ``btw/`` (not the main context).
+        - Receives a slice of the main context (system prompt + recent messages).
+        - Is discarded after the call.
+
+        Args:
+            question: The user's question after "/btw ".
+            model_str: Model string for the LLM call.
+            tools: List of tool instances (ignored for now).
+        """
+        # Create a fresh persisted context under btw/ subdir.
+        btw_ctx = new_context(sub_dir="btw")
+
+        # Build the message list: system prompt + last N messages.
+        main_messages = self.root_agent.context()
+        if len(main_messages) > 0:
+            btw_ctx.append(main_messages[0])
+            del main_messages[0]
+        else:
+            btw_ctx.add(
+                role=ROLE_SYSTEM,
+                content="You are a helpful assistant answering the users questions.",
+            )
+
+        # Append the most recent messages (from the end).
+        # BTW_CONTEXT_MESSAGES controls how many; set to None for full history.
+        if BTW_CONTEXT_MESSAGES is None:
+            for msg in main_messages[1:]:
+                btw_ctx.append(msg)
+        elif BTW_CONTEXT_MESSAGES > 0:
+            for msg in main_messages[-BTW_CONTEXT_MESSAGES:]:
+                btw_ctx.append(msg)
+        else:
+            pass
+
+        # Create a one-shot agent (no tools, no first-initiative).
+        btw_agent = RootAgent(
+            model_str=model_str,
+            tools=tools,
+            name="btw",
+            context=btw_ctx,
+            agent_has_first_initiative=False,
+            print_info_lines=False,
+        )
+
+        # process() appends the user message, calls the LLM, and returns the
+        # response content. Tools are possibly available and will be handled
+        # as expected by the root agent process method.
+        response = btw_agent.process(question)
+        response = strip_thinking_content(response)
+
+        self._print_btw_prompt()
+        user_console.print(Markdown(response))

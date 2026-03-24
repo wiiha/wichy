@@ -562,14 +562,18 @@ class ContextHandler:
 # ----------------------------------------------------------------------
 
 
-def new_context():
+def new_context(custom_suffix: str = "", sub_dir: str = ""):
     """
     Create and return a :class:`ContextHandler` instance.
 
+    Args:
+        custom_suffix: Appended to the context filename.
+        sub_dir: Subdirectory under ``contexts_dir`` to store the file in.
+
     Returns:
-        ContextHandler: A freshly initialised context.
+        ContextHandler: A freshly initialized context.
     """
-    return ContextHandler()
+    return ContextHandler(custom_suffix=custom_suffix, sub_dir=sub_dir)
 
 
 def context_from_file(path):

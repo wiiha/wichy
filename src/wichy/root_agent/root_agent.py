@@ -2,9 +2,9 @@ import json
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
-from wichy.console import user_console
 from rich.markdown import Markdown
 
+from wichy.console import user_console
 from wichy.constants import ROLE_ASSISTANT, ROLE_TOOL, ROLE_USER
 from wichy.context.handler import new_context
 from wichy.helpers.console import console
@@ -39,6 +39,7 @@ class RootAgent:
         skills=None,
         agent_has_first_initiative: bool = True,
         auto_compact_threshold: Optional[int] = None,
+        print_info_lines: bool = True,
     ):
         if context is not None:
             self.context = context
@@ -70,7 +71,8 @@ class RootAgent:
         self.context.add_log(
             {"source": "root_agent", "data": {"info_lines": info_lines}}
         )
-        user_console.print(Markdown("\n".join(info_lines)))
+        if print_info_lines:
+            user_console.print(Markdown("\n".join(info_lines)))
 
         # Start file watching for live sync with web editor
         self.context.start_watching(interval=2.0)

@@ -40,9 +40,7 @@ def register_routes(bp: Blueprint):
                 "mtime": ctx._file_mtime,
                 "path": str(ctx._path) if ctx._path else None,
                 "current_prompt_tokens": (
-                    root_agent.current_prompt_tokens
-                    if root_agent is not None
-                    else None
+                    root_agent.current_prompt_tokens if root_agent is not None else None
                 ),
                 "auto_compact_threshold": (
                     root_agent.auto_compact_threshold

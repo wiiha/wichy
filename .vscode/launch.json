@@ -32,12 +32,7 @@
       "request": "launch",
       "program": "${workspaceFolder}/src/wichy/__main__.py",
       "console": "integratedTerminal",
-      "args": [
-        "--model-str",
-        "ollama/minimax-m2.7:cloud",
-        "--load-ctx",
-        "2026-03-23_1774294738.json"
-      ]
+      "args": ["--model-str", "ollama/minimax-m2.7:cloud"]
     },
     {
       "name": "Python Debugger: Wichy (with args)",
