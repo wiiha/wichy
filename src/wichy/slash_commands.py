@@ -34,12 +34,16 @@ slash_completer = NestedCompleter.from_nested_dict(
         "/reset": None,
         "/compact": None,
         "/drop": None,
+        "/status": None,
         "/exit": None,
     }
 )
 
 
 class SlashCommandChecker:
+    def __init__(self, root_agent):
+        self.root_agent = root_agent
+
     def check_command(self, line: str):
         if line.startswith("/"):
             command = line.strip().lower()
@@ -63,6 +67,11 @@ class SlashCommandChecker:
                 raise ContextResetException(strategy=ContextResetStrategies.SUMMARY)
             if command == "/drop":
                 raise ContextDropException()
+            if command == "/status":
+                tokens = self.root_agent.current_prompt_tokens
+                threshold = self.root_agent.auto_compact_threshold
+                threshold_str = str(threshold) if threshold is not None else "off"
+                return f"[Status] tokens: {tokens} | auto-compact: {threshold_str}"
 
             return f"Unknown command: {command}"
         return None

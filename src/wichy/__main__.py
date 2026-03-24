@@ -313,11 +313,12 @@ def start_server(root_agent):
         f"[dim]Web server started on http://127.0.0.1:{actual_port}[/dim]"
     )
 
-    # Set active context for context editor if server is enabled
+    # Set active context and root agent for context editor if server is enabled
     try:
         from wichy.tools.context_editor import api as context_editor_api
 
         context_editor_api.set_active_context(root_agent.context)
+        context_editor_api.set_active_root_agent(root_agent)
     except Exception as e:
         user_console.print(
             f"[yellow]Warning: Could not set active context for web editor: {e}[/yellow]"
@@ -336,7 +337,7 @@ def main():
         human_verification.set_pipeline_mode(True)
         set_user_output_quiet(True)
 
-    cmd_checker = SlashCommandChecker()
+    cmd_checker = None  # will be set after root_agent is created
 
     prompt_session = PromptSession(
         history=FileHistory(settings.history_file),
@@ -440,6 +441,9 @@ def main():
 
     # Set console quiet mode based on --show-log flag
     setup_console_logging(args)
+
+    # Create command checker now that root_agent is available
+    cmd_checker = SlashCommandChecker(root_agent)
 
     # Start the web server in background (unless --no-server or pipeline mode)
     if not args.no_server and args.prompt is None:

@@ -30,6 +30,8 @@ const elFilename = document.getElementById('filename');
 const elLastSync = document.getElementById('last-sync');
 const elSyncIndicator = document.getElementById('sync-indicator');
 const elMessagesContainer = document.getElementById('messages-container');
+const elPromptTokens = document.getElementById('prompt-tokens');
+const elAutoCompactThreshold = document.getElementById('auto-compact-threshold');
 const elAddForm = document.getElementById('add-form');
 const elEditForm = document.getElementById('edit-form');
 const elConflictModal = document.getElementById('conflict-modal');
@@ -201,6 +203,8 @@ async function fetchStatus() {
             elLogCount.textContent = data.log_count;
             elFilename.textContent = data.filename || '-';
             currentMtime = data.mtime;
+            elPromptTokens.textContent = (data.current_prompt_tokens !== null && data.current_prompt_tokens !== undefined) ? data.current_prompt_tokens : '-';
+            elAutoCompactThreshold.textContent = (data.auto_compact_threshold !== null && data.auto_compact_threshold !== undefined) ? data.auto_compact_threshold : '-';
         } else {
             console.error('Failed to fetch status');
         }

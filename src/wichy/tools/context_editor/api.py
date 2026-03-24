@@ -5,11 +5,20 @@ from flask import request, jsonify, Blueprint
 # Global reference to active context handler (set by __main__)
 _active_context = None  # Will be ContextHandler
 
+# Global reference to active root agent (set by __main__)
+_active_root_agent = None  # Will be RootAgent
+
 
 def set_active_context(ctx):
     """Set the currently active context handler for the web editor to manipulate."""
     global _active_context
     _active_context = ctx
+
+
+def set_active_root_agent(root_agent):
+    """Set the currently active root agent for the web editor to expose token state."""
+    global _active_root_agent
+    _active_root_agent = root_agent
 
 
 def register_routes(bp: Blueprint):
@@ -22,6 +31,7 @@ def register_routes(bp: Blueprint):
             return jsonify({"error": "No active context"}), 404
 
         ctx = _active_context
+        root_agent = _active_root_agent
         return jsonify(
             {
                 "filename": ctx._path.name if ctx._path else None,
@@ -29,6 +39,16 @@ def register_routes(bp: Blueprint):
                 "log_count": len(ctx.logs),
                 "mtime": ctx._file_mtime,
                 "path": str(ctx._path) if ctx._path else None,
+                "current_prompt_tokens": (
+                    root_agent.current_prompt_tokens
+                    if root_agent is not None
+                    else None
+                ),
+                "auto_compact_threshold": (
+                    root_agent.auto_compact_threshold
+                    if root_agent is not None
+                    else None
+                ),
             }
         )
 
