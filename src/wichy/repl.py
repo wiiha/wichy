@@ -4,6 +4,7 @@ from prompt_toolkit import PromptSession
 from rich.markdown import Markdown
 
 from wichy.console import user_console
+from wichy.config import settings
 from wichy.helpers.needs_user_attention import needs_user_attention
 from wichy.helpers.string import strip_thinking_content
 from wichy.llm_backend import LLMBackendContextLimitReached, LLMBackendRateLimitExceeded
@@ -41,9 +42,7 @@ class Repl:
         if self.root_agent.agent_has_first_initiative:
             # Execute the "wake up" message for the agent to go first
             self._print_separator()
-            result = self.root_agent.process(
-                "You just woke up. Perform any tasks you deem necessary before interacting further with the user."
-            )
+            result = self.root_agent.process(settings.wake_up_message)
             result = strip_thinking_content(result)
             self._print_assistant_response(result)
 

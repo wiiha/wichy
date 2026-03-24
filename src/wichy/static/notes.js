@@ -6,6 +6,7 @@ let allNotes = [];  // [{slug, title, created, updated}]
 let mde = null;
 let saveTimer = null;
 let isDirty = false;
+let pollTimer = null;
 
 // DOM elements
 const btnNewNote = document.getElementById('btn-new-note');
@@ -103,6 +104,78 @@ async function init() {
         console.error('Failed to fetch scratchpad status:', e);
     }
     await loadNotes();
+
+    // Poll for new notes from the agent every 5 seconds
+    pollTimer = setInterval(async () => {
+        // Only reload if not dirty (don't interrupt user typing)
+        if (isDirty) return;
+
+        // Fetch fresh notes list
+        try {
+            const resp = await fetch('/tools/notes/api/notes', { credentials: 'same-origin' });
+            if (!resp.ok) return;
+            const data = await resp.json();
+            const freshNotes = data.notes || [];
+
+            // Compare with current state - detect adds, deletes, AND updates
+            const freshSlugs = new Set(freshNotes.map(n => n.slug));
+            const currentSlugs = new Set(allNotes.map(n => n.slug));
+
+            let changed = freshSlugs.size !== currentSlugs.size;
+            if (!changed) {
+                for (const slug of freshSlugs) {
+                    if (!currentSlugs.has(slug)) { changed = true; break; }
+                }
+            }
+
+            // Also detect content/title/updated timestamp changes (same slug but modified)
+            if (!changed) {
+                for (const fresh of freshNotes) {
+                    const current = allNotes.find(n => n.slug === fresh.slug);
+                    if (current) {
+                        // Check if title or updated timestamp changed
+                        if (current.title !== fresh.title || current.updated !== fresh.updated) {
+                            changed = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // Re-fetch scratchpad status every poll (not just when notes changed)
+            let newScratchpadSlug = scratchpadSlug;
+            try {
+                const statusResp = await fetch('/tools/notes/api/scratchpad-status', { credentials: 'same-origin' });
+                if (statusResp.ok) {
+                    const statusData = await statusResp.json();
+                    newScratchpadSlug = statusData.slug;
+                }
+            } catch (e) {}
+
+            // Detect scratchpad pin change
+            const scratchpadChanged = newScratchpadSlug !== scratchpadSlug;
+            if (scratchpadChanged) {
+                changed = true;
+            }
+
+            if (changed) {
+                // Check if the currently viewed note was modified externally
+                // Compare fresh data against OLD allNotes before updating
+                if (currentSlug && !isDirty) {
+                    const freshNote = freshNotes.find(n => n.slug === currentSlug);
+                    const oldNote = allNotes.find(n => n.slug === currentSlug);
+                    if (freshNote && oldNote && freshNote.updated !== oldNote.updated) {
+                        await selectNote(currentSlug);
+                    }
+                }
+
+                // Now update state
+                allNotes = freshNotes;
+                scratchpadSlug = newScratchpadSlug;
+                renderNotesList(noteSearch.value.trim());
+            }
+        } catch (e) {}
+    }, 5000);
 }
 
 async function loadNotes() {
@@ -355,6 +428,10 @@ async function deleteCurrentNote() {
 
         noteEditor.classList.add('hidden');
         noNoteSelected.classList.remove('hidden');
+        if (pollTimer !== null) {
+            clearInterval(pollTimer);
+            pollTimer = null;
+        }
         currentSlug = null;
         isDirty = false;
         setDirtyState(false);

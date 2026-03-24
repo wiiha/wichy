@@ -29,6 +29,7 @@ from wichy.tools.helpers import get_tool_definitions  # ignore
 from wichy.tools.insert_lines import InsertLinesTool
 from wichy.tools.knowledge_store import KnowledgeStoreTool
 from wichy.tools.read_scratchpad import ReadScratchpadTool
+from wichy.tools.write_scratchpad import WriteScratchpadTool
 from wichy.tools.replace_text import ReplaceTextTool
 from wichy.tools.reverse_dns_tool import ReverseDnsTool
 from wichy.tools.search_ddg import WebSearchTool
@@ -107,3 +108,4 @@ ALL_TOOLS_NOT_INSTANTIATED.extend(GRAPH_TOOLS)
 ALL_TOOLS_NOT_INSTANTIATED.extend(DUCKDB_TOOLS)
 
 ALL_TOOLS_NOT_INSTANTIATED.append(ReadScratchpadTool)
+ALL_TOOLS_NOT_INSTANTIATED.append(WriteScratchpadTool)

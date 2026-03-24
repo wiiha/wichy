@@ -16,7 +16,7 @@ from rich.markdown import Markdown
 from wichy.agent_builder import AgentBuilderError, build_agent_from_config
 from wichy.cli_parser import CliParser
 from wichy.config import settings
-from wichy.console import user_console, set_user_output_quiet
+from wichy.console import set_user_output_quiet, user_console
 from wichy.constants import ROLE_ASSISTANT, ROLE_USER
 from wichy.context.handler import (
     context_from_file,
@@ -24,7 +24,7 @@ from wichy.context.handler import (
     previous_conversations,
 )
 from wichy.helpers.console import console
-from wichy.helpers.string import truncate_to_len
+from wichy.helpers.string import strip_thinking_content, truncate_to_len
 from wichy.repl import Repl
 from wichy.root_agent import ALL_ROOT_AGENT_DESC
 from wichy.root_agent.helpers import parse_root_agent_markdown_desc
@@ -34,8 +34,8 @@ from wichy.skills import SkillLoader
 from wichy.skills.skill_template import skill_template
 from wichy.slash_commands import SlashCommandChecker, slash_completer
 from wichy.tool_manager import ToolManager
-from wichy.tools.base import console_tool_result
 from wichy.tools import human_verification
+from wichy.tools.base import console_tool_result
 from wichy.tools.task import console_task_agents
 
 
@@ -441,9 +441,32 @@ def main():
     # Set console quiet mode based on --show-log flag
     setup_console_logging(args)
 
-    # Start the web server in background (unless --no-server)
-    if not args.no_server:
+    # Start the web server in background (unless --no-server or pipeline mode)
+    if not args.no_server and args.prompt is None:
         start_server(root_agent)
+
+    if args.prompt is not None:
+        # Pipeline mode — no REPL, single shot, print response and exit
+        if root_agent.agent_has_first_initiative:
+            root_agent.process(settings.wake_up_message)
+        # Pipeline mode preamble — skip if context already has one (e.g. loaded via --load-ctx / --last-ctx)
+        pipeline_note = "[System note: Running in pipeline mode"
+        if not any(
+            pipeline_note in msg.get("content", "") for msg in root_agent.context()
+        ):
+            pipeline_preamble = (
+                "\n---\n"
+                "[System note: Running in pipeline mode. Single invocation, non-interactive. "
+                "Do not ask follow-up questions. Be concise and direct.]\n"
+                "---\n"
+            )
+            root_agent.context.append({"role": ROLE_USER, "content": pipeline_preamble})
+        # Now the user's actual prompt
+        result = root_agent.process(args.prompt)
+        result = strip_thinking_content(result)
+        sys.stdout.write(result)
+        sys.stdout.flush()
+        exit(0)
 
     # Start the REPL
     repl = Repl(

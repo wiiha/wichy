@@ -129,6 +129,19 @@ class TestCliParser:
         args = parser.parse(["--log-agents"])
         assert args.log_agents is True
 
+    def test_parse_prompt_flag(self):
+        """Test parsing --prompt flag."""
+        parser = CliParser()
+        args = parser.parse(["--prompt", "fix the bug"])
+        assert args.prompt == "fix the bug"
+
+    def test_parse_prompt_flag_with_first(self):
+        """Test parsing --prompt with --first."""
+        parser = CliParser()
+        args = parser.parse(["--prompt", "fix the bug", "--first"])
+        assert args.prompt == "fix the bug"
+        assert args.user_first is True
+
     def test_print_usage(self, capsys):
         """Test print_usage method."""
         parser = CliParser()

@@ -22,7 +22,7 @@
 
 ## Phase 2: `--prompt` flag
 
-**Status:** TODO
+**Status:** DONE
 
 **What:** Add `--prompt` flag that bypasses the REPL entirely. Single invocation, runs the agent with that prompt, exits.
 
