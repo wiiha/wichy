@@ -45,7 +45,7 @@
 
 ## Phase 3: `--prompt` + context flags
 
-**Status:** TODO
+**Status:** DONE (2026-03-24)
 
 **What:** Make context-loading flags work in combination with `--prompt`.
 
@@ -115,7 +115,9 @@
 
 ## Phase 5: Auto-save context after pipeline run
 
-**Status:** TODO
+**Status:** DONE (2026-03-24) — verified working.
+
+**Verification:** `context_from_file()` sets `ch._path = path`, so `ContextHandler.append()` → `_write_line()` writes back to the original file after every `process()` turn. No changes needed.
 
 **What:** After `root_agent.process(prompt)` completes in pipeline mode, the resulting context is saved to the same file it was loaded from (or a new file for fresh context). Enables chaining:
 
