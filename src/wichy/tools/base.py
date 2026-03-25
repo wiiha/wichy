@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from rich.console import Console
 from rich.markdown import Markdown
 
+from wichy.console import user_console
 from wichy.constants import HIDE_FROM_LLM_PREFIX
 
 console_tool_result = Console(quiet=True)
@@ -107,14 +108,13 @@ class BaseTool(ABC):
         # and also catch errors that are not handled by the tool
         # itself.
         res = ""
-        console_cmd_info = Console()
 
         try:
             validated_params = self.parameters_model(**kwargs)
             cmd_info = validated_params.info()
             if cmd_info != "":
                 cmd_info = " [pre]" + cmd_info + "[/pre]"
-            console_cmd_info.print(
+            user_console.print(
                 f"[dim][bold]→[/bold] Calling tool:[/dim] [bold]{self.name}[/bold][dim]{cmd_info}[/dim]"
             )
             start_time = time.time()
@@ -141,11 +141,11 @@ class BaseTool(ABC):
                 msg = f"{msg} in {time_str}"
 
             msg = f"{msg}{size_info}"
-            console_cmd_info.print(msg)
+            user_console.print(msg)
 
         except Exception as e:
             res = f"error: {e}"
-            console_cmd_info.print(f"[red bold]✗[/red bold] tool {self.name} failed")
+            user_console.print(f"[red bold]✗[/red bold] tool {self.name} failed")
 
         # Log detailed error for debugging
         console_tool_result.log(
