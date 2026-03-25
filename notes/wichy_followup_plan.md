@@ -125,7 +125,7 @@ Or a table format. Keep it simple, readable.
 
 ### C. Advanced Agent Capabilities
 
-1. **`/btw` slash command**
+1. IMPLEMENTED **`/btw` slash command**
    - Handler in `SlashCommandChecker` or `Repl` for `/btw <question>`
    - Creates temporary context = copy of current messages (read-only)
    - Spawns agent with no tools (or minimal tools like `AskUserQuestion` if needed)
