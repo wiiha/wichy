@@ -5,6 +5,7 @@ from prompt_toolkit.shortcuts import checkboxlist_dialog, input_dialog, radiolis
 from prompt_toolkit.styles import Style
 from pydantic import BaseModel, Field, field_validator
 
+from wichy.helpers.needs_user_attention import needs_user_attention
 from wichy.tools.base import BaseTool, ParametersModel
 
 
@@ -147,6 +148,7 @@ Important notes:
                 }
             )
 
+            needs_user_attention()
             for question in parsed_questions:
                 # Prepare options for the dialog
                 values = [
