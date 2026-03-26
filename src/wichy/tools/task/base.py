@@ -211,7 +211,9 @@ class TaskAgent:
 
             try:
                 response = call(
-                    context=self.context(), tool_defs=tool_defs, model_str=self.model
+                    context=self.context(tick=True),
+                    tool_defs=tool_defs,
+                    model_str=self.model,
                 )
             except LLMBackendMultimodalNotSupported as e:
                 # Try to fix the context by replacing multimodal content with text
@@ -234,7 +236,9 @@ class TaskAgent:
 
             while self._handle_tools(tools, response.message):
                 try:
-                    response = call(self.context(), tool_defs, model_str=self.model)
+                    response = call(
+                        self.context(tick=True), tool_defs, model_str=self.model
+                    )
                 except LLMBackendMultimodalNotSupported as e:
                     console_task_agents.log(
                         f"[yellow]Multimodal not supported: {e.message}[/yellow]"
@@ -285,7 +289,7 @@ class TaskAgent:
         # There is a very sad case in which we reach this part of the code
         # and the context will still explode. For now I think we will just
         # let the task agent die on us.
-        response = call(self.context(), tool_defs=None, model_str=self.model)
+        response = call(self.context(tick=True), tool_defs=None, model_str=self.model)
         self.context.append(
             {"role": ROLE_ASSISTANT, "content": response.message.content}
         )

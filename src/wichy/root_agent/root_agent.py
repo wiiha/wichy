@@ -221,7 +221,9 @@ class RootAgent:
 
         try:
             response = call(
-                context=self.context(), tool_defs=tool_defs, model_str=self.model_str
+                context=self.context(tick=True),
+                tool_defs=tool_defs,
+                model_str=self.model_str,
             )
         except LLMBackendMultimodalNotSupported as e:
             # Try to fix the context by replacing multimodal content with text
@@ -259,7 +261,7 @@ class RootAgent:
         while self.handle_tools(self.tools, response.message):
             try:
                 response = call(
-                    context=self.context(),
+                    context=self.context(tick=True),
                     tool_defs=tool_defs,
                     model_str=self.model_str,
                 )

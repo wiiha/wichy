@@ -154,7 +154,7 @@ class ContextHandler:
             new_object (dict): Must contain at least ``role`` and ``content`` keys.
         """
         with self._lock:
-            new_object.setdefault("_tick", 1)
+            new_object.setdefault("_tick", 0)
             self.context.append(new_object)
         self._write_line(new_object, entry_type=MESSAGE_TYPE)
 
