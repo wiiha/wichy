@@ -1,6 +1,6 @@
 """API endpoints for context editor."""
 
-from flask import request, jsonify, Blueprint
+from flask import Blueprint, jsonify, request
 
 # Global reference to active context handler (set by __main__)
 _active_context = None  # Will be ContextHandler
@@ -201,5 +201,17 @@ def register_routes(bp: Blueprint):
             return jsonify({"error": str(e)}), 400
         except ValueError as e:
             return jsonify({"error": str(e)}), 400
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @bp.route("/api/tick", methods=["POST"])
+    def tick():
+        """Increment _tick on all context entries."""
+        if _active_context is None:
+            return jsonify({"error": "No active context"}), 404
+
+        try:
+            _active_context.tick()
+            return jsonify({"success": True})
         except Exception as e:
             return jsonify({"error": str(e)}), 500

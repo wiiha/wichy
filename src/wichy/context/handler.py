@@ -76,13 +76,18 @@ class ContextHandler:
         with self._lock:
             return len(self.context)
 
-    def __call__(self):
+    def __call__(self, tick: bool = False):
         """
         Return the message context as a list (log entries excluded).
 
         Strips internal metadata fields (like `_truncated_from`) that should
         not be sent to the LLM.
+
+        Args:
+            tick (bool): If True, increment _tick on all entries (default False).
         """
+        if tick:
+            self.tick()
         with self._lock:
             result = []
             for msg in self.context:
@@ -90,6 +95,53 @@ class ContextHandler:
                 clean_msg = {k: v for k, v in msg.items() if not k.startswith("_")}
                 result.append(clean_msg)
             return result
+
+    def tick(self):
+        """Increment _tick on every entry by 1. Persists to disk."""
+        with self._lock:
+            # Skip file update if file doesn't exist yet
+            if not self._path.exists():
+                # Still update in-memory even if no file
+                for msg in self.context:
+                    msg["_tick"] = msg.get("_tick", 0) + 1
+                for log in self.logs:
+                    log["_tick"] = log.get("_tick", 0) + 1
+                return
+
+            # Read file, update _tick, rebuild in-memory lists, write back
+            lines = self._path.read_text(encoding="utf-8").splitlines()
+            entries = []
+            for line in lines:
+                raw = line.strip()
+                if not raw:
+                    continue
+                entry = json.loads(raw)
+                entry["_tick"] = entry.get("_tick", 0) + 1
+                entries.append(entry)
+
+            # Rebuild in-memory lists from updated entries
+            self.context = []
+            self.logs = []
+            for entry in entries:
+                entry_type = entry.get("type", MESSAGE_TYPE)
+                if entry_type == MESSAGE_TYPE:
+                    # Strip type and timestamp for in-memory (they're persisted on disk)
+                    msg = {
+                        k: v for k, v in entry.items() if k not in ("type", "timestamp")
+                    }
+                    self.context.append(msg)
+                else:
+                    self.logs.append(entry)
+
+            # Write back to file
+            temp_path = self._path.with_suffix(".tmp")
+            temp_path.write_text(
+                "\n".join(json.dumps(e) for e in entries) + "\n", encoding="utf-8"
+            )
+            temp_path.replace(self._path)
+            self._file_mtime = self._path.stat().st_mtime
+
+        self._file_mtime = self._path.stat().st_mtime
 
     def append(self, new_object):
         """
@@ -102,6 +154,7 @@ class ContextHandler:
             new_object (dict): Must contain at least ``role`` and ``content`` keys.
         """
         with self._lock:
+            new_object.setdefault("_tick", 1)
             self.context.append(new_object)
         self._write_line(new_object, entry_type=MESSAGE_TYPE)
 
@@ -129,6 +182,7 @@ class ContextHandler:
                 time.  Both keys overwrite any values already present in *data*.
         """
         log_object = {**data, "type": LOG_TYPE, "timestamp": datetime.now().isoformat()}
+        log_object.setdefault("_tick", 1)
         with self._lock:
             self.logs.append(log_object)
         self._write_line(log_object, entry_type=None)  # type already set in dict
@@ -289,6 +343,7 @@ class ContextHandler:
                 set on *obj* (e.g. log entries built by :meth:`add_log`).
         """
         record = dict(obj)
+        record.setdefault("_tick", 1)
         if entry_type is not None:
             record.setdefault("type", entry_type)
         record.setdefault("timestamp", datetime.now().isoformat())

@@ -132,7 +132,15 @@
   color: var(--text-muted);
   font-family: var(--font-mono);
 }
-
+  .tick-badge {
+    font-size: var(--font-size-xs);
+    padding: 2px var(--space-sm);
+    border-radius: var(--radius-sm);
+    background: var(--primary-light);
+    color: var(--primary-dark);
+    font-family: var(--font-mono);
+    font-weight: 600;
+  }
 .truncated-badge {
   font-size: var(--font-size-xs);
   padding: 2px var(--space-sm);

@@ -44,6 +44,7 @@ const btnCancelAdd = document.getElementById('btn-cancel-add');
 const btnSaveEdit = document.getElementById('btn-save-edit');
 const btnCancelEdit = document.getElementById('btn-cancel-edit');
 const btnDrop = document.getElementById('btn-drop');
+const btnTick = document.getElementById('btn-tick');
 const btnRefreshConflict = document.getElementById('btn-refresh-conflict');
 
 // Inputs
@@ -186,7 +187,25 @@ document.addEventListener('DOMContentLoaded', () => {
             alert('Network error: ' + e);
         }
     });
-
+      btnTick.addEventListener('click', async () => {
+          if (!confirm('Increment tick on all entries?')) {
+              return;
+          }
+          try {
+              const resp = await fetch('/tools/context/api/tick', {
+                  method: 'POST',
+              });
+              if (resp.ok) {
+                  fetchMessages();
+                  fetchStatus();
+              } else {
+                  const err = await resp.json();
+                  alert('Error: ' + (err.error || 'Unknown'));
+              }
+          } catch (e) {
+              alert('Network error: ' + e);
+          }
+      });
     btnRefreshConflict.addEventListener('click', () => {
         elConflictModal.classList.add('hidden');
         fetchMessages();
@@ -282,7 +301,11 @@ function renderMessages(messages) {
         
         // Role badge
         html += `<span class="message-role ${role}">${escapeHtml(role)}</span>`;
-        
+          
+          // Tick counter
+          if (msg._tick !== undefined) {
+              html += `<span class="tick-badge" title="Tick">${msg._tick}</span>`;
+          }        
         // Multimodal indicator
         if (isMultimodal && imageCount > 0) {
             html += `<span class="multimodal-badge" title="Contains ${imageCount} image(s)">🖼 ${imageCount} image${imageCount > 1 ? 's' : ''}</span>`;

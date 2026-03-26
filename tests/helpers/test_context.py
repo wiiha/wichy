@@ -76,15 +76,15 @@ class TestContextHandlerBasics:
         ctx = ContextHandler()
         ctx.add("user", "Hello")
         assert len(ctx) == 1
-        assert ctx.context[0] == {"role": "user", "content": "Hello"}
+        assert ctx.context[0] == {"role": "user", "content": "Hello", "_tick": 1}
 
     def test_append_injects_timestamp_and_type(self, temp_contexts_dir):
-        """Test append injects timestamp and type if not present."""
+        """Test append injects timestamp, type, and _tick if not present."""
         ctx = ContextHandler()
         ctx.append({"role": "user", "content": "test"})
 
-        # Check in-memory context (original dict is not mutated)
-        assert ctx.context[0] == {"role": "user", "content": "test"}
+        # Check in-memory context (includes _tick now)
+        assert ctx.context[0] == {"role": "user", "content": "test", "_tick": 1}
 
         # Check file content
         save_path = ctx._gen_save_path()
@@ -95,6 +95,7 @@ class TestContextHandlerBasics:
         assert "timestamp" in data
         assert data["role"] == "user"
         assert data["content"] == "test"
+        assert data["_tick"] == 1
 
     def test_append_does_not_override_existing_type_and_timestamp(
         self, temp_contexts_dir
@@ -202,8 +203,8 @@ class TestContextHandlerDrop:
         ctx.drop(1)
 
         assert len(ctx) == 2
-        assert ctx.context[0] == {"role": "user", "content": "msg1"}
-        assert ctx.context[1] == {"role": "assistant", "content": "msg2"}
+        assert ctx.context[0] == {"role": "user", "content": "msg1", "_tick": 1}
+        assert ctx.context[1] == {"role": "assistant", "content": "msg2", "_tick": 1}
 
         # Check file was updated
         save_path = ctx._gen_save_path()
@@ -308,6 +309,223 @@ class TestContextHandlerDelete:
 
         with pytest.raises(OSError):
             ctx.delete()
+
+
+class TestContextHandlerTick:
+    """Test the tick feature for incrementing _tick on all entries."""
+
+    def test_tick_increments_all_entries(self, temp_contexts_dir):
+        """Test tick() increments _tick on all messages and logs."""
+        ctx = ContextHandler()
+        ctx.append({"role": "user", "content": "msg1"})
+        ctx.append({"role": "assistant", "content": "msg2"})
+        ctx.add_log({"event": "test_event"})
+
+        # After append, _tick is 1. After tick(), it becomes 2.
+        ctx.tick()
+
+        # Check in-memory
+        assert ctx.context[0]["_tick"] == 2
+        assert ctx.context[1]["_tick"] == 2
+        assert ctx.logs[0]["_tick"] == 2
+
+        # Check on disk
+        save_path = ctx._gen_save_path()
+        lines = save_path.read_text().strip().split("\n")
+        entries = [json.loads(line) for line in lines]
+        for entry in entries:
+            assert entry["_tick"] == 2
+
+    def test_tick_twice(self, temp_contexts_dir):
+        """Test tick() called twice increments _tick to 3."""
+        ctx = ContextHandler()
+        ctx.append({"role": "user", "content": "msg1"})
+
+        # After append: _tick = 1
+        # After first tick: _tick = 2
+        ctx.tick()
+        # After second tick: _tick = 3
+        ctx.tick()
+
+        assert ctx.context[0]["_tick"] == 3
+
+        # Check on disk
+        save_path = ctx._gen_save_path()
+        line = save_path.read_text().strip()
+        entry = json.loads(line)
+        assert entry["_tick"] == 3
+
+    def test_tick_migrates_existing_entries(self, temp_contexts_dir):
+        """Test tick() adds _tick=1 to entries that don't have it."""
+        # Create a context file without _tick
+        context_file = temp_contexts_dir / "test_context.json"
+        lines = [
+            json.dumps({"role": "user", "content": "msg1"}),
+            json.dumps({"role": "assistant", "content": "msg2"}),
+        ]
+        context_file.write_text("\n".join(lines))
+
+        # Manually set the path for this test
+        from wichy.context.handler import context_from_file
+
+        ctx = context_from_file(context_file)
+
+        # After loading from file, entries without tick
+        # won't have a tick property until tick() is
+        # called at least once.
+        # After tick(), they become _tick=1.
+        ctx.tick()
+
+        # All entries should now have _tick == 1
+        assert ctx.context[0]["_tick"] == 1
+        assert ctx.context[1]["_tick"] == 1
+
+        # Check on disk
+        lines = context_file.read_text().strip().split("\n")
+        entries = [json.loads(line) for line in lines]
+        for entry in entries:
+            assert entry["_tick"] == 1
+
+    def test_call_with_tick_true(self, temp_contexts_dir):
+        """Test calling context(tick=True) increments _tick."""
+        ctx = ContextHandler()
+        ctx.append({"role": "user", "content": "msg1"})
+
+        # After append, _tick is 1. Calling with tick=True increments to 2.
+        result = ctx(tick=True)
+
+        assert ctx.context[0]["_tick"] == 2
+        # Result should not include _tick (it's stripped by __call__)
+        assert result[0] == {"role": "user", "content": "msg1"}
+
+    def test_append_sets_tick_to_1(self, temp_contexts_dir):
+        """Test append() sets _tick to 1 on new entries."""
+        ctx = ContextHandler()
+        ctx.append({"role": "user", "content": "test"})
+
+        assert ctx.context[0]["_tick"] == 1
+
+        # Check on disk
+        save_path = ctx._gen_save_path()
+        line = save_path.read_text().strip()
+        entry = json.loads(line)
+        assert entry["_tick"] == 1
+
+    def test_tick_preserves_other_fields(self, temp_contexts_dir):
+        """Test tick() preserves other fields like _truncated_from."""
+        ctx = ContextHandler()
+        ctx.append(
+            {"role": "user", "content": "test", "_truncated_from": "original content"}
+        )
+
+        # After append, _tick is 1. After tick(), it becomes 2.
+        ctx.tick()
+
+        # _truncated_from should still be there
+        assert "_truncated_from" in ctx.context[0]
+        assert ctx.context[0]["_truncated_from"] == "original content"
+        # _tick should be added
+        assert ctx.context[0]["_tick"] == 2
+
+        # Check on disk
+        save_path = ctx._gen_save_path()
+        line = save_path.read_text().strip()
+        entry = json.loads(line)
+        assert entry["_truncated_from"] == "original content"
+        assert entry["_tick"] == 2
+
+    def test_tick_with_no_file(self, temp_contexts_dir):
+        """Test tick() handles case where no file exists yet."""
+        ctx = ContextHandler()
+        # Don't write anything, so file doesn't exist
+
+        # tick() should not raise, just skip file update
+        ctx.tick()
+
+        # In-memory should be updated (but it's empty anyway)
+        assert ctx.context == []
+        assert ctx.logs == []
+
+    def test_tick_strips_tick_from_result(self, temp_contexts_dir):
+        """Test that _tick is stripped from __call__ result."""
+        ctx = ContextHandler()
+        ctx.append({"role": "user", "content": "test"})
+        ctx.tick()
+
+        result = ctx()
+
+        assert "_tick" not in result[0]
+        assert result[0] == {"role": "user", "content": "test"}
+
+    def test_tick_different_ages(self, temp_contexts_dir):
+        """Test that objects added at different times have correct _tick values."""
+        ctx = ContextHandler()
+
+        # Add first object
+        ctx.append({"role": "user", "content": "msg1"})
+        assert ctx.context[0]["_tick"] == 1
+
+        # Tick - first object now at _tick=2
+        ctx.tick()
+        assert ctx.context[0]["_tick"] == 2
+
+        # Add second object - it starts at _tick=1
+        ctx.append({"role": "assistant", "content": "msg2"})
+        assert ctx.context[0]["_tick"] == 2
+        assert ctx.context[1]["_tick"] == 1
+
+        # Tick again - both increment
+        ctx.tick()
+        assert ctx.context[0]["_tick"] == 3
+        assert ctx.context[1]["_tick"] == 2
+
+        # Check on disk
+        save_path = ctx._gen_save_path()
+        lines = save_path.read_text().strip().split("\n")
+        entries = [json.loads(line) for line in lines]
+        assert entries[0]["_tick"] == 3
+
+    def test_tick_preserves_message_log_order(self, temp_contexts_dir):
+        """Test that tick() preserves order of interleaved messages and logs."""
+        ctx = ContextHandler()
+
+        # Add message, then log, then message, then log - interleaved
+        ctx.append({"role": "user", "content": "msg1"})
+        ctx.add_log({"event": "log1"})
+        ctx.append({"role": "assistant", "content": "msg2"})
+        ctx.add_log({"event": "log2"})
+
+        # Verify initial order on disk
+        save_path = ctx._gen_save_path()
+        lines = save_path.read_text().strip().split("\n")
+        entries = [json.loads(line) for line in lines]
+        assert entries[0]["type"] == "message"
+        assert entries[0]["content"] == "msg1"
+        assert entries[1]["type"] == "log"
+        assert entries[1]["event"] == "log1"
+        assert entries[2]["type"] == "message"
+        assert entries[2]["content"] == "msg2"
+        assert entries[3]["type"] == "log"
+        assert entries[3]["event"] == "log2"
+
+        # Tick
+        ctx.tick()
+
+        # Verify order is preserved after tick
+        lines = save_path.read_text().strip().split("\n")
+        entries = [json.loads(line) for line in lines]
+        assert entries[0]["type"] == "message"
+        assert entries[0]["content"] == "msg1"
+        assert entries[0]["_tick"] == 2
+        assert entries[1]["type"] == "log"
+        assert entries[1]["event"] == "log1"
+        assert entries[1]["_tick"] == 2
+        assert entries[2]["type"] == "message"
+        assert entries[2]["content"] == "msg2"
+        assert entries[2]["_tick"] == 2
+        assert entries[3]["type"] == "log"
+        assert entries[3]["event"] == "log2"
+        assert entries[3]["_tick"] == 2
 
 
 class TestContextHandlerFileOperations:
