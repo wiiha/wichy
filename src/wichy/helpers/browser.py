@@ -6,8 +6,10 @@ This avoids repeated browser launches and preserves session state (cookies, logi
 """
 
 import ast
+import asyncio
 import inspect
 import random
+import threading
 from typing import Any, Optional
 
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
@@ -43,10 +45,12 @@ class BrowserManager:
     """
 
     _instance: Optional["BrowserManager"] = None
+    _singleton_lock = threading.Lock()
 
     def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
+        with cls._singleton_lock:
+            if cls._instance is None:
+                cls._instance = super().__new__(cls)
         return cls._instance
 
     def __init__(self):
@@ -55,23 +59,51 @@ class BrowserManager:
             self._browser: Optional[Browser] = None
             self._context: Optional[BrowserContext] = None
             self._page: Optional[Page] = None
+            self._async_lock: Optional[asyncio.Lock] = None
+            self._loop: Optional[asyncio.AbstractEventLoop] = None
             self._initialized = True
+
+    def get_event_loop(self) -> asyncio.AbstractEventLoop:
+        """
+        Get or create the global asyncio event loop.
+
+        Creates a single persistent loop for the entire session to avoid
+        invalidating browser objects tied to old loops.
+        """
+        if self._loop is None or self._loop.is_closed():
+            self._loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self._loop)
+        return self._loop
+
+    def _get_async_lock(self) -> asyncio.Lock:
+        """Lazily create an asyncio.Lock (requires an event loop)."""
+        if self._async_lock is None:
+            with self._singleton_lock:
+                if self._async_lock is None:
+                    self._async_lock = asyncio.Lock()
+        return self._async_lock
+
+    async def _initialize_browser(self):
+        """Internal method to actually initialize the browser. Caller must hold the lock."""
+        self._playwright = await async_playwright().__aenter__()
+        self._browser = await self._playwright.chromium.launch(
+            headless=settings.browser_headless
+        )
+
+        # Create a dedicated context for the persistent page
+        self._context = await self._browser.new_context(
+            user_agent=random.choice(settings.browser_user_agents),
+            viewport=settings.browser_viewport,
+            locale=settings.browser_locale,
+        )
+        self._page = await self._context.new_page()
 
     async def initialize(self):
         """Initialize the browser if not already initialized."""
         if self._browser is None:
-            self._playwright = await async_playwright().__aenter__()
-            self._browser = await self._playwright.chromium.launch(
-                headless=settings.browser_headless
-            )
-
-            # Create a dedicated context for the persistent page
-            self._context = await self._browser.new_context(
-                user_agent=random.choice(settings.browser_user_agents),
-                viewport=settings.browser_viewport,
-                locale=settings.browser_locale,
-            )
-            self._page = await self._context.new_page()
+            async with self._get_async_lock():
+                if self._browser is None:
+                    await self._initialize_browser()
 
     async def _is_browser_alive(self) -> bool:
         """
@@ -102,17 +134,42 @@ class BrowserManager:
         Recover from a browser crash by fully reinitializing.
 
         This resets all state and creates a fresh browser instance.
+        The lock prevents concurrent recovery attempts, so no double-check is needed.
         """
         console.log("[yellow]Recovering from browser crash...[/yellow]")
 
-        # Clear stale references
-        self._page = None
-        self._context = None
-        self._browser = None
-        self._playwright = None
+        async with self._get_async_lock():
+            # Clean up old instances before clearing references
+            if self._page:
+                try:
+                    await self._page.close()
+                except Exception:
+                    pass  # Ignore errors during cleanup
+            if self._context:
+                try:
+                    await self._context.close()
+                except Exception:
+                    pass  # Ignore errors during cleanup
+            if self._browser:
+                try:
+                    await self._browser.close()
+                except Exception:
+                    pass  # Ignore errors during cleanup
+            if self._playwright:
+                try:
+                    await self._playwright.stop()
+                except Exception:
+                    pass  # Ignore errors during cleanup
 
-        # Reinitialize from scratch
-        await self.initialize()
+            # Clear stale references
+            self._page = None
+            self._context = None
+            self._browser = None
+            self._playwright = None
+            # Note: _async_lock is NOT reset - the same lock persists
+
+            # Reinitialize from scratch
+            await self._initialize_browser()
         console.log("[green]Browser crash recovery complete[/green]")
 
     async def get_page(self) -> Page:
@@ -122,9 +179,11 @@ class BrowserManager:
         Returns:
             The persistent Page instance.
         """
-        # If browser not initialized, initialize it
+        # If browser not initialized, initialize it (with lock to prevent races)
         if self._browser is None:
-            await self.initialize()
+            async with self._get_async_lock():
+                if self._browser is None:
+                    await self._initialize_browser()
 
         # Check if browser process is still alive (handles crash recovery)
         if not await self._is_browser_alive():
@@ -134,7 +193,7 @@ class BrowserManager:
         if self._page is None or self._page.is_closed():
             try:
                 if self._context is None:
-                    raise Exception("Context not initialized")
+                    raise RuntimeError("Context not initialized")
                 self._page = await self._context.new_page()
             except Exception as e:
                 if is_browser_crash_error(e):
@@ -143,6 +202,9 @@ class BrowserManager:
                     # After recovery, _page should be ready
                 else:
                     # Context may be closed or invalid, recreate it
+                    if self._browser is None:
+                        # Browser was lost, reinitialize everything
+                        await self.initialize()
                     self._context = await self._browser.new_context(
                         user_agent=random.choice(settings.browser_user_agents),
                         viewport=settings.browser_viewport,
@@ -172,6 +234,129 @@ class BrowserManager:
                     "status": "browser disconnected - will recover on next operation"
                 }
             return {"status": format_error(str(e))}
+
+    async def _get_page_info(self, detail: str) -> dict:
+        """
+        Get structured information about the current page.
+
+        Args:
+            detail: 'quick' for URL and title only, 'full' for detailed page structure.
+
+        Returns:
+            A dictionary with page information.
+        """
+        page = await self.get_page()
+
+        try:
+            # Get basic info
+            url = page.url
+            title = await page.title()
+
+            if detail == "quick":
+                return {"url": url, "title": title}
+
+            # Full detail - extract structured page info
+            result = {"url": url, "title": title}
+
+            # Extract headings
+            headings = []
+            heading_elements = await page.query_selector_all("h1, h2, h3, h4, h5, h6")
+            for el in heading_elements[:20]:  # Limit to 20
+                if await el.is_visible():
+                    text = await el.text_content()
+                    if text:
+                        # Get heading level from tag name
+                        tag = await el.evaluate("e => e.tagName.toLowerCase()")
+                        level = int(tag[1]) if tag and tag[0] == "h" else 0
+                        headings.append({"level": level, "text": text.strip()})
+            result["headings"] = headings
+
+            # Extract links
+            links = []
+            link_elements = await page.query_selector_all("a[href]")
+            for el in link_elements[:20]:  # Limit to 20
+                if await el.is_visible():
+                    text = await el.text_content()
+                    href = await el.get_attribute("href")
+                    if href:
+                        links.append(
+                            {"text": text.strip() if text else "", "href": href}
+                        )
+            result["links"] = links
+
+            # Extract buttons
+            buttons = []
+            button_elements = await page.query_selector_all(
+                "button, input[type='submit'], input[type='button']"
+            )
+            for el in button_elements[:20]:  # Limit to 20
+                if await el.is_visible():
+                    text = await el.text_content()
+                    tag = await el.evaluate("e => e.tagName.toLowerCase()")
+                    input_type = None
+                    if tag == "input":
+                        input_type = await el.get_attribute("type")
+                        input_type = input_type or "button"
+                    else:
+                        input_type = "button"
+                    buttons.append(
+                        {"text": text.strip() if text else "", "type": input_type}
+                    )
+            result["buttons"] = buttons
+
+            # Extract inputs
+            inputs = []
+            input_elements = await page.query_selector_all("input, textarea, select")
+            for el in input_elements[:20]:  # Limit to 20
+                if await el.is_visible():
+                    input_type = await el.get_attribute("type")
+                    # Exclude hidden and submit/button inputs
+                    if input_type in ("hidden", "submit", "button"):
+                        continue
+                    name = await el.get_attribute("name")
+                    placeholder = await el.get_attribute("placeholder")
+                    tag = await el.evaluate("e => e.tagName.toLowerCase()")
+                    inputs.append(
+                        {
+                            "name": name or "",
+                            "type": (
+                                tag
+                                if tag == "textarea" or tag == "select"
+                                else (input_type or "text")
+                            ),
+                            "placeholder": placeholder or "",
+                        }
+                    )
+            result["inputs"] = inputs
+
+            # Extract tables
+            tables = []
+            table_elements = await page.query_selector_all("table")
+            for el in table_elements[:20]:  # Limit to 20
+                if await el.is_visible():
+                    # Get headers from th elements
+                    th_elements = await el.query_selector_all("th")
+                    headers = []
+                    for th in th_elements:
+                        th_text = await th.text_content()
+                        headers.append(th_text.strip() if th_text else "")
+                    # Count rows (tr elements)
+                    tr_elements = await el.query_selector_all("tr")
+                    tables.append({"headers": headers, "row_count": len(tr_elements)})
+            result["tables"] = tables
+
+            return result
+
+        except Exception as e:
+            if is_browser_crash_error(e):
+                await self._recover_from_crash()
+                # Retry once after recovery
+                page = await self.get_page()
+                try:
+                    return await self._get_page_info(detail)
+                except Exception as retry_e:
+                    return {"error": f"Failed after recovery: {str(retry_e)}"}
+            return {"error": str(e)}
 
     async def navigate(self, url: str, wait_until: str = "networkidle") -> dict:
         """
@@ -243,6 +428,177 @@ class BrowserManager:
                 except Exception as retry_e:
                     raise RuntimeError(f"Failed after recovery: {str(retry_e)}")
             raise RuntimeError(f"Failed to take screenshot: {str(e)}")
+
+    async def _act(
+        self,
+        action: str,
+        target: str,
+        value: Optional[str] = None,
+        wait_until: str = "navigation",
+        timeout: int = 5000,
+    ) -> dict:
+        """
+        Perform a declarative browser action (click, fill, or wait).
+
+        Args:
+            action: Action to perform: 'click', 'fill', or 'wait'
+            target: Target element identifier (text for click, name/placeholder/id for fill, CSS selector for wait)
+            value: Value to type (required for 'fill' action)
+            wait_until: For click: what to wait for after clicking. Options: 'navigation', 'none'
+            timeout: Timeout in milliseconds for wait operations
+
+        Returns:
+            A dictionary with action result or error.
+        """
+        page = await self.get_page()
+
+        try:
+            if action == "click":
+                return await self._act_click(page, target, wait_until, timeout)
+            elif action == "fill":
+                if value is None:
+                    return {
+                        "status": "error",
+                        "error": "Value is required for 'fill' action",
+                    }
+                return await self._act_fill(page, target, value, timeout)
+            elif action == "wait":
+                return await self._act_wait(page, target, timeout)
+            else:
+                return {"status": "error", "error": f"Unknown action: {action}"}
+
+        except Exception as e:
+            if is_browser_crash_error(e):
+                console.log(
+                    f"[yellow]Browser crash during {action}, recovering: {e}[/yellow]"
+                )
+                await self._recover_from_crash()
+                page = await self.get_page()
+                try:
+                    if action == "click":
+                        return await self._act_click(page, target, wait_until, timeout)
+                    elif action == "fill":
+                        return await self._act_fill(page, target, value, timeout)
+                    elif action == "wait":
+                        return await self._act_wait(page, target, timeout)
+                except Exception as retry_e:
+                    return {
+                        "status": "error",
+                        "error": f"Failed after recovery: {str(retry_e)}",
+                    }
+            return {"status": "error", "error": str(e)}
+
+    async def _act_click(
+        self, page: Page, target: str, wait_until: str, timeout: int
+    ) -> dict:
+        """
+        Click an element by text.
+
+        Args:
+            page: The Playwright Page object
+            target: Text to click
+            wait_until: 'navigation' to wait for page load, 'none' for no wait
+            timeout: Timeout in milliseconds
+
+        Returns:
+            Result dictionary with status
+        """
+        # Try get_by_text first, then fallback to locator
+        locator = page.get_by_text(target, exact=False)
+        try:
+            await locator.wait_for(state="visible", timeout=timeout)
+        except Exception:
+            # Fallback to text selector
+            locator = page.locator(f"text={target}")
+            try:
+                await locator.wait_for(state="visible", timeout=timeout)
+            except Exception:
+                return {"status": "error", "error": f"Element not found: {target}"}
+
+        await locator.click()
+
+        if wait_until == "navigation":
+            await page.wait_for_load_state("networkidle")
+
+        return {"status": "success", "action": "click", "target": target}
+
+    async def _act_fill(
+        self, page: Page, target: str, value: str, timeout: int
+    ) -> dict:
+        """
+        Fill a form input by name, placeholder, id, or label.
+
+        Args:
+            page: The Playwright Page object
+            target: Input identifier (name, placeholder, id, or label)
+            value: Value to type
+            timeout: Timeout in milliseconds
+
+        Returns:
+            Result dictionary with status
+        """
+        input_element = None
+
+        # Try finding input by various selectors in order
+        selectors = [
+            f'input[name="{target}"]',
+            f'input[placeholder*="{target}"]',
+            f"#{target}",
+            f'textarea[name="{target}"]',
+        ]
+
+        for selector in selectors:
+            try:
+                input_element = await page.query_selector(selector)
+                if input_element:
+                    break
+            except Exception:
+                continue
+
+        # Try get_by_label as last resort
+        if not input_element:
+            try:
+                locator = page.get_by_label(target)
+                await locator.wait_for(state="visible", timeout=timeout)
+                input_element = locator
+            except Exception:
+                pass
+
+        if not input_element:
+            return {"status": "error", "error": f"Element not found: {target}"}
+
+        # Wait for element to be visible
+        try:
+            await input_element.wait_for(state="visible", timeout=timeout)
+        except Exception:
+            return {"status": "error", "error": f"Element not found: {target}"}
+
+        # Clear and fill
+        await input_element.fill("")
+        await input_element.fill(value)
+
+        return {"status": "success", "action": "fill", "target": target}
+
+    async def _act_wait(self, page: Page, target: str, timeout: int) -> dict:
+        """
+        Wait for an element to appear on the page.
+
+        Args:
+            page: The Playwright Page object
+            target: CSS selector for the element
+            timeout: Timeout in milliseconds
+
+        Returns:
+            Result dictionary with status
+        """
+        try:
+            await page.wait_for_selector(target, state="visible", timeout=timeout)
+            return {"status": "success", "action": "wait", "target": target}
+        except Exception as e:
+            error_msg = str(e)
+            if "timeout" in error_msg.lower():
+                return {"status": "error", "error": f"Element not found: {target}"}
+            return {"status": "error", "error": error_msg}
 
     async def raw(self, code: str) -> Any:
         """
@@ -403,18 +759,24 @@ class BrowserManager:
 
     async def close(self):
         """Close the browser and cleanup resources."""
-        if self._page:
-            await self._page.close()
-            self._page = None
-        if self._context:
-            await self._context.close()
-            self._context = None
-        if self._browser:
-            await self._browser.close()
-            self._browser = None
-        if self._playwright:
-            await self._playwright.stop()
-            self._playwright = None
+        async with self._get_async_lock():
+            if self._page:
+                await self._page.close()
+                self._page = None
+            if self._context:
+                await self._context.close()
+                self._context = None
+            if self._browser:
+                await self._browser.close()
+                self._browser = None
+            if self._playwright:
+                await self._playwright.stop()
+                self._playwright = None
+            # Reset lock so it's recreated fresh on next use
+            self._async_lock = None
+            # Reset event loop reference
+            self._loop = None
+        self._initialized = False
 
     @property
     def is_initialized(self) -> bool:

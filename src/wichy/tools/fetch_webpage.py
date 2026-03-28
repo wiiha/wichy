@@ -1,32 +1,22 @@
-import asyncio
+from typing import Literal
+
 import base64
 import os
 import random
 import tempfile
 
 import markdownify
-from pydantic import Field
+from pydantic import Field, field_validator, model_validator
 
 from wichy.helpers.browser import browser_manager
 from wichy.tools.base import BaseTool, ParametersModel
 from wichy.tools.errors import format_error
 
-# Global event loop - persists for entire session
-_loop = None
-
-
-def get_event_loop():
-    """
-    Get or create the global asyncio event loop.
-
-    Creates a single persistent loop for the entire session to avoid
-    invalidating browser objects tied to old loops.
-    """
-    global _loop
-    if _loop is None:
-        _loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(_loop)
-    return _loop
+# Type aliases for parameter validation
+WaitUntilType = Literal["load", "domcontentloaded", "networkidle"]
+WaitUntilActType = Literal["navigation", "none"]
+ActionType = Literal["click", "fill", "wait"]
+DetailType = Literal["quick", "full"]
 
 
 def build_content_overview(content_md: str, limit: int) -> str:
@@ -69,10 +59,24 @@ class FetchWebPageParameters(ParametersModel):
         20000,
         description="Maximum number of characters to return. Default is 20000. If content exceeds this limit, an overview with headings is returned instead of full content.",
     )
-    wait_until: str = Field(
+    wait_until: WaitUntilType = Field(
         "networkidle",
-        description="When to consider navigation complete. Options: 'load' (fires when load event is dispatched), 'domcontentloaded' (fires when DOMContentLoaded event is dispatched), 'networkidle' (fires when there are no more network connections for at least 500ms). Use 'load' or 'domcontentloaded' for faster fetching when you don't need JavaScript-rendered content.",
+        description="When to consider navigation complete. Options: 'load', 'domcontentloaded', 'networkidle'.",
     )
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("URL cannot be empty")
+        return v
+
+    @field_validator("limit")
+    @classmethod
+    def validate_limit_positive(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("limit must be positive")
+        return v
 
     def info(self):
         return f'url="{self.url}", limit={self.limit}, wait_until="{self.wait_until}"'
@@ -126,7 +130,7 @@ class FetchWebPageTool(BaseTool):
             The text content of the page as markdown, or an overview of headings if content exceeds limit.
         """
         try:
-            loop = get_event_loop()
+            loop = browser_manager.get_event_loop()
             html_content = loop.run_until_complete(self._fetch_webpage(url, wait_until))
 
             # If content is an error message, return it directly
@@ -145,10 +149,17 @@ class FetchWebPageTool(BaseTool):
 
 class NavigateParameters(ParametersModel):
     url: str = Field(..., description="The URL to navigate to.")
-    wait_until: str = Field(
+    wait_until: WaitUntilType = Field(
         "networkidle",
         description="When to consider navigation complete. Options: 'load', 'domcontentloaded', 'networkidle'.",
     )
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("URL cannot be empty")
+        return v
 
     def info(self):
         return f'url="{self.url}"'
@@ -171,7 +182,7 @@ class NavigateTool(BaseTool):
             A message indicating the result of the navigation.
         """
         try:
-            loop = get_event_loop()
+            loop = browser_manager.get_event_loop()
 
             async def _navigate():
                 result = await browser_manager.navigate(url, wait_until=wait_until)
@@ -205,7 +216,7 @@ class BrowserStatusTool(BaseTool):
             A message with the current URL and page title, or status if unavailable.
         """
         try:
-            loop = get_event_loop()
+            loop = browser_manager.get_event_loop()
 
             async def _status():
                 return await browser_manager.status()
@@ -220,6 +231,49 @@ class BrowserStatusTool(BaseTool):
             return format_error(str(e))
 
 
+class BrowserPageInfoParameters(ParametersModel):
+    detail: DetailType = Field(
+        "quick",
+        description="Detail level: 'quick' returns URL and title only; 'full' returns structured page info including headings, links, buttons, inputs, tables.",
+    )
+
+    def info(self):
+        return f'detail="{self.detail}"'
+
+
+class BrowserPageInfoTool(BaseTool):
+    name = "browser_page_info"
+    description = "Get information about the current page. Use detail='quick' for URL/title only, or detail='full' for structured page insight including headings, links, buttons, inputs, and tables. Use this to understand what's on the page before taking actions."
+    parameters_model = BrowserPageInfoParameters
+
+    def execute(self, detail: str = "quick") -> str:
+        """
+        Get structured information about the current page.
+
+        Args:
+            detail: 'quick' for URL and title only, 'full' for detailed page structure.
+
+        Returns:
+            JSON string with page information.
+        """
+        try:
+            import json
+
+            loop = browser_manager.get_event_loop()
+
+            async def _info():
+                return await browser_manager._get_page_info(detail)
+
+            result = loop.run_until_complete(_info())
+
+            if "error" in result:
+                return format_error(result["error"])
+
+            return json.dumps(result, indent=2)
+        except Exception as e:
+            return format_error(str(e))
+
+
 class ScreenshotParameters(ParametersModel):
     filename: str = Field(
         ...,
@@ -229,6 +283,13 @@ class ScreenshotParameters(ParametersModel):
         False,
         description="If True, capture the full scrollable page. If False, capture only the viewport.",
     )
+
+    @field_validator("filename")
+    @classmethod
+    def validate_filename_not_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("filename cannot be empty")
+        return v
 
     def info(self):
         return f'filename="{self.filename}", fullpage={self.fullpage}'
@@ -254,7 +315,7 @@ class ScreenshotTool(BaseTool):
         """
         try:
 
-            loop = get_event_loop()
+            loop = browser_manager.get_event_loop()
 
             async def _screenshot():
                 return await browser_manager.screenshot(fullpage=fullpage)
@@ -302,6 +363,13 @@ class BrowserRawParameters(ParametersModel):
         description="Maximum number of characters to return. Default is 20000. If limit is exceeded the return data is truncated.",
     )
 
+    @field_validator("limit")
+    @classmethod
+    def validate_limit_positive(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("limit must be positive")
+        return v
+
     def info(self):
         msg = f'code="{self.code}"'
         if self.limit:
@@ -333,7 +401,7 @@ class BrowserRawTool(BaseTool):
             The result of the expression as a string representation.
         """
         try:
-            loop = get_event_loop()
+            loop = browser_manager.get_event_loop()
 
             async def _raw():
                 return await browser_manager.raw(code)
@@ -359,5 +427,112 @@ class BrowserRawTool(BaseTool):
                 return str(result)
         except ValueError as e:
             return format_error(str(e))
+        except Exception as e:
+            return format_error(str(e))
+
+
+class BrowserActParameters(ParametersModel):
+    action: ActionType = Field(
+        ...,
+        description="Action to perform: 'click' (click element), 'fill' (fill form input), or 'wait' (wait for element)",
+    )
+    target: str = Field(
+        ...,
+        description="Target element: text to click (for click), input name/placeholder/id (for fill), or CSS selector (for wait)",
+    )
+    value: str | None = Field(
+        None, description="Value to type (required for 'fill' action)"
+    )
+    wait_until: WaitUntilActType = Field(
+        "navigation",
+        description="For click action: what to wait for after clicking. Options: 'navigation' (wait for page load), 'none' (no wait).",
+    )
+    timeout: int = Field(
+        5000, description="Timeout in milliseconds for wait action. Default: 5000"
+    )
+
+    @model_validator(mode="after")
+    def validate_fill_requires_value(self) -> "BrowserActParameters":
+        if self.action == "fill" and self.value is None:
+            raise ValueError("value is required when action is 'fill'")
+        return self
+
+    @field_validator("target")
+    @classmethod
+    def validate_target_not_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("target cannot be empty")
+        return v
+
+    @field_validator("timeout")
+    @classmethod
+    def validate_timeout_non_negative(cls, v: int) -> int:
+        if v < 0:
+            raise ValueError("timeout must be non-negative")
+        return v
+
+    def info(self):
+        info_str = f'action="{self.action}", target="{self.target}"'
+        if self.value is not None:
+            info_str += f', value="{self.value}"'
+        if self.wait_until != "navigation":
+            info_str += f', wait_until="{self.wait_until}"'
+        if self.timeout != 5000:
+            info_str += f", timeout={self.timeout}"
+        return info_str
+
+
+class BrowserActTool(BaseTool):
+    name = "browser_act"
+    description = "Perform browser actions declaratively. Use action='click' to click elements by text, action='fill' to fill form inputs by name/placeholder/id, or action='wait' to wait for elements to appear. Auto-waits for elements to be visible before acting."
+    parameters_model = BrowserActParameters
+
+    def execute(
+        self,
+        action: str,
+        target: str,
+        value: str | None = None,
+        wait_until: str = "navigation",
+        timeout: int = 5000,
+    ) -> str:
+        """
+        Perform a declarative browser action.
+
+        Args:
+            action: Action to perform: 'click', 'fill', or 'wait'
+            target: Target element identifier (text for click, name/placeholder/id for fill, CSS selector for wait)
+            value: Value to type (required for 'fill' action)
+            wait_until: For click: 'navigation' to wait for page load, 'none' for no wait
+            timeout: Timeout in milliseconds for wait operations
+
+        Returns:
+            A human-readable message indicating the result.
+        """
+        try:
+            loop = browser_manager.get_event_loop()
+
+            async def _act():
+                return await browser_manager._act(
+                    action=action,
+                    target=target,
+                    value=value,
+                    wait_until=wait_until,
+                    timeout=timeout,
+                )
+
+            result = loop.run_until_complete(_act())
+
+            if result.get("status") == "success":
+                action_type = result.get("action", action)
+                action_verb = {
+                    "click": "Clicked",
+                    "fill": "Filled",
+                    "wait": "Waited for",
+                }
+                verb = action_verb.get(action_type, "Performed action on")
+                return f"{verb} '{target}'"
+            else:
+                return format_error(result.get("error", "Unknown error"))
+
         except Exception as e:
             return format_error(str(e))

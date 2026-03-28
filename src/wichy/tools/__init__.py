@@ -15,6 +15,8 @@ from wichy.tools.duckdb_reset import DuckDBResetTool
 from wichy.tools.duckdb_schema import DuckDBSchemaTool
 from wichy.tools.duckdb_status import DuckDBStatusTool
 from wichy.tools.fetch_webpage import (
+    BrowserActTool,
+    BrowserPageInfoTool,
     BrowserRawTool,
     BrowserStatusTool,
     FetchWebPageTool,
@@ -72,6 +74,8 @@ __all__ = [
     "DuckDBResetTool",
     "DuckDBSchemaTool",
     "DuckDBStatusTool",
+    "BrowserActTool",
+    "BrowserPageInfoTool",
     "BrowserRawTool",
     "BrowserStatusTool",
     "FetchWebPageTool",

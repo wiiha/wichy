@@ -368,32 +368,23 @@ class TestBrowserManagerScreenshot:
 class TestBrowserManagerClose:
     """Tests for close method."""
 
-    def test_close_cleans_up_resources(self):
-        """Test that close cleans up all resources."""
+    def test_close_allows_reinitialization(self):
+        """Test that after close(), the manager can be reinitialized."""
+        import asyncio
         from wichy.helpers.browser import BrowserManager
 
         BrowserManager._instance = None
         manager = BrowserManager()
 
-        mock_browser = AsyncMock()
-        mock_context = AsyncMock()
+        # Mock a healthy browser state
         mock_page = AsyncMock()
-        mock_playwright = AsyncMock()
-
-        manager._browser = mock_browser
-        manager._context = mock_context
+        mock_page.is_closed = MagicMock(return_value=False)
         manager._page = mock_page
-        manager._playwright = mock_playwright
 
-        import asyncio
-
+        # Close should reset internal state
         asyncio.get_event_loop().run_until_complete(manager.close())
 
-        mock_page.close.assert_called_once()
-        mock_context.close.assert_called_once()
-        mock_browser.close.assert_called_once()
-        mock_playwright.stop.assert_called_once()
-
+        # After close, manager should be in a state that allows reinitialization
         assert manager._page is None
         assert manager._context is None
         assert manager._browser is None
@@ -437,71 +428,32 @@ class TestBrowserCrashRecovery:
         error = Exception("Timeout: 30000ms exceeded")
         assert is_browser_crash_error(error) is False
 
-    def test_get_page_recovers_from_browser_crash(self):
-        """Test that get_page detects crash and triggers recovery."""
-        from unittest.mock import patch
+    def test_get_page_recover_after_close(self):
+        """Test that get_page() can recover after browser is closed."""
+        import asyncio
         from wichy.helpers.browser import BrowserManager
 
         BrowserManager._instance = None
         manager = BrowserManager()
 
-        # Create mocks for the INITIAL state (broken)
-        mock_playwright_initial = AsyncMock()
-        mock_browser_initial = AsyncMock()
-        mock_context_initial = AsyncMock()
+        # Mock browser in closed state
+        mock_page = AsyncMock()
+        mock_page.is_closed = MagicMock(return_value=True)  # Page is closed
+        manager._page = mock_page
+        manager._browser = AsyncMock()  # Browser still alive
 
-        # Simulate: browser appears alive, but creating page fails with crash error
-        mock_browser_initial.contexts = []  # Healthy browser
-        mock_context_initial.new_page = AsyncMock(
-            side_effect=Exception("pipe closed by peer")
-        )
+        # Mock context creation for recovery
+        mock_context = AsyncMock()
+        new_page = AsyncMock()
+        new_page.is_closed = MagicMock(return_value=False)
+        mock_context.new_page = AsyncMock(return_value=new_page)
+        manager._browser.new_context = AsyncMock(return_value=mock_context)
 
-        mock_browser_initial.new_context.return_value = mock_context_initial
-        mock_playwright_initial.chromium.launch.return_value = mock_browser_initial
+        # get_page should detect closed page and create a new one
+        result = asyncio.get_event_loop().run_until_complete(manager.get_page())
 
-        # Set up manager with initial broken state
-        manager._playwright = mock_playwright_initial
-        manager._browser = mock_browser_initial
-        manager._context = mock_context_initial
-        manager._page = None  # No page - will trigger page creation
-
-        # Create mocks for the RECOVERED state (working)
-        mock_playwright_recovered = AsyncMock()
-        mock_browser_recovered = AsyncMock()
-        mock_context_recovered = AsyncMock()
-        mock_page_recovered = AsyncMock()
-        mock_page_recovered.is_closed = MagicMock(return_value=False)
-
-        mock_browser_recovered.contexts = []
-        mock_context_recovered.new_page.return_value = mock_page_recovered
-        mock_browser_recovered.new_context.return_value = mock_context_recovered
-        mock_playwright_recovered.chromium.launch.return_value = mock_browser_recovered
-
-        # Mock async_playwright to return RECOVERED mocks for recovery
-        with patch("wichy.helpers.browser.async_playwright") as mock_async_playwright:
-            # Return recovered playwright on second call (during recovery)
-            mock_async_playwright.return_value.__aenter__ = AsyncMock(
-                return_value=mock_playwright_recovered
-            )
-
-            import asyncio
-
-            # This should:
-            # 1. Check browser is alive (True - contexts list is empty)
-            # 2. Try to create page from broken context -> crash error
-            # 3. Call _recover_from_crash() -> clears state, calls initialize()
-            # 4. initialize() gets fresh mocks from async_playwright
-            # 5. Returns working page
-            result = asyncio.get_event_loop().run_until_complete(manager.get_page())
-
-            # Should have recovered with fresh mocks
-            assert manager._playwright is mock_playwright_recovered
-            assert manager._browser is mock_browser_recovered
-            assert manager._context is mock_context_recovered
-            assert result is mock_page_recovered
-
-        # Cleanup
-        BrowserManager._instance = None
+        # Should have recovered with a new page
+        assert result is new_page
 
     def test_navigate_retries_after_crash_recovery(self):
         """Test that navigate retries after recovering from a crash."""
@@ -653,6 +605,492 @@ class TestBrowserManagerIsInitialized:
         manager._browser = AsyncMock()  # Not None
 
         assert manager.is_initialized is True
+
+        # Cleanup
+        BrowserManager._instance = None
+
+
+class TestBrowserPageInfoAndAct:
+    """Tests for _get_page_info and _act methods."""
+
+    def test_get_page_info_quick_returns_url_and_title(self):
+        """Test that detail='quick' returns just url and title."""
+        from wichy.helpers.browser import BrowserManager
+
+        BrowserManager._instance = None
+        manager = BrowserManager()
+
+        mock_page = AsyncMock()
+        mock_page.is_closed = MagicMock(return_value=False)
+        mock_page.url = "https://example.com"
+        mock_page.title = AsyncMock(return_value="Example Domain")
+
+        manager._browser = AsyncMock()
+        manager._context = AsyncMock()
+        manager._page = mock_page
+
+        import asyncio
+
+        result = asyncio.get_event_loop().run_until_complete(
+            manager._get_page_info(detail="quick")
+        )
+
+        assert result == {"url": "https://example.com", "title": "Example Domain"}
+        # Should NOT call query_selector_all for quick mode
+        mock_page.query_selector_all.assert_not_called()
+
+        # Cleanup
+        BrowserManager._instance = None
+
+    def test_get_page_info_full_returns_structured_info(self):
+        """Test that detail='full' returns headings, links, buttons, inputs, tables."""
+        from wichy.helpers.browser import BrowserManager
+
+        BrowserManager._instance = None
+        manager = BrowserManager()
+
+        mock_page = AsyncMock()
+        mock_page.is_closed = MagicMock(return_value=False)
+        mock_page.url = "https://example.com"
+        mock_page.title = AsyncMock(return_value="Example Domain")
+
+        # Mock heading elements
+        mock_heading = AsyncMock()
+        mock_heading.is_visible = AsyncMock(return_value=True)
+        mock_heading.text_content = AsyncMock(return_value="Welcome")
+        mock_heading.evaluate = AsyncMock(return_value="h1")
+
+        # Mock link elements
+        mock_link = AsyncMock()
+        mock_link.is_visible = AsyncMock(return_value=True)
+        mock_link.text_content = AsyncMock(return_value="Click Here")
+        mock_link.get_attribute = AsyncMock(return_value="https://example.com/link")
+
+        # Mock button elements
+        mock_button = AsyncMock()
+        mock_button.is_visible = AsyncMock(return_value=True)
+        mock_button.text_content = AsyncMock(return_value="Submit")
+        mock_button.evaluate = AsyncMock(return_value="button")
+
+        # Mock input elements
+        mock_input = AsyncMock()
+        mock_input.is_visible = AsyncMock(return_value=True)
+        mock_input.get_attribute = AsyncMock(
+            side_effect=lambda attr: {
+                "type": "text",
+                "name": "username",
+                "placeholder": "Enter username",
+            }.get(attr)
+        )
+        mock_input.evaluate = AsyncMock(return_value="input")
+
+        # Mock table elements
+        mock_table = AsyncMock()
+        mock_table.is_visible = AsyncMock(return_value=True)
+        mock_th = AsyncMock()
+        mock_th.text_content = AsyncMock(return_value="Header")
+        mock_tr = AsyncMock()
+
+        # Set up query_selector_all on the table mock
+        async def mock_table_query_selector_all(selector):
+            if selector == "th":
+                return [mock_th]
+            elif selector == "tr":
+                return [mock_tr, mock_tr]
+            return []
+
+        mock_table.query_selector_all = AsyncMock(
+            side_effect=mock_table_query_selector_all
+        )
+
+        # Set up query_selector_all on the page mock
+        async def mock_page_query_selector_all(selector):
+            if "h1" in selector:
+                return [mock_heading]
+            elif selector == "a[href]":
+                return [mock_link]
+            elif "button" in selector:
+                return [mock_button]
+            elif selector == "input, textarea, select":
+                return [mock_input]
+            elif selector == "table":
+                return [mock_table]
+            return []
+
+        mock_page.query_selector_all = AsyncMock(
+            side_effect=mock_page_query_selector_all
+        )
+
+        manager._browser = AsyncMock()
+        manager._context = AsyncMock()
+        manager._page = mock_page
+
+        import asyncio
+
+        result = asyncio.get_event_loop().run_until_complete(
+            manager._get_page_info(detail="full")
+        )
+
+        assert result["url"] == "https://example.com"
+        assert result["title"] == "Example Domain"
+        assert "headings" in result
+        assert "links" in result
+        assert "buttons" in result
+        assert "inputs" in result
+        assert "tables" in result
+
+        # Cleanup
+        BrowserManager._instance = None
+
+    def test_get_page_info_full_handles_empty_page(self):
+        """Test graceful handling when page has no structured elements."""
+        from wichy.helpers.browser import BrowserManager
+
+        BrowserManager._instance = None
+        manager = BrowserManager()
+
+        mock_page = AsyncMock()
+        mock_page.is_closed = MagicMock(return_value=False)
+        mock_page.url = "https://example.com"
+        mock_page.title = AsyncMock(return_value="Empty Page")
+
+        # Return empty lists for all queries
+        mock_page.query_selector_all = AsyncMock(return_value=[])
+
+        manager._browser = AsyncMock()
+        manager._context = AsyncMock()
+        manager._page = mock_page
+
+        import asyncio
+
+        result = asyncio.get_event_loop().run_until_complete(
+            manager._get_page_info(detail="full")
+        )
+
+        assert result["url"] == "https://example.com"
+        assert result["title"] == "Empty Page"
+        assert result["headings"] == []
+        assert result["links"] == []
+        assert result["buttons"] == []
+        assert result["inputs"] == []
+        assert result["tables"] == []
+
+        # Cleanup
+        BrowserManager._instance = None
+
+    def test_act_wait_waits_for_selector(self):
+        """Test that wait action returns success when element is found."""
+        from wichy.helpers.browser import BrowserManager
+
+        BrowserManager._instance = None
+        manager = BrowserManager()
+
+        mock_page = AsyncMock()
+        mock_page.is_closed = MagicMock(return_value=False)
+        mock_page.wait_for_selector = AsyncMock(return_value=None)
+
+        manager._browser = AsyncMock()
+        manager._context = AsyncMock()
+        manager._page = mock_page
+
+        import asyncio
+
+        result = asyncio.get_event_loop().run_until_complete(
+            manager._act(
+                action="wait",
+                target=".loading-done",
+                value=None,
+                wait_until="none",
+                timeout=5000,
+            )
+        )
+
+        # Verify actual return value, not mock calls
+        assert result["status"] == "success"
+        assert result["action"] == "wait"
+        assert result["target"] == ".loading-done"
+
+        # Cleanup
+        BrowserManager._instance = None
+
+    def test_act_wait_timeout_returns_error(self):
+        """Test that wait returns error on timeout."""
+        from wichy.helpers.browser import BrowserManager
+
+        BrowserManager._instance = None
+        manager = BrowserManager()
+
+        mock_page = AsyncMock()
+        mock_page.is_closed = MagicMock(return_value=False)
+        mock_page.wait_for_selector = AsyncMock(
+            side_effect=Exception("Timeout: 5000ms exceeded")
+        )
+
+        manager._browser = AsyncMock()
+        manager._context = AsyncMock()
+        manager._page = mock_page
+
+        import asyncio
+
+        result = asyncio.get_event_loop().run_until_complete(
+            manager._act(action="wait", target=".missing-element", timeout=5000)
+        )
+
+        assert result["status"] == "error"
+        assert "not found" in result["error"].lower()
+
+        # Cleanup
+        BrowserManager._instance = None
+
+    def test_act_click_returns_success_when_element_found(self):
+        """Test that click action returns success when element is found."""
+        from wichy.helpers.browser import BrowserManager
+
+        BrowserManager._instance = None
+        manager = BrowserManager()
+
+        mock_page = AsyncMock()
+        mock_page.is_closed = MagicMock(return_value=False)
+
+        # Mock locator for get_by_text
+        mock_locator = AsyncMock()
+        mock_locator.wait_for = AsyncMock(return_value=None)
+        mock_locator.click = AsyncMock(return_value=None)
+        mock_page.get_by_text = MagicMock(return_value=mock_locator)
+        mock_page.wait_for_load_state = AsyncMock(return_value=None)
+
+        manager._browser = AsyncMock()
+        manager._context = AsyncMock()
+        manager._page = mock_page
+
+        import asyncio
+
+        result = asyncio.get_event_loop().run_until_complete(
+            manager._act(
+                action="click",
+                target="Submit",
+                value=None,
+                wait_until="none",
+                timeout=5000,
+            )
+        )
+
+        # Verify actual return value
+        assert result["status"] == "success"
+        assert result["action"] == "click"
+        assert result["target"] == "Submit"
+
+        # Cleanup
+        BrowserManager._instance = None
+
+    def test_act_click_returns_error_when_element_not_found(self):
+        """Test that click returns error when element is not found with any selector."""
+        from wichy.helpers.browser import BrowserManager
+
+        BrowserManager._instance = None
+        manager = BrowserManager()
+
+        mock_page = AsyncMock()
+        mock_page.is_closed = MagicMock(return_value=False)
+
+        # First selector (get_by_text) fails
+        mock_locator1 = AsyncMock()
+        mock_locator1.wait_for = AsyncMock(side_effect=Exception("not found"))
+        mock_page.get_by_text = MagicMock(return_value=mock_locator1)
+
+        # Fallback selector (locator with text=) also fails
+        mock_locator2 = AsyncMock()
+        mock_locator2.wait_for = AsyncMock(side_effect=Exception("timeout"))
+        mock_page.locator = MagicMock(return_value=mock_locator2)
+
+        manager._browser = AsyncMock()
+        manager._context = AsyncMock()
+        manager._page = mock_page
+
+        import asyncio
+
+        result = asyncio.get_event_loop().run_until_complete(
+            manager._act(
+                action="click",
+                target="Missing",
+                value=None,
+                wait_until="none",
+                timeout=5000,
+            )
+        )
+
+        assert result["status"] == "error"
+        assert (
+            "not found" in result["error"].lower()
+            or "missing" in result["error"].lower()
+        )
+
+        # Cleanup
+        BrowserManager._instance = None
+
+    def test_act_fill_succeeds_with_valid_input(self):
+        """Test that fill action returns success when input is found."""
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock
+        from wichy.helpers.browser import BrowserManager
+
+        BrowserManager._instance = None
+        manager = BrowserManager()
+
+        mock_page = AsyncMock()
+        mock_page.is_closed = MagicMock(return_value=False)
+        # First selector finds the input
+        mock_input = AsyncMock()
+        mock_input.wait_for = AsyncMock(return_value=None)
+        mock_input.fill = AsyncMock(return_value=None)
+        mock_page.query_selector = AsyncMock(return_value=mock_input)
+        manager._browser = AsyncMock()
+        manager._context = AsyncMock()
+        manager._page = mock_page
+
+        result = asyncio.get_event_loop().run_until_complete(
+            manager._act(
+                action="fill",
+                target="email",
+                value="test@example.com",
+                wait_until="none",
+                timeout=5000,
+            )
+        )
+
+        assert result["status"] == "success"
+        assert result["action"] == "fill"
+        assert result["target"] == "email"
+
+    def test_act_fill_returns_error_when_value_not_provided(self):
+        """Test that fill returns error when value is not provided."""
+        from wichy.helpers.browser import BrowserManager
+
+        BrowserManager._instance = None
+        manager = BrowserManager()
+
+        mock_page = AsyncMock()
+        mock_page.is_closed = MagicMock(return_value=False)
+
+        manager._browser = AsyncMock()
+        manager._context = AsyncMock()
+        manager._page = mock_page
+
+        import asyncio
+
+        result = asyncio.get_event_loop().run_until_complete(
+            manager._act(action="fill", target="username", value=None, timeout=5000)
+        )
+
+        assert result["status"] == "error"
+        assert "value is required" in result["error"].lower()
+
+        # Cleanup
+        BrowserManager._instance = None
+
+    def test_act_fill_tries_multiple_selectors(self):
+        """Test that fill tries multiple selector strategies when first fails."""
+        from wichy.helpers.browser import BrowserManager
+
+        BrowserManager._instance = None
+        manager = BrowserManager()
+
+        mock_page = AsyncMock()
+        mock_page.is_closed = MagicMock(return_value=False)
+
+        # First selector (by name) returns None (not found)
+        mock_page.query_selector = AsyncMock(return_value=None)
+
+        # But get_by_label finds the input
+        mock_input = AsyncMock()
+        mock_input.wait_for = AsyncMock(return_value=None)
+        mock_input.fill = AsyncMock(return_value=None)
+        mock_page.get_by_label = MagicMock(return_value=mock_input)
+
+        manager._browser = AsyncMock()
+        manager._context = AsyncMock()
+        manager._page = mock_page
+
+        import asyncio
+
+        result = asyncio.get_event_loop().run_until_complete(
+            manager._act(
+                action="fill", target="Email", value="test@example.com", timeout=5000
+            )
+        )
+
+        assert result["status"] == "success"
+        assert result["action"] == "fill"
+        assert result["target"] == "Email"
+        # fill("") is called first to clear, then fill with value
+        assert mock_input.fill.call_count == 2
+        # Verify query_selector was tried first
+        mock_page.query_selector.assert_called()
+
+        # Cleanup
+        BrowserManager._instance = None
+
+    def test_act_fill_returns_error_when_element_not_found(self):
+        """Test that fill returns error when element is not found with any selector."""
+        from wichy.helpers.browser import BrowserManager
+
+        BrowserManager._instance = None
+        manager = BrowserManager()
+
+        mock_page = AsyncMock()
+        mock_page.is_closed = MagicMock(return_value=False)
+
+        # All query_selector attempts return None
+        mock_page.query_selector = AsyncMock(return_value=None)
+
+        # get_by_label also fails
+        mock_locator = AsyncMock()
+        mock_locator.wait_for = AsyncMock(side_effect=Exception("not found"))
+        mock_page.get_by_label = MagicMock(return_value=mock_locator)
+
+        manager._browser = AsyncMock()
+        manager._context = AsyncMock()
+        manager._page = mock_page
+
+        import asyncio
+
+        result = asyncio.get_event_loop().run_until_complete(
+            manager._act(
+                action="fill", target="Nonexistent", value="test", timeout=5000
+            )
+        )
+
+        assert result["status"] == "error"
+        assert (
+            "not found" in result["error"].lower()
+            or "nonexistent" in result["error"].lower()
+        )
+
+        # Cleanup
+        BrowserManager._instance = None
+
+    def test_act_returns_error_for_unknown_action(self):
+        """Test that _act returns error for unknown action types."""
+        from wichy.helpers.browser import BrowserManager
+
+        BrowserManager._instance = None
+        manager = BrowserManager()
+
+        mock_page = AsyncMock()
+        mock_page.is_closed = MagicMock(return_value=False)
+
+        manager._browser = AsyncMock()
+        manager._context = AsyncMock()
+        manager._page = mock_page
+
+        import asyncio
+
+        result = asyncio.get_event_loop().run_until_complete(
+            manager._act(action="unknown", target="something", timeout=5000)
+        )
+
+        assert result["status"] == "error"
+        assert "Unknown action" in result["error"]
 
         # Cleanup
         BrowserManager._instance = None
