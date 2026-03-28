@@ -1,7 +1,7 @@
 # Agentic Browser Automation: Research & Wichy Enhancement Proposal
 
-**Date:** 2026-03-24  
-**Author:** Rook  
+**Date:** 2026-03-24
+**Author:** Rook
 **Status:** Analysis Complete, Recommendations Pending
 
 ---
@@ -10,7 +10,7 @@
 
 This document combines research on modern browser automation tools (Playwright and alternatives) with a detailed analysis of the wichy framework's current browser capabilities. It proposes concrete enhancements to make wichy's browser tooling more effective for AI agents navigating JavaScript-heavy websites.
 
-**Key Finding:** The current `browser_raw` tool is too low-level for reliable agent use. Agents benefit from *pre-parsed, semantic representations* of page structure rather than raw HTML or arbitrary Playwright code execution.
+**Key Finding:** The current `browser_raw` tool is too low-level for reliable agent use. Agents benefit from _pre-parsed, semantic representations_ of page structure rather than raw HTML or arbitrary Playwright code execution.
 
 ---
 
@@ -20,13 +20,13 @@ This document combines research on modern browser automation tools (Playwright a
 
 Playwright is excellent for **cross-browser testing** and **dynamic JavaScript sites**, but not universally "best." Choice depends on use case:
 
-| Strength | Recommended Tool |
-|----------|------------------|
-| Cross-browser, modern JS apps | **Playwright** |
-| Legacy browser support | **Selenium** |
-| Chrome-only, maximum speed | **Puppeteer** |
-| No-code/low-code testing | **Cypress / TestGrid / Katalon** |
-| AI-powered selectors | **AgentQL** (works with Playwright) |
+| Strength                      | Recommended Tool                    |
+| ----------------------------- | ----------------------------------- |
+| Cross-browser, modern JS apps | **Playwright**                      |
+| Legacy browser support        | **Selenium**                        |
+| Chrome-only, maximum speed    | **Puppeteer**                       |
+| No-code/low-code testing      | **Cypress / TestGrid / Katalon**    |
+| AI-powered selectors          | **AgentQL** (works with Playwright) |
 
 ### Playwright vs Selenium (2025)
 
@@ -49,8 +49,8 @@ Playwright is excellent for **cross-browser testing** and **dynamic JavaScript s
 **What emerged from multiple sources (Playwright MCP, autonomous scraping articles, AgentQL):**
 
 1. **Don't feed agents raw HTML** - token limits, noise, poor reasoning
-2. **Pre-parse page into semantic structure** - headings, links, buttons, forms, tables with *natural language labels*
-3. **Use AI to generate selectors, not to parse HTML** - let LLM decide *what* to extract; use deterministic code to *extract* it
+2. **Pre-parse page into semantic structure** - headings, links, buttons, forms, tables with _natural language labels_
+3. **Use AI to generate selectors, not to parse HTML** - let LLM decide _what_ to extract; use deterministic code to _extract_ it
 4. **Layered approach:**
    - Layer 1: Navigate & render (Playwright)
    - Layer 2: Summarize page structure (custom code or LLM)
@@ -61,13 +61,13 @@ Playwright is excellent for **cross-browser testing** and **dynamic JavaScript s
 
 ### Commercial & Emerging Tools
 
-| Tool | Purpose | Notes |
-|------|---------|-------|
-| **Playwright MCP** | Model Context Protocol server for AI agents | Bridges Playwright to LLMs; intelligent navigation, dynamic test generation |
-| **AgentQL** | AI-powered query language for HTML | Works *with* Playwright; replaces CSS selectors with natural language queries |
-| **Testomat.io** | AI-enhanced test management | Not a browser engine, but layer on top |
-| **Browserless** | Cloud-hosted Playwright/Selenium | Scaling, stealth, proxy rotation |
-| **ZenRows** | Scraping infrastructure with anti-bot evasion | Uses Playwright under the hood |
+| Tool               | Purpose                                       | Notes                                                                         |
+| ------------------ | --------------------------------------------- | ----------------------------------------------------------------------------- |
+| **Playwright MCP** | Model Context Protocol server for AI agents   | Bridges Playwright to LLMs; intelligent navigation, dynamic test generation   |
+| **AgentQL**        | AI-powered query language for HTML            | Works _with_ Playwright; replaces CSS selectors with natural language queries |
+| **Testomat.io**    | AI-enhanced test management                   | Not a browser engine, but layer on top                                        |
+| **Browserless**    | Cloud-hosted Playwright/Selenium              | Scaling, stealth, proxy rotation                                              |
+| **ZenRows**        | Scraping infrastructure with anti-bot evasion | Uses Playwright under the hood                                                |
 
 ---
 
@@ -77,9 +77,8 @@ Playwright is excellent for **cross-browser testing** and **dynamic JavaScript s
 
 1. **`web_fetch`** - Navigate + return page as markdown
    - Supports `limit` (default 20000 chars)
-   - If limit exceeded, returns *headings overview* + truncated content
+   - If limit exceeded, returns _headings overview_ + truncated content
    - Uses `markdownify` to convert HTML → markdown
-   
 2. **`browser_navigate`** - Navigate to URL (no content return)
 
 3. **`browser_status`** - Return current URL + title
@@ -94,14 +93,16 @@ Playwright is excellent for **cross-browser testing** and **dynamic JavaScript s
 ### The Problem: Agents Struggle with `browser_raw`
 
 **Why it fails in practice:**
+
 - Requires the LLM to know Playwright's API surface (which methods exist, return types)
-- Forces the agent to *invent selectors* without seeing page structure first
+- Forces the agent to _invent selectors_ without seeing page structure first
 - No feedback loop: agent must guess `query_selector` vs `query_selector_all`, handle None checks
 - Easy to write invalid Python code → runtime errors
 - No semantic understanding: "click the submit button" becomes `page.query_selector('button[type="submit"]').click()`, but what if button is `<input type="submit">` or has no type?
 - Multi-step operations require chaining multiple `browser_raw` calls, each brittle
 
 **Observed failure patterns:**
+
 - Agent tries `query_selector('button')` and gets ElementHandle, then tries to return it directly (should call `.text_content()` or `.click()`)
 - Agent doesn't wait for dynamic content → elements not found
 - Agent misremembers attribute names (e.g., `class_name` vs `get_attribute('class')`)
@@ -113,9 +114,9 @@ Playwright is excellent for **cross-browser testing** and **dynamic JavaScript s
 
 ### Philosophy
 
-**Goal:** Make browser tools *declare what you want, not how to do it*.
+**Goal:** Make browser tools _declare what you want, not how to do it_.
 
-Current: Agent must write Playwright code (imperative, fragile)  
+Current: Agent must write Playwright code (imperative, fragile)
 Desired: Agent says "fill the email field" and tool figures out how (declarative, robust)
 
 ### Proposal 1: Add `browser_summarize` (Highest Impact)
@@ -131,39 +132,51 @@ Desired: Agent says "fill the email field" and tool figures out how (declarative
   "title": "Login - Example.com",
   "url": "https://example.com/login",
   "headings": [
-    {"level": 1, "text": "Sign In"},
-    {"level": 2, "text": "New users"}
+    { "level": 1, "text": "Sign In" },
+    { "level": 2, "text": "New users" }
   ],
   "links": [
-    {"text": "Forgot password?", "href": "/reset", "visible": true},
-    {"text": "Create account", "href": "/signup", "visible": true}
+    { "text": "Forgot password?", "href": "/reset", "visible": true },
+    { "text": "Create account", "href": "/signup", "visible": true }
   ],
   "buttons": [
-    {"text": "Log in", "type": "submit", "visible": true, "id": "login-btn"},
-    {"text": "Cancel", "type": "button", "visible": true}
+    { "text": "Log in", "type": "submit", "visible": true, "id": "login-btn" },
+    { "text": "Cancel", "type": "button", "visible": true }
   ],
   "inputs": [
-    {"name": "email", "type": "email", "placeholder": "you@example.com", "required": true},
-    {"name": "password", "type": "password", "placeholder": "Password", "required": true}
+    {
+      "name": "email",
+      "type": "email",
+      "placeholder": "you@example.com",
+      "required": true
+    },
+    {
+      "name": "password",
+      "type": "password",
+      "placeholder": "Password",
+      "required": true
+    }
   ],
   "regions": [
-    {"id": "main", "classes": ["content"], "purpose": "login form"},
-    {"id": "footer", "purpose": "site links"}
+    { "id": "main", "classes": ["content"], "purpose": "login form" },
+    { "id": "footer", "purpose": "site links" }
   ],
   "text_blocks": [
-    {"type": "paragraph", "content": "Enter your credentials..."},
-    {"type": "list", "items": ["SSO available", "2FA enabled"]}
+    { "type": "paragraph", "content": "Enter your credentials..." },
+    { "type": "list", "items": ["SSO available", "2FA enabled"] }
   ]
 }
 ```
 
 **Benefits:**
-- Agent sees *what* is on page, not raw HTML
+
+- Agent sees _what_ is on page, not raw HTML
 - Can reason about: "Is there a login form? Yes, inputs: email, password. Submit button present."
 - Enables planning: "I need to fill inputs, then click the login button"
 - Token-efficient: structured data < raw HTML
 
 **Implementation:**
+
 - Use Playwright to query all elements (`page.query_selector_all('*')`)
 - Filter to visible, interactive elements + text content
 - Extract natural labels (button text, input placeholders, aria-labels)
@@ -177,21 +190,25 @@ Desired: Agent says "fill the email field" and tool figures out how (declarative
 Instead of arbitrary code, provide purpose-built tools:
 
 #### `browser_click_text(text, exact=False, index=0)`
+
 - Finds element(s) containing `text` (exact match if `exact=True`)
 - Clicks the `index`-th match (0-based)
 - Auto-waits for element to be visible/clickable
 - Example: `browser_click_text("Accept cookies")`
 
 #### `browser_fill_input(selector, value, clear=True)`
+
 - `selector` can be: input `name`, `id`, `placeholder`, or `label text`
 - Finds `<input>` or `<textarea>` matching selector
 - Optionally clears existing text, then types `value`
 - Example: `browser_fill_input("email", "user@example.com")`
 
 #### `browser_extract_table(index_or_selector)`
+
 - Finds a `<table>` element (by index among tables or by CSS selector)
 - Extracts headers + rows as structured list of dicts
 - Returns JSON:
+
 ```json
 {
   "headers": ["Name", "Price"],
@@ -200,15 +217,18 @@ Instead of arbitrary code, provide purpose-built tools:
 ```
 
 #### `browser_scroll_to(selector_or_text)`
+
 - Scrolls element into view
 - Accepts CSS selector or visible text match
 - Returns viewport info after scroll
 
 #### `browser_wait_for(selector, state='visible', timeout=5000)`
+
 - Waits for element matching `selector` to reach `state` ('visible', 'attached', 'enabled')
 - Returns success/failure
 
 #### `browser_get_visible_elements(category=None)`
+
 - Returns simplified list of currently visible interactive elements
 - Categories: `links`, `buttons`, `inputs`, `regions`
 - Each entry: `{text, selector, element_type}`
@@ -232,12 +252,14 @@ Inspired by AgentQL, but simpler. Agent writes:
 ```
 
 The tool:
+
 - Parses this DSL
 - Executes queries against current page
 - Performs actions (fill, click) or extracts data
 - Returns structured results
 
 **Why not use `browser_raw` for this?** Because `browser_query`:
+
 - Enforces safety (no arbitrary Python)
 - Provides consistent return types
 - Handles timing/awaiting internally
@@ -250,8 +272,9 @@ The tool:
 Add flag: `web_fetch(url, summarize=False, limit=20000)`
 
 When `summarize=True`:
+
 1. Fetch full HTML (no markdown conversion yet)
-2. Send *just the body* to LLM with prompt:
+2. Send _just the body_ to LLM with prompt:
    "Summarize this page for a browsing agent. Extract: (1) page purpose, (2) main interactive elements (forms, buttons, links), (3) suggested next actions, (4) any authentication/paywall hints. Keep under 500 words."
 3. Return LLM's summary + truncated markdown fallback
 
@@ -265,7 +288,7 @@ When `summarize=True`:
 
 1. Implement `browser_summarize`
 2. Implement `browser_click_text` and `browser_fill_input`
-3. Update default agent root description to *prefer* these tools over `browser_raw`
+3. Update default agent root description to _prefer_ these tools over `browser_raw`
 4. Document new tools in README
 
 ### Phase 2 (Medium-Term)
@@ -282,7 +305,7 @@ When `summarize=True`:
 
 ### Backward Compatibility
 
-- All new tools are *additive*
+- All new tools are _additive_
 - Existing `browser_raw` remains unchanged
 - No breaking changes to current APIs
 
@@ -293,9 +316,9 @@ When `summarize=True`:
 ### Technical Insights
 
 1. **The "raw query" problem is real** - Agents cannot reliably write low-level browser automation code without extensive prompting and even then it's brittle.
-2. **Semantic over syntactic** - Providing a *description* of the page (headings, buttons, inputs) is vastly more useful than raw HTML or markdown.
-3. **Action granularity matters** - Tools should match *agent intentions* ("click button", "fill form") not programming primitives ("query_selector", "click").
-4. **State awareness is critical** - Agents need to know *what's visible now* vs *what exists on page*. Tools should filter by visibility by default.
+2. **Semantic over syntactic** - Providing a _description_ of the page (headings, buttons, inputs) is vastly more useful than raw HTML or markdown.
+3. **Action granularity matters** - Tools should match _agent intentions_ ("click button", "fill form") not programming primitives ("query_selector", "click").
+4. **State awareness is critical** - Agents need to know _what's visible now_ vs _what exists on page_. Tools should filter by visibility by default.
 5. **Auto-waiting must be built-in** - Every tool should handle async rendering gracefully; agents shouldn't need to insert waits manually.
 
 ### Architectural Insights
@@ -312,11 +335,11 @@ When `summarize=True`:
 
 - **Playwright MCP** proves the concept: AI agents + Playwright works when you add a semantic layer
 - **AgentQL** shows that AI-powered selectors are viable and robust to DOM changes
-- **Autonomous scraping articles** consistently recommend: LLM decides *what*, script decides *how* - not the other way around
+- **Autonomous scraping articles** consistently recommend: LLM decides _what_, script decides _how_ - not the other way around
 
 ### For Wichy Specifically
 
-- The current tool set is *engineer-focused* (direct Playwright access) not *agent-focused* (declarative actions)
+- The current tool set is _engineer-focused_ (direct Playwright access) not _agent-focused_ (declarative actions)
 - Missing: high-level navigation tools, page understanding, error-safe interactions
 - Opportunity: wichy's local-first, modular design is perfect for layering these enhancements without rewriting core
 
@@ -341,6 +364,7 @@ When `summarize=True`:
 ### Test with Real Agent Workflows
 
 Examples to validate:
+
 - Login to a site (detect form, fill, submit)
 - Scrape a table (detect table, extract)
 - Navigate pagination (find "Next" link, click, repeat)
