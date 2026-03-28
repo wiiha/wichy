@@ -21,19 +21,21 @@ from wichy.tools.fetch_webpage import (
     NavigateTool,
     ScreenshotTool,
 )
-from wichy.tools.file_explorer import ListFilesTool, ReadFileTool, WriteFileTool
 from wichy.tools.file_search_in import SearchInFilesTool
 from wichy.tools.glob import GlobTool
 from wichy.tools.graph_tools import CreateGraphTool, ListGraphsTool, ReadGraphTool
 from wichy.tools.helpers import get_tool_definitions
 from wichy.tools.insert_lines import InsertLinesTool
 from wichy.tools.knowledge_store import KnowledgeStoreTool
+from wichy.tools.list_files import ListFilesTool
+from wichy.tools.read_file import ReadFileTool
 from wichy.tools.read_scratchpad import ReadScratchpadTool
 from wichy.tools.replace_text import ReplaceTextTool
 from wichy.tools.reverse_dns_tool import ReverseDnsTool
 from wichy.tools.search_ddg import WebSearchTool
 from wichy.tools.task_tool import TaskAgentTool
 from wichy.tools.todo import TodoTool
+from wichy.tools.write_file import WriteFileTool
 from wichy.tools.write_scratchpad import WriteScratchpadTool
 
 # Different tool collections for different contexts

@@ -1,36 +1,20 @@
 """
-Test cases for the file explorer tools (ListFiles, ReadFile, WriteFile).
+Test cases for the ReadFileTool.
 """
 
 import json
 import os
 import tempfile
+
 import pytest
 
-from wichy.tools.file_explorer import (
-    ListFilesTool,
-    ReadFileTool,
-    WriteFileTool,
-    SUPPORTED_IMAGE_TYPES,
-)
+from wichy.tools.read_file import ReadFileTool, SUPPORTED_IMAGE_TYPES
 
 
 @pytest.fixture
 def read_file_tool():
     """Fixture to create a fresh ReadFileTool instance for each test."""
     return ReadFileTool()
-
-
-@pytest.fixture
-def write_file_tool():
-    """Fixture to create a fresh WriteFileTool instance for each test."""
-    return WriteFileTool()
-
-
-@pytest.fixture
-def list_files_tool():
-    """Fixture to create a fresh ListFilesTool instance for each test."""
-    return ListFilesTool()
 
 
 @pytest.fixture

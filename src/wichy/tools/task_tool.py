@@ -13,9 +13,10 @@ from wichy.tools.duckdb_reset import DuckDBResetTool
 from wichy.tools.duckdb_schema import DuckDBSchemaTool
 from wichy.tools.duckdb_status import DuckDBStatusTool
 from wichy.tools.fetch_webpage import FetchWebPageTool
-from wichy.tools.file_explorer import ListFilesTool, ReadFileTool, WriteFileTool
 from wichy.tools.file_search_in import SearchInFilesTool
 from wichy.tools.glob import GlobTool
+from wichy.tools.list_files import ListFilesTool
+from wichy.tools.read_file import ReadFileTool
 from wichy.tools.replace_text import ReplaceTextTool
 from wichy.tools.search_ddg import WebSearchTool
 from wichy.tools.task import (
@@ -26,6 +27,7 @@ from wichy.tools.task import (
 )
 from wichy.tools.todo import TodoTool
 from wichy.tools.tree import TreeTool
+from wichy.tools.write_file import WriteFileTool
 
 TOOLS_FOR_TASK_AGENTS: list[BaseTool] = [
     AskUserQuestionTool,
