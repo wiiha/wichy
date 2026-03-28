@@ -24,21 +24,17 @@ wichy
 wichy --model-str ollama/llama3.2
 
 # Resume a previous conversation
+wichy --last-ctx
 wichy --load-ctx 2025-03-15_1234567890.jsonl
 ```
 
 ## What's Included
 
-- **28+ Tools**: File operations, web browsing, DuckDB queries, graph editing, and more
-- **Skills System**: Markdown-based knowledge bundles with optional scripts
-- **Web Interface**: Graph editor and context editor at http://127.0.0.1:7891
+- **40+ Tools**: File operations, web browsing, DuckDB queries, graph editing, notes, sub-agents, skills, and more
+- **Skills System**: Markdown-based knowledge bundles with optional scripts, auto-discovered from `~/.wichy/skills/`
+- **Napkin Runbook**: Per-repo curated runbook that persists guidance across sessions
+- **Web Interface**: Notes editor, graph editor, and context editor at http://127.0.0.1:7891
 - **Multiple LLM Backends**: Ollama, llama.cpp, OpenRouter, or any OpenAI-compatible endpoint
-
-## Roadmap
-
-- **ADD** configurable `.wichy` directory location
-- **ADD** system reminder tags for tool results and user messages
-- **ADD** memory system for cross-session context retention
 
 ## References
 
