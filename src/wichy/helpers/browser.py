@@ -14,6 +14,7 @@ from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
 from wichy.config import settings
 from wichy.helpers.console import console
+from wichy.tools.errors import format_error
 
 # Error patterns that indicate the browser process has crashed/disconnected
 BROWSER_CRASH_ERRORS = [
@@ -170,7 +171,7 @@ class BrowserManager:
                 return {
                     "status": "browser disconnected - will recover on next operation"
                 }
-            return {"status": f"error: {str(e)}"}
+            return {"status": format_error(str(e))}
 
     async def navigate(self, url: str, wait_until: str = "networkidle") -> dict:
         """

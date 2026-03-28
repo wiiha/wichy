@@ -155,9 +155,12 @@ class TestToolManager:
         )
         assert len(filtered) == 0
 
-    def test_tool_manager_default_uses_all_tools(self):
-        """Test that ToolManager without args uses global ALL_TOOLS_NOT_INSTANTIATED."""
-        from wichy.tools import ALL_TOOLS_NOT_INSTANTIATED
+    def test_tool_manager_default_uses_all_tools(self, isolated_tool_registry):
+        """Test that ToolManager without args uses all tools from the registry."""
+        from wichy.tools.reverse_dns_tool import ReverseDnsTool
+        from wichy.tools.registry import get_all_tools
 
         manager = ToolManager()
-        assert manager.all_tools == ALL_TOOLS_NOT_INSTANTIATED
+        # ToolManager uses get_all_tools() and excludes ReverseDnsTool
+        expected = [tool for tool in get_all_tools() if tool is not ReverseDnsTool]
+        assert manager.all_tools == expected

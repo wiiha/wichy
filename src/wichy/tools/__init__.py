@@ -30,6 +30,14 @@ from wichy.tools.knowledge_store import KnowledgeStoreTool
 from wichy.tools.list_files import ListFilesTool
 from wichy.tools.read_file import ReadFileTool
 from wichy.tools.read_scratchpad import ReadScratchpadTool
+from wichy.tools.registry import (
+    clear_registry,
+    get_all_tools,
+    get_registry_copy,
+    get_tool_by_name,
+    get_tools_by_names,
+    restore_registry,
+)
 from wichy.tools.replace_text import ReplaceTextTool
 from wichy.tools.reverse_dns_tool import ReverseDnsTool
 from wichy.tools.search_ddg import WebSearchTool
@@ -38,9 +46,23 @@ from wichy.tools.todo import TodoTool
 from wichy.tools.write_file import WriteFileTool
 from wichy.tools.write_scratchpad import WriteScratchpadTool
 
+# Note: The tool classes imported above are automatically registered via the
+# ToolMeta metaclass when they are defined. The registry functions below
+# can then be used to look up tools by name.
+
 __all__ = [
+    # Registry functions
+    "get_all_tools",
+    "get_tool_by_name",
+    "get_tools_by_names",
+    "clear_registry",
+    "get_registry_copy",
+    "restore_registry",
+    # Helper functions
     "get_tool_definitions",
+    # Base class
     "BaseTool",
+    # Tool classes
     "AskUserQuestionTool",
     "BashTool",
     "DuckDBLoadTool",
@@ -77,78 +99,12 @@ __all__ = [
     "SkillInfoTool",
     "SkillScriptTool",
     "SkillSearchTool",
+    # Backward compatibility
+    "ALL_TOOLS_NOT_INSTANTIATED",
 ]
 
-# Different tool collections for different contexts
-BASIC_TOOLS = [
-    BashTool,
-    TodoTool,
-    AskUserQuestionTool,
+# All registered tools, automatically populated from the registry.
+# Note: ReverseDnsTool is intentionally excluded for backward compatibility.
+ALL_TOOLS_NOT_INSTANTIATED: list[type[BaseTool]] = [
+    tool for tool in get_all_tools() if tool is not ReverseDnsTool
 ]
-
-WEB_TOOLS = [
-    WebSearchTool,
-]
-
-BROWSER_TOOLS = [
-    NavigateTool,
-    BrowserStatusTool,
-    ScreenshotTool,
-    FetchWebPageTool,
-    BrowserRawTool,
-]
-
-NETWORKING_TOOLS = [ReverseDnsTool]
-
-GRAPH_TOOLS = [
-    CreateGraphTool,
-    ReadGraphTool,
-    ListGraphsTool,
-]
-
-FILE_SYSTEM_TOOLS = [
-    ListFilesTool,
-    ReadFileTool,
-    WriteFileTool,
-    SearchInFilesTool,
-    GlobTool,
-    KnowledgeStoreTool,
-    ReplaceTextTool,
-    InsertLinesTool,
-]
-
-DUCKDB_TOOLS = [
-    DuckDBLoadTool,
-    DuckDBQueryTool,
-    DuckDBSchemaTool,
-    DuckDBStatusTool,
-    DuckDBPersistTool,
-    DuckDBLoadDBTool,
-    DuckDBResetTool,
-]
-
-SUB_AGENT_TOOLS = [TaskAgentTool]
-
-# Skill tools - for discovering and using skills
-SKILL_TOOLS = [
-    SkillDiscoveryTool,
-    SkillSearchTool,
-    SkillInfoTool,
-    SkillScriptTool,
-    SkillFileTool,
-]
-
-ALL_TOOLS_NOT_INSTANTIATED: list[BaseTool] = []
-
-ALL_TOOLS_NOT_INSTANTIATED.extend(BASIC_TOOLS)
-ALL_TOOLS_NOT_INSTANTIATED.extend(WEB_TOOLS)
-ALL_TOOLS_NOT_INSTANTIATED.extend(BROWSER_TOOLS)
-# ALL_TOOLS_NOT_INSTANTIATED.extend(NETWORKING_TOOLS) # intensional
-ALL_TOOLS_NOT_INSTANTIATED.extend(FILE_SYSTEM_TOOLS)
-ALL_TOOLS_NOT_INSTANTIATED.extend(SUB_AGENT_TOOLS)
-ALL_TOOLS_NOT_INSTANTIATED.extend(SKILL_TOOLS)
-ALL_TOOLS_NOT_INSTANTIATED.extend(GRAPH_TOOLS)
-ALL_TOOLS_NOT_INSTANTIATED.extend(DUCKDB_TOOLS)
-
-ALL_TOOLS_NOT_INSTANTIATED.append(ReadScratchpadTool)
-ALL_TOOLS_NOT_INSTANTIATED.append(WriteScratchpadTool)

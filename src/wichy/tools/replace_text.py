@@ -10,6 +10,7 @@ import os
 from pydantic import Field
 
 from wichy.tools.base import BaseTool, ParametersModel
+from wichy.tools.errors import format_error_with_context
 
 
 class ReplaceTextParameters(ParametersModel):
@@ -68,14 +69,14 @@ class ReplaceTextTool(BaseTool):
         """Replace text in a file."""
         # Validate file exists
         if not os.path.isfile(file_path):
-            raise FileNotFoundError(f"File not found: {file_path}")
+            return format_error_with_context(file_path, "File not found")
 
         # Read file content
         try:
             with open(file_path, "r", encoding=encoding) as f:
                 original_content = f.read()
         except Exception as e:
-            raise ValueError(f"Failed to read file '{file_path}': {e}") from e
+            return format_error_with_context(file_path, f"Failed to read file: {e}")
 
         # Find all occurrences
         occurrences = []
@@ -90,9 +91,9 @@ class ReplaceTextTool(BaseTool):
         total_occurrences = len(occurrences)
 
         if total_occurrences == 0:
-            raise ValueError(
-                f"old_content not found in file '{file_path}'. "
-                "Make sure the content matches exactly (including whitespace and newlines)."
+            return format_error_with_context(
+                file_path,
+                "old_content not found. Make sure the content matches exactly (including whitespace and newlines).",
             )
 
         # Determine which occurrences to replace
@@ -102,9 +103,9 @@ class ReplaceTextTool(BaseTool):
         else:
             # Replace specific occurrence (1-indexed)
             if count > total_occurrences:
-                raise ValueError(
-                    f"Only found {total_occurrences} occurrence(s) of old_content in '{file_path}', "
-                    f"cannot replace occurrence #{count} (count out of range)"
+                return format_error_with_context(
+                    file_path,
+                    f"Only found {total_occurrences} occurrence(s), cannot replace occurrence #{count} (count out of range)",
                 )
             indices_to_replace = [occurrences[count - 1]]
 
@@ -122,7 +123,7 @@ class ReplaceTextTool(BaseTool):
             with open(file_path, "w", encoding=encoding) as f:
                 f.write(new_file_content)
         except Exception as e:
-            raise ValueError(f"Failed to write file '{file_path}': {e}") from e
+            return format_error_with_context(file_path, f"Failed to write file: {e}")
 
         num_replacements = len(indices_to_replace)
         result_msg = f"Replaced {num_replacements} occurrence(s) in {file_path}"

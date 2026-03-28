@@ -1,6 +1,10 @@
+from __future__ import annotations
+
 import time
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional, Type
+
+from wichy.tools.registry import ToolMeta
 
 from pydantic import BaseModel
 from rich.console import Console
@@ -8,6 +12,7 @@ from rich.markdown import Markdown
 
 from wichy.console import user_console
 from wichy.constants import HIDE_FROM_LLM_PREFIX
+from wichy.tools.errors import format_error
 
 console_tool_result = Console(quiet=True)
 
@@ -26,7 +31,7 @@ class ParametersModel(BaseModel):
         return ""
 
 
-class BaseTool(ABC):
+class BaseTool(ABC, metaclass=ToolMeta):
     """Base class for all tools in the agent system."""
 
     name: str
@@ -144,7 +149,7 @@ class BaseTool(ABC):
             user_console.print(msg)
 
         except Exception as e:
-            res = f"error: {e}"
+            res = format_error(f"{self.name}: {type(e).__name__}: {e}")
             user_console.print(f"[red bold]✗[/red bold] tool {self.name} failed")
 
         # Log detailed error for debugging

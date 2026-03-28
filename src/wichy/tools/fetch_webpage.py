@@ -9,6 +9,7 @@ from pydantic import Field
 
 from wichy.helpers.browser import browser_manager
 from wichy.tools.base import BaseTool, ParametersModel
+from wichy.tools.errors import format_error
 
 # Global event loop - persists for entire session
 _loop = None
@@ -102,13 +103,13 @@ class FetchWebPageTool(BaseTool):
             nav_result = await browser_manager.navigate(url, wait_until=wait_until)
 
             if nav_result.get("status") != "success":
-                return f"error: {nav_result.get('error', 'Navigation failed')}"
+                return format_error(nav_result.get("error", "Navigation failed"))
 
             # Get the page content
             content = await page.content()
             return content
         except Exception as e:
-            return f"error: {str(e)}"
+            return format_error(str(e))
 
     def execute(
         self, url: str, limit: int = 20000, wait_until: str = "networkidle"
@@ -139,7 +140,7 @@ class FetchWebPageTool(BaseTool):
             else:
                 return build_content_overview(content_md, limit)
         except Exception as e:
-            return f"error: {str(e)}"
+            return format_error(str(e))
 
 
 class NavigateParameters(ParametersModel):
@@ -181,9 +182,9 @@ class NavigateTool(BaseTool):
             if result.get("status") == "success":
                 return f"Successfully navigated to {result.get('url')}\nTitle: {result.get('title')}"
             else:
-                return f"error: {result.get('error', 'Navigation failed')}"
+                return format_error(result.get("error", "Navigation failed"))
         except Exception as e:
-            return f"error: {str(e)}"
+            return format_error(str(e))
 
 
 class BrowserStatusParameters(ParametersModel):
@@ -216,7 +217,7 @@ class BrowserStatusTool(BaseTool):
             else:
                 return f"Browser status: {result.get('status', 'unknown')}"
         except Exception as e:
-            return f"error: {str(e)}"
+            return format_error(str(e))
 
 
 class ScreenshotParameters(ParametersModel):
@@ -288,7 +289,7 @@ class ScreenshotTool(BaseTool):
 
             return filepath
         except Exception as e:
-            return f"error: {str(e)}"
+            return format_error(str(e))
 
 
 class BrowserRawParameters(ParametersModel):
@@ -357,6 +358,6 @@ class BrowserRawTool(BaseTool):
             else:
                 return str(result)
         except ValueError as e:
-            return f"error: {str(e)}"
+            return format_error(str(e))
         except Exception as e:
-            return f"error: {str(e)}"
+            return format_error(str(e))

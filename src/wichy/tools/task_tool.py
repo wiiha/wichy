@@ -3,54 +3,15 @@ from typing import Dict, Optional
 from pydantic import Field
 
 from wichy.helpers.string import strip_thinking_content
-from wichy.tools.ask_user_question import AskUserQuestionTool
 from wichy.tools.base import BaseTool, ParametersModel
-from wichy.tools.bash import BashTool
-from wichy.tools.duckdb_load import DuckDBLoadTool
-from wichy.tools.duckdb_persist import DuckDBLoadDBTool, DuckDBPersistTool
-from wichy.tools.duckdb_query import DuckDBQueryTool
-from wichy.tools.duckdb_reset import DuckDBResetTool
-from wichy.tools.duckdb_schema import DuckDBSchemaTool
-from wichy.tools.duckdb_status import DuckDBStatusTool
-from wichy.tools.fetch_webpage import FetchWebPageTool
-from wichy.tools.file_search_in import SearchInFilesTool
-from wichy.tools.glob import GlobTool
-from wichy.tools.list_files import ListFilesTool
-from wichy.tools.read_file import ReadFileTool
-from wichy.tools.replace_text import ReplaceTextTool
-from wichy.tools.search_ddg import WebSearchTool
+from wichy.tools.errors import format_error
+from wichy.tools.registry import get_all_tools
 from wichy.tools.task import (
     TASK_AGENT_DEFS,
     TaskAgent,
     TaskAgentDefinitionBase,
     generate_list_from_task_agent_defs,
 )
-from wichy.tools.todo import TodoTool
-from wichy.tools.tree import TreeTool
-from wichy.tools.write_file import WriteFileTool
-
-TOOLS_FOR_TASK_AGENTS: list[BaseTool] = [
-    AskUserQuestionTool,
-    BashTool,
-    ReadFileTool,
-    FetchWebPageTool,
-    GlobTool,
-    ListFilesTool,
-    ReplaceTextTool,
-    WebSearchTool,
-    SearchInFilesTool,
-    TodoTool,
-    TreeTool,
-    WriteFileTool,
-    # DuckDB tools
-    DuckDBLoadTool,
-    DuckDBQueryTool,
-    DuckDBSchemaTool,
-    DuckDBStatusTool,
-    DuckDBPersistTool,
-    DuckDBLoadDBTool,
-    DuckDBResetTool,
-]
 
 
 class TaskAgentParameters(ParametersModel):
@@ -179,13 +140,16 @@ assistant: "I'm going to use the Task tool to launch the greeting-responder agen
 
         agent_def = all_task_agent_defs.get(subagent_type, None)
         if not agent_def:
-            return "error: task has no subagent_type named " + subagent_type
+            return format_error(f"task has no subagent_type named {subagent_type}")
+
+        # Get all tools from registry, excluding TaskAgentTool to prevent infinite recursion
+        tools = [t for t in get_all_tools() if t is not TaskAgentTool]
 
         sa = TaskAgent(
             agent_definition=agent_def,
             prompt=prompt,
             model=model_str,
-            all_tools_not_instantiated=TOOLS_FOR_TASK_AGENTS,
+            all_tools_not_instantiated=tools,
         )
 
         result = sa.run()

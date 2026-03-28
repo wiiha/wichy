@@ -9,6 +9,7 @@ from pydantic import Field
 
 from wichy.config import settings
 from wichy.tools.base import BaseTool, ParametersModel
+from wichy.tools.errors import format_error, format_error_with_context
 
 # --- Module-level helpers ---
 
@@ -138,13 +139,17 @@ Node colors are optional (defaults to blue). Edge labels are optional and should
                                 edge["label"] = edge_label
                             edges.append(edge)
                         elif not from_id:
-                            return f"error: Node '{from_label}' not found. Make sure to define all nodes in the ## Nodes: section first."
+                            return format_error(
+                                f"Node '{from_label}' not found. Make sure to define all nodes in the ## Nodes: section first."
+                            )
                         elif not to_id:
-                            return f"error: Node '{to_label}' not found. Make sure to define all nodes in the ## Nodes: section first."
+                            return format_error(
+                                f"Node '{to_label}' not found. Make sure to define all nodes in the ## Nodes: section first."
+                            )
 
             if not nodes:
-                return (
-                    "error: No nodes defined. Use '## Nodes:' section with node labels."
+                return format_error(
+                    "No nodes defined. Use '## Nodes:' section with node labels."
                 )
 
             # Create graph data
@@ -167,7 +172,7 @@ Node colors are optional (defaults to blue). Edge labels are optional and should
             return f"Created graph with {len(nodes)} nodes and {len(edges)} edges.\nSaved to: {filename}\n\nYou can view it in the graph editor by refreshing the dropdown and selecting '{filename}' or 'latest.json'."
 
         except Exception as e:
-            return f"error: {e}"
+            return format_error(str(e))
 
 
 class ReadGraphParameters(ParametersModel):
@@ -210,9 +215,9 @@ class ReadGraphTool(BaseTool):
             return self._format_as_edge_list(data, filename)
 
         except json.JSONDecodeError as e:
-            return f"error: Invalid JSON in {filename}: {e}"
+            return format_error_with_context(filename, f"Invalid JSON: {e}")
         except Exception as e:
-            return f"error: {e}"
+            return format_error(str(e))
 
     def _format_as_edge_list(self, data: dict, filename: str) -> str:
         """Format graph data as a concise edge list."""
@@ -323,4 +328,4 @@ class ListGraphsTool(BaseTool):
             return result
 
         except Exception as e:
-            return f"error: {e}"
+            return format_error(str(e))

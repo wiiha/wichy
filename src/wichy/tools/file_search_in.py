@@ -5,6 +5,7 @@ from enum import Enum
 from pydantic import Field
 
 from wichy.tools.base import BaseTool, ParametersModel
+from wichy.tools.errors import format_error
 
 
 class OutputMode(str, Enum):
@@ -201,7 +202,7 @@ class SearchInFilesTool(BaseTool):
     ) -> str:
         """Execute recursive search."""
         if not pattern or pattern.strip() == "":
-            return "error: pattern is required"
+            return format_error("pattern is required")
 
         if isinstance(output_mode, str):
             output_mode = OutputMode(output_mode)
@@ -235,9 +236,9 @@ class SearchInFilesTool(BaseTool):
                 return self._run_grep(pattern, path, output_mode)
 
         except subprocess.TimeoutExpired:
-            return "error: search timed out after 30 seconds"
+            return format_error("search timed out after 30 seconds")
         except Exception as e:
-            return f"error: {e}"
+            return format_error(str(e))
 
     # Legacy — kept so callers that reference _run_search still work
     def _run_search(self, path: str, pattern: str, output_mode: OutputMode) -> str:

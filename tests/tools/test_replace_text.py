@@ -94,36 +94,39 @@ def test_old_content_not_found(replace_text_tool, temp_workspace):
     """Test behavior when old_content is not found."""
     test_file = os.path.join(temp_workspace, "test.txt")
 
-    with pytest.raises(ValueError, match="old_content not found"):
-        replace_text_tool.execute(
-            file_path=test_file,
-            old_content="nonexistent text\n",
-            new_content="something\n",
-            count=1,
-        )
+    result = replace_text_tool.execute(
+        file_path=test_file,
+        old_content="nonexistent text\n",
+        new_content="something\n",
+        count=1,
+    )
+    assert result.startswith("error:")
+    assert "old_content not found" in result
 
 
 def test_count_out_of_range(replace_text_tool, temp_workspace):
     """Test behavior when count exceeds number of occurrences."""
     test_file = os.path.join(temp_workspace, "test.txt")
 
-    with pytest.raises(ValueError, match="count out of range"):
-        replace_text_tool.execute(
-            file_path=test_file,
-            old_content="line 2\n",
-            new_content="x\n",
-            count=5,
-        )
+    result = replace_text_tool.execute(
+        file_path=test_file,
+        old_content="line 2\n",
+        new_content="x\n",
+        count=5,
+    )
+    assert result.startswith("error:")
+    assert "count out of range" in result
 
 
 def test_file_not_found(replace_text_tool):
     """Test behavior when file doesn't exist."""
-    with pytest.raises(FileNotFoundError):
-        replace_text_tool.execute(
-            file_path="/nonexistent/file.txt",
-            old_content="something",
-            new_content="else",
-        )
+    result = replace_text_tool.execute(
+        file_path="/nonexistent/file.txt",
+        old_content="something",
+        new_content="else",
+    )
+    assert result.startswith("error:")
+    assert "not found" in result
 
 
 def test_preserve_other_content(replace_text_tool, temp_workspace):

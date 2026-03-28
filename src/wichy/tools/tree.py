@@ -5,6 +5,7 @@ import pathspec
 from pydantic import Field
 
 from wichy.tools.base import BaseTool, ParametersModel
+from wichy.tools.errors import format_error
 
 
 class TreeParameters(ParametersModel):
@@ -106,7 +107,7 @@ class TreeTool(BaseTool):
             path = os.path.abspath(path)
 
             if not os.path.isdir(path):
-                return f"error: '{path}' is not a directory"
+                return format_error(f"'{path}' is not a directory")
 
             spec = self._load_gitignore(path)
             tree = self._build_tree(path, "", spec, path, 0, max_depth)
@@ -118,4 +119,4 @@ class TreeTool(BaseTool):
             return result
 
         except Exception as e:
-            return f"error: {e}"
+            return format_error(str(e))

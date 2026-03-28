@@ -4,6 +4,7 @@ from typing import Optional
 from pydantic import Field
 
 from wichy.tools.base import BaseTool, ParametersModel
+from wichy.tools.errors import format_error
 
 
 class ListFilesParameters(ParametersModel):
@@ -32,4 +33,4 @@ class ListFilesTool(BaseTool):
             )
             return result.stdout
         except Exception as e:
-            return f"error: {e}"
+            return format_error(str(e))

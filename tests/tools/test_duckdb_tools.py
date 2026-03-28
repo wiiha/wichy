@@ -227,7 +227,21 @@ class TestToolDefinitions:
         assert hasattr(tool, "parameters_model")
 
     def test_all_tools_registered(self):
-        """Test that all tools are imported correctly."""
-        from wichy.tools import DUCKDB_TOOLS
+        """Test that all DuckDB tools are registered in the tool registry."""
+        from wichy.tools import get_tool_by_name
 
-        assert len(DUCKDB_TOOLS) == 7
+        # Verify all 7 DuckDB tools are registered
+        expected_tools = [
+            "duckdb_load",
+            "duckdb_query",
+            "duckdb_schema",
+            "duckdb_status",
+            "duckdb_reset",
+            "duckdb_persist",
+            "duckdb_load_db",
+        ]
+
+        for tool_name in expected_tools:
+            tool_class = get_tool_by_name(tool_name)
+            assert tool_class is not None, f"Tool '{tool_name}' not registered"
+            assert tool_class.name == tool_name

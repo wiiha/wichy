@@ -6,6 +6,8 @@ from typing import Dict, List, Optional
 
 import duckdb
 
+from wichy.tools.errors import format_error
+
 
 class DuckDBManager:
     """Singleton manager for DuckDB connections within a session."""
@@ -68,7 +70,7 @@ class DuckDBManager:
         try:
             # Validate file exists
             if not os.path.exists(data_path):
-                return f"error: File not found: {data_path}"
+                return format_error(f"File not found: {data_path}")
 
             # Generate table name if not provided
             if table_name is None:
@@ -84,7 +86,9 @@ class DuckDBManager:
             # Check if table exists
             existing_tables = self.list_tables()
             if table_name in existing_tables and not overwrite:
-                return f"error: Table '{table_name}' already exists. Use overwrite=True to replace it."
+                return format_error(
+                    f"Table '{table_name}' already exists. Use overwrite=True to replace it."
+                )
 
             # Determine file type and load
             if data_path.endswith(".csv"):
@@ -100,22 +104,21 @@ class DuckDBManager:
                     f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM read_json_auto('{data_path}')"
                 )
             else:
-                return "error: Unsupported file format. Use .csv, .parquet, or .json"
+                return format_error(
+                    "Unsupported file format. Use .csv, .parquet, or .json"
+                )
 
             self._loaded_tables[table_name] = data_path
             return f"Loaded {data_path} into table '{table_name}'"
 
         except Exception as e:
-            return f"error: {e}"
+            return format_error(f"Failed to load data: {e}")
 
     def list_tables(self) -> List[str]:
         """List all loaded tables."""
-        try:
-            conn = self.get_connection()
-            result = conn.execute("SHOW TABLES").fetchall()
-            return [row[0] for row in result]
-        except Exception:
-            return []
+        conn = self.get_connection()
+        result = conn.execute("SHOW TABLES").fetchall()
+        return [row[0] for row in result]
 
     def get_schema(self, table_name: Optional[str] = None) -> str:
         """
@@ -136,7 +139,9 @@ class DuckDBManager:
 
             if table_name:
                 if table_name not in tables:
-                    return f"error: Table '{table_name}' not found. Available tables: {', '.join(tables)}"
+                    return format_error(
+                        f"Table '{table_name}' not found. Available tables: {', '.join(tables)}"
+                    )
                 tables = [table_name]
 
             schema_info = []
@@ -159,7 +164,7 @@ class DuckDBManager:
             return "\n".join(schema_info)
 
         except Exception as e:
-            return f"error: {e}"
+            return format_error(f"Failed to get schema: {e}")
 
     def execute_query(self, query: str, limit: int = 100, sample: bool = False) -> str:
         """
@@ -217,7 +222,7 @@ class DuckDBManager:
             return result_str.strip()
 
         except Exception as e:
-            return f"error: {e}"
+            return format_error(f"Query failed: {e}")
 
     def persist(self, db_path: str) -> str:
         """
@@ -235,7 +240,7 @@ class DuckDBManager:
             # Get all tables
             tables = self.list_tables()
             if not tables:
-                return "error: No tables to persist"
+                return format_error("No tables to persist")
 
             # Use DuckDB's ATTACH and COPY to persist
 
@@ -258,7 +263,7 @@ class DuckDBManager:
             self._db_path = db_path
             return f"Database persisted to {db_path} with {len(tables)} table(s)"
         except Exception as e:
-            return f"error: {e}"
+            return format_error(f"Failed to persist database: {e}")
 
     def load_database(self, db_path: str) -> str:
         """
@@ -272,7 +277,7 @@ class DuckDBManager:
         """
         try:
             if not os.path.exists(db_path):
-                return f"error: Database file not found: {db_path}"
+                return format_error(f"Database file not found: {db_path}")
 
             # Close current connection
             if self._connection is not None:
@@ -290,7 +295,7 @@ class DuckDBManager:
             return f"Loaded database from {db_path}. Tables: {', '.join(tables)}"
 
         except Exception as e:
-            return f"error: {e}"
+            return format_error(f"Failed to load database: {e}")
 
     def get_status(self) -> str:
         """Get current status of the DuckDB session."""

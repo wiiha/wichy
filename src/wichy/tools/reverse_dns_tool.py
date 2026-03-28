@@ -3,6 +3,7 @@ import socket
 from pydantic import Field
 
 from wichy.tools.base import BaseTool, ParametersModel
+from wichy.tools.errors import format_error
 
 
 class ReverseDnsParameters(ParametersModel):
@@ -23,6 +24,6 @@ class ReverseDnsTool(BaseTool):
             hostname = socket.gethostbyaddr(ip)[0]
             return f"IP {ip} resolves to hostname: {hostname}"
         except socket.herror as e:
-            return f"error: Failed to resolve IP {ip} - {str(e)}"
+            return format_error(f"Failed to resolve IP {ip} - {str(e)}")
         except Exception as e:
-            return f"error: An unexpected error occurred - {str(e)}"
+            return format_error(f"An unexpected error occurred - {str(e)}")

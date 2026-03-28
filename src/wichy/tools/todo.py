@@ -6,6 +6,7 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
 from wichy.tools.base import BaseTool, ParametersModel
+from wichy.tools.errors import format_error
 
 
 # Task state enum
@@ -168,9 +169,9 @@ When in doubt, use this tool. Being proactive with task management demonstrates 
             elif action == "current_in_progress_task":
                 return self._list_current_in_progress()
             else:
-                return f"error: Invalid action: {action}"
+                return format_error(f"Invalid action: {action}")
         except Exception as e:
-            return f"error: {str(e)}"
+            return format_error(f"{str(e)}")
 
     def _create_task(self, task_name: str, task_description: Optional[str]) -> str:
         """
@@ -179,7 +180,7 @@ When in doubt, use this tool. Being proactive with task management demonstrates 
         # Check if task already exists with same name
         for existing_task in self.task_store.values():
             if existing_task.task_name == task_name:
-                return f"error: Task with name '{task_name}' already exists."
+                return format_error(f"Task with name '{task_name}' already exists.")
 
         # Create new task
         new_task = Task(
@@ -204,14 +205,14 @@ When in doubt, use this tool. Being proactive with task management demonstrates 
         """
         # Validate task exists
         if task_id not in self.task_store:
-            return f"error: Task with ID '{task_id}' not found."
+            return format_error(f"Task with ID '{task_id}' not found.")
 
         # Get current task
         current_task = self.task_store[task_id]
 
         # Validate task is not completed
         if current_task.state == TaskState.COMPLETED:
-            return f"error: Cannot update completed task '{task_id}'."
+            return format_error(f"Cannot update completed task '{task_id}'.")
 
         # Update task
         if task_name is not None:
@@ -233,18 +234,20 @@ When in doubt, use this tool. Being proactive with task management demonstrates 
         """
         # Validate task exists
         if task_id not in self.task_store:
-            return f"error: Task with ID '{task_id}' not found."
+            return format_error(f"Task with ID '{task_id}' not found.")
 
         # Get current task
         current_task = self.task_store[task_id]
 
         # Validate state
         if current_task.state == TaskState.COMPLETED:
-            return f"error: Task '{task_id}' is already completed."
+            return format_error(f"Task '{task_id}' is already completed.")
 
         # Validate state transition
         if current_task.state != TaskState.IN_PROGRESS:
-            return f"error: Invalid state transition. Task '{task_id}' is in '{current_task.state.value}' state. Only IN_PROGRESS tasks can be marked as complete."
+            return format_error(
+                f"Invalid state transition. Task '{task_id}' is in '{current_task.state.value}' state. Only IN_PROGRESS tasks can be marked as complete."
+            )
 
         # Complete task
         current_task.state = TaskState.COMPLETED
@@ -261,14 +264,16 @@ When in doubt, use this tool. Being proactive with task management demonstrates 
         """
         # Validate task exists
         if task_id not in self.task_store:
-            return f"error: Task with ID '{task_id}' not found."
+            return format_error(f"Task with ID '{task_id}' not found.")
 
         # Get current task
         current_task = self.task_store[task_id]
 
         # Validate state
         if current_task.state != TaskState.PENDING:
-            return f"error: Invalid state transition. Task '{task_id}' is in '{current_task.state.value}' state. Only PENDING tasks can be marked as in progress."
+            return format_error(
+                f"Invalid state transition. Task '{task_id}' is in '{current_task.state.value}' state. Only PENDING tasks can be marked as in progress."
+            )
 
         # Mark task as in progress
         current_task.state = TaskState.IN_PROGRESS
@@ -285,7 +290,7 @@ When in doubt, use this tool. Being proactive with task management demonstrates 
         """
         # Validate task exists
         if task_id not in self.task_store:
-            return f"error: Task with ID '{task_id}' not found."
+            return format_error(f"Task with ID '{task_id}' not found.")
 
         # Get task
         task = self.task_store[task_id]

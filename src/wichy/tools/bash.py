@@ -7,6 +7,7 @@ from pydantic import Field
 
 from wichy.helpers.string import truncate_to_len
 from wichy.tools.base import BaseTool, ParametersModel
+from wichy.tools.errors import format_error
 from wichy.tools.human_verification import require_human_verification
 
 # Known read-only commands (safe to execute without verification)
@@ -323,7 +324,7 @@ Usage notes:
             )
             return result.stdout
         except Exception as e:
-            return f"error: {e}"
+            return format_error(f"command execution failed: {e}")
 
 
 # Set the custom verification predicate on the execute method

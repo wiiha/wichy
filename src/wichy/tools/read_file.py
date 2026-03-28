@@ -6,6 +6,7 @@ from typing import Optional
 from pydantic import Field
 
 from wichy.tools.base import BaseTool, ParametersModel
+from wichy.tools.errors import format_error
 
 # Supported image MIME types for multimodal LLM APIs
 SUPPORTED_IMAGE_TYPES = {
@@ -194,8 +195,8 @@ Multimodal Support (images):
             end_idx = start_idx + limit
 
             if start_idx >= len(lines):
-                return (
-                    f"error: offset {offset} exceeds file length ({len(lines)} lines)"
+                return format_error(
+                    f"offset {offset} exceeds file length ({len(lines)} lines)"
                 )
 
             selected_lines = lines[start_idx:end_idx]
@@ -236,14 +237,16 @@ Multimodal Support (images):
             return result
 
         except FileNotFoundError:
-            return f"error: file not found: {path}"
+            return format_error(f"file not found: {path}")
         except IsADirectoryError:
-            return f"error: '{path}' is a directory, not a file. Use ls tool to read directories."
+            return format_error(
+                f"'{path}' is a directory, not a file. Use ls tool to read directories."
+            )
         except PermissionError:
-            return f"error: permission denied: {path}"
+            return format_error(f"permission denied: {path}")
         except UnicodeDecodeError:
-            return (
-                f"error: file '{path}' appears to be binary and cannot be read as text"
+            return format_error(
+                f"file '{path}' appears to be binary and cannot be read as text"
             )
         except Exception as e:
-            return f"error: {e}"
+            return format_error(str(e))

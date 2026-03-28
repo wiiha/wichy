@@ -6,6 +6,7 @@ from typing import List, Optional
 from pydantic import Field
 
 from wichy.tools.base import BaseTool, ParametersModel
+from wichy.tools.errors import format_error
 
 
 class GlobParameters(ParametersModel):
@@ -92,7 +93,7 @@ class GlobTool(BaseTool):
             return result.strip()
 
         except Exception as e:
-            return f"error: {e}"
+            return format_error(e)
 
     def _exclude_virtual_environments(self, files: List[str]) -> List[str]:
         """Exclude files that are in common virtual environment directories."""

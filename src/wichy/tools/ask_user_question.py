@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from wichy.helpers.needs_user_attention import needs_user_attention
 from wichy.tools.base import BaseTool, ParametersModel
+from wichy.tools.errors import format_error
 
 
 class QuestionOption(BaseModel):
@@ -218,4 +219,4 @@ Important notes:
             return json.dumps(result, indent=2)
 
         except Exception as e:
-            return f"error: {str(e)}"
+            return format_error(str(e))

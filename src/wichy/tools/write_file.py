@@ -4,6 +4,7 @@ from pydantic import Field
 
 from wichy.helpers.string import truncate_to_len
 from wichy.tools.base import BaseTool, ParametersModel
+from wichy.tools.errors import format_error
 
 
 class WriteFileParameters(ParametersModel):
@@ -41,4 +42,4 @@ Usage:
                 f.write(content)
             return f"Successfully wrote to {path}"
         except Exception as e:
-            return f"error: {e}"
+            return format_error(f"Failed to write to {path}: {e}")

@@ -9,6 +9,7 @@ from typing import Optional
 from pydantic import Field
 
 from wichy.tools.base import BaseTool, ParametersModel
+from wichy.tools.errors import format_error
 from wichy.tools.human_verification import block_on
 
 
@@ -114,17 +115,19 @@ class KnowledgeStoreTool(BaseTool):
         """Execute search in the knowledge store"""
         # Guard clauses for validation
         if not pattern or not pattern.strip():
-            return "error: pattern is required"
+            return format_error("pattern is required")
 
         if not self.knowledge_dir.exists():
-            return f"error: knowledge store directory '{self.knowledge_dir}' does not exist"
+            return format_error(
+                f"knowledge store directory '{self.knowledge_dir}' does not exist"
+            )
 
         # Normalize output_mode to enum
         if isinstance(output_mode, str):
             try:
                 output_mode = OutputMode(output_mode)
             except ValueError:
-                return f"error: invalid output_mode '{output_mode}'"
+                return format_error(f"invalid output_mode '{output_mode}'")
 
         # Choose search strategy: ripgrep > Python glob + manual search > simple grep
         if shutil.which("rg"):
@@ -164,7 +167,7 @@ class KnowledgeStoreTool(BaseTool):
             knowledge_path = Path(self.knowledge_dir)
             files = [str(p) for p in knowledge_path.rglob(glob) if p.is_file()]
         except Exception as e:
-            return f"error: {e}"
+            return format_error(str(e))
 
         if not files:
             return "no files found matching the pattern"
@@ -230,6 +233,6 @@ class KnowledgeStoreTool(BaseTool):
             )
             return result.stdout if result.stdout else "no matches found"
         except subprocess.TimeoutExpired:
-            return "error: search timed out after 30 seconds"
+            return format_error("search timed out after 30 seconds")
         except Exception as e:
-            return f"error: {e}"
+            return format_error(str(e))

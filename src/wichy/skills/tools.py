@@ -11,6 +11,7 @@ from pydantic import Field
 from wichy.console import user_console
 from wichy.skills.registry import SkillRegistry
 from wichy.tools.base import BaseTool, ParametersModel
+from wichy.tools.errors import format_error
 from wichy.tools.human_verification import (
     SKIP_HUMAN_VERIFICATION,
     in_pipeline_mode,
@@ -119,7 +120,7 @@ class SkillInfoTool(BaseTool):
         registry = SkillRegistry()
         skill = registry.get(params.skill_name)
         if not skill:
-            return f"error: Skill '{params.skill_name}' not found"
+            return format_error(f"Skill '{params.skill_name}' not found")
         result = {
             "name": skill.name,
             "description": skill.description,
@@ -164,11 +165,13 @@ class SkillScriptTool(BaseTool):
         registry = SkillRegistry()
         skill = registry.get(params.skill_name)
         if not skill:
-            return f"error: Skill '{params.skill_name}' not found"
+            return format_error(f"Skill '{params.skill_name}' not found")
 
         script_path = skill.get_script_path(params.script_name)
         if not script_path:
-            return f"error: Script '{params.script_name}' not found in skill '{params.skill_name}'"
+            return format_error(
+                f"Script '{params.script_name}' not found in skill '{params.skill_name}'"
+            )
 
         # Check if script is in safe_scripts (no human verification needed)
         is_safe = params.script_name in skill.safe_scripts
@@ -204,7 +207,7 @@ class SkillScriptTool(BaseTool):
                     msg = f"User denied execution of skill script: {params.skill_name}/{params.script_name}"
                     if reason:
                         msg += f"\nReason: {reason}"
-                    return f"error: {msg}"
+                    return format_error(msg)
                 user_console.print("Please enter 'y' or 'n <optional reason>'")
 
         # Build command
@@ -227,9 +230,11 @@ class SkillScriptTool(BaseTool):
                 output += f"STDERR:\n{result.stderr}\n"
             return output
         except subprocess.TimeoutExpired:
-            return f"error: Script execution timed out after {params.timeout} seconds"
+            return format_error(
+                f"Script execution timed out after {params.timeout} seconds"
+            )
         except Exception as e:
-            return f"error: Failed to execute script: {str(e)}"
+            return format_error(f"Failed to execute script: {str(e)}")
 
 
 class ReadSkillFileParameters(ParametersModel):
@@ -265,7 +270,7 @@ class SkillFileTool(BaseTool):
         registry = SkillRegistry()
         skill = registry.get(params.skill_name)
         if not skill:
-            return f"error: Skill '{params.skill_name}' not found"
+            return format_error(f"Skill '{params.skill_name}' not found")
 
         # Determine which directory to search
         if params.file_type == "assets":
@@ -290,7 +295,9 @@ class SkillFileTool(BaseTool):
             available_files = [
                 str(f.relative_to(skill.path / params.file_type)) for f in files
             ]
-            return f"error: File '{params.file_path}' not found in skill '{params.skill_name}' {params.file_type}/ directory. Available files: {available_files}"
+            return format_error(
+                f"File '{params.file_path}' not found in skill '{params.skill_name}' {params.file_type}/ directory. Available files: {available_files}"
+            )
 
         # Read the file content
         try:
@@ -298,4 +305,4 @@ class SkillFileTool(BaseTool):
                 content = f.read()
             return content
         except Exception as e:
-            return f"error: Failed to read file '{params.file_path}': {str(e)}"
+            return format_error(f"Failed to read file '{params.file_path}': {str(e)}")

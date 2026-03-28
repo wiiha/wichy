@@ -9,6 +9,7 @@ import os
 from pydantic import Field
 
 from wichy.tools.base import BaseTool, ParametersModel
+from wichy.tools.errors import format_error_with_context
 
 
 class InsertLinesParameters(ParametersModel):
@@ -61,7 +62,7 @@ class InsertLinesTool(BaseTool):
         """Insert content into a file at a specific line offset."""
         # Validate file exists
         if not os.path.isfile(file_path):
-            raise FileNotFoundError(f"File not found: {file_path}")
+            return format_error_with_context(file_path, "File not found")
 
         # Read file content
         lines: list[str] = []
@@ -69,7 +70,7 @@ class InsertLinesTool(BaseTool):
             with open(file_path, "r", encoding=encoding) as f:
                 lines = f.readlines()
         except Exception as e:
-            raise ValueError(f"Failed to read file '{file_path}': {e}") from e
+            return format_error_with_context(file_path, f"Failed to read file: {e}")
 
         # Determine insertion point
         if offset <= 0:
@@ -87,6 +88,6 @@ class InsertLinesTool(BaseTool):
             with open(file_path, "w", encoding=encoding) as f:
                 f.writelines(lines)
         except Exception as e:
-            raise ValueError(f"Failed to write file '{file_path}': {e}") from e
+            return format_error_with_context(file_path, f"Failed to write file: {e}")
 
         return f"Inserted content after line {offset} in {file_path}"

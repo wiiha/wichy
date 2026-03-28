@@ -145,12 +145,13 @@ def test_insert_with_special_characters(insert_lines_tool, temp_workspace):
 
 def test_file_not_found(insert_lines_tool):
     """Test behavior when file doesn't exist."""
-    with pytest.raises(FileNotFoundError):
-        insert_lines_tool.execute(
-            file_path="/nonexistent/file.txt",
-            offset=1,
-            content="something",
-        )
+    result = insert_lines_tool.execute(
+        file_path="/nonexistent/file.txt",
+        offset=1,
+        content="something",
+    )
+    assert result.startswith("error:")
+    assert "not found" in result
 
 
 def test_preserve_other_content(insert_lines_tool, temp_workspace):

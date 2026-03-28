@@ -4,6 +4,7 @@ from ddgs import DDGS  # ref: https://pypi.org/project/ddgs/
 from pydantic import Field
 
 from wichy.tools.base import BaseTool, ParametersModel
+from wichy.tools.errors import format_error
 
 
 class WebSearchParameters(ParametersModel):
@@ -65,4 +66,4 @@ IMPORTANT - Use the correct year in search queries:
             return output
 
         except Exception as e:
-            return f"error: {str(e)}"
+            return format_error(str(e))

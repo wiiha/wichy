@@ -2,8 +2,8 @@
 
 from typing import List, Optional
 
-from wichy.tools import ALL_TOOLS_NOT_INSTANTIATED
 from wichy.tools.base import BaseTool
+from wichy.tools.registry import get_all_tools
 
 
 class ToolManager:
@@ -14,11 +14,17 @@ class ToolManager:
         Initialize ToolManager.
 
         Args:
-            all_tools: List of tool classes (not instances). Defaults to ALL_TOOLS_NOT_INSTANTIATED.
+            all_tools: List of tool classes (not instances). Defaults to all registered tools.
         """
-        self.all_tools = (
-            all_tools if all_tools is not None else ALL_TOOLS_NOT_INSTANTIATED
-        )
+        if all_tools is not None:
+            self.all_tools = all_tools
+        else:
+            # Get tools from registry, excluding ReverseDnsTool for backward compatibility
+            from wichy.tools.reverse_dns_tool import ReverseDnsTool
+
+            self.all_tools = [
+                tool for tool in get_all_tools() if tool is not ReverseDnsTool
+            ]
 
     def instantiate_all(self) -> List[BaseTool]:
         """
