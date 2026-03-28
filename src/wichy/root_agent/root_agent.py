@@ -1,18 +1,13 @@
-import json
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
 from rich.markdown import Markdown
 
+from wichy.agent.core import AgentCore
 from wichy.console import user_console
-from wichy.constants import ROLE_ASSISTANT, ROLE_TOOL, ROLE_USER
+from wichy.constants import ROLE_ASSISTANT, ROLE_USER
 from wichy.context.handler import new_context
 from wichy.helpers.console import console
-from wichy.helpers.multimodal import (
-    build_multimodal_user_message,
-    extract_multimodal_content,
-    fix_multimodal_context,
-)
 from wichy.helpers.string import strip_thinking_content
 from wichy.llm_backend import (
     LLMBackendMultimodalNotSupported,
@@ -29,7 +24,7 @@ class ContextResetStrategies(str, Enum):
     SUMMARY = "summary"
 
 
-class RootAgent:
+class RootAgent(AgentCore):
     def __init__(
         self,
         model_str,
@@ -41,11 +36,12 @@ class RootAgent:
         auto_compact_threshold: Optional[int] = None,
         print_info_lines: bool = True,
     ):
+        super().__init__()
         if context is not None:
             self.context = context
         else:
             self.context = new_context()
-        self.name = name
+        self._name = name
         self.model_str = model_str
         self.tools = tools
         self.skills = skills or {}
@@ -59,7 +55,7 @@ class RootAgent:
 
         # Build info string
         info_lines = [
-            f"### Root Agent Info\n - **template name:** {self.name}\n- **model string:** {self.model_str}\n- **tools:**\n{tool_str}"
+            f"### Root Agent Info\n - **template name:** {self._name}\n- **model string:** {self.model_str}\n- **tools:**\n{tool_str}"
         ]
 
         # Add skills in alphabetical order
@@ -81,8 +77,33 @@ class RootAgent:
         self.auto_compact_threshold = auto_compact_threshold
         self.current_prompt_tokens = 0
 
+    # -------------------------------------------------------------------------
+    # AgentCore abstract property implementation
+    # -------------------------------------------------------------------------
+
+    @property
+    def name(self) -> str:
+        """Return the agent name."""
+        return self._name
+
+    # -------------------------------------------------------------------------
+    # AgentCore logging overrides - use RootAgent's console
+    # -------------------------------------------------------------------------
+
+    def _log(self, message: str) -> None:
+        """Log a debug message using RootAgent's console."""
+        console.log(message)
+
+    def _log_dict(self, data: Dict) -> None:
+        """Log a dictionary using RootAgent's console."""
+        console.log(data)
+
+    # -------------------------------------------------------------------------
+    # Tool execution - delegates to base class
+    # -------------------------------------------------------------------------
+
     def tool_call(
-        self, tools, item: called_tool
+        self, tools: List[BaseTool], item: called_tool
     ) -> Tuple[Dict, Optional[List[Dict[str, Any]]]]:
         """
         Execute a tool call and return the result message along with any multimodal content.
@@ -90,74 +111,38 @@ class RootAgent:
         Returns:
             Tuple of (tool_result_message, multimodal_content_parts or None)
         """
-        result = None
-        name = item.function.name
-        args = json.loads(item.function.arguments)
-        console.log({"tool": name, "args": args})
+        # RootAgent injects model_str into tool args
+        return self._tool_call(tools, item, inject_model_str=True)
 
-        args["model_str"] = self.model_str
+    # -------------------------------------------------------------------------
+    # Tool handling - delegates to base class with thinking content display
+    # -------------------------------------------------------------------------
 
-        for tool in tools:
-            if name == tool.name:
-                result = tool.validate_and_execute(**args)
-                break
+    def handle_tools(self, tools: List[BaseTool], response: Message) -> bool:
+        """Handle tool calls from LLM response, displaying thinking content to user."""
 
-        if result is None:
-            result = "There is no tool called " + item.function.name + "."
+        def display_thinking_content(resp: Message) -> None:
+            """Hook to display thinking content before processing tool calls."""
+            if strip_thinking_content(resp.content) != "":
+                result = (
+                    "\n---\n\n### Assistant\n"
+                    + strip_thinking_content(resp.content)
+                    + "\n\n---"
+                )
+                markdown = Markdown(result)
+                user_console.print(markdown)
 
-        # Check for multimodal content in tool result
-        display_content, multimodal_parts = extract_multimodal_content(result)
-
-        tool_message = {
-            "role": ROLE_TOOL,
-            "tool_call_id": item.id,
-            "content": display_content,
-        }
-        return tool_message, multimodal_parts
-
-    def handle_tools(self, tools, response: Message):
-        if response.finish_reason != "tool_calls":
-            return False
-
-        if strip_thinking_content(response.content) != "":
-            result = (
-                "\n---\n\n### Assistant\n"
-                + strip_thinking_content(response.content)
-                + "\n\n---"
-            )
-            markdown = Markdown(result)
-            user_console.print(markdown)
-
-        self.context.append(
-            {
-                "role": ROLE_ASSISTANT,
-                "content": response.content,
-                "tool_calls": [t.model_dump() for t in response.tool_calls],
-            }
+        modified, _ = self._handle_tools_base(
+            tools,
+            response,
+            inject_model_str=True,
+            pre_append_hook=display_thinking_content,
         )
+        return modified
 
-        console.log(
-            "[italic]got " + str(len(response.tool_calls)) + " tool calls[/italic]"
-        )
-        osz = len(self.context)
-
-        # Collect multimodal content from all tool calls
-        multimodal_parts: List[Dict[str, Any]] = []
-
-        for item in response.tool_calls:
-            tool_message, mm_parts = self.tool_call(tools, item)
-            self.context.append(tool_message)
-            if mm_parts:
-                multimodal_parts.extend(mm_parts)
-
-        # If any tool returned multimodal content, inject a user message with it
-        if multimodal_parts:
-            # Build and add multimodal user message
-            multimodal_message = build_multimodal_user_message(multimodal_parts)
-            self.context.append(multimodal_message)
-            console.log("[italic]injected multimodal content into context[/italic]")
-
-        return len(self.context) != osz
+    # -------------------------------------------------------------------------
+    # RootAgent-specific methods
+    # -------------------------------------------------------------------------
 
     def _update_token_counts(self, usage):
         """
@@ -202,18 +187,6 @@ class RootAgent:
         self.compact_context(
             guideline_from_user_on_what_to_keep=msg, is_auto_compact=True
         )
-
-    def _fix_multimodal_context(self) -> bool:
-        """
-        Find and replace multimodal content in context with text placeholders.
-
-        Returns:
-            True if any multimodal content was found and replaced, False otherwise.
-        """
-        found = fix_multimodal_context(self.context)
-        if found:
-            console.log("[yellow]Fixed multimodal content in context[/yellow]")
-        return found
 
     def process(self, line):
         self.context.append({"role": ROLE_USER, "content": line})

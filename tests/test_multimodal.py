@@ -4,7 +4,7 @@ Test cases for multimodal content handling in root_agent.
 
 import json
 
-from wichy.root_agent.root_agent import extract_multimodal_content
+from wichy.helpers.multimodal import extract_multimodal_content
 from wichy.llm_backend import (
     LLMBackendMultimodalNotSupported,
     error_indicates_multimodal_not_supported,

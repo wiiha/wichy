@@ -1,31 +1,23 @@
-import json
 from datetime import date
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List
 
 from pydantic import BaseModel
 from rich.console import Console
 from rich.markdown import Markdown
 
-from wichy.constants import ROLE_ASSISTANT, ROLE_SYSTEM, ROLE_TOOL, ROLE_USER
+from wichy.agent.core import AgentCore
+from wichy.constants import ROLE_ASSISTANT, ROLE_SYSTEM, ROLE_USER
 from wichy.context.handler import ContextHandler
 from wichy.helpers.environment_info import environment_information
-from wichy.helpers.multimodal import (
-    build_multimodal_user_message,
-    extract_multimodal_content,
-    fix_multimodal_context,
-)
 from wichy.helpers.prompt import preprocess_prompt
 from wichy.llm_backend import (
     LLMBackendContextLimitReached,
     LLMBackendMultimodalNotSupported,
     Message,
     call,
-    called_tool,
 )
 from wichy.tools import get_tool_definitions
 from wichy.tools.base import BaseTool
-
-console_task_agents = Console(quiet=True)
 
 console_task_agents = Console(quiet=True)
 
@@ -39,7 +31,7 @@ class TaskAgentDefinitionBase(BaseModel):
     include_env_info: bool = False
 
 
-class TaskAgent:
+class TaskAgent(AgentCore):
     def __init__(
         self,
         agent_definition: TaskAgentDefinitionBase,
@@ -47,10 +39,10 @@ class TaskAgent:
         model: str,
         all_tools_not_instantiated: list[BaseTool],
     ):
-
-        self.name = agent_definition.name
+        super().__init__()
+        self._name = agent_definition.name
         self.description = agent_definition.description
-        self.model = model
+        self.model_str = model  # Store in base class's model_str
 
         tools: list[BaseTool] = []
         for t in all_tools_not_instantiated:
@@ -97,18 +89,54 @@ class TaskAgent:
             today = date.today().isoformat()
             system_prompt += f"\n\nToday's date: {today}"
 
-        context = ContextHandler(custom_suffix=self.name, sub_dir="task_agents")
+        context = ContextHandler(custom_suffix=self._name, sub_dir="task_agents")
         context.add(role=ROLE_SYSTEM, content=system_prompt)
         context.add(role=ROLE_USER, content=prompt)
         self.context = context
+
+    # -------------------------------------------------------------------------
+    # AgentCore abstract property implementation
+    # -------------------------------------------------------------------------
+
+    @property
+    def name(self) -> str:
+        """Return the agent name."""
+        return self._name
+
+    # -------------------------------------------------------------------------
+    # AgentCore logging overrides - use TaskAgent's console
+    # -------------------------------------------------------------------------
+
+    def _log(self, message: str) -> None:
+        """Log a debug message using TaskAgent's console."""
+        console_task_agents.log(message)
+
+    def _log_dict(self, data: Dict) -> None:
+        """Log a dictionary using TaskAgent's console."""
+        console_task_agents.log(data)
+
+    # -------------------------------------------------------------------------
+    # Tool handling - uses base class method
+    # -------------------------------------------------------------------------
+
+    def _handle_tools(self, tools: List[BaseTool], response: Message) -> bool:
+        """Handle tool calls from LLM response."""
+        modified, _ = self._handle_tools_base(
+            tools, response, inject_model_str=False, pre_append_hook=None
+        )
+        return modified
+
+    # -------------------------------------------------------------------------
+    # TaskAgent-specific methods
+    # -------------------------------------------------------------------------
 
     def run(self):
         console_task_agents.log(
             Markdown(
                 "\n\n---\n\n ### Task Agent "
-                + self.name
+                + self._name
                 + " called\n\n- llm model: "
-                + self.model
+                + self.model_str
                 + "\n\n- available tools: "
                 + ",".join([t.name for t in self.tools])
                 + "\n\n- given task:\n\n"
@@ -122,84 +150,13 @@ class TaskAgent:
         res = self._process()
         console_task_agents.log(
             Markdown(
-                "\n\n---\n\n ### Task Agent " + self.name + " - final message\n\n" + res
+                "\n\n---\n\n ### Task Agent "
+                + self._name
+                + " - final message\n\n"
+                + res
             )
         )
         return res
-
-    def _tool_call(
-        self, tools, item: called_tool
-    ) -> Tuple[Dict, Optional[List[Dict[str, Any]]]]:
-        result = None
-        name = item.function.name
-        args = json.loads(item.function.arguments)
-        console_task_agents.log({"tool": name, "args": args})
-        for tool in tools:
-            if name == tool.name:
-                result = tool.validate_and_execute(**args)
-
-        if result is None:
-            result = "There is no tool called " + item.function.name + "."
-
-        # Check for multimodal content in tool result
-        display_content, multimodal_parts = extract_multimodal_content(result)
-
-        return {
-            "role": ROLE_TOOL,
-            "tool_call_id": item.id,
-            "content": display_content,
-        }, multimodal_parts
-
-    def _handle_tools(self, tools, response: Message):
-        if response.finish_reason != "tool_calls":
-            return False
-
-        self.context.append(
-            {
-                "role": ROLE_ASSISTANT,
-                "content": response.content,
-                "tool_calls": [t.model_dump() for t in response.tool_calls],
-            }
-        )
-
-        console_task_agents.log(
-            "[italic]got " + str(len(response.tool_calls)) + " tool calls[/italic]"
-        )
-        osz = len(self.context)
-
-        # Collect multimodal content from all tool calls
-        multimodal_parts: List[Dict[str, Any]] = []
-
-        for item in response.tool_calls:
-            tool_message, mm_parts = self._tool_call(tools, item)
-            self.context.append(tool_message)
-            if mm_parts:
-                multimodal_parts.extend(mm_parts)
-
-        # If any tool returned multimodal content, inject a user message with it
-        if multimodal_parts:
-            # Build and add multimodal user message
-            multimodal_message = build_multimodal_user_message(multimodal_parts)
-            self.context.append(multimodal_message)
-            console_task_agents.log(
-                "[italic]injected multimodal content into context[/italic]"
-            )
-
-        return len(self.context) != osz
-
-    def _fix_multimodal_context(self) -> bool:
-        """
-        Find and replace multimodal content in context with text placeholders.
-
-        Returns:
-            True if any multimodal content was found and replaced, False otherwise.
-        """
-        found = fix_multimodal_context(self.context)
-        if found:
-            console_task_agents.log(
-                "[yellow]Fixed multimodal content in context[/yellow]"
-            )
-        return found
 
     def _process(self, line=""):
 
@@ -213,7 +170,7 @@ class TaskAgent:
                 response = call(
                     context=self.context(tick=True),
                     tool_defs=tool_defs,
-                    model_str=self.model,
+                    model_str=self.model_str,
                 )
             except LLMBackendMultimodalNotSupported as e:
                 # Try to fix the context by replacing multimodal content with text
@@ -229,7 +186,7 @@ class TaskAgent:
                     response = call(
                         context=self.context(),
                         tool_defs=tool_defs,
-                        model_str=self.model,
+                        model_str=self.model_str,
                     )
                 else:
                     raise
@@ -237,7 +194,7 @@ class TaskAgent:
             while self._handle_tools(tools, response.message):
                 try:
                     response = call(
-                        self.context(tick=True), tool_defs, model_str=self.model
+                        self.context(tick=True), tool_defs, model_str=self.model_str
                     )
                 except LLMBackendMultimodalNotSupported as e:
                     console_task_agents.log(
@@ -254,7 +211,7 @@ class TaskAgent:
                         response = call(
                             context=self.context(),
                             tool_defs=tool_defs,
-                            model_str=self.model,
+                            model_str=self.model_str,
                         )
                     else:
                         raise
@@ -265,7 +222,7 @@ class TaskAgent:
             return response.message.content
         except KeyboardInterrupt:
             return self._handle_interrupt(
-                fallback_exception=Exception("user aborted execution of " + self.name)
+                fallback_exception=Exception("user aborted execution of " + self._name)
             )
         except LLMBackendContextLimitReached as e:
             # okay, context exploded while working
@@ -289,7 +246,9 @@ class TaskAgent:
         # There is a very sad case in which we reach this part of the code
         # and the context will still explode. For now I think we will just
         # let the task agent die on us.
-        response = call(self.context(tick=True), tool_defs=None, model_str=self.model)
+        response = call(
+            self.context(tick=True), tool_defs=None, model_str=self.model_str
+        )
         self.context.append(
             {"role": ROLE_ASSISTANT, "content": response.message.content}
         )
