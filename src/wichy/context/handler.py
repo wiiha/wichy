@@ -182,7 +182,7 @@ class ContextHandler:
                 time.  Both keys overwrite any values already present in *data*.
         """
         log_object = {**data, "type": LOG_TYPE, "timestamp": datetime.now().isoformat()}
-        log_object.setdefault("_tick", 1)
+        log_object.setdefault("_tick", 0)
         with self._lock:
             self.logs.append(log_object)
         self._write_line(log_object, entry_type=None)  # type already set in dict
@@ -343,7 +343,7 @@ class ContextHandler:
                 set on *obj* (e.g. log entries built by :meth:`add_log`).
         """
         record = dict(obj)
-        record.setdefault("_tick", 1)
+        record.setdefault("_tick", 0)
         if entry_type is not None:
             record.setdefault("type", entry_type)
         record.setdefault("timestamp", datetime.now().isoformat())
