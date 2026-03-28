@@ -1,3 +1,5 @@
+from wichy.memory.tool_analyze_content_answer import AnalyzedContentAnswerTool
+
 EVOLUTION_SYSTEM_PROMPT = """
 You are an AI memory evolution agent responsible for managing and evolving a knowledge base.
 Analyze the new memory note according to keywords and context, also with it's several nearest neighbors memory.
@@ -37,8 +39,6 @@ Phase 2:
 Remember: Your answer should always be done using the available tools.
 """.strip()
 
-
-from wichy.memory.tool_analyze_content_answer import AnalyzedContentAnswerTool  # noqa: E402
 
 ANALYZE_CONTENT_PROMPT = f"""You are a content analyst that identify context, keyword and tags based on the content provided by the user.
 
