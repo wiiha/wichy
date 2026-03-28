@@ -36,6 +36,7 @@ from wichy.slash_commands import SlashCommandChecker, slash_completer
 from wichy.tool_manager import ToolManager
 from wichy.tools import human_verification
 from wichy.tools.base import console_tool_result
+from wichy.tools.notes import set_scratchpad_slug
 from wichy.tools.task import console_task_agents
 
 
@@ -331,6 +332,9 @@ def start_server(root_agent):
 def main():
     parser = CliParser()
     args = parser.parse()
+
+    # Reset scratchpad selection on every CLI run so no scratchpad is active at start
+    set_scratchpad_slug(None)
 
     # Set pipeline mode when --prompt is given (before any agent/tool runs)
     if args.prompt is not None:
