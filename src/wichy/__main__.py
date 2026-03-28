@@ -6,38 +6,38 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-import json
+import json  # noqa: E402
 
-from prompt_toolkit import PromptSession
-from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
-from prompt_toolkit.history import FileHistory
-from rich.markdown import Markdown
+from prompt_toolkit import PromptSession  # noqa: E402
+from prompt_toolkit.auto_suggest import AutoSuggestFromHistory  # noqa: E402
+from prompt_toolkit.history import FileHistory  # noqa: E402
+from rich.markdown import Markdown  # noqa: E402
 
-from wichy.agent_builder import AgentBuilderError, build_agent_from_config
-from wichy.cli_parser import CliParser
-from wichy.config import settings
-from wichy.console import set_user_output_quiet, user_console
-from wichy.constants import ROLE_ASSISTANT, ROLE_USER
-from wichy.context.handler import (
+from wichy.agent_builder import AgentBuilderError, build_agent_from_config  # noqa: E402
+from wichy.cli_parser import CliParser  # noqa: E402
+from wichy.config import settings  # noqa: E402
+from wichy.console import set_user_output_quiet, user_console  # noqa: E402
+from wichy.constants import ROLE_ASSISTANT, ROLE_USER  # noqa: E402
+from wichy.context.handler import (  # noqa: E402
     context_from_file,
     latest_context_file,
     previous_conversations,
 )
-from wichy.helpers.console import console
-from wichy.helpers.string import strip_thinking_content, truncate_to_len
-from wichy.repl import Repl
-from wichy.root_agent import ALL_ROOT_AGENT_DESC
-from wichy.root_agent.helpers import parse_root_agent_markdown_desc
-from wichy.root_agent.root_agent_desc_template import root_agent_desc_template
-from wichy.server_controller import ServerController
-from wichy.skills import SkillLoader
-from wichy.skills.skill_template import skill_template
-from wichy.slash_commands import SlashCommandChecker, slash_completer
-from wichy.tool_manager import ToolManager
-from wichy.tools import human_verification
-from wichy.tools.base import console_tool_result
-from wichy.tools.notes import set_scratchpad_slug
-from wichy.tools.task import console_task_agents
+from wichy.helpers.console import console  # noqa: E402
+from wichy.helpers.string import strip_thinking_content, truncate_to_len  # noqa: E402
+from wichy.repl import Repl  # noqa: E402
+from wichy.root_agent import ALL_ROOT_AGENT_DESC  # noqa: E402
+from wichy.root_agent.helpers import parse_root_agent_markdown_desc  # noqa: E402
+from wichy.root_agent.root_agent_desc_template import root_agent_desc_template  # noqa: E402
+from wichy.server_controller import ServerController  # noqa: E402
+from wichy.skills import SkillLoader  # noqa: E402
+from wichy.skills.skill_template import skill_template  # noqa: E402
+from wichy.slash_commands import SlashCommandChecker, slash_completer  # noqa: E402
+from wichy.tool_manager import ToolManager  # noqa: E402
+from wichy.tools import human_verification  # noqa: E402
+from wichy.tools.base import console_tool_result  # noqa: E402
+from wichy.tools.notes import set_scratchpad_slug  # noqa: E402
+from wichy.tools.task import console_task_agents  # noqa: E402
 
 
 def handle_list_root_agents():
@@ -102,7 +102,7 @@ def handle_list_contexts():
                             last_assistant = truncate_to_len(
                                 data.get("content", ""), suffix="..."
                             )
-                    except:
+                    except Exception:
                         pass
 
                 preview = ""

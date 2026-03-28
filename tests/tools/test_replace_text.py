@@ -151,7 +151,7 @@ def test_replace_with_empty_string(replace_text_tool, temp_workspace):
     """Test replacing with empty new_content (deletion)."""
     test_file = os.path.join(temp_workspace, "test.txt")
 
-    result = replace_text_tool.execute(
+    replace_text_tool.execute(
         file_path=test_file,
         old_content="line 2\n",
         new_content="",  # Delete
@@ -170,7 +170,7 @@ def test_replace_multiline_content(replace_text_tool, temp_workspace):
     test_file = os.path.join(temp_workspace, "test.txt")
 
     # Replace two consecutive lines
-    result = replace_text_tool.execute(
+    replace_text_tool.execute(
         file_path=test_file,
         old_content="line 2\nline 3\n",
         new_content="lines 2-3 replaced\n",

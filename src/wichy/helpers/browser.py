@@ -85,7 +85,7 @@ class BrowserManager:
         try:
             # Try a simple operation to verify browser is responsive
             # If browser crashed, this will raise an error
-            contexts = self._browser.contexts
+            _ = self._browser.contexts
             return True
         except Exception as e:
             if is_browser_crash_error(e):

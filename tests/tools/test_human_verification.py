@@ -132,7 +132,7 @@ class TestSkipHumanVerification:
 
         with patch.object(hv, "prompt_session") as mock_session:
             mock_session.prompt.return_value = "y"
-            result = target("hello")
+            _ = target("hello")
 
         assert _call_count == 1
 
@@ -171,7 +171,7 @@ class TestShouldVerifyPredicate:
 
         with patch.object(hv, "prompt_session") as mock_session:
             mock_session.prompt.return_value = "y"
-            result = target("verified")
+            _ = target("verified")
 
         assert _call_count == 1
 
@@ -199,7 +199,7 @@ class TestShouldVerifyPredicate:
 
         with patch.object(hv, "prompt_session") as mock_session:
             mock_session.prompt.return_value = "y"
-            result = target("cautious")
+            _ = target("cautious")
 
         assert _call_count == 1
 
@@ -229,7 +229,7 @@ class TestPromptBehavior:
 
             with patch.object(hv, "prompt_session") as mock_session:
                 mock_session.prompt.return_value = response
-                result = target("test")
+                _ = target("test")
 
             assert _call_count == 1, f"Failed for response: {response!r}"
 
@@ -270,7 +270,7 @@ class TestPromptBehavior:
         with patch.object(hv, "prompt_session") as mock_session:
             mock_session.prompt.side_effect = lambda _: next(responses)
 
-            result = target("test")
+            _ = target("test")
 
         assert mock_session.prompt.call_count == 3
         assert _call_count == 1

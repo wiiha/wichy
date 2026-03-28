@@ -111,7 +111,7 @@ class AgentBuilder:
             # Agent doesn't go first if user specified other using cli flag
             agent_goes_first = False
 
-        if context != None:
+        if context is not None:
             # If we load a previous context, then agent dont go first.
             agent_goes_first = False
 

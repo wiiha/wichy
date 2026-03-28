@@ -348,7 +348,7 @@ class TestChromaDocumentStoreReset:
             )
 
             # Add docs to both
-            doc_a = store_a.add_document("Doc A", {"source": "A"})
+            _ = store_a.add_document("Doc A", {"source": "A"})
             doc_b = store_b.add_document("Doc B", {"source": "B"})
 
             # Verify both have docs

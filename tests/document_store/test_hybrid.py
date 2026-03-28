@@ -372,10 +372,7 @@ class TestHybridDocumentStoreEdgeCases:
 
         # All documents should be retrievable from both
         for i in range(10):
-            doc_id = (
-                f"doc_{i}" if i > 0 else "doc1"
-            )  # Actually we didn't set IDs, so get generated ones
-            # Let's just check count consistency
+            # IDs are generated, we check total counts match below
             pass
 
         # Actually the IDs are generated, so we need to track them

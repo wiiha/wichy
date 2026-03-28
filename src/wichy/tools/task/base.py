@@ -57,7 +57,7 @@ class TaskAgent:
             tools.append(t())
 
         allowed_tools = agent_definition.tools
-        if allowed_tools != None and len(allowed_tools) > 0:
+        if allowed_tools is not None and len(allowed_tools) > 0:
             new_tools = []
             for tool in tools:
                 if tool.name in allowed_tools:

@@ -93,7 +93,7 @@ class AgenticMemorySystem:
 
         self.memories[note.id] = note
 
-        if evo_label == True:
+        if evo_label:
             self.evo_cnt += 1
             if self.evo_cnt % self.evo_threshold == 0:
                 self.consolidate_memories()
@@ -208,7 +208,7 @@ class AgenticMemorySystem:
         # Re-add all memory documents with their complete metadata
         for memory in self.memories.values():
             metadata = memory.model_dump()
-            id_in_store = self.ds.add_document(memory.content, metadata)
+            _ = self.ds.add_document(memory.content, metadata)
 
     def find_related_memories(self, query: str, k: int = 5) -> List[MemoryNote]:
         """Find related memories using DocumentStore
@@ -297,7 +297,7 @@ class AgenticMemorySystem:
         # Process ChromaDB results
         for i, doc_id in enumerate(search_results["ids"][0]):
             memory = self.memories.get(doc_id)
-            if memory == None:
+            if memory is None:
                 continue
             memories.append(memory)
 

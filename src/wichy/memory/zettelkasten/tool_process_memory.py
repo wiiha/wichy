@@ -111,7 +111,7 @@ You call this tool for every neighbor memory that you want to modify.
                 n = x
                 break
 
-        if n == None:
+        if n is None:
             raise ValueError("no neighbor memory has id " + memory_id)
 
         if context != "":

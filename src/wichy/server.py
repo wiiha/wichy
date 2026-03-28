@@ -33,7 +33,7 @@ def is_port_available(port: int, host: str = "127.0.0.1") -> bool:
             sock.settimeout(1)
             result = sock.connect_ex((host, port))
             return result != 0  # Port is available if connection fails
-    except:
+    except Exception:
         return True
 
 

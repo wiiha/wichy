@@ -835,5 +835,5 @@ class TestDropLastNMessageLines:
 
         remaining = path.read_text().splitlines()
         # Should have 3 non-empty lines (msg1, empty, msg2)
-        assert len([l for l in remaining if l.strip()]) == 2
-        assert any(l.strip() == "" for l in remaining)  # Empty line preserved
+        assert len([line for line in remaining if line.strip()]) == 2
+        assert any(line.strip() == "" for line in remaining)  # Empty line preserved

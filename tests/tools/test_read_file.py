@@ -78,7 +78,7 @@ class TestReadFileTextContent:
     def test_read_empty_file(self, read_file_tool, temp_workspace):
         """Test reading an empty file."""
         empty_file = os.path.join(temp_workspace, "empty.txt")
-        with open(empty_file, "w") as f:
+        with open(empty_file, "w"):
             pass  # Create empty file
 
         result = read_file_tool.execute(path=empty_file)

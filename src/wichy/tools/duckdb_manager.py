@@ -280,7 +280,7 @@ class DuckDBManager:
                 self._connection = None
 
             self._db_path = db_path
-            conn = self.get_connection()
+            self.get_connection()
 
             # Update loaded_tables with existing tables
             tables = self.list_tables()

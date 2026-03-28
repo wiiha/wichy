@@ -356,7 +356,7 @@ class TestAgentBuilder:
             root_agent_descriptions=[root_agent_desc],
         )
 
-        with patch("wichy.agent_builder.skills_information") as mock_info:
+        with patch("wichy.agent_builder.skills_information"):
             agent = builder.build()
             system_msg = [
                 msg for msg in agent.context.context if msg["role"] == "system"
@@ -411,7 +411,7 @@ class TestAgentBuilder:
             root_agent_descriptions=[root_agent_desc],
         )
 
-        with patch("wichy.agent_builder.environment_information") as mock_env:
+        with patch("wichy.agent_builder.environment_information"):
             agent = builder.build()
             system_msg = [
                 msg for msg in agent.context.context if msg["role"] == "system"

@@ -38,6 +38,47 @@ from wichy.tools.todo import TodoTool
 from wichy.tools.write_file import WriteFileTool
 from wichy.tools.write_scratchpad import WriteScratchpadTool
 
+__all__ = [
+    "get_tool_definitions",
+    "BaseTool",
+    "AskUserQuestionTool",
+    "BashTool",
+    "DuckDBLoadTool",
+    "DuckDBLoadDBTool",
+    "DuckDBPersistTool",
+    "DuckDBQueryTool",
+    "DuckDBResetTool",
+    "DuckDBSchemaTool",
+    "DuckDBStatusTool",
+    "BrowserRawTool",
+    "BrowserStatusTool",
+    "FetchWebPageTool",
+    "NavigateTool",
+    "ScreenshotTool",
+    "SearchInFilesTool",
+    "GlobTool",
+    "CreateGraphTool",
+    "ListGraphsTool",
+    "ReadGraphTool",
+    "InsertLinesTool",
+    "KnowledgeStoreTool",
+    "ListFilesTool",
+    "ReadFileTool",
+    "ReadScratchpadTool",
+    "ReplaceTextTool",
+    "ReverseDnsTool",
+    "WebSearchTool",
+    "TaskAgentTool",
+    "TodoTool",
+    "WriteFileTool",
+    "WriteScratchpadTool",
+    "SkillDiscoveryTool",
+    "SkillFileTool",
+    "SkillInfoTool",
+    "SkillScriptTool",
+    "SkillSearchTool",
+]
+
 # Different tool collections for different contexts
 BASIC_TOOLS = [
     BashTool,

@@ -38,7 +38,7 @@ Remember: Your answer should always be done using the available tools.
 """.strip()
 
 
-from wichy.memory.tool_analyze_content_answer import AnalyzedContentAnswerTool
+from wichy.memory.tool_analyze_content_answer import AnalyzedContentAnswerTool  # noqa: E402
 
 ANALYZE_CONTENT_PROMPT = f"""You are a content analyst that identify context, keyword and tags based on the content provided by the user.
 
