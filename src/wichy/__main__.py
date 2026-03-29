@@ -304,10 +304,10 @@ def setup_console_logging(args):
 
 def start_server(root_agent):
     """Start the web server and return the controller."""
-    server_controller = ServerController(port=7891)
+    server_controller = ServerController()
     actual_port = server_controller.start()
     user_console.print(
-        f"[dim]Web server started on http://127.0.0.1:{actual_port}[/dim]"
+        f"[dim]Web server started on http://{server_controller.host}:{actual_port}[/dim]"
     )
 
     # Set active context and root agent for context editor if server is enabled

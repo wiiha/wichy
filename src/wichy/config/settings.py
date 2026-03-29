@@ -58,6 +58,7 @@ class Settings(BaseSettings):
     browser_locale: str = "en-US"
 
     # Server settings
+    server_host: str = "127.0.0.1"
     server_port: int = 7891
 
     # Pipeline / REPL settings

@@ -26,5 +26,6 @@ venv/
 venv/
 wheels/
 .env
+.env.docker
 .coverage
 src/wichy/.DS_Store

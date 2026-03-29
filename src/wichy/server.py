@@ -26,8 +26,10 @@ def get_logs_dir() -> Path:
     return logs_dir
 
 
-def is_port_available(port: int, host: str = "127.0.0.1") -> bool:
+def is_port_available(port: int, host: str | None = None) -> bool:
     """Check if a port is available for binding."""
+    if host is None:
+        host = settings.server_host
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.settimeout(1)
@@ -38,9 +40,11 @@ def is_port_available(port: int, host: str = "127.0.0.1") -> bool:
 
 
 def find_available_port(
-    start_port: int = 7891, host: str = "127.0.0.1", max_attempts: int = 100
+    start_port: int = 7891, host: str | None = None, max_attempts: int = 100
 ) -> int:
     """Find an available port starting from start_port."""
+    if host is None:
+        host = settings.server_host
     for port in range(start_port, start_port + max_attempts):
         if is_port_available(port, host):
             return port
@@ -130,16 +134,18 @@ _server_app: Flask | None = None
 _server_port: int | None = None
 
 
-def run_server(port: int | None = None, host: str = "127.0.0.1") -> None:
+def run_server(port: int | None = None, host: str | None = None) -> None:
     """Run the Flask development server in the current thread."""
     if port is None:
         port = settings.server_port
+    if host is None:
+        host = settings.server_host
     app = create_app()
     app.logger.info(f"Starting wichy server on {host}:{port}")
     app.run(host=host, port=port, debug=False, use_reloader=False, threaded=True)
 
 
-def start_server_in_background(port: int | None = None, host: str = "127.0.0.1") -> int:
+def start_server_in_background(port: int | None = None, host: str | None = None) -> int:
     """Start the Flask server in a background thread.
 
     Returns:
@@ -150,9 +156,11 @@ def start_server_in_background(port: int | None = None, host: str = "127.0.0.1")
     if _server_thread is not None and _server_thread.is_alive():
         return _server_port  # Server already running, return its port
 
-    # Use settings port if not specified
+    # Use settings if not specified
     if port is None:
         port = settings.server_port
+    if host is None:
+        host = settings.server_host
 
     # Find an available port
     actual_port = find_available_port(port, host)

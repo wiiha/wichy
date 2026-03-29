@@ -1,0 +1,89 @@
+# Python cache and bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# Testing and coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env/
+ENV/
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Docker files (not needed in build context)
+Dockerfile
+Dockerfile.*
+docker-compose*.yml
+docker-compose*.yaml
+.dockerignore
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+*.egg
+.eggs/
+
+# Documentation
+docs/
+*.md
+!README.md
+notes/
+
+# Test files
+tests/
+test/
+tests_*.py
+*_test.py
+
+# Environment and config files
+.env
+.env.*
+*.env
+
+# Runtime data directories (wichy-specific)
+.wichy/contexts/
+.wichy/graphs/
+.wichy/logs/
+.wichy/notes/
+
+# Development files
+Makefile
+MANIFEST.in
+scripts/
+tmp/
+
+# Development scripts
+run_llama_server.sh
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/

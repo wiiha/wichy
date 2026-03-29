@@ -11,15 +11,22 @@ from wichy.server import start_server_in_background as _start_server_in_backgrou
 class ServerController:
     """Controls the web server lifecycle."""
 
-    def __init__(self, port: Optional[int] = None, enable_on_start: bool = True):
+    def __init__(
+        self,
+        port: Optional[int] = None,
+        host: Optional[str] = None,
+        enable_on_start: bool = True,
+    ):
         """
         Initialize ServerController.
 
         Args:
             port: Port to run the server on. Defaults to settings.server_port.
+            host: Host to bind to. Defaults to settings.server_host.
             enable_on_start: If True, server will start when controller is initialized.
         """
         self.port = port if port is not None else settings.server_port
+        self.host = host if host is not None else settings.server_host
         self._server_thread = None
         self._actual_port = None
         self._enable_on_start = enable_on_start
@@ -35,7 +42,7 @@ class ServerController:
             # Server already started
             return self._actual_port
 
-        self._actual_port = _start_server_in_background(port=self.port)
+        self._actual_port = _start_server_in_background(port=self.port, host=self.host)
         self._server_thread = True  # Just a flag that it's running
         return self._actual_port
 
@@ -67,6 +74,6 @@ class ServerController:
 
         return {
             "port": self._actual_port,
-            "url": f"http://127.0.0.1:{self._actual_port}",
-            "graph_url": f"http://127.0.0.1:{self._actual_port}/tools/graph/",
+            "url": f"http://{self.host}:{self._actual_port}",
+            "graph_url": f"http://{self.host}:{self._actual_port}/tools/graph/",
         }

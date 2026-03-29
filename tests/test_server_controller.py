@@ -39,7 +39,7 @@ class TestServerController:
         assert actual_port == 7891
         assert controller.is_running is True
         assert controller.actual_port == 7891
-        mock_start_server.assert_called_once_with(port=7891)
+        mock_start_server.assert_called_once_with(port=7891, host='127.0.0.1')
 
     def test_server_controller_start_already_running(self, mock_start_server):
         """Test that starting an already running server returns existing port."""

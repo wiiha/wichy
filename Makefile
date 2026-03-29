@@ -1,4 +1,4 @@
-.PHONY: help install test test-verbose build build-wheel build-sdist clean clean-all run-server server check-manifest lint format pipx-install pipx-reinstall pipx-uninstall
+.PHONY: help install test test-verbose build build-wheel build-sdist clean clean-all run-server server check-manifest lint format pipx-install pipx-reinstall pipx-uninstall docker-build docker-run docker-clean
 
 # Virtual environment
 VENV_PATH ?= venv
@@ -27,6 +27,11 @@ help:
 	@echo "  pipx-install     - Install via pipx from local wheel"
 	@echo "  pipx-reinstall   - Reinstall via pipx (uninstall + install)"
 	@echo "  pipx-uninstall   - Uninstall from pipx"
+	@echo ""
+	@echo "Docker targets:"
+	@echo "  docker-build     - Build the Docker image"
+	@echo "  docker-run       - Run the container interactively"
+	@echo "  docker-clean     - Remove the Docker image"
 	@echo ""
 
 # Install in editable mode with dependencies
@@ -135,3 +140,16 @@ pipx-reinstall: pipx-uninstall build
 pipx-uninstall:
 	@echo "Uninstalling from pipx..."
 	-pipx uninstall wichy 2>/dev/null || true
+
+# Docker targets
+docker-build: build-wheel
+	@echo "Building Docker image..."
+	docker build -t wichy .
+
+docker-run:
+	@echo "Running Docker container..."
+	docker run -it --rm -v $(PWD):/workspace -p 7891:7891 --add-host=host.docker.internal:host-gateway wichy
+
+docker-clean:
+	@echo "Removing Docker image..."
+	docker rmi wichy 2>/dev/null || true
