@@ -22,6 +22,7 @@ class CliConfig:
     last_ctx: bool = False
     no_server: bool = False
     user_first: bool = False
+    seq_exec: bool = False
     prompt: Optional[str] = None
     auto_compact_threshold: Optional[int] = None
 
@@ -131,6 +132,11 @@ class CliParser:
             dest="auto_compact_threshold",
             help="Auto-compact context when it exceeds this number of tokens",
         )
+        self.parser.add_argument(
+            "--seq-exec",
+            action="store_true",
+            help="Disable parallel tool execution; run one tool at a time.",
+        )
 
     def _add_subcommands(self):
         """Add subcommands."""
@@ -213,6 +219,7 @@ class CliParser:
             user_first=parsed.first,
             prompt=getattr(parsed, "prompt", None),
             auto_compact_threshold=getattr(parsed, "auto_compact_threshold", None),
+            seq_exec=parsed.seq_exec,
         )
 
         # Extract new skill details if applicable

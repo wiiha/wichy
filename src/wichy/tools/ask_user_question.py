@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, field_validator
 from wichy.helpers.needs_user_attention import needs_user_attention
 from wichy.tools.base import BaseTool, ParametersModel
 from wichy.tools.errors import format_error
+from wichy.tools.human_verification import _user_interaction_lock
 
 
 class QuestionOption(BaseModel):
@@ -149,68 +150,75 @@ Important notes:
                 }
             )
 
-            needs_user_attention()
-            for question in parsed_questions:
-                # Prepare options for the dialog
-                values = [
-                    (opt.label, f"{opt.label}: {opt.description}")
-                    for opt in question.options
-                ]
+            with _user_interaction_lock:
+                needs_user_attention()
+                for question in parsed_questions:
+                    # Prepare options for the dialog
+                    values = [
+                        (opt.label, f"{opt.label}: {opt.description}")
+                        for opt in question.options
+                    ]
 
-                # Add "Other" option
-                other_label = "Other (please specify)"
-                other_was_passed = False
-                for opt in question.options:
-                    if opt.label.lower().strip() == "other":
-                        other_label = opt.label
-                        other_was_passed = True
-                        break
+                    # Add "Other" option
+                    other_label = "Other (please specify)"
+                    other_was_passed = False
+                    for opt in question.options:
+                        if opt.label.lower().strip() == "other":
+                            other_label = opt.label
+                            other_was_passed = True
+                            break
 
-                if not other_was_passed:
-                    values.append((other_label, "Provide a custom answer"))
+                    if not other_was_passed:
+                        values.append((other_label, "Provide a custom answer"))
 
-                title = "Question"
-                if metadata and "source" in metadata:
-                    title = f"Question from {metadata['source']}"
+                    title = "Question"
+                    if metadata and "source" in metadata:
+                        title = f"Question from {metadata['source']}"
 
-                if question.multiSelect:
-                    # Use checkbox list for multi-select
-                    dialog = checkboxlist_dialog(
-                        title=title, text=question.question, values=values, style=style
-                    )
-                    result = dialog.run()
-
-                    if result:
-                        # Remove "Other" if present in multi-select (shouldn't be selected)
-                        filtered = [r for r in result if r != other_label]
-                        if filtered:
-                            answers[question.header] = ", ".join(filtered)
-                        else:
-                            answers[question.header] = "No selection"
-                    else:
-                        answers[question.header] = "No selection"
-                else:
-                    # Use radio dialog for single-select
-                    dialog = radiolist_dialog(
-                        title=title, text=question.question, values=values, style=style
-                    )
-                    result = dialog.run()
-
-                    if result and result != other_label:
-                        answers[question.header] = result
-                    elif result == other_label:
-                        # For "Other", prompt for custom text
-                        custom_input = input_dialog(
-                            title="Custom Answer",
-                            text=f"You selected 'Other' for '{question.question}'. Please specify:",
+                    if question.multiSelect:
+                        # Use checkbox list for multi-select
+                        dialog = checkboxlist_dialog(
+                            title=title,
+                            text=question.question,
+                            values=values,
                             style=style,
-                        ).run()
-                        if custom_input:
-                            answers[question.header] = custom_input
+                        )
+                        result = dialog.run()
+
+                        if result:
+                            # Remove "Other" if present in multi-select (shouldn't be selected)
+                            filtered = [r for r in result if r != other_label]
+                            if filtered:
+                                answers[question.header] = ", ".join(filtered)
+                            else:
+                                answers[question.header] = "No selection"
                         else:
                             answers[question.header] = "No selection"
                     else:
-                        answers[question.header] = "No selection"
+                        # Use radio dialog for single-select
+                        dialog = radiolist_dialog(
+                            title=title,
+                            text=question.question,
+                            values=values,
+                            style=style,
+                        )
+                        result = dialog.run()
+
+                        if result and result != other_label:
+                            answers[question.header] = result
+                        elif result == other_label:
+                            # For "Other", prompt for custom text
+                            custom_input = input_dialog(
+                                title="Custom Answer",
+                                text=f"You selected 'Other' for '{question.question}'. Please specify:",
+                                style=style,
+                            ).run()
+                            if custom_input:
+                                answers[question.header] = custom_input
+                            else:
+                                answers[question.header] = "No selection"
+                        else:
+                            answers[question.header] = "No selection"
 
             result = {"answers": answers}
             if metadata:

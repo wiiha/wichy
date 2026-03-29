@@ -337,6 +337,8 @@ def main():
         human_verification.set_pipeline_mode(True)
         set_user_output_quiet(True)
 
+    settings.parallel_exec = not args.seq_exec
+
     cmd_checker = None  # will be set after root_agent is created
 
     prompt_session = PromptSession(

@@ -7,8 +7,10 @@ shared functionality between RootAgent and TaskAgent.
 
 import json
 from abc import ABC, abstractmethod
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
+from wichy.config import settings
 from wichy.constants import ROLE_ASSISTANT, ROLE_TOOL
 from wichy.helpers.multimodal import (
     build_multimodal_user_message,
@@ -164,14 +166,43 @@ class AgentCore(ABC):
         )
         osz = len(self.context)
 
-        # Collect multimodal content from all tool calls
+        tool_results: list[Optional[tuple[Dict, Optional[List[Dict[str, Any]]]]]] = [
+            None
+        ] * len(response.tool_calls)
         multimodal_parts: List[Dict[str, Any]] = []
 
-        for item in response.tool_calls:
-            tool_message, mm_parts = self._tool_call(tools, item, inject_model_str)
-            self.context.append(tool_message)
-            if mm_parts:
-                multimodal_parts.extend(mm_parts)
+        # Parallel execution when multiple tool calls exist
+        if len(response.tool_calls) > 1 and settings.parallel_exec:
+            # Each tool gets its own thread; results collected by future index
+            def run_one(idx: int, item: "called_tool") -> tuple[
+                int,
+                Tuple[Dict, Optional[List[Dict[str, Any]]]],
+            ]:
+                return idx, self._tool_call(tools, item, inject_model_str)
+
+            with ThreadPoolExecutor(max_workers=8) as executor:
+                futures = {
+                    executor.submit(run_one, i, item): i
+                    for i, item in enumerate(response.tool_calls)
+                }
+                for future in as_completed(futures):
+                    idx, (tool_message, mm_parts) = future.result()
+                    tool_results[idx] = (tool_message, mm_parts)
+
+            # Append results in original LLM order, grouping multimodal per-tool
+            for item_result in tool_results:
+                if item_result is not None:
+                    tool_message, mm_parts = item_result
+                    self.context.append(tool_message)
+                    if mm_parts:
+                        multimodal_parts.extend(mm_parts)
+        else:
+            # Sequential path: single tool or --seq-exec / WICHY_PARALLEL_EXEC=false
+            for item in response.tool_calls:
+                tool_message, mm_parts = self._tool_call(tools, item, inject_model_str)
+                self.context.append(tool_message)
+                if mm_parts:
+                    multimodal_parts.extend(mm_parts)
 
         # If any tool returned multimodal content, inject a user message with it
         if multimodal_parts:

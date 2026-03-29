@@ -9,6 +9,7 @@ from wichy.agent.core import AgentCore
 from wichy.constants import ROLE_ASSISTANT, ROLE_SYSTEM, ROLE_USER
 from wichy.context.handler import ContextHandler
 from wichy.helpers.environment_info import environment_information
+from wichy.helpers.gen_id import gen_id
 from wichy.helpers.prompt import preprocess_prompt
 from wichy.llm_backend import (
     LLMBackendContextLimitReached,
@@ -89,7 +90,9 @@ class TaskAgent(AgentCore):
             today = date.today().isoformat()
             system_prompt += f"\n\nToday's date: {today}"
 
-        context = ContextHandler(custom_suffix=self._name, sub_dir="task_agents")
+        context = ContextHandler(
+            custom_suffix=f"{self._name}-{gen_id()}", sub_dir="task_agents"
+        )
         context.add(role=ROLE_SYSTEM, content=system_prompt)
         context.add(role=ROLE_USER, content=prompt)
         self.context = context

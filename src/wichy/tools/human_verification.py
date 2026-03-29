@@ -1,4 +1,5 @@
 import functools
+import threading
 from typing import Any, Callable, Optional
 
 from prompt_toolkit import PromptSession
@@ -10,6 +11,8 @@ SKIP_HUMAN_VERIFICATION = False
 PIPELINE_MODE = False
 
 prompt_session = PromptSession()
+
+_user_interaction_lock = threading.Lock()
 
 
 def in_pipeline_mode() -> bool:
@@ -93,31 +96,32 @@ def require_human_verification(func: Callable) -> Callable:
 
         message: Optional[str] = getattr(wrapper, "_action_message", None)
 
-        user_console.print(f"\n[bold yellow]ACTION:[/bold yellow] {label}")
-        if message:
-            user_console.print(message)
-        if all_args:
-            user_console.print(all_args)
+        with _user_interaction_lock:
+            user_console.print(f"\n[bold yellow]ACTION:[/bold yellow] {label}")
+            if message:
+                user_console.print(message)
+            if all_args:
+                user_console.print(all_args)
 
-        needs_user_attention()
-        while True:
-            line = prompt_session.prompt("Proceed? (y/n): ")
-            response = str(line).strip().lower()
-            if response.startswith("y"):
-                return func(*args, **kwargs)
-            if response.startswith("n"):
-                # check if user also added reason
-                x = (
-                    response.removeprefix("no")
-                    .removeprefix("n")
-                    .removeprefix(",")
-                    .strip()
-                )
-                msg = f"User denied your suggested execution of: {all_args}"
-                if x != "":
-                    msg += "\nReason for denied execution: " + x
-                raise PermissionError(msg)
-            user_console.print("Please enter 'y' or 'n <optional reason>'")
+            needs_user_attention()
+            while True:
+                line = prompt_session.prompt("Proceed? (y/n): ")
+                response = str(line).strip().lower()
+                if response.startswith("y"):
+                    return func(*args, **kwargs)
+                if response.startswith("n"):
+                    # check if user also added reason
+                    x = (
+                        response.removeprefix("no")
+                        .removeprefix("n")
+                        .removeprefix(",")
+                        .strip()
+                    )
+                    msg = f"User denied your suggested execution of: {all_args}"
+                    if x != "":
+                        msg += "\nReason for denied execution: " + x
+                    raise PermissionError(msg)
+                user_console.print("Please enter 'y' or 'n <optional reason>'")
 
     return wrapper
 

@@ -70,6 +70,10 @@ class Settings(BaseSettings):
 
     # User attention script
     needs_user_attention_script: Optional[str] = None
+
+    # Tool execution
+    parallel_exec: bool = True
+
     skills_dir_name: str = "skills"
 
     @property
