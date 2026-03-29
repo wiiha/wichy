@@ -78,5 +78,8 @@ def set_scratchpad_slug(slug: str):
         slug: The slug string to persist.
     """
     marker_path = settings.scratchpad_marker_path
-    with open(marker_path, "w") as f:
-        json.dump({"slug": slug}, f)
+    try:
+        with open(marker_path, "w") as f:
+            json.dump({"slug": slug}, f)
+    except IOError:
+        pass
