@@ -203,3 +203,48 @@ class TestRepl:
             repl.run()
 
         assert exc_info.value.code == 0
+
+    def test_repl_handles_empty_input(
+        self, mock_root_agent, mock_prompt_session, mock_cmd_checker
+    ):
+        """Test Repl skips processing for empty string input."""
+        # Empty input followed by EOF
+        mock_prompt_session.prompt.side_effect = ["", EOFError]
+
+        repl = Repl(mock_root_agent, mock_prompt_session, mock_cmd_checker)
+
+        with pytest.raises(SystemExit):
+            repl.run()
+
+        # process should not be called for empty input
+        mock_root_agent.process.assert_not_called()
+
+    def test_repl_handles_whitespace_only_input(
+        self, mock_root_agent, mock_prompt_session, mock_cmd_checker
+    ):
+        """Test Repl skips processing for whitespace-only input."""
+        # Whitespace-only inputs followed by EOF
+        mock_prompt_session.prompt.side_effect = ["   ", "\t", EOFError]
+
+        repl = Repl(mock_root_agent, mock_prompt_session, mock_cmd_checker)
+
+        with pytest.raises(SystemExit):
+            repl.run()
+
+        # process should not be called for whitespace-only inputs
+        mock_root_agent.process.assert_not_called()
+
+    def test_repl_processes_valid_input_after_empty_input(
+        self, mock_root_agent, mock_prompt_session, mock_cmd_checker
+    ):
+        """Test Repl processes valid input correctly after empty input."""
+        # Empty input, then valid input, then EOF
+        mock_prompt_session.prompt.side_effect = ["", "valid input", EOFError]
+
+        repl = Repl(mock_root_agent, mock_prompt_session, mock_cmd_checker)
+
+        with pytest.raises(SystemExit):
+            repl.run()
+
+        # process should be called only once (for valid input, not empty)
+        mock_root_agent.process.assert_called_once_with("valid input")

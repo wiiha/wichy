@@ -65,6 +65,9 @@ class Repl:
                 if possible_cmd is not None:
                     user_console.print(possible_cmd)
                     continue
+                # Skip empty or whitespace-only input
+                if not line.strip():
+                    continue
                 self._print_separator()
                 result = self.root_agent.process(line)
                 result = strip_thinking_content(result)
