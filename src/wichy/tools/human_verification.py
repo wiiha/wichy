@@ -3,6 +3,7 @@ import threading
 from typing import Any, Callable, Optional
 
 from prompt_toolkit import PromptSession
+from rich.console import Console
 
 from wichy.console import user_console
 from wichy.helpers.needs_user_attention import needs_user_attention
@@ -11,6 +12,7 @@ SKIP_HUMAN_VERIFICATION = False
 PIPELINE_MODE = False
 
 prompt_session = PromptSession()
+special_console = Console(quiet=False)
 
 _user_interaction_lock = threading.Lock()
 
@@ -97,31 +99,35 @@ def require_human_verification(func: Callable) -> Callable:
         message: Optional[str] = getattr(wrapper, "_action_message", None)
 
         with _user_interaction_lock:
-            user_console.print(f"\n[bold yellow]ACTION:[/bold yellow] {label}")
-            if message:
-                user_console.print(message)
-            if all_args:
-                user_console.print(all_args)
 
-            needs_user_attention()
-            while True:
-                line = prompt_session.prompt("Proceed? (y/n): ")
-                response = str(line).strip().lower()
-                if response.startswith("y"):
-                    return func(*args, **kwargs)
-                if response.startswith("n"):
-                    # check if user also added reason
-                    x = (
-                        response.removeprefix("no")
-                        .removeprefix("n")
-                        .removeprefix(",")
-                        .strip()
-                    )
-                    msg = f"User denied your suggested execution of: {all_args}"
-                    if x != "":
-                        msg += "\nReason for denied execution: " + x
-                    raise PermissionError(msg)
-                user_console.print("Please enter 'y' or 'n <optional reason>'")
+            # Pause for the prompt - buffers output from other threads
+            with user_console.paused():
+
+                special_console.print(f"\n[bold yellow]ACTION:[/bold yellow] {label}")
+                if message:
+                    special_console.print(message)
+                if all_args:
+                    special_console.print(all_args)
+
+                needs_user_attention()
+                while True:
+                    line = prompt_session.prompt("Proceed? (y/n): ")
+                    response = str(line).strip().lower()
+                    if response.startswith("y"):
+                        return func(*args, **kwargs)
+                    if response.startswith("n"):
+                        # check if user also added reason
+                        x = (
+                            response.removeprefix("no")
+                            .removeprefix("n")
+                            .removeprefix(",")
+                            .strip()
+                        )
+                        msg = f"User denied your suggested execution of: {all_args}"
+                        if x != "":
+                            msg += "\nReason for denied execution: " + x
+                        raise PermissionError(msg)
+                    special_console.print("Please enter 'y' or 'n <optional reason>'")
 
     return wrapper
 

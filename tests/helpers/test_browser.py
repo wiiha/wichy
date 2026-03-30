@@ -10,9 +10,44 @@ Tests cover:
 Key bugs that were fixed:
 1. BrowserContext does NOT have is_closed() method, only Page does
 2. Page.is_closed() is a METHOD, not a property (must be called with ())
+
+Note: These tests use execute_serialized() because the event loop now runs
+in a background thread (required for asyncio.run_coroutine_threadsafe()).
 """
 
+import asyncio
+import threading
 from unittest.mock import AsyncMock, MagicMock, patch
+
+
+class EventLoopFixture:
+    """Helper to manage a running event loop in a background thread."""
+
+    def __init__(self):
+        self.loop = None
+        self.thread = None
+        self._ready_event = None
+
+    def start(self):
+        """Start the event loop in a background thread."""
+        self._ready_event = threading.Event()
+
+        def run_loop():
+            self.loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self.loop)
+            self._ready_event.set()
+            self.loop.run_forever()
+
+        self.thread = threading.Thread(target=run_loop, daemon=True)
+        self.thread.start()
+        self._ready_event.wait(timeout=5.0)  # Wait for loop to be ready
+
+    def stop(self):
+        """Stop the event loop and clean up."""
+        if self.loop:
+            self.loop.call_soon_threadsafe(self.loop.stop)
+        if self.thread:
+            self.thread.join(timeout=2.0)
 
 
 class TestBrowserManagerInitialization:
@@ -49,22 +84,30 @@ class TestBrowserManagerInitialization:
 
         manager = BrowserManager()
 
-        with patch("wichy.helpers.browser.async_playwright") as mock_async_playwright:
-            mock_async_playwright.return_value.__aenter__ = AsyncMock(
-                return_value=mock_playwright
-            )
-            mock_playwright.chromium.launch.return_value = mock_browser
-            mock_browser.new_context.return_value = mock_context
-            mock_context.new_page.return_value = mock_page
+        # Start a running event loop
+        loop_fixture = EventLoopFixture()
+        loop_fixture.start()
 
-            # Run async initialize
-            import asyncio
+        try:
+            # Set the manager's loop to our running loop
+            manager._loop = loop_fixture.loop
 
-            asyncio.get_event_loop().run_until_complete(manager.initialize())
+            with patch("wichy.helpers.browser.async_playwright") as mock_async_playwright:
+                mock_async_playwright.return_value.__aenter__ = AsyncMock(
+                    return_value=mock_playwright
+                )
+                mock_playwright.chromium.launch.return_value = mock_browser
+                mock_browser.new_context.return_value = mock_context
+                mock_context.new_page.return_value = mock_page
 
-            assert manager._browser is mock_browser
-            assert manager._context is mock_context
-            assert manager._page is mock_page
+                # Use execute_serialized for async operation
+                result = manager.execute_serialized(lambda: manager.initialize(), timeout=5.0)
+
+                assert manager._browser is mock_browser
+                assert manager._context is mock_context
+                assert manager._page is mock_page
+        finally:
+            loop_fixture.stop()
 
         # Cleanup
         BrowserManager._instance = None
@@ -91,14 +134,21 @@ class TestBrowserManagerGetPage:
         manager._context = mock_context
         manager._page = mock_page
 
-        # Run async get_page
-        import asyncio
+        # Start a running event loop
+        loop_fixture = EventLoopFixture()
+        loop_fixture.start()
 
-        result = asyncio.get_event_loop().run_until_complete(manager.get_page())
+        try:
+            # Set the manager's loop to our running loop
+            manager._loop = loop_fixture.loop
 
-        assert result is mock_page
-        # Should NOT create new page since existing one is valid
-        mock_context.new_page.assert_not_called()
+            result = manager.execute_serialized(lambda: manager.get_page(), timeout=5.0)
+
+            assert result is mock_page
+            # Should NOT create new page since existing one is valid
+            mock_context.new_page.assert_not_called()
+        finally:
+            loop_fixture.stop()
 
         # Cleanup
         BrowserManager._instance = None
@@ -125,14 +175,21 @@ class TestBrowserManagerGetPage:
         manager._context = mock_context
         manager._page = mock_page
 
-        # Run async get_page
-        import asyncio
+        # Start a running event loop
+        loop_fixture = EventLoopFixture()
+        loop_fixture.start()
 
-        result = asyncio.get_event_loop().run_until_complete(manager.get_page())
+        try:
+            # Set the manager's loop to our running loop
+            manager._loop = loop_fixture.loop
 
-        # Should create new page on existing context
-        mock_context.new_page.assert_called_once()
-        assert result is new_page
+            result = manager.execute_serialized(lambda: manager.get_page(), timeout=5.0)
+
+            # Should create new page on existing context
+            mock_context.new_page.assert_called_once()
+            assert result is new_page
+        finally:
+            loop_fixture.stop()
 
         # Cleanup
         BrowserManager._instance = None
@@ -157,15 +214,22 @@ class TestBrowserManagerGetPage:
         manager._context = None  # Context is None
         manager._page = None
 
-        # Run async get_page
-        import asyncio
+        # Start a running event loop
+        loop_fixture = EventLoopFixture()
+        loop_fixture.start()
 
-        result = asyncio.get_event_loop().run_until_complete(manager.get_page())
+        try:
+            # Set the manager's loop to our running loop
+            manager._loop = loop_fixture.loop
 
-        # Should create new context
-        mock_browser.new_context.assert_called_once()
-        assert manager._context is mock_context
-        assert result is mock_page
+            result = manager.execute_serialized(lambda: manager.get_page(), timeout=5.0)
+
+            # Should create new context
+            mock_browser.new_context.assert_called_once()
+            assert manager._context is mock_context
+            assert result is mock_page
+        finally:
+            loop_fixture.stop()
 
         # Cleanup
         BrowserManager._instance = None
@@ -196,15 +260,22 @@ class TestBrowserManagerGetPage:
         manager._context = broken_context
         manager._page = None
 
-        # Run async get_page
-        import asyncio
+        # Start a running event loop
+        loop_fixture = EventLoopFixture()
+        loop_fixture.start()
 
-        result = asyncio.get_event_loop().run_until_complete(manager.get_page())
+        try:
+            # Set the manager's loop to our running loop
+            manager._loop = loop_fixture.loop
 
-        # Should have created a new context after the old one failed
-        mock_browser.new_context.assert_called_once()
-        assert manager._context is new_context
-        assert result is new_page
+            result = manager.execute_serialized(lambda: manager.get_page(), timeout=5.0)
+
+            # Should have created a new context after the old one failed
+            mock_browser.new_context.assert_called_once()
+            assert manager._context is new_context
+            assert result is new_page
+        finally:
+            loop_fixture.stop()
 
         # Cleanup
         BrowserManager._instance = None
@@ -264,11 +335,18 @@ class TestBrowserManagerStatus:
         mock_page.title = AsyncMock(return_value="Example Domain")
         manager._page = mock_page
 
-        import asyncio
+        # Start a running event loop
+        loop_fixture = EventLoopFixture()
+        loop_fixture.start()
 
-        result = asyncio.get_event_loop().run_until_complete(manager.status())
+        try:
+            manager._loop = loop_fixture.loop
 
-        assert result == {"url": "https://example.com", "title": "Example Domain"}
+            result = manager.execute_serialized(lambda: manager.status(), timeout=5.0)
+
+            assert result == {"url": "https://example.com", "title": "Example Domain"}
+        finally:
+            loop_fixture.stop()
 
         # Cleanup
         BrowserManager._instance = None
@@ -284,11 +362,18 @@ class TestBrowserManagerStatus:
         mock_page.is_closed = MagicMock(return_value=True)
         manager._page = mock_page
 
-        import asyncio
+        # Start a running event loop
+        loop_fixture = EventLoopFixture()
+        loop_fixture.start()
 
-        result = asyncio.get_event_loop().run_until_complete(manager.status())
+        try:
+            manager._loop = loop_fixture.loop
 
-        assert result == {"status": "no active page"}
+            result = manager.execute_serialized(lambda: manager.status(), timeout=5.0)
+
+            assert result == {"status": "no active page"}
+        finally:
+            loop_fixture.stop()
 
         # Cleanup
         BrowserManager._instance = None
@@ -315,18 +400,25 @@ class TestBrowserManagerNavigate:
         manager._context = mock_context
         manager._page = mock_page
 
-        import asyncio
+        # Start a running event loop
+        loop_fixture = EventLoopFixture()
+        loop_fixture.start()
 
-        result = asyncio.get_event_loop().run_until_complete(
-            manager.navigate("https://example.com")
-        )
+        try:
+            manager._loop = loop_fixture.loop
 
-        mock_page.goto.assert_called_once_with(
-            "https://example.com", wait_until="networkidle"
-        )
-        assert result["status"] == "success"
-        assert result["url"] == "https://example.com"
-        assert result["title"] == "Example"
+            result = manager.execute_serialized(
+                lambda: manager.navigate("https://example.com"), timeout=5.0
+            )
+
+            mock_page.goto.assert_called_once_with(
+                "https://example.com", wait_until="networkidle"
+            )
+            assert result["status"] == "success"
+            assert result["url"] == "https://example.com"
+            assert result["title"] == "Example"
+        finally:
+            loop_fixture.stop()
 
         # Cleanup
         BrowserManager._instance = None
@@ -352,14 +444,21 @@ class TestBrowserManagerScreenshot:
         manager._context = mock_context
         manager._page = mock_page
 
-        import asyncio
+        # Start a running event loop
+        loop_fixture = EventLoopFixture()
+        loop_fixture.start()
 
-        result = asyncio.get_event_loop().run_until_complete(
-            manager.screenshot(fullpage=False)
-        )
+        try:
+            manager._loop = loop_fixture.loop
 
-        mock_page.screenshot.assert_called_once_with(full_page=False)
-        assert result == b"fake_png_data"
+            result = manager.execute_serialized(
+                lambda: manager.screenshot(fullpage=False), timeout=5.0
+            )
+
+            mock_page.screenshot.assert_called_once_with(full_page=False)
+            assert result == b"fake_png_data"
+        finally:
+            loop_fixture.stop()
 
         # Cleanup
         BrowserManager._instance = None
@@ -370,7 +469,6 @@ class TestBrowserManagerClose:
 
     def test_close_allows_reinitialization(self):
         """Test that after close(), the manager can be reinitialized."""
-        import asyncio
         from wichy.helpers.browser import BrowserManager
 
         BrowserManager._instance = None
@@ -381,14 +479,26 @@ class TestBrowserManagerClose:
         mock_page.is_closed = MagicMock(return_value=False)
         manager._page = mock_page
 
-        # Close should reset internal state
-        asyncio.get_event_loop().run_until_complete(manager.close())
+        # Start a running event loop
+        loop_fixture = EventLoopFixture()
+        loop_fixture.start()
 
-        # After close, manager should be in a state that allows reinitialization
-        assert manager._page is None
-        assert manager._context is None
-        assert manager._browser is None
-        assert manager._playwright is None
+        try:
+            manager._loop = loop_fixture.loop
+
+            # Close should reset internal state
+            manager.execute_serialized(lambda: manager.close(), timeout=5.0)
+
+            # After close, manager should be in a state that allows reinitialization
+            assert manager._page is None
+            assert manager._context is None
+            assert manager._browser is None
+            assert manager._playwright is None
+        finally:
+            loop_fixture.stop()
+
+        # Cleanup
+        BrowserManager._instance = None
 
 
 class TestBrowserCrashRecovery:
@@ -430,7 +540,6 @@ class TestBrowserCrashRecovery:
 
     def test_get_page_recover_after_close(self):
         """Test that get_page() can recover after browser is closed."""
-        import asyncio
         from wichy.helpers.browser import BrowserManager
 
         BrowserManager._instance = None
@@ -449,15 +558,26 @@ class TestBrowserCrashRecovery:
         mock_context.new_page = AsyncMock(return_value=new_page)
         manager._browser.new_context = AsyncMock(return_value=mock_context)
 
-        # get_page should detect closed page and create a new one
-        result = asyncio.get_event_loop().run_until_complete(manager.get_page())
+        # Start a running event loop
+        loop_fixture = EventLoopFixture()
+        loop_fixture.start()
 
-        # Should have recovered with a new page
-        assert result is new_page
+        try:
+            manager._loop = loop_fixture.loop
+
+            # get_page should detect closed page and create a new one
+            result = manager.execute_serialized(lambda: manager.get_page(), timeout=5.0)
+
+            # Should have recovered with a new page
+            assert result is new_page
+        finally:
+            loop_fixture.stop()
+
+        # Cleanup
+        BrowserManager._instance = None
 
     def test_navigate_retries_after_crash_recovery(self):
         """Test that navigate retries after recovering from a crash."""
-        from unittest.mock import patch
         from wichy.helpers.browser import BrowserManager
 
         BrowserManager._instance = None
@@ -495,15 +615,22 @@ class TestBrowserCrashRecovery:
                 return_value=mock_playwright
             )
 
-            import asyncio
+            # Start a running event loop
+            loop_fixture = EventLoopFixture()
+            loop_fixture.start()
 
-            result = asyncio.get_event_loop().run_until_complete(
-                manager.navigate("https://example.com")
-            )
+            try:
+                manager._loop = loop_fixture.loop
 
-            # Should have recovered and succeeded
-            assert result["status"] == "success"
-            assert goto_call_count[0] == 2  # First failed, second succeeded
+                result = manager.execute_serialized(
+                    lambda: manager.navigate("https://example.com"), timeout=5.0
+                )
+
+                # Should have recovered and succeeded
+                assert result["status"] == "success"
+                assert goto_call_count[0] == 2  # First failed, second succeeded
+            finally:
+                loop_fixture.stop()
 
         # Cleanup
         BrowserManager._instance = None
@@ -524,13 +651,20 @@ class TestBrowserCrashRecovery:
 
         manager._browser = mock_browser
 
-        import asyncio
+        # Start a running event loop
+        loop_fixture = EventLoopFixture()
+        loop_fixture.start()
 
-        result = asyncio.get_event_loop().run_until_complete(
-            manager._is_browser_alive()
-        )
+        try:
+            manager._loop = loop_fixture.loop
 
-        assert result is False
+            result = manager.execute_serialized(
+                lambda: manager._is_browser_alive(), timeout=5.0
+            )
+
+            assert result is False
+        finally:
+            loop_fixture.stop()
 
         # Cleanup
         BrowserManager._instance = None
@@ -547,13 +681,20 @@ class TestBrowserCrashRecovery:
 
         manager._browser = mock_browser
 
-        import asyncio
+        # Start a running event loop
+        loop_fixture = EventLoopFixture()
+        loop_fixture.start()
 
-        result = asyncio.get_event_loop().run_until_complete(
-            manager._is_browser_alive()
-        )
+        try:
+            manager._loop = loop_fixture.loop
 
-        assert result is True
+            result = manager.execute_serialized(
+                lambda: manager._is_browser_alive(), timeout=5.0
+            )
+
+            assert result is True
+        finally:
+            loop_fixture.stop()
 
         # Cleanup
         BrowserManager._instance = None
@@ -566,16 +707,21 @@ class TestBrowserCrashRecovery:
         manager = BrowserManager()
         manager._browser = None
 
-        import asyncio
+        # Start a running event loop
+        loop_fixture = EventLoopFixture()
+        loop_fixture.start()
 
-        result = asyncio.get_event_loop().run_until_complete(
-            manager._is_browser_alive()
-        )
+        try:
+            manager._loop = loop_fixture.loop
 
-        assert result is False
+            result = manager.execute_serialized(
+                lambda: manager._is_browser_alive(), timeout=5.0
+            )
 
-        # Cleanup
-        BrowserManager._instance = None
+            assert result is False
+        finally:
+            loop_fixture.stop()
+
         # Cleanup
         BrowserManager._instance = None
 
@@ -629,15 +775,22 @@ class TestBrowserPageInfoAndAct:
         manager._context = AsyncMock()
         manager._page = mock_page
 
-        import asyncio
+        # Start a running event loop
+        loop_fixture = EventLoopFixture()
+        loop_fixture.start()
 
-        result = asyncio.get_event_loop().run_until_complete(
-            manager._get_page_info(detail="quick")
-        )
+        try:
+            manager._loop = loop_fixture.loop
 
-        assert result == {"url": "https://example.com", "title": "Example Domain"}
-        # Should NOT call query_selector_all for quick mode
-        mock_page.query_selector_all.assert_not_called()
+            result = manager.execute_serialized(
+                lambda: manager._get_page_info(detail="quick"), timeout=5.0
+            )
+
+            assert result == {"url": "https://example.com", "title": "Example Domain"}
+            # Should NOT call query_selector_all for quick mode
+            mock_page.query_selector_all.assert_not_called()
+        finally:
+            loop_fixture.stop()
 
         # Cleanup
         BrowserManager._instance = None
@@ -725,19 +878,26 @@ class TestBrowserPageInfoAndAct:
         manager._context = AsyncMock()
         manager._page = mock_page
 
-        import asyncio
+        # Start a running event loop
+        loop_fixture = EventLoopFixture()
+        loop_fixture.start()
 
-        result = asyncio.get_event_loop().run_until_complete(
-            manager._get_page_info(detail="full")
-        )
+        try:
+            manager._loop = loop_fixture.loop
 
-        assert result["url"] == "https://example.com"
-        assert result["title"] == "Example Domain"
-        assert "headings" in result
-        assert "links" in result
-        assert "buttons" in result
-        assert "inputs" in result
-        assert "tables" in result
+            result = manager.execute_serialized(
+                lambda: manager._get_page_info(detail="full"), timeout=5.0
+            )
+
+            assert result["url"] == "https://example.com"
+            assert result["title"] == "Example Domain"
+            assert "headings" in result
+            assert "links" in result
+            assert "buttons" in result
+            assert "inputs" in result
+            assert "tables" in result
+        finally:
+            loop_fixture.stop()
 
         # Cleanup
         BrowserManager._instance = None
@@ -761,19 +921,26 @@ class TestBrowserPageInfoAndAct:
         manager._context = AsyncMock()
         manager._page = mock_page
 
-        import asyncio
+        # Start a running event loop
+        loop_fixture = EventLoopFixture()
+        loop_fixture.start()
 
-        result = asyncio.get_event_loop().run_until_complete(
-            manager._get_page_info(detail="full")
-        )
+        try:
+            manager._loop = loop_fixture.loop
 
-        assert result["url"] == "https://example.com"
-        assert result["title"] == "Empty Page"
-        assert result["headings"] == []
-        assert result["links"] == []
-        assert result["buttons"] == []
-        assert result["inputs"] == []
-        assert result["tables"] == []
+            result = manager.execute_serialized(
+                lambda: manager._get_page_info(detail="full"), timeout=5.0
+            )
+
+            assert result["url"] == "https://example.com"
+            assert result["title"] == "Empty Page"
+            assert result["headings"] == []
+            assert result["links"] == []
+            assert result["buttons"] == []
+            assert result["inputs"] == []
+            assert result["tables"] == []
+        finally:
+            loop_fixture.stop()
 
         # Cleanup
         BrowserManager._instance = None
@@ -793,22 +960,30 @@ class TestBrowserPageInfoAndAct:
         manager._context = AsyncMock()
         manager._page = mock_page
 
-        import asyncio
+        # Start a running event loop
+        loop_fixture = EventLoopFixture()
+        loop_fixture.start()
 
-        result = asyncio.get_event_loop().run_until_complete(
-            manager._act(
-                action="wait",
-                target=".loading-done",
-                value=None,
-                wait_until="none",
-                timeout=5000,
+        try:
+            manager._loop = loop_fixture.loop
+
+            result = manager.execute_serialized(
+                lambda: manager._act(
+                    action="wait",
+                    target=".loading-done",
+                    value=None,
+                    wait_until="none",
+                    timeout=5000,
+                ),
+                timeout=5.0,
             )
-        )
 
-        # Verify actual return value, not mock calls
-        assert result["status"] == "success"
-        assert result["action"] == "wait"
-        assert result["target"] == ".loading-done"
+            # Verify actual return value, not mock calls
+            assert result["status"] == "success"
+            assert result["action"] == "wait"
+            assert result["target"] == ".loading-done"
+        finally:
+            loop_fixture.stop()
 
         # Cleanup
         BrowserManager._instance = None
@@ -830,14 +1005,22 @@ class TestBrowserPageInfoAndAct:
         manager._context = AsyncMock()
         manager._page = mock_page
 
-        import asyncio
+        # Start a running event loop
+        loop_fixture = EventLoopFixture()
+        loop_fixture.start()
 
-        result = asyncio.get_event_loop().run_until_complete(
-            manager._act(action="wait", target=".missing-element", timeout=5000)
-        )
+        try:
+            manager._loop = loop_fixture.loop
 
-        assert result["status"] == "error"
-        assert "not found" in result["error"].lower()
+            result = manager.execute_serialized(
+                lambda: manager._act(action="wait", target=".missing-element", timeout=5000),
+                timeout=5.0,
+            )
+
+            assert result["status"] == "error"
+            assert "not found" in result["error"].lower()
+        finally:
+            loop_fixture.stop()
 
         # Cleanup
         BrowserManager._instance = None
@@ -863,22 +1046,30 @@ class TestBrowserPageInfoAndAct:
         manager._context = AsyncMock()
         manager._page = mock_page
 
-        import asyncio
+        # Start a running event loop
+        loop_fixture = EventLoopFixture()
+        loop_fixture.start()
 
-        result = asyncio.get_event_loop().run_until_complete(
-            manager._act(
-                action="click",
-                target="Submit",
-                value=None,
-                wait_until="none",
-                timeout=5000,
+        try:
+            manager._loop = loop_fixture.loop
+
+            result = manager.execute_serialized(
+                lambda: manager._act(
+                    action="click",
+                    target="Submit",
+                    value=None,
+                    wait_until="none",
+                    timeout=5000,
+                ),
+                timeout=5.0,
             )
-        )
 
-        # Verify actual return value
-        assert result["status"] == "success"
-        assert result["action"] == "click"
-        assert result["target"] == "Submit"
+            # Verify actual return value
+            assert result["status"] == "success"
+            assert result["action"] == "click"
+            assert result["target"] == "Submit"
+        finally:
+            loop_fixture.stop()
 
         # Cleanup
         BrowserManager._instance = None
@@ -907,30 +1098,37 @@ class TestBrowserPageInfoAndAct:
         manager._context = AsyncMock()
         manager._page = mock_page
 
-        import asyncio
+        # Start a running event loop
+        loop_fixture = EventLoopFixture()
+        loop_fixture.start()
 
-        result = asyncio.get_event_loop().run_until_complete(
-            manager._act(
-                action="click",
-                target="Missing",
-                value=None,
-                wait_until="none",
-                timeout=5000,
+        try:
+            manager._loop = loop_fixture.loop
+
+            result = manager.execute_serialized(
+                lambda: manager._act(
+                    action="click",
+                    target="Missing",
+                    value=None,
+                    wait_until="none",
+                    timeout=5000,
+                ),
+                timeout=5.0,
             )
-        )
 
-        assert result["status"] == "error"
-        assert (
-            "not found" in result["error"].lower()
-            or "missing" in result["error"].lower()
-        )
+            assert result["status"] == "error"
+            assert (
+                "not found" in result["error"].lower()
+                or "missing" in result["error"].lower()
+            )
+        finally:
+            loop_fixture.stop()
 
         # Cleanup
         BrowserManager._instance = None
 
     def test_act_fill_succeeds_with_valid_input(self):
         """Test that fill action returns success when input is found."""
-        import asyncio
         from unittest.mock import AsyncMock, MagicMock
         from wichy.helpers.browser import BrowserManager
 
@@ -948,19 +1146,32 @@ class TestBrowserPageInfoAndAct:
         manager._context = AsyncMock()
         manager._page = mock_page
 
-        result = asyncio.get_event_loop().run_until_complete(
-            manager._act(
-                action="fill",
-                target="email",
-                value="test@example.com",
-                wait_until="none",
-                timeout=5000,
-            )
-        )
+        # Start a running event loop
+        loop_fixture = EventLoopFixture()
+        loop_fixture.start()
 
-        assert result["status"] == "success"
-        assert result["action"] == "fill"
-        assert result["target"] == "email"
+        try:
+            manager._loop = loop_fixture.loop
+
+            result = manager.execute_serialized(
+                lambda: manager._act(
+                    action="fill",
+                    target="email",
+                    value="test@example.com",
+                    wait_until="none",
+                    timeout=5000,
+                ),
+                timeout=5.0,
+            )
+
+            assert result["status"] == "success"
+            assert result["action"] == "fill"
+            assert result["target"] == "email"
+        finally:
+            loop_fixture.stop()
+
+        # Cleanup
+        BrowserManager._instance = None
 
     def test_act_fill_returns_error_when_value_not_provided(self):
         """Test that fill returns error when value is not provided."""
@@ -976,14 +1187,22 @@ class TestBrowserPageInfoAndAct:
         manager._context = AsyncMock()
         manager._page = mock_page
 
-        import asyncio
+        # Start a running event loop
+        loop_fixture = EventLoopFixture()
+        loop_fixture.start()
 
-        result = asyncio.get_event_loop().run_until_complete(
-            manager._act(action="fill", target="username", value=None, timeout=5000)
-        )
+        try:
+            manager._loop = loop_fixture.loop
 
-        assert result["status"] == "error"
-        assert "value is required" in result["error"].lower()
+            result = manager.execute_serialized(
+                lambda: manager._act(action="fill", target="username", value=None, timeout=5000),
+                timeout=5.0,
+            )
+
+            assert result["status"] == "error"
+            assert "value is required" in result["error"].lower()
+        finally:
+            loop_fixture.stop()
 
         # Cleanup
         BrowserManager._instance = None
@@ -1011,21 +1230,29 @@ class TestBrowserPageInfoAndAct:
         manager._context = AsyncMock()
         manager._page = mock_page
 
-        import asyncio
+        # Start a running event loop
+        loop_fixture = EventLoopFixture()
+        loop_fixture.start()
 
-        result = asyncio.get_event_loop().run_until_complete(
-            manager._act(
-                action="fill", target="Email", value="test@example.com", timeout=5000
+        try:
+            manager._loop = loop_fixture.loop
+
+            result = manager.execute_serialized(
+                lambda: manager._act(
+                    action="fill", target="Email", value="test@example.com", timeout=5000
+                ),
+                timeout=5.0,
             )
-        )
 
-        assert result["status"] == "success"
-        assert result["action"] == "fill"
-        assert result["target"] == "Email"
-        # fill("") is called first to clear, then fill with value
-        assert mock_input.fill.call_count == 2
-        # Verify query_selector was tried first
-        mock_page.query_selector.assert_called()
+            assert result["status"] == "success"
+            assert result["action"] == "fill"
+            assert result["target"] == "Email"
+            # fill("") is called first to clear, then fill with value
+            assert mock_input.fill.call_count == 2
+            # Verify query_selector was tried first
+            mock_page.query_selector.assert_called()
+        finally:
+            loop_fixture.stop()
 
         # Cleanup
         BrowserManager._instance = None
@@ -1052,19 +1279,27 @@ class TestBrowserPageInfoAndAct:
         manager._context = AsyncMock()
         manager._page = mock_page
 
-        import asyncio
+        # Start a running event loop
+        loop_fixture = EventLoopFixture()
+        loop_fixture.start()
 
-        result = asyncio.get_event_loop().run_until_complete(
-            manager._act(
-                action="fill", target="Nonexistent", value="test", timeout=5000
+        try:
+            manager._loop = loop_fixture.loop
+
+            result = manager.execute_serialized(
+                lambda: manager._act(
+                    action="fill", target="Nonexistent", value="test", timeout=5000
+                ),
+                timeout=5.0,
             )
-        )
 
-        assert result["status"] == "error"
-        assert (
-            "not found" in result["error"].lower()
-            or "nonexistent" in result["error"].lower()
-        )
+            assert result["status"] == "error"
+            assert (
+                "not found" in result["error"].lower()
+                or "nonexistent" in result["error"].lower()
+            )
+        finally:
+            loop_fixture.stop()
 
         # Cleanup
         BrowserManager._instance = None
@@ -1083,14 +1318,22 @@ class TestBrowserPageInfoAndAct:
         manager._context = AsyncMock()
         manager._page = mock_page
 
-        import asyncio
+        # Start a running event loop
+        loop_fixture = EventLoopFixture()
+        loop_fixture.start()
 
-        result = asyncio.get_event_loop().run_until_complete(
-            manager._act(action="unknown", target="something", timeout=5000)
-        )
+        try:
+            manager._loop = loop_fixture.loop
 
-        assert result["status"] == "error"
-        assert "Unknown action" in result["error"]
+            result = manager.execute_serialized(
+                lambda: manager._act(action="unknown", target="something", timeout=5000),
+                timeout=5.0,
+            )
+
+            assert result["status"] == "error"
+            assert "Unknown action" in result["error"]
+        finally:
+            loop_fixture.stop()
 
         # Cleanup
         BrowserManager._instance = None

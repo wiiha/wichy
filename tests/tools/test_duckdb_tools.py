@@ -52,10 +52,11 @@ class TestDuckDBManager:
     def test_reset_clears_state(self):
         """Test that reset clears all state."""
         manager = DuckDBManager.get_instance()
-        manager.get_connection()
+        with manager.get_connection():
+            pass
         DuckDBManager.reset()
         assert DuckDBManager._instance is None
-        assert DuckDBManager._connection is None
+        assert DuckDBManager._pool is None
 
 
 class TestDuckDBLoadTool:

@@ -129,9 +129,12 @@ class FetchWebPageTool(BaseTool):
         Returns:
             The text content of the page as markdown, or an overview of headings if content exceeds limit.
         """
+
+        async def _operation():
+            return await self._fetch_webpage(url, wait_until)
+
         try:
-            loop = browser_manager.get_event_loop()
-            html_content = loop.run_until_complete(self._fetch_webpage(url, wait_until))
+            html_content = browser_manager.execute_serialized(_operation)
 
             # If content is an error message, return it directly
             if html_content.startswith("error:"):
@@ -181,14 +184,12 @@ class NavigateTool(BaseTool):
         Returns:
             A message indicating the result of the navigation.
         """
+
+        async def _operation():
+            return await browser_manager.navigate(url, wait_until=wait_until)
+
         try:
-            loop = browser_manager.get_event_loop()
-
-            async def _navigate():
-                result = await browser_manager.navigate(url, wait_until=wait_until)
-                return result
-
-            result = loop.run_until_complete(_navigate())
+            result = browser_manager.execute_serialized(_operation)
 
             if result.get("status") == "success":
                 return f"Successfully navigated to {result.get('url')}\nTitle: {result.get('title')}"
@@ -215,13 +216,12 @@ class BrowserStatusTool(BaseTool):
         Returns:
             A message with the current URL and page title, or status if unavailable.
         """
+
+        async def _operation():
+            return await browser_manager.status()
+
         try:
-            loop = browser_manager.get_event_loop()
-
-            async def _status():
-                return await browser_manager.status()
-
-            result = loop.run_until_complete(_status())
+            result = browser_manager.execute_serialized(_operation)
 
             if "url" in result:
                 return f"Current page: {result['url']}\nTitle: {result['title']}"
@@ -256,15 +256,13 @@ class BrowserPageInfoTool(BaseTool):
         Returns:
             JSON string with page information.
         """
+        import json
+
+        async def _operation():
+            return await browser_manager._get_page_info(detail)
+
         try:
-            import json
-
-            loop = browser_manager.get_event_loop()
-
-            async def _info():
-                return await browser_manager._get_page_info(detail)
-
-            result = loop.run_until_complete(_info())
+            result = browser_manager.execute_serialized(_operation)
 
             if "error" in result:
                 return format_error(result["error"])
@@ -313,14 +311,12 @@ class ScreenshotTool(BaseTool):
         Returns:
             The file path where the screenshot was saved, or base64 data URI if filename is 'base64'.
         """
+
+        async def _operation():
+            return await browser_manager.screenshot(fullpage=fullpage)
+
         try:
-
-            loop = browser_manager.get_event_loop()
-
-            async def _screenshot():
-                return await browser_manager.screenshot(fullpage=fullpage)
-
-            screenshot_bytes = loop.run_until_complete(_screenshot())
+            screenshot_bytes = browser_manager.execute_serialized(_operation)
 
             # If filename is 'base64', return raw base64 data
             if filename == "base64":
@@ -400,13 +396,12 @@ class BrowserRawTool(BaseTool):
         Returns:
             The result of the expression as a string representation.
         """
+
+        async def _operation():
+            return await browser_manager.raw(code)
+
         try:
-            loop = browser_manager.get_event_loop()
-
-            async def _raw():
-                return await browser_manager.raw(code)
-
-            result = loop.run_until_complete(_raw())
+            result = browser_manager.execute_serialized(_operation)
 
             # Format result for display
             if result is None:
@@ -508,19 +503,18 @@ class BrowserActTool(BaseTool):
         Returns:
             A human-readable message indicating the result.
         """
+
+        async def _operation():
+            return await browser_manager._act(
+                action=action,
+                target=target,
+                value=value,
+                wait_until=wait_until,
+                timeout=timeout,
+            )
+
         try:
-            loop = browser_manager.get_event_loop()
-
-            async def _act():
-                return await browser_manager._act(
-                    action=action,
-                    target=target,
-                    value=value,
-                    wait_until=wait_until,
-                    timeout=timeout,
-                )
-
-            result = loop.run_until_complete(_act())
+            result = browser_manager.execute_serialized(_operation)
 
             if result.get("status") == "success":
                 action_type = result.get("action", action)

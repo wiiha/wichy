@@ -10,7 +10,8 @@ import asyncio
 import inspect
 import random
 import threading
-from typing import Any, Optional
+import time
+from typing import Any, Callable, Coroutine, Optional, TypeVar
 
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
@@ -46,6 +47,7 @@ class BrowserManager:
 
     _instance: Optional["BrowserManager"] = None
     _singleton_lock = threading.Lock()
+    _browser_thread_lock = threading.Lock()  # Cross-thread serialization
 
     def __new__(cls):
         with cls._singleton_lock:
@@ -61,6 +63,7 @@ class BrowserManager:
             self._page: Optional[Page] = None
             self._async_lock: Optional[asyncio.Lock] = None
             self._loop: Optional[asyncio.AbstractEventLoop] = None
+            self._loop_thread: Optional[threading.Thread] = None
             self._initialized = True
 
     def get_event_loop(self) -> asyncio.AbstractEventLoop:
@@ -73,14 +76,77 @@ class BrowserManager:
         if self._loop is None or self._loop.is_closed():
             self._loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self._loop)
+
+            # Start the loop in a background thread
+            def run_loop():
+                asyncio.set_event_loop(self._loop)
+                self._loop.run_forever()
+
+            self._loop_thread = threading.Thread(
+                target=run_loop, daemon=True, name="browser-event-loop"
+            )
+            self._loop_thread.start()
+
+            # Wait for loop to be running
+            while not self._loop.is_running():
+                time.sleep(0.001)
+
         return self._loop
+
+    T = TypeVar("T")
+
+    def execute_serialized(
+        self, operation: Callable[[], Coroutine[None, None, T]], timeout: float = 120.0
+    ) -> T:
+        """
+        Execute an async browser operation with cross-thread serialization.
+
+        This ensures only one thread can execute browser operations at a time,
+        regardless of how many task agents are running in parallel.
+
+        Args:
+            operation: An async callable that performs the browser operation.
+            timeout: Maximum seconds to wait for the operation.
+
+        Returns:
+            The result of the operation.
+
+        Raises:
+            TimeoutError: If the operation times out.
+            RuntimeError: If the browser operation fails.
+        """
+        thread_id = threading.get_ident()
+
+        with self.__class__._browser_thread_lock:
+            try:
+                loop = self.get_event_loop()
+                future = asyncio.run_coroutine_threadsafe(operation(), loop)
+                return future.result(timeout=timeout)
+            except asyncio.TimeoutError:
+                future.cancel()  # Cancel the running coroutine
+                try:
+                    future.result(timeout=1.0)  # Wait for cancellation
+                except (asyncio.CancelledError, asyncio.TimeoutError):
+                    pass
+                raise TimeoutError(
+                    f"Browser operation timed out after {timeout}s. Thread {thread_id}"
+                )
+            except Exception as e:
+                raise RuntimeError(
+                    f"Browser operation failed: {type(e).__name__}: {e}"
+                ) from e
 
     def _get_async_lock(self) -> asyncio.Lock:
         """Lazily create an asyncio.Lock (requires an event loop)."""
+        loop = self.get_event_loop()
         if self._async_lock is None:
-            with self._singleton_lock:
+            with BrowserManager._singleton_lock:
                 if self._async_lock is None:
                     self._async_lock = asyncio.Lock()
+        # Check loop compatibility - must be inside lock
+        with BrowserManager._singleton_lock:
+            if hasattr(self._async_lock, "_loop") and self._async_lock._loop != loop:
+                self._async_lock = asyncio.Lock()
         return self._async_lock
 
     async def _initialize_browser(self):

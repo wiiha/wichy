@@ -1,7 +1,10 @@
 """DuckDB connection manager - singleton for session persistence."""
 
 import os
+import threading
+from contextlib import contextmanager
 from pathlib import Path
+from queue import Empty, Full, Queue
 from typing import Dict, List, Optional
 
 import duckdb
@@ -9,13 +12,118 @@ import duckdb
 from wichy.tools.errors import format_error
 
 
+class PoolExhaustedError(Exception):
+    """Raised when connection pool has no available connections."""
+
+    pass
+
+
+class ConnectionPool:
+    """
+    Thread-safe DuckDB connection pool.
+
+    For in-memory databases: Uses cursors derived from a primary connection.
+    For file-based databases: Creates independent connections.
+    """
+
+    def __init__(
+        self, db_path: Optional[str] = None, pool_size: int = 4, read_only: bool = False
+    ):
+        self._db_path = db_path  # None = in-memory
+        self._pool_size = pool_size
+        self._read_only = read_only
+
+        # For in-memory: single primary connection
+        self._primary_connection: Optional[duckdb.DuckDBPyConnection] = None
+
+        # Pool of available connections/cursors
+        self._pool: Queue[duckdb.DuckDBPyConnection] = Queue(maxsize=pool_size)
+
+        # Track active connections (for cleanup)
+        self._active: Dict[int, duckdb.DuckDBPyConnection] = {}
+        self._active_lock = threading.Lock()
+
+        # Initialize pool
+        self._initialize_pool()
+
+    def _initialize_pool(self):
+        """Create initial connections for the pool."""
+        if self._db_path is None:
+            # In-memory: create primary connection, then cursors
+            self._primary_connection = duckdb.connect(":memory:")
+            for _ in range(self._pool_size):
+                cursor = self._primary_connection.cursor()
+                self._pool.put(cursor)
+        else:
+            # File-based: each thread gets own connection
+            for _ in range(self._pool_size):
+                conn = duckdb.connect(self._db_path, read_only=self._read_only)
+                self._pool.put(conn)
+
+    @contextmanager
+    def get_connection(self, timeout: float = 5.0):
+        """
+        Get a connection from the pool (context manager).
+
+        Usage:
+            with pool.get_connection() as conn:
+                result = conn.execute("SELECT 1").fetchall()
+        """
+        conn = self._acquire(timeout)
+        try:
+            yield conn
+        finally:
+            self._release(conn)
+
+    def _acquire(self, timeout: float) -> duckdb.DuckDBPyConnection:
+        """Acquire a connection from the pool."""
+        try:
+            conn = self._pool.get(timeout=timeout)
+            with self._active_lock:
+                self._active[id(conn)] = conn
+            return conn
+        except Empty:
+            raise PoolExhaustedError(
+                f"No connections available after {timeout}s. Pool size: {self._pool_size}"
+            )
+
+    def _release(self, conn: duckdb.DuckDBPyConnection):
+        """Return connection to pool."""
+        with self._active_lock:
+            self._active.pop(id(conn), None)
+        try:
+            self._pool.put_nowait(conn)
+        except Full:
+            conn.close()
+
+    def close(self):
+        """Close all connections."""
+        while not self._pool.empty():
+            try:
+                conn = self._pool.get_nowait()
+                conn.close()
+            except Empty:
+                break
+
+        with self._active_lock:
+            for conn in self._active.values():
+                conn.close()
+            self._active.clear()
+
+        if self._primary_connection:
+            self._primary_connection.close()
+            self._primary_connection = None
+
+
 class DuckDBManager:
     """Singleton manager for DuckDB connections within a session."""
 
     _instance: Optional["DuckDBManager"] = None
-    _connection: Optional[duckdb.DuckDBPyConnection] = None
     _loaded_tables: Dict[str, str] = {}  # table_name -> source_path
     _db_path: Optional[str] = None  # Path if persisted to disk
+    _pool: Optional[ConnectionPool] = None
+    _metadata_lock = threading.RLock()  # For _loaded_tables
+    DEFAULT_POOL_SIZE = 4
 
     def __new__(cls):
         if cls._instance is None:
@@ -26,32 +134,46 @@ class DuckDBManager:
     def get_instance(cls) -> "DuckDBManager":
         """Get the singleton instance."""
         if cls._instance is None:
-            cls._instance = cls()
+            with cls._metadata_lock:
+                if cls._instance is None:
+                    cls._instance = cls()
         return cls._instance
 
     @classmethod
     def reset(cls):
-        """Reset the singleton - close connection and clear state."""
-        if cls._connection is not None:
-            cls._connection.close()
-            cls._connection = None
-        cls._loaded_tables = {}
-        cls._db_path = None
-        cls._instance = None
+        """Reset the singleton - close pool and clear state."""
+        with cls._metadata_lock:
+            if cls._pool is not None:
+                cls._pool.close()
+                cls._pool = None
+            cls._loaded_tables = {}
+            cls._db_path = None
+            cls._instance = None
 
-    def get_connection(self) -> duckdb.DuckDBPyConnection:
-        """Get or create the DuckDB connection."""
-        if self._connection is None:
-            if self._db_path:
-                # Use persisted database
-                self._connection = duckdb.connect(self._db_path)
-            else:
-                # In-memory database
-                self._connection = duckdb.connect(":memory:")
-        return self._connection
+    @classmethod
+    def _ensure_pool(cls) -> ConnectionPool:
+        """Ensure pool is initialized."""
+        if cls._pool is None:
+            with cls._metadata_lock:
+                if cls._pool is None:
+                    cls._pool = ConnectionPool(
+                        db_path=cls._db_path,
+                        pool_size=cls.DEFAULT_POOL_SIZE,
+                        read_only=False,
+                    )
+        return cls._pool
 
+    @classmethod
+    @contextmanager
+    def get_connection(cls):
+        """Get a connection from the pool."""
+        pool = cls._ensure_pool()
+        with pool.get_connection() as conn:
+            yield conn
+
+    @classmethod
     def load_data(
-        self,
+        cls,
         data_path: str,
         table_name: Optional[str] = None,
         overwrite: bool = False,
@@ -81,46 +203,53 @@ class DuckDBManager:
                 c if c.isalnum() or c == "_" else "_" for c in table_name
             )
 
-            conn = self.get_connection()
+            # Hold metadata lock for the entire operation to prevent race conditions
+            # when multiple threads try to load/create the same table concurrently.
+            # Using RLock allows re-entry for get_connection() which may need
+            # to initialize the pool (also uses this lock).
+            with cls._metadata_lock:
+                # Check if table exists
+                existing_tables = cls.list_tables()
+                if table_name in existing_tables and not overwrite:
+                    return format_error(
+                        f"Table '{table_name}' already exists. Use overwrite=True to replace it."
+                    )
 
-            # Check if table exists
-            existing_tables = self.list_tables()
-            if table_name in existing_tables and not overwrite:
-                return format_error(
-                    f"Table '{table_name}' already exists. Use overwrite=True to replace it."
-                )
+                # Determine file type and load
+                with cls.get_connection() as conn:
+                    if data_path.endswith(".csv"):
+                        conn.execute(
+                            f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM read_csv_auto('{data_path}')"
+                        )
+                    elif data_path.endswith(".parquet"):
+                        conn.execute(
+                            f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM read_parquet('{data_path}')"
+                        )
+                    elif data_path.endswith(".json") or data_path.endswith(".jsonl"):
+                        conn.execute(
+                            f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM read_json_auto('{data_path}')"
+                        )
+                    else:
+                        return format_error(
+                            "Unsupported file format. Use .csv, .parquet, or .json"
+                        )
 
-            # Determine file type and load
-            if data_path.endswith(".csv"):
-                conn.execute(
-                    f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM read_csv_auto('{data_path}')"
-                )
-            elif data_path.endswith(".parquet"):
-                conn.execute(
-                    f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM read_parquet('{data_path}')"
-                )
-            elif data_path.endswith(".json") or data_path.endswith(".jsonl"):
-                conn.execute(
-                    f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM read_json_auto('{data_path}')"
-                )
-            else:
-                return format_error(
-                    "Unsupported file format. Use .csv, .parquet, or .json"
-                )
+                cls._loaded_tables[table_name] = data_path
 
-            self._loaded_tables[table_name] = data_path
             return f"Loaded {data_path} into table '{table_name}'"
 
         except Exception as e:
             return format_error(f"Failed to load data: {e}")
 
-    def list_tables(self) -> List[str]:
+    @classmethod
+    def list_tables(cls) -> List[str]:
         """List all loaded tables."""
-        conn = self.get_connection()
-        result = conn.execute("SHOW TABLES").fetchall()
+        with cls.get_connection() as conn:
+            result = conn.execute("SHOW TABLES").fetchall()
         return [row[0] for row in result]
 
-    def get_schema(self, table_name: Optional[str] = None) -> str:
+    @classmethod
+    def get_schema(cls, table_name: Optional[str] = None) -> str:
         """
         Get schema information for tables.
 
@@ -131,8 +260,7 @@ class DuckDBManager:
             Schema description
         """
         try:
-            conn = self.get_connection()
-            tables = self.list_tables()
+            tables = cls.list_tables()
 
             if not tables:
                 return "No tables loaded. Use duckdb_load to load data first."
@@ -145,28 +273,32 @@ class DuckDBManager:
                 tables = [table_name]
 
             schema_info = []
-            for tbl in tables:
-                result = conn.execute(f"DESCRIBE {tbl}").fetchall()
-                schema_info.append(f"\n## Table: {tbl}")
-                schema_info.append("| Column | Type |")
-                schema_info.append("|--------|------|")
-                for row in result:
-                    schema_info.append(f"| {row[0]} | {row[1]} |")
+            with cls.get_connection() as conn:
+                for tbl in tables:
+                    result = conn.execute(f"DESCRIBE {tbl}").fetchall()
+                    schema_info.append(f"\n## Table: {tbl}")
+                    schema_info.append("| Column | Type |")
+                    schema_info.append("|--------|------|")
+                    for row in result:
+                        schema_info.append(f"| {row[0]} | {row[1]} |")
 
-                # Add row count
-                count = conn.execute(f"SELECT COUNT(*) FROM {tbl}").fetchone()[0]
-                schema_info.append(f"\nRows: {count}")
+                    # Add row count
+                    count = conn.execute(f"SELECT COUNT(*) FROM {tbl}").fetchone()[0]
+                    schema_info.append(f"\nRows: {count}")
 
-                # Add source path if known
-                if tbl in self._loaded_tables:
-                    schema_info.append(f"Source: {self._loaded_tables[tbl]}")
+                    # Add source path if known
+                    with cls._metadata_lock:
+                        source_path = cls._loaded_tables.get(tbl)
+                    if source_path:
+                        schema_info.append(f"Source: {source_path}")
 
             return "\n".join(schema_info)
 
         except Exception as e:
             return format_error(f"Failed to get schema: {e}")
 
-    def execute_query(self, query: str, limit: int = 100, sample: bool = False) -> str:
+    @classmethod
+    def execute_query(cls, query: str, limit: int = 100, sample: bool = False) -> str:
         """
         Execute a SQL query and return formatted results.
 
@@ -179,12 +311,12 @@ class DuckDBManager:
             Formatted query results
         """
         try:
-            conn = self.get_connection()
-            result = conn.execute(query)
+            with cls.get_connection() as conn:
+                result = conn.execute(query)
 
-            # Get column names
-            columns = [desc[0] for desc in result.description]
-            rows = result.fetchall()
+                # Get column names
+                columns = [desc[0] for desc in result.description]
+                rows = result.fetchall()
 
             # Check if we need to limit results
             total_rows = len(rows)
@@ -224,7 +356,8 @@ class DuckDBManager:
         except Exception as e:
             return format_error(f"Query failed: {e}")
 
-    def persist(self, db_path: str) -> str:
+    @classmethod
+    def persist(cls, db_path: str) -> str:
         """
         Persist the in-memory database to disk.
 
@@ -235,37 +368,41 @@ class DuckDBManager:
             Success message or error
         """
         try:
-            conn = self.get_connection()
-
             # Get all tables
-            tables = self.list_tables()
+            tables = cls.list_tables()
             if not tables:
                 return format_error("No tables to persist")
 
-            # Use DuckDB's ATTACH and COPY to persist
-
             # Create the directory if needed
-            import os
-
             os.makedirs(
                 os.path.dirname(db_path) if os.path.dirname(db_path) else ".",
                 exist_ok=True,
             )
 
             # Attach target database and copy tables
-            conn.execute(f"ATTACH '{db_path}' AS target_db")
-            for table_name in tables:
-                conn.execute(
-                    f"CREATE OR REPLACE TABLE target_db.{table_name} AS SELECT * FROM {table_name}"
-                )
-            conn.execute("DETACH target_db")
+            with cls.get_connection() as conn:
+                conn.execute(f"ATTACH '{db_path}' AS target_db")
+                try:
+                    for table_name in tables:
+                        conn.execute(
+                            f"CREATE OR REPLACE TABLE target_db.{table_name} AS SELECT * FROM {table_name}"
+                        )
+                finally:
+                    conn.execute("DETACH target_db")
 
-            self._db_path = db_path
+            # Close existing pool and update path
+            with cls._metadata_lock:
+                if cls._pool is not None:
+                    cls._pool.close()
+                    cls._pool = None
+                cls._db_path = db_path
+
             return f"Database persisted to {db_path} with {len(tables)} table(s)"
         except Exception as e:
             return format_error(f"Failed to persist database: {e}")
 
-    def load_database(self, db_path: str) -> str:
+    @classmethod
+    def load_database(cls, db_path: str) -> str:
         """
         Load a persisted database from disk.
 
@@ -279,36 +416,49 @@ class DuckDBManager:
             if not os.path.exists(db_path):
                 return format_error(f"Database file not found: {db_path}")
 
-            # Close current connection
-            if self._connection is not None:
-                self._connection.close()
-                self._connection = None
+            # Save old state for rollback on failure
+            with cls._metadata_lock:
+                old_db_path = cls._db_path
+                old_pool = cls._pool
+                cls._pool = None
+                cls._db_path = db_path
+                cls._loaded_tables = {}
 
-            self._db_path = db_path
-            self.get_connection()
+            try:
+                # Initialize new pool
+                cls._ensure_pool()
 
-            # Update loaded_tables with existing tables
-            tables = self.list_tables()
-            for tbl in tables:
-                self._loaded_tables[tbl] = f"<loaded from {db_path}>"
+                # Update loaded_tables with existing tables
+                tables = cls.list_tables()
+                with cls._metadata_lock:
+                    for tbl in tables:
+                        cls._loaded_tables[tbl] = f"<loaded from {db_path}>"
 
-            return f"Loaded database from {db_path}. Tables: {', '.join(tables)}"
+                return f"Loaded database from {db_path}. Tables: {', '.join(tables)}"
+            except Exception as e:
+                # Rollback on failure
+                with cls._metadata_lock:
+                    cls._db_path = old_db_path
+                    cls._pool = old_pool
+                return format_error(f"Failed to load database: {e}")
 
         except Exception as e:
             return format_error(f"Failed to load database: {e}")
 
-    def get_status(self) -> str:
+    @classmethod
+    def get_status(cls) -> str:
         """Get current status of the DuckDB session."""
-        tables = self.list_tables()
+        tables = cls.list_tables()
         status_parts = [
-            f"Database: {self._db_path if self._db_path else 'in-memory'}",
+            f"Database: {cls._db_path if cls._db_path else 'in-memory'}",
             f"Tables loaded: {len(tables)}",
         ]
 
         if tables:
             status_parts.append("\n### Loaded Tables:")
-            for tbl in tables:
-                source = self._loaded_tables.get(tbl, "<unknown>")
-                status_parts.append(f"  - {tbl} (source: {source})")
+            with cls._metadata_lock:
+                for tbl in tables:
+                    source = cls._loaded_tables.get(tbl, "<unknown>")
+                    status_parts.append(f"  - {tbl} (source: {source})")
 
         return "\n".join(status_parts)

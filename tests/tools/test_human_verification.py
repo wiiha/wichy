@@ -322,7 +322,7 @@ class TestLabelResolution:
 
         with patch.object(hv, "prompt_session") as mock_session:
             with patch.object(hv, "needs_user_attention"):
-                with patch.object(hv.user_console, "print") as mock_print:
+                with patch.object(hv.special_console, "print") as mock_print:
                     mock_session.prompt.return_value = "y"
                     do_dangerous("/var/data")
 
