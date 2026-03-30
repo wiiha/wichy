@@ -1,3 +1,36 @@
+import atexit
+
+
+def _cleanup():
+    """Clean up resources before Python exit.
+
+    This atexit handler ensures daemon threads are properly shut down
+    before Python finalization, preventing deadlocks on exit.
+    """
+    # Stop console output thread first
+    try:
+        from wichy.console.user import user_console
+
+        user_console.shutdown()
+    except Exception:
+        pass
+
+    # Stop browser and its event loop thread
+    try:
+        from wichy.helpers.browser import browser_manager
+
+        browser_manager.shutdown()
+    except Exception:
+        pass
+
+    # Context watching is per-context instance, not global.
+    # Context instances are created fresh and context.watch may be called
+    # but there's no global context_handler singleton to stop.
+
+
+# Register cleanup before Python starts finalization
+atexit.register(_cleanup)
+
 import json
 import re
 import sys

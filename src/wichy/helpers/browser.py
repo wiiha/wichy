@@ -824,7 +824,7 @@ class BrowserManager:
             raise ValueError(f"Unsupported expression type: {type(node).__name__}")
 
     async def close(self):
-        """Close the browser and cleanup resources."""
+        """Close browser and stop event loop thread."""
         async with self._get_async_lock():
             if self._page:
                 await self._page.close()
@@ -838,11 +838,36 @@ class BrowserManager:
             if self._playwright:
                 await self._playwright.stop()
                 self._playwright = None
-            # Reset lock so it's recreated fresh on next use
             self._async_lock = None
-            # Reset event loop reference
-            self._loop = None
+
+        # Stop the event loop thread
+        if self._loop and self._loop.is_running():
+            self._loop.call_soon_threadsafe(self._loop.stop)
+        if self._loop_thread and self._loop_thread.is_alive():
+            self._loop_thread.join(timeout=2.0)
+        self._loop = None
+        self._loop_thread = None
         self._initialized = False
+
+    def shutdown(self) -> None:
+        """Synchronously shutdown browser manager (for atexit cleanup)."""
+        if self._loop is None or not self._loop.is_running():
+            return
+
+        try:
+            # Schedule close() on the event loop
+            future = asyncio.run_coroutine_threadsafe(self.close(), self._loop)
+            future.result(timeout=5.0)
+        except Exception:
+            pass
+        finally:
+            # Stop the event loop thread
+            if self._loop and self._loop.is_running():
+                self._loop.call_soon_threadsafe(self._loop.stop)
+            if self._loop_thread and self._loop_thread.is_alive():
+                self._loop_thread.join(timeout=2.0)
+            self._loop = None
+            self._loop_thread = None
 
     @property
     def is_initialized(self) -> bool:
