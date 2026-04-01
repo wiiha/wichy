@@ -73,6 +73,7 @@ class Settings(BaseSettings):
 
     # Tool execution
     parallel_exec: bool = True
+    skip_human_verification: bool = False
 
     skills_dir_name: str = "skills"
 

@@ -5,10 +5,10 @@ from typing import Any, Callable, Optional
 from prompt_toolkit import PromptSession
 from rich.console import Console
 
+from wichy.config.settings import settings
 from wichy.console import user_console
 from wichy.helpers.needs_user_attention import needs_user_attention
 
-SKIP_HUMAN_VERIFICATION = False
 PIPELINE_MODE = False
 
 prompt_session = PromptSession()
@@ -86,7 +86,7 @@ def require_human_verification(func: Callable) -> Callable:
         if not label:
             label = wrapper.__name__
 
-        if SKIP_HUMAN_VERIFICATION:
+        if settings.skip_human_verification:
             return func(*args, **kwargs)
 
         if in_pipeline_mode():
