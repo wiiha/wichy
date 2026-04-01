@@ -6,6 +6,7 @@ import pytest
 from unittest.mock import patch
 
 import wichy.tools.human_verification as hv
+from wichy.config.settings import settings
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -42,12 +43,12 @@ class TestPipelineMode:
 
     def setup_method(self):
         hv.PIPELINE_MODE = False
-        hv.SKIP_HUMAN_VERIFICATION = False
+        settings.skip_human_verification = False
         clear_call_count()
 
     def teardown_method(self):
         hv.PIPELINE_MODE = False
-        hv.SKIP_HUMAN_VERIFICATION = False
+        settings.skip_human_verification = False
 
     def test_pipeline_mode_raises_permission_error(self):
         """PIPELINE_MODE=True raises PermissionError immediately without prompting."""
@@ -87,7 +88,7 @@ class TestPipelineMode:
     def test_skip_flag_takes_precedence_over_pipeline_mode(self):
         """SKIP_HUMAN_VERIFICATION=True skips even when PIPELINE_MODE is also True."""
         hv.PIPELINE_MODE = True
-        hv.SKIP_HUMAN_VERIFICATION = True
+        settings.skip_human_verification = True
         target = make_target()
 
         result = target()
@@ -107,16 +108,16 @@ class TestSkipHumanVerification:
 
     def setup_method(self):
         hv.PIPELINE_MODE = False
-        hv.SKIP_HUMAN_VERIFICATION = False
+        settings.skip_human_verification = False
         clear_call_count()
 
     def teardown_method(self):
         hv.PIPELINE_MODE = False
-        hv.SKIP_HUMAN_VERIFICATION = False
+        settings.skip_human_verification = False
 
     def test_skip_flag_calls_function_without_prompting(self):
         """SKIP_HUMAN_VERIFICATION=True bypasses the prompt entirely."""
-        hv.SKIP_HUMAN_VERIFICATION = True
+        settings.skip_human_verification = True
         target = make_target()
 
         result = target("hello")
@@ -126,7 +127,7 @@ class TestSkipHumanVerification:
 
     def test_skip_flag_respects_should_verify_predicate(self):
         """Even with SKIP=True, _should_verify can still force verification."""
-        hv.SKIP_HUMAN_VERIFICATION = True
+        settings.skip_human_verification = True
         target = make_target()
         target._should_verify = lambda *a, **kw: True  # force verify
 
@@ -147,12 +148,12 @@ class TestShouldVerifyPredicate:
 
     def setup_method(self):
         hv.PIPELINE_MODE = False
-        hv.SKIP_HUMAN_VERIFICATION = False
+        settings.skip_human_verification = False
         clear_call_count()
 
     def teardown_method(self):
         hv.PIPELINE_MODE = False
-        hv.SKIP_HUMAN_VERIFICATION = False
+        settings.skip_human_verification = False
 
     def test_predicate_false_skips_verification(self):
         """_should_verify returning False skips the prompt and calls the function."""
@@ -214,12 +215,12 @@ class TestPromptBehavior:
 
     def setup_method(self):
         hv.PIPELINE_MODE = False
-        hv.SKIP_HUMAN_VERIFICATION = False
+        settings.skip_human_verification = False
         clear_call_count()
 
     def teardown_method(self):
         hv.PIPELINE_MODE = False
-        hv.SKIP_HUMAN_VERIFICATION = False
+        settings.skip_human_verification = False
 
     def test_yes_variants_call_function(self):
         """Any response starting with 'y' grants execution."""
@@ -286,12 +287,12 @@ class TestLabelResolution:
 
     def setup_method(self):
         hv.PIPELINE_MODE = False
-        hv.SKIP_HUMAN_VERIFICATION = False
+        settings.skip_human_verification = False
         clear_call_count()
 
     def teardown_method(self):
         hv.PIPELINE_MODE = False
-        hv.SKIP_HUMAN_VERIFICATION = False
+        settings.skip_human_verification = False
 
     def test_explicit_action_label_used_in_pipeline_error(self):
         """Explicit _action_label takes priority over docstring and function name."""
@@ -341,12 +342,12 @@ class TestBlockOnDecorator:
 
     def setup_method(self):
         hv.PIPELINE_MODE = False
-        hv.SKIP_HUMAN_VERIFICATION = False
+        settings.skip_human_verification = False
         clear_call_count()
 
     def teardown_method(self):
         hv.PIPELINE_MODE = False
-        hv.SKIP_HUMAN_VERIFICATION = False
+        settings.skip_human_verification = False
 
     def test_block_on_blocks_and_does_not_call_function(self):
         """block_on raises PermissionError and does not call the function."""

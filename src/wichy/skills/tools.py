@@ -12,8 +12,8 @@ from wichy.console import user_console
 from wichy.skills.registry import SkillRegistry
 from wichy.tools.base import BaseTool, ParametersModel
 from wichy.tools.errors import format_error
+from wichy.config.settings import settings
 from wichy.tools.human_verification import (
-    SKIP_HUMAN_VERIFICATION,
     in_pipeline_mode,
     prompt_session,
 )
@@ -177,7 +177,7 @@ class SkillScriptTool(BaseTool):
         is_safe = params.script_name in skill.safe_scripts
 
         # Human verification for non-safe scripts
-        if not is_safe and not SKIP_HUMAN_VERIFICATION:
+        if not is_safe and not settings.skip_human_verification:
             if in_pipeline_mode():
                 raise PermissionError(
                     f"This skill script requires human verification and cannot run in pipeline mode. "

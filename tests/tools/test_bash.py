@@ -4,6 +4,7 @@ Test cases for the BashTool.
 
 import pytest
 
+from wichy.config.settings import settings
 from wichy.tools.bash import BashTool
 
 
@@ -11,7 +12,7 @@ from wichy.tools.bash import BashTool
 def bash_tool(monkeypatch):
     """Fixture to create a fresh BashTool instance for each test."""
     # Monkey patch away the need for human verification
-    monkeypatch.setattr("wichy.tools.human_verification.SKIP_HUMAN_VERIFICATION", True)
+    monkeypatch.setattr(settings, "skip_human_verification", True)
     return BashTool()
 
 
