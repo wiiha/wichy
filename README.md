@@ -89,8 +89,9 @@ docker run -it --rm \
 
 ## What's Included
 
-- **40+ Tools**: File operations, web browsing, DuckDB queries, graph editing, notes, sub-agents, skills, and more
+- **43+ Tools**: File operations, web browsing, DuckDB queries, graph editing, notes, sub-agents, skills, and more
 - **Skills System**: Markdown-based knowledge bundles with optional scripts, auto-discovered from `~/.wichy/skills/`
+- **Hooks System**: Intercept and modify tool execution with `@pre_tool` and `@post_tool` decorators
 - **Napkin Runbook**: Per-repo curated runbook that persists guidance across sessions
 - **Web Interface**: Notes editor, graph editor, and context editor at http://127.0.0.1:7891
 - **Multiple LLM Backends**: Ollama, llama.cpp, OpenRouter, or any OpenAI-compatible endpoint

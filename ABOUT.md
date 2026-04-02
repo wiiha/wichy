@@ -50,6 +50,97 @@ AgentCore  (abstract base — shared tool execution logic)
 
 `AgentCore` (`agent/core.py`) provides the shared `_tool_call()`, `_handle_tools_base()`, `_fix_multimodal_context()`, and `_get_tool_definitions()` methods. Subclasses (`RootAgent`, `TaskAgent`) override `_log()` and `_log_dict()` for their respective console instances.
 
+### Execution Flow
+
+The agent loop follows this cycle:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         REPL Loop                                   │
+│  ┌─────────┐    ┌──────────────┐    ┌──────────┐    ┌───────────┐   │
+│  │ User    │───▶│ RootAgent    │───▶│ LLM API  │───▶│ Tool      │   │
+│  │ Input   │    │ .process()   │    │ Call     │    │ Handler   │   │
+│  └─────────┘    └──────────────┘    └──────────┘    └─────┬─────┘   │
+│       ▲                                    │              │         │
+│       │                               ┌────▼────┐    ┌────▼──────┐  │
+│       │                               │ Response│    │ Execute   │  │
+│       └───────────────────────────────│ Loop    │◀───│ Tool      │  │
+│                                       └─────────┘    └───────────┘  │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Step-by-step:**
+
+1. **User Input** → REPL receives input from `prompt_toolkit`
+2. **RootAgent.process()** → Appends user message to context
+3. **LLM Call** → Sends context to the model with tool definitions
+4. **Response Handling**:
+   - If `finish_reason == "tool_calls"`: Execute tools, append results, loop back to LLM
+   - Otherwise: Stream response to user, wait for next input
+
+### TaskAgent Spawning
+
+When the `task` tool is invoked, a `TaskAgent` is spawned:
+
+```python
+# From task_tool.py
+task_agent = TaskAgent(
+    definition=agent_definition,
+    context=Context(),  # Fresh isolated context
+    agent_type=agent_type,
+)
+result = task_agent.process(prompt)
+```
+
+- **Isolated Context**: TaskAgent starts with a fresh, empty context
+- **Limited Tools**: Only tools specified in the agent definition are available
+- **Recursive Prevention**: The `task` tool excludes itself from sub-agent tool lists
+- **Result Return**: Final response is returned to the calling RootAgent
+
+### Context Persistence Flow
+
+All context mutations are persisted atomically:
+
+```
+Context.append(message)
+      │
+      ▼
+JsonlContext._write()
+      │
+      ├── Write to temp file (.tmp)
+      ├── fsync() for durability
+      └── Atomic rename to .jsonl
+```
+
+**JSONL Format:**
+
+```jsonl
+{"_tick": 1, "role": "system", "content": "...", "type": "message"}
+{"_tick": 2, "role": "user", "content": "...", "type": "message"}
+{"_tick": 3, "event": "tool_call", "name": "read_file", "type": "log"}
+{"_tick": 4, "role": "tool", "content": "...", "type": "message"}
+```
+
+- `_tick`: Auto-incremented sequence number for stale detection
+- `type`: Either `"message"` (sent to LLM) or `"log"` (session metadata)
+
+### Auto-Compact Flow
+
+When auto-compaction is enabled and the token threshold is reached:
+
+```
+current_prompt_tokens >= auto_compact_threshold
+      │
+      ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│ 1. Generate summary prompt with recent messages                     │
+│ 2. Call LLM for summary                                             │
+│ 3. Create new Context with summary as system message               │
+│ 4. Replace old context atomically                                   │
+│ 5. New context starts at _tick=1                                    │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
 ### Core Components
 
 ```
@@ -118,11 +209,10 @@ from wichy.tools.my_tool import MyTool  # auto-registers on import
 
 #### Notes & Scratchpad
 
-| Tool               | Class                 | Description                                                                                              |
-| ------------------ | --------------------- | -------------------------------------------------------------------------------------------------------- |
-| `read_scratchpad`  | `ReadScratchpadTool`  | Read the pinned scratchpad note                                                                          |
-| `write_scratchpad` | `WriteScratchpadTool` | Save a markdown scratchpad note; auto-pins as active                                                     |
-
+| Tool               | Class                 | Description                                          |
+| ------------------ | --------------------- | ---------------------------------------------------- |
+| `read_scratchpad`  | `ReadScratchpadTool`  | Read the pinned scratchpad note                      |
+| `write_scratchpad` | `WriteScratchpadTool` | Save a markdown scratchpad note; auto-pins as active |
 
 #### Shell
 
@@ -138,12 +228,13 @@ from wichy.tools.my_tool import MyTool  # auto-registers on import
 
 Predefined sub-agent types:
 
-| Type              | Available Tools                                                                                                      | Purpose                                          |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| `Bash`            | `bash`                                                                                                               | Git ops, terminal tasks                          |
-| `Explore`         | `read_file`, `glob`, `search_in_files`, `list_files`, `tree`                                                         | Fast codebase exploration                        |
-| `web-research`    | `web_fetch`, `web_search`                                                                                            | Web research; "lite research" for quick overview |
-| `general-purpose` | `ask_user_question`, `bash`, `read_file`, `glob`, `search_in_files`, `web_fetch`, `web_search`, `write_file`, `todo` | Complex multi-step research                      |
+| Type              | Available Tools                                                                                                                                                             | Purpose                                          |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| `Bash`            | `bash`                                                                                                                                                                      | Git ops, terminal tasks                          |
+| `Explore`         | `read_file`, `glob`, `search_in_files`, `list_files`, `tree`                                                                                                                | Fast codebase exploration                        |
+| `web-research`    | `web_fetch`, `web_search`                                                                                                                                                   | Web research; "lite research" for quick overview |
+| `data-analysis`   | `duckdb_load`, `duckdb_query`, `duckdb_schema`, `duckdb_status`, `duckdb_persist`, `duckdb_load_db`, `duckdb_reset`, `glob`, `list_files`, `read_file`, `ask_user_question` | SQL-based data analysis with DuckDB              |
+| `general-purpose` | `ask_user_question`, `bash`, `read_file`, `glob`, `search_in_files`, `insert_lines`, `list_files`, `replace_text`, `todo`, `web_fetch`, `web_search`, `write_file`          | Complex multi-step research and coding tasks     |
 
 #### Data / DuckDB
 
@@ -159,14 +250,16 @@ Predefined sub-agent types:
 
 #### Web & Browser (Playwright-backed)
 
-| Tool                 | Class               | Description                                                                                                   |
-| -------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `web_search`         | `WebSearchTool`     | DuckDuckGo search; responses must include "Sources:" citation block                                           |
-| `web_fetch`          | `FetchWebPageTool`  | Fetch webpage as markdown; Playwright-powered; `wait_until` options (`load`/`domcontentloaded`/`networkidle`) |
-| `browser_navigate`   | `NavigateTool`      | Navigate to URL; return page title                                                                            |
-| `browser_status`     | `BrowserStatusTool` | Get current URL and page title                                                                                |
-| `browser_screenshot` | `ScreenshotTool`    | Viewport or full-page PNG screenshot; save to file or base64                                                  |
-| `browser_raw`        | `BrowserRawTool`    | Execute raw Playwright Page API expressions; AST-evaluated with auto-await                                    |
+| Tool                 | Class                 | Description                                                                                                   |
+| -------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `web_search`         | `WebSearchTool`       | DuckDuckGo search; responses must include "Sources:" citation block                                           |
+| `web_fetch`          | `FetchWebPageTool`    | Fetch webpage as markdown; Playwright-powered; `wait_until` options (`load`/`domcontentloaded`/`networkidle`) |
+| `browser_navigate`   | `NavigateTool`        | Navigate to URL; return page title                                                                            |
+| `browser_status`     | `BrowserStatusTool`   | Get current URL and page title                                                                                |
+| `browser_page_info`  | `BrowserPageInfoTool` | Get structured page info: URL, title, meta description, links count, headings outline                         |
+| `browser_screenshot` | `ScreenshotTool`      | Viewport or full-page PNG screenshot; save to file or base64                                                  |
+| `browser_raw`        | `BrowserRawTool`      | Execute raw Playwright Page API expressions; AST-evaluated with auto-await                                    |
+| `browser_act`        | `BrowserActTool`      | Declarative browser actions: click by text, fill forms by name/placeholder/id, wait for CSS selectors         |
 
 #### Graph Tools
 
@@ -278,6 +371,69 @@ Your knowledge content here...
 ```
 
 Skills are auto-discovered by `SkillLoader` and their summaries are injected into the system prompt at startup. The agent can also query skills at runtime via the skills tools.
+
+---
+
+## Hooks System
+
+Hooks provide a mechanism to intercept and modify tool execution. They enable custom logic to run before or after any tool, with actions to approve, deny, or modify outputs.
+
+### Hook Decorators
+
+```python
+from wichy.hooks import pre_tool, post_tool, HookResult, HookContext
+
+@pre_tool("bash")
+def check_bash_command(ctx: HookContext) -> HookResult:
+    if "rm -rf" in ctx.input_args.get("command", ""):
+        return HookResult.deny("Destructive command not allowed")
+    return HookResult.approve()
+
+@post_tool("read_file")
+def redact_secrets(ctx: HookContext) -> HookResult:
+    output = ctx.output.replace("secret", "[REDACTED]")
+    return HookResult.modify_output(output)
+```
+
+### Hook Actions
+
+| Action        | Method                       | Description                            |
+| ------------- | ---------------------------- | -------------------------------------- |
+| Approve       | `HookResult.approve()`       | Allow tool execution to proceed        |
+| Deny          | `HookResult.deny("reason")`  | Block execution with error message     |
+| Modify Output | `HookResult.modify_output()` | Transform tool output (post-tool only) |
+
+### Priority-Based Execution
+
+Hooks execute in priority order (lower = earlier). Default priority is 50.
+
+```python
+@pre_tool("bash", priority=10)  # Runs first
+def high_priority_check(ctx: HookContext) -> HookResult:
+    return HookResult.approve()
+
+@pre_tool("bash", priority=100)  # Runs later
+def low_priority_log(ctx: HookContext) -> HookResult:
+    print(f"Executing: {ctx.tool_name}")
+    return HookResult.approve()
+```
+
+### Hook File Locations
+
+Hooks are loaded from two locations in order:
+
+1. **User-global**: `~/.wichy/hooks.py` (loaded first)
+2. **Project-local**: `.wichy/hooks.py` (loaded second, can override)
+
+When both files exist, project-local hooks can add to or override user-global hooks.
+
+### Lifecycle
+
+1. Hooks are registered via decorators at module load time
+2. `initialize_hooks()` is called from `__main__.py` to load hook files
+3. Before each tool call: pre-tool hooks execute in priority order
+4. After each tool call: post-tool hooks execute in priority order
+5. Any hook can short-circuit by returning `deny()` or `modify_output()`
 
 ---
 
