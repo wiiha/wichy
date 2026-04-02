@@ -70,10 +70,10 @@ RUN playwright install chromium-headless-shell
 # -----------------------------------------------------------------------------
 FROM python:3.12-slim AS runtime
 
-# Install Playwright system dependencies for Chromium directly
-# (avoiding the pip install playwright && playwright install-deps pattern)
+# Install system dependencies and common tools
+# Combined into single layer to minimize image size
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    # Core Chromium dependencies
+    # Core Chromium dependencies (for Playwright)
     libnss3 \
     libnspr4 \
     libatk1.0-0 \
@@ -89,7 +89,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libasound2 \
     libpango-1.0-0 \
     libcairo2 \
-    # Additional Chromium dependencies
     libatspi2.0-0 \
     libxshmfence1 \
     libglu1-mesa \
@@ -98,6 +97,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libdbus-1-3 \
     libx11-xcb1 \
     libxcb1 \
+    # Version control
+    git \
+    # File/text utilities
+    fd-find \
+    jq \
+    # Archive tools
+    zip \
+    unzip \
+    gzip \
+    # Build tools (for compiling native extensions)
+    build-essential \
+    # Process management
+    procps \
     # Runtime utilities
     curl \
     wget \
