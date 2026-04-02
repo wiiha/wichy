@@ -122,7 +122,7 @@ from wichy.tools.my_tool import MyTool  # auto-registers on import
 | ------------------ | --------------------- | -------------------------------------------------------------------------------------------------------- |
 | `read_scratchpad`  | `ReadScratchpadTool`  | Read the pinned scratchpad note                                                                          |
 | `write_scratchpad` | `WriteScratchpadTool` | Save a markdown scratchpad note; auto-pins as active                                                     |
-| `knowledge_store`  | `KnowledgeStoreTool`  | Search personal markdown knowledge store; ripgrep backend; blocked for `open_router` and `None` backends |
+
 
 #### Shell
 
@@ -390,7 +390,7 @@ Interactive loop via `prompt_toolkit` with persistent history, auto-suggest, and
 
 ### Pipeline Mode (`--prompt "..."`)
 
-Single-shot, non-interactive execution. Bypasses the REPL; sends the user's prompt as a single user message. Injects a `[System note: Running in pipeline mode…]` preamble. Final response printed to stdout, then exits with code 0. Human-verification-decorated tools (e.g. `bash` for destructive commands) and non-safe skill scripts (`execute_skill_script`) raise `PermissionError` immediately rather than prompting. `KnowledgeStoreTool` is blocked by the `@block_on` decorator whenever the backend is `open_router` or unknown — this applies regardless of mode and is a privacy consideration (the knowledge store path could contain API keys).
+Single-shot, non-interactive execution. Bypasses the REPL; sends the user's prompt as a single user message. Injects a `[System note: Running in pipeline mode…]` preamble. Final response printed to stdout, then exits with code 0. Human-verification-decorated tools (e.g. `bash` for destructive commands) and non-safe skill scripts (`execute_skill_script`) raise `PermissionError` immediately rather than prompting.
 
 ### Context Loading
 
