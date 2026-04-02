@@ -434,7 +434,7 @@ class TestSingletonPattern:
         clear_hooks()
 
         # Register using one reference
-        registry1 = HookRegistry()
+        HookRegistry()
         register_hook(
             hook_type=HookType.PRE_TOOL,
             function=sample_hook,

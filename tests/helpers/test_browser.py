@@ -103,9 +103,7 @@ class TestBrowserManagerInitialization:
                 mock_context.new_page.return_value = mock_page
 
                 # Use execute_serialized for async operation
-                result = manager.execute_serialized(
-                    lambda: manager.initialize(), timeout=5.0
-                )
+                manager.execute_serialized(lambda: manager.initialize(), timeout=5.0)
 
                 assert manager._browser is mock_browser
                 assert manager._context is mock_context
