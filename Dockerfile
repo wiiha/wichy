@@ -98,7 +98,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libdbus-1-3 \
     libx11-xcb1 \
     libxcb1 \
+    # Runtime utilities
+    curl \
+    wget \
     && rm -rf /var/lib/apt/lists/*
+
+# Install ripgrep (not in Debian slim repos — fetch from GitHub releases)
+ARG RG_VERSION="14.1.0"
+RUN curl -fsSL "https://github.com/BurntSushi/ripgrep/releases/download/${RG_VERSION}/ripgrep-${RG_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+         -o /tmp/ripgrep.tar.gz && \
+    tar -xzf /tmp/ripgrep.tar.gz -C /tmp && \
+    mv /tmp/ripgrep-"${RG_VERSION}"-x86_64-unknown-linux-musl/rg /usr/local/bin/rg && \
+    rm -rf /tmp/ripgrep.tar.gz /tmp/ripgrep-*-x86_64-unknown-linux-musl
 
 # Create the wichy user with home directory and locked password
 RUN useradd -r -m -d /home/wichy -s /bin/bash wichy && passwd -l wichy
