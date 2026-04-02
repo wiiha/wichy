@@ -60,6 +60,7 @@ class Repl:
             try:
                 self._print_user_prompt()
                 needs_user_attention()
+                user_console.flush()
                 line = self.prompt_session.prompt("> ")
                 possible_cmd = self.cmd_checker.check_command(line)
                 if possible_cmd is not None:

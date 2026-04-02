@@ -21,6 +21,13 @@ class _PrintItem:
     kwargs: dict
 
 
+class _FlushSentinel:
+    """Sentinel injected by flush() to signal when the queue is drained."""
+
+    def __init__(self, done_event: threading.Event):
+        self.done_event = done_event
+
+
 class ThreadSafeConsole:
     """
     A thread-safe console wrapper that serializes all output through a queue.
@@ -83,6 +90,10 @@ class ThreadSafeConsole:
                 item = self._queue.get(timeout=0.1)
                 if item is None:
                     break
+                # Flush sentinel: signal waiter and continue draining
+                if isinstance(item, _FlushSentinel):
+                    item.done_event.set()
+                    continue
                 # Check pause state
                 with self._state_lock:
                     if self._pause_count > 0:
@@ -142,6 +153,20 @@ class ThreadSafeConsole:
                 for item in self._pause_buffer:
                     self._queue.put_nowait(item)
                 self._pause_buffer = []
+
+    def flush(self, timeout: float = 5.0) -> None:
+        """
+        Block until all items currently in the queue have been processed.
+
+        Use this before any synchronous terminal operation (e.g. prompt_toolkit's
+        prompt()) to guarantee that queued output has been rendered on screen.
+        """
+        if not self._started:
+            return
+        event = threading.Event()
+        self._queue.put(_FlushSentinel(event))
+        if not event.wait(timeout=timeout):
+            warnings.warn(f"user_console.flush() timed out after {timeout}s")
 
     @contextmanager
     def paused(self):
