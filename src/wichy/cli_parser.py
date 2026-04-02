@@ -40,6 +40,10 @@ class CliConfig:
     # Subcommand: ra
     ra_template: bool = False
 
+    # Subcommand: install
+    install_command: Optional[str] = None
+    install_force: bool = False
+
 
 class CliParser:
     """Standalone CLI argument parser."""
@@ -187,6 +191,21 @@ class CliParser:
         ls_subparsers.add_parser(
             "skills", help="List available skills in ~/.wichy/skills/"
         )
+        # install command
+        install_parser = subparsers.add_parser(
+            "install", help="Install Wichy components"
+        )
+        install_subparsers = install_parser.add_subparsers(
+            dest="install_command", help="install subcommands"
+        )
+        hooks_parser = install_subparsers.add_parser(
+            "hooks", help="Install default hooks file"
+        )
+        hooks_parser.add_argument(
+            "--force",
+            action="store_true",
+            help="Overwrite existing hooks file if it exists",
+        )
 
     def parse(self, args=None) -> CliConfig:
         """
@@ -220,6 +239,8 @@ class CliParser:
             prompt=getattr(parsed, "prompt", None),
             auto_compact_threshold=getattr(parsed, "auto_compact_threshold", None),
             seq_exec=parsed.seq_exec,
+            install_command=getattr(parsed, "install_command", None),
+            install_force=getattr(parsed, "force", False),
         )
 
         # Extract new skill details if applicable

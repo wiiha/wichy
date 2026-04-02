@@ -127,7 +127,12 @@ class BrowserManager:
                 future.cancel()  # Cancel the running coroutine
                 try:
                     future.result(timeout=1.0)  # Wait for cancellation
-                except (asyncio.CancelledError, concurrent.futures.CancelledError, asyncio.TimeoutError, concurrent.futures.TimeoutError):
+                except (
+                    asyncio.CancelledError,
+                    concurrent.futures.CancelledError,
+                    asyncio.TimeoutError,
+                    concurrent.futures.TimeoutError,
+                ):
                     pass
                 raise TimeoutError(
                     f"Browser operation timed out after {timeout}s. Thread {thread_id}"

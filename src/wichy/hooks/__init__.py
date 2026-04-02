@@ -1,0 +1,102 @@
+"""
+Wichy hooks system.
+
+This package provides hook functionality for intercepting and modifying
+tool execution in the Wichy agent system.
+
+Example usage:
+
+    from wichy.hooks import pre_tool, post_tool, HookResult, HookContext
+
+    @pre_tool("bash")
+    def block_dangerous(ctx: HookContext) -> HookResult:
+        if "rm -rf" in ctx.input_args.get("command", ""):
+            return HookResult.deny("Destructive command not allowed")
+        return HookResult.approve()
+
+    @post_tool("read_file")
+    def redact_secrets(ctx: HookContext) -> HookResult:
+        output = ctx.output.replace("secret", "[REDACTED]")
+        return HookResult.modify_output(output)
+"""
+
+# Console
+from wichy.console import user_console
+from wichy.hooks.context import HookContext
+
+# Decorators (main user-facing API)
+from wichy.hooks.decorators import post_tool, pre_tool
+
+# Default hook template
+from wichy.hooks.default import DEFAULT_HOOKS_TEMPLATE
+
+# Executor
+from wichy.hooks.executor import HookExecutionResult, HookExecutor
+
+# Loader
+from wichy.hooks.loader import HookLoader, hook_loader, initialize_hooks
+
+# Registry
+from wichy.hooks.registry import (
+    HookRegistry,
+    clear_hooks,
+    get_hooks_for_tool,
+    hook_registry,
+    register_hook,
+)
+
+# Data classes
+from wichy.hooks.result import HookAction, HookResult
+
+# Types
+from wichy.hooks.types import HookPriority, HookType, RegisteredHook
+
+
+def print(message: str = "", **kwargs) -> None:
+    """Print a message to the user console with Rich formatting support.
+
+    This is a convenience wrapper around user_console.print() for use in hooks.
+    Supports all Rich markup tags like [yellow], [bold], [green], etc.
+
+    Args:
+        message: The message to print (can include Rich markup)
+        **kwargs: Additional arguments passed to Rich's print (style, highlight, etc.)
+
+    Example:
+        from wichy.hooks import print
+        print("[yellow]Warning: something wrong[/yellow]")
+        print("[bold green]Success![/bold green]")
+    """
+    user_console.print(message, **kwargs)
+
+
+__all__ = [
+    # Decorators
+    "pre_tool",
+    "post_tool",
+    # Data classes
+    "HookAction",
+    "HookResult",
+    "HookContext",
+    "HookExecutionResult",
+    # Types
+    "HookType",
+    "HookPriority",
+    "RegisteredHook",
+    # Registry
+    "HookRegistry",
+    "hook_registry",
+    "register_hook",
+    "get_hooks_for_tool",
+    "clear_hooks",
+    # Executor
+    "HookExecutor",
+    # Loader
+    "HookLoader",
+    "initialize_hooks",
+    "hook_loader",
+    # Console
+    "print",
+    # Default hook template
+    "DEFAULT_HOOKS_TEMPLATE",
+]

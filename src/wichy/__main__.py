@@ -1,4 +1,40 @@
 import atexit
+import json
+import re
+import sys
+from pathlib import Path
+
+from prompt_toolkit import PromptSession
+from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
+from prompt_toolkit.history import FileHistory
+from rich.markdown import Markdown
+
+from wichy.agent_builder import AgentBuilderError, build_agent_from_config
+from wichy.cli_parser import CliParser
+from wichy.config import settings
+from wichy.console import set_user_output_quiet, user_console
+from wichy.constants import ROLE_ASSISTANT, ROLE_USER
+from wichy.context.handler import (
+    context_from_file,
+    latest_context_file,
+    previous_conversations,
+)
+from wichy.helpers.console import console
+from wichy.helpers.string import strip_thinking_content, truncate_to_len
+from wichy.hooks import DEFAULT_HOOKS_TEMPLATE, initialize_hooks
+from wichy.repl import Repl
+from wichy.root_agent import ALL_ROOT_AGENT_DESC
+from wichy.root_agent.helpers import parse_root_agent_markdown_desc
+from wichy.root_agent.root_agent_desc_template import root_agent_desc_template
+from wichy.server_controller import ServerController
+from wichy.skills import SkillLoader
+from wichy.skills.skill_template import skill_template
+from wichy.slash_commands import SlashCommandChecker, slash_completer
+from wichy.tool_manager import ToolManager
+from wichy.tools import human_verification
+from wichy.tools.base import console_tool_result
+from wichy.tools.notes import set_scratchpad_slug
+from wichy.tools.task import console_task_agents
 
 
 def _cleanup():
@@ -30,43 +66,6 @@ def _cleanup():
 
 # Register cleanup before Python starts finalization
 atexit.register(_cleanup)
-
-import json
-import re
-import sys
-
-from prompt_toolkit import PromptSession
-from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
-from prompt_toolkit.history import FileHistory
-from rich.markdown import Markdown
-
-from wichy.agent_builder import AgentBuilderError, build_agent_from_config
-from wichy.cli_parser import CliParser
-from wichy.config import settings
-from wichy.console import set_user_output_quiet, user_console
-from wichy.constants import ROLE_ASSISTANT, ROLE_USER
-from wichy.context.handler import (
-    context_from_file,
-    latest_context_file,
-    previous_conversations,
-)
-from wichy.helpers.console import console
-from wichy.helpers.string import strip_thinking_content, truncate_to_len
-from wichy.repl import Repl
-from wichy.root_agent import ALL_ROOT_AGENT_DESC
-from wichy.root_agent.helpers import parse_root_agent_markdown_desc
-from wichy.root_agent.root_agent_desc_template import (
-    root_agent_desc_template,
-)
-from wichy.server_controller import ServerController
-from wichy.skills import SkillLoader
-from wichy.skills.skill_template import skill_template
-from wichy.slash_commands import SlashCommandChecker, slash_completer
-from wichy.tool_manager import ToolManager
-from wichy.tools import human_verification
-from wichy.tools.base import console_tool_result
-from wichy.tools.notes import set_scratchpad_slug
-from wichy.tools.task import console_task_agents
 
 
 def handle_list_root_agents():
@@ -251,6 +250,44 @@ echo "Hello from {skill_name} skill!"
     user_console.print(msg)
 
 
+def handle_install_hooks(args):
+    """Handle 'install hooks' command - create default hooks file."""
+    hooks_dir = Path(".wichy")
+    hooks_file = hooks_dir / "hooks.py"
+
+    # Check if file already exists
+    if hooks_file.exists():
+        if args.install_force:
+            # Overwrite existing file
+            hooks_file.write_text(DEFAULT_HOOKS_TEMPLATE)
+            user_console.print(f"[green]Overwritten:[/green] {hooks_file}")
+            return True
+        else:
+            user_console.print(
+                f"[yellow]Hooks file already exists at {hooks_file}[/yellow]"
+            )
+            user_console.print(
+                "[yellow]Use 'wichy install hooks --force' to overwrite[/yellow]"
+            )
+            return False
+
+    # Create directory and file
+    try:
+        hooks_dir.mkdir(parents=True, exist_ok=True)
+        hooks_file.write_text(DEFAULT_HOOKS_TEMPLATE)
+        user_console.print(f"[green]Created:[/green] {hooks_file}")
+        user_console.print(
+            "[dim]Edit this file to customize tool execution behavior.[/dim]"
+        )
+        return True
+    except PermissionError as e:
+        user_console.print(f"[red]Error:[/red] Permission denied: {e}")
+        return False
+    except Exception as e:
+        user_console.print(f"[red]Error:[/red] {e}")
+        return False
+
+
 def handle_ls_commands(args, tool_manager):
     """Handle all 'ls' subcommands. Returns True if handled, False otherwise."""
     if args.command != "ls":
@@ -295,6 +332,18 @@ def handle_ra_template(args):
         sys.stdout.write(root_agent_desc_template)
         sys.stdout.flush()
         exit(0)
+    return False
+
+
+def handle_install_commands(args):
+    """Handle all 'install' subcommands. Returns True if handled, False otherwise."""
+    if args.command != "install":
+        return False
+
+    if args.install_command == "hooks":
+        handle_install_hooks(args)
+        exit(0)
+
     return False
 
 
@@ -387,6 +436,10 @@ def main():
     # Install default skills and load all skills
     loaded_skills = initialize_skills()
 
+    # Initialize hooks
+
+    initialize_hooks()
+
     # Handle subcommands that exit early
     handle_ra_template(args)
 
@@ -394,10 +447,12 @@ def main():
     if not handle_ls_commands(args, tool_manager):
         # Handle new commands
         if not handle_new_commands(args):
-            # At this point if ls/ra/new is specified without a subcommand, something is wrong.
-            if args.command in ("ls", "ra", "new"):
-                parser.print_usage()
-                exit(1)
+            # Handle install commands
+            if not handle_install_commands(args):
+                # At this point if ls/ra/new/install is specified without a subcommand, something is wrong.
+                if args.command in ("ls", "ra", "new", "install"):
+                    parser.print_usage()
+                    exit(1)
 
     # Parse all root agent descriptions
     root_agent_descs = [

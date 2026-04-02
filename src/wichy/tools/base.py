@@ -4,6 +4,7 @@ import time
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional, Type
 
+from wichy.hooks.executor import HookExecutor
 from wichy.tools.registry import ToolMeta
 
 from pydantic import BaseModel
@@ -113,6 +114,8 @@ class BaseTool(ABC, metaclass=ToolMeta):
         # and also catch errors that are not handled by the tool
         # itself.
         res = ""
+        final_args: Dict[str, Any] = {}
+        execution_error: Optional[Exception] = None
 
         try:
             validated_params = self.parameters_model(**kwargs)
@@ -122,31 +125,75 @@ class BaseTool(ABC, metaclass=ToolMeta):
             user_console.print(
                 f"[dim][bold]→[/bold] Calling tool:[/dim] [bold]{self.name}[/bold][dim]{cmd_info}[/dim]"
             )
-            start_time = time.time()
-            res = self.execute(**validated_params.model_dump())
 
-            # Calculate execution time
-            end_time = time.time()
-            execution_time = end_time - start_time
+            # Run pre-tool hooks
+            pre_result = HookExecutor.run_pre_hooks(
+                self, self.name, validated_params.model_dump()
+            )
 
-            # Calculate result size metrics
-            char_count = len(res)
-            token_estimate = char_count // 4  # rough estimate: 1 token ≈ 4 chars
-
-            # Build success message with timing and size info
-            msg = f"[green bold]✓[/green bold] tool {self.name} completed"
-            size_info = f" [dim]({char_count} chars, ~{token_estimate} tokens)[/dim]"
-            if execution_time > 3:
-                if execution_time > 60:
-                    minutes = int(execution_time // 60)
-                    seconds = int(execution_time % 60)
-                    time_str = f"{minutes}m {seconds}s"
+            # If pre-hook denied execution, return error immediately
+            if not pre_result.approved:
+                res = format_error(
+                    pre_result.error_message or f"{self.name}: Hook denied execution"
+                )
+                user_console.print(
+                    f"[red bold]✗[/red bold] tool {self.name} denied by hook"
+                )
+            else:
+                # Use modified input if hooks changed it, otherwise use original
+                if pre_result.modified_input:
+                    # Re-validate modified input
+                    validated_params = self.parameters_model(
+                        **pre_result.modified_input
+                    )
+                    final_args = validated_params.model_dump()
                 else:
-                    time_str = f"{execution_time:.2f}s"
-                msg = f"{msg} in {time_str}"
+                    final_args = validated_params.model_dump()
 
-            msg = f"{msg}{size_info}"
-            user_console.print(msg)
+                start_time = time.time()
+                try:
+                    res = self.execute(**final_args)
+                except Exception as e:
+                    execution_error = e
+                    res = format_error(f"{self.name}: {type(e).__name__}: {e}")
+                    user_console.print(
+                        f"[red bold]✗[/red bold] tool {self.name} failed"
+                    )
+
+                # Calculate execution time
+                end_time = time.time()
+                execution_time = end_time - start_time
+
+                # Calculate result size metrics
+                char_count = len(res)
+                token_estimate = char_count // 4  # rough estimate: 1 token ≈ 4 chars
+
+                # Build success message with timing and size info
+                if not execution_error:
+                    msg = f"[green bold]✓[/green bold] tool {self.name} completed"
+                    size_info = (
+                        f" [dim]({char_count} chars, ~{token_estimate} tokens)[/dim]"
+                    )
+                    if execution_time > 3:
+                        if execution_time > 60:
+                            minutes = int(execution_time // 60)
+                            seconds = int(execution_time % 60)
+                            time_str = f"{minutes}m {seconds}s"
+                        else:
+                            time_str = f"{execution_time:.2f}s"
+                        msg = f"{msg} in {time_str}"
+
+                    msg = f"{msg}{size_info}"
+                    user_console.print(msg)
+
+                # Run post-tool hooks (even on exception for logging/monitoring)
+                post_result = HookExecutor.run_post_hooks(
+                    self, self.name, final_args, res, error=execution_error
+                )
+
+                # Use modified output if hooks changed it
+                if post_result.modified_output:
+                    res = post_result.modified_output
 
         except Exception as e:
             res = format_error(f"{self.name}: {type(e).__name__}: {e}")

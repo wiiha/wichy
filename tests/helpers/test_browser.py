@@ -92,7 +92,9 @@ class TestBrowserManagerInitialization:
             # Set the manager's loop to our running loop
             manager._loop = loop_fixture.loop
 
-            with patch("wichy.helpers.browser.async_playwright") as mock_async_playwright:
+            with patch(
+                "wichy.helpers.browser.async_playwright"
+            ) as mock_async_playwright:
                 mock_async_playwright.return_value.__aenter__ = AsyncMock(
                     return_value=mock_playwright
                 )
@@ -101,7 +103,9 @@ class TestBrowserManagerInitialization:
                 mock_context.new_page.return_value = mock_page
 
                 # Use execute_serialized for async operation
-                result = manager.execute_serialized(lambda: manager.initialize(), timeout=5.0)
+                result = manager.execute_serialized(
+                    lambda: manager.initialize(), timeout=5.0
+                )
 
                 assert manager._browser is mock_browser
                 assert manager._context is mock_context
@@ -1013,7 +1017,9 @@ class TestBrowserPageInfoAndAct:
             manager._loop = loop_fixture.loop
 
             result = manager.execute_serialized(
-                lambda: manager._act(action="wait", target=".missing-element", timeout=5000),
+                lambda: manager._act(
+                    action="wait", target=".missing-element", timeout=5000
+                ),
                 timeout=5.0,
             )
 
@@ -1195,7 +1201,9 @@ class TestBrowserPageInfoAndAct:
             manager._loop = loop_fixture.loop
 
             result = manager.execute_serialized(
-                lambda: manager._act(action="fill", target="username", value=None, timeout=5000),
+                lambda: manager._act(
+                    action="fill", target="username", value=None, timeout=5000
+                ),
                 timeout=5.0,
             )
 
@@ -1239,7 +1247,10 @@ class TestBrowserPageInfoAndAct:
 
             result = manager.execute_serialized(
                 lambda: manager._act(
-                    action="fill", target="Email", value="test@example.com", timeout=5000
+                    action="fill",
+                    target="Email",
+                    value="test@example.com",
+                    timeout=5000,
                 ),
                 timeout=5.0,
             )
@@ -1326,7 +1337,9 @@ class TestBrowserPageInfoAndAct:
             manager._loop = loop_fixture.loop
 
             result = manager.execute_serialized(
-                lambda: manager._act(action="unknown", target="something", timeout=5000),
+                lambda: manager._act(
+                    action="unknown", target="something", timeout=5000
+                ),
                 timeout=5.0,
             )
 
