@@ -251,11 +251,7 @@ class TestBrowserManagerThreadSafety:
             loop_fixture.stop()
 
     def test_execute_serialized_timeout(self):
-        """Test that execute_serialized raises RuntimeError on timeout.
-
-        Note: Both asyncio.TimeoutError and concurrent.futures.TimeoutError
-        are wrapped in RuntimeError by execute_serialized.
-        """
+        """Test that execute_serialized raises TimeoutError on timeout."""
         manager = BrowserManager()
 
         # Setup mocks
@@ -280,17 +276,15 @@ class TestBrowserManagerThreadSafety:
                 await asyncio.sleep(10.0)  # This will exceed timeout
                 return {"status": "should not reach here"}
 
-            # Should raise RuntimeError wrapping the timeout (actual behavior)
-            # Note: concurrent.futures.TimeoutError is raised by future.result(),
-            # which gets wrapped in RuntimeError by execute_serialized
-            with pytest.raises(RuntimeError) as exc_info:
+            # Should raise TimeoutError (not RuntimeError) per the docstring
+            with pytest.raises(TimeoutError) as exc_info:
                 manager.execute_serialized(lambda: slow_operation(), timeout=0.5)
 
             # Verify error message indicates timeout
-            error_msg = str(exc_info.value).lower()
+            error_msg = str(exc_info.value)
             assert (
-                "timeout" in error_msg
-            ), f"Expected 'timeout' in error message: {error_msg}"
+                "timed out" in error_msg.lower()
+            ), f"Expected 'timed out' in error message: {error_msg}"
         finally:
             loop_fixture.stop()
 

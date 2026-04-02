@@ -80,6 +80,9 @@ dependencies = [
 dev = [
     "pytest>=7.0.0",
 ]
+chromadb = [
+    "sentence-transformers>=2.2.0",
+]
 
 [project.scripts]
 wichy = "wichy.__main__:main"
@@ -93,3 +96,4 @@ wichy = ["templates/**/*", "**/static/**/*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+addopts = "--ignore=tests/document_store"

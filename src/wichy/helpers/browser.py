@@ -7,6 +7,7 @@ This avoids repeated browser launches and preserves session state (cookies, logi
 
 import ast
 import asyncio
+import concurrent.futures
 import inspect
 import random
 import threading
@@ -122,11 +123,11 @@ class BrowserManager:
                 loop = self.get_event_loop()
                 future = asyncio.run_coroutine_threadsafe(operation(), loop)
                 return future.result(timeout=timeout)
-            except asyncio.TimeoutError:
+            except (asyncio.TimeoutError, concurrent.futures.TimeoutError):
                 future.cancel()  # Cancel the running coroutine
                 try:
                     future.result(timeout=1.0)  # Wait for cancellation
-                except (asyncio.CancelledError, asyncio.TimeoutError):
+                except (asyncio.CancelledError, concurrent.futures.CancelledError, asyncio.TimeoutError, concurrent.futures.TimeoutError):
                     pass
                 raise TimeoutError(
                     f"Browser operation timed out after {timeout}s. Thread {thread_id}"

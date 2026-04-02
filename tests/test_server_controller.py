@@ -10,6 +10,14 @@ from wichy.server_controller import ServerController
 class TestServerController:
     """Test suite for ServerController."""
 
+    @pytest.fixture(autouse=True)
+    def patch_server_host(self):
+        """Pin server_host to 127.0.0.1 so tests are deterministic regardless of env vars."""
+        with patch("wichy.server_controller.settings") as mock_settings:
+            mock_settings.server_host = "127.0.0.1"
+            mock_settings.server_port = 7891
+            yield mock_settings
+
     @pytest.fixture
     def mock_start_server(self):
         """Mock the start_server_in_background function."""
