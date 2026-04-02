@@ -101,6 +101,7 @@ class Repl:
                 continue
             except EOFError:
                 user_console.print("\nexiting...")
+                user_console.flush()
                 exit(0)
 
     def _print_user_prompt(self) -> None:
