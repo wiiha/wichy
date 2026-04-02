@@ -47,7 +47,26 @@ COPY src/ ./src/
 RUN python -m build --wheel
 
 # -----------------------------------------------------------------------------
-# Stage 2: Runtime
+# Stage 2: Browser Cache
+# -----------------------------------------------------------------------------
+# Only depends on pyproject.toml - NOT on source code.
+# Source changes won't invalidate this cache layer.
+FROM python:3.12-slim AS browser-cache
+
+# Copy only pyproject.toml to detect dependency changes
+COPY pyproject.toml /tmp/
+
+# Extract playwright version and install just playwright (not the whole package)
+# This layer only rebuilds when pyproject.toml's playwright version changes
+RUN pip install --no-cache-dir "$(grep -oP 'playwright==[\d.]+' /tmp/pyproject.toml)" && \
+    rm /tmp/pyproject.toml
+
+# Install browser to a dedicated cache location
+ENV PLAYWRIGHT_BROWSERS_PATH="/browser-cache"
+RUN playwright install chromium-headless-shell
+
+# -----------------------------------------------------------------------------
+# Stage 3: Runtime
 # -----------------------------------------------------------------------------
 FROM python:3.12-slim AS runtime
 
@@ -94,15 +113,12 @@ COPY --from=builder /build/dist/wichy-*.whl /tmp/
 RUN /opt/wichy/bin/pip install --no-cache-dir /tmp/wichy-*.whl && \
     rm /tmp/wichy-*.whl
 
-# Create playwright browser cache directory and set ownership for wichy user
-RUN mkdir -p /home/wichy/.cache/ms-playwright && \
-    chown -R wichy:wichy /home/wichy/.cache
+# Copy pre-downloaded browser from browser-cache stage
+# This avoids redownloading ~315MB on every build when dependencies haven't changed
+COPY --from=browser-cache /browser-cache /home/wichy/.cache/ms-playwright
 
-# Install Playwright chromium-headless-shell browser (as root, with PLAYWRIGHT_BROWSERS_PATH set)
-# This installs browsers to /home/wichy/.cache/ms-playwright which wichy user can access
-# Using chromium-headless-shell saves ~580MB compared to full chromium
-ENV PLAYWRIGHT_BROWSERS_PATH="/home/wichy/.cache/ms-playwright"
-RUN /opt/wichy/bin/playwright install chromium-headless-shell
+# Set ownership for wichy user
+RUN chown -R wichy:wichy /home/wichy/.cache
 
 # Set proper ownership and permissions on /opt/wichy
 # Root owns the venv, wichy group can read/execute
