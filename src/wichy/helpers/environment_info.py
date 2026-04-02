@@ -3,6 +3,8 @@ import platform
 import subprocess
 from datetime import date
 
+from wichy.config.settings import settings
+
 
 def environment_information():
     """Gather and print environment information including working directory, git status, platform, and date."""
@@ -36,6 +38,7 @@ Working directory: {cwd}
 Is directory a git repo: {git_repo}
 Platform: {plat}
 OS Version: {os_ver}
+{"Running in Docker container: Yes" if settings.container else ""}
 Today's date: {today}
 </env>"""
 

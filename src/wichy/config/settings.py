@@ -71,6 +71,9 @@ class Settings(BaseSettings):
     # User attention script
     needs_user_attention_script: Optional[str] = None
 
+    # Environment
+    container: bool = False  # Set to true when running inside the Docker container
+
     # Tool execution
     parallel_exec: bool = True
     skip_human_verification: bool = False
