@@ -2,8 +2,12 @@ from collections.abc import Callable
 from typing import TypeAlias
 
 from prompt_toolkit.completion import NestedCompleter
+from rich.table import Table
 
 from wichy.helpers.console import console
+from wichy.hooks.loader import hook_loader
+from wichy.hooks.registry import hook_registry
+from wichy.hooks.types import HookType
 from wichy.root_agent.root_agent import ContextResetStrategies
 from wichy.tools.base import console_tool_result
 from wichy.tools.task import console_task_agents
@@ -97,6 +101,60 @@ class SlashCommandChecker:
             threshold_str = str(threshold) if threshold is not None else "off"
             return f"[Status] tokens: {tokens} | auto-compact: {threshold_str}"
 
+        def handle_hooks(_line: str) -> str | None:
+            """Handle /hooks - reload and list all registered hooks."""
+            # Reload hooks from all hook files
+            hook_loader.reload_hooks()
+
+            # Get all registered hooks
+            all_hooks = hook_registry.list_all()
+
+            # Check if any hooks are registered
+            total_hooks = sum(
+                len(hooks_list)
+                for tool_hooks in all_hooks.values()
+                for hooks_list in tool_hooks.values()
+            )
+
+            if total_hooks == 0:
+                return "[Hooks] No hooks registered"
+
+            # Create a rich table for display
+            table = Table(title="Registered Hooks", show_lines=False)
+            table.add_column("Type", style="cyan", no_wrap=True)
+            table.add_column("Tool", style="green")
+            table.add_column("Name", style="white")
+            table.add_column("Priority", justify="right", style="yellow")
+            table.add_column("Source", style="dim")
+            table.add_column("Enabled", style="magenta")
+
+            # Sort hook types for consistent output
+            for hook_type in [HookType.PRE_TOOL, HookType.POST_TOOL]:
+                if hook_type not in all_hooks:
+                    continue
+
+                tool_hooks = all_hooks[hook_type]
+                # Sort by tool name (None first for wildcards)
+                sorted_tools = sorted(
+                    tool_hooks.keys(), key=lambda x: (x is not None, x or "")
+                )
+
+                for tool_name in sorted_tools:
+                    hooks_list = tool_hooks[tool_name]
+                    for hook in hooks_list:
+                        tool_display = "all" if tool_name is None else tool_name
+                        enabled_display = "✓" if hook.enabled else "✗"
+                        table.add_row(
+                            hook_type.value,
+                            tool_display,
+                            hook.name,
+                            str(hook.priority),
+                            hook.source,
+                            enabled_display,
+                        )
+
+            return table
+
         self._handlers: dict[str, CommandHandler] = {
             "/btw": handle_btw,
             "/exit": handle_exit,
@@ -105,6 +163,7 @@ class SlashCommandChecker:
             "/compact": handle_compact,
             "/drop": handle_drop,
             "/status": handle_status,
+            "/hooks": handle_hooks,
         }
 
         self._completer = NestedCompleter.from_nested_dict(
@@ -119,6 +178,7 @@ class SlashCommandChecker:
                 "/drop": None,
                 "/status": None,
                 "/exit": None,
+                "/hooks": None,
             }
         )
 
