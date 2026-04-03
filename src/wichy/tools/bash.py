@@ -268,6 +268,7 @@ class BashParameters(ParametersModel):
 class BashTool(BaseTool):
     name = "bash"
     description = "Execute an arbitrary command using subprocess, imagine it being bash. Calls to this tool will be audited before execution."
+    enable_result_offload = True
     parameters_model = BashParameters
     description_long = """
 Executes a given bash command with optional timeout. Working directory persists between commands; shell state (everything else) does not. The shell environment is initialized from the user's profile (bash or zsh).

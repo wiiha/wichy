@@ -60,9 +60,6 @@ Examples:
 
     parameters_model = QueryResultParameters
 
-    # This tool should never have its results offloaded
-    enable_result_offload = False
-
     def execute(self, **kwargs) -> str:
         """Execute the query result tool."""
         params = self.parameters_model(**kwargs)

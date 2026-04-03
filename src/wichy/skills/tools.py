@@ -262,6 +262,7 @@ class SkillFileTool(BaseTool):
     name = "read_skill_file"
     description = "Read a file from a skill's references/ or assets/ directory. Use this to access detailed documentation, examples, or templates bundled with a skill."
     description_long = "Reads and returns the content of a file from a skill's references/ or assets/ directory. Use this to access reference documentation, examples, templates, or other resources that supplement the skill's main knowledge."
+    enable_result_offload = True
     parameters_model = ReadSkillFileParameters
 
     def execute(self, **kwargs) -> str:

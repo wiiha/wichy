@@ -20,6 +20,7 @@ Usage:
 from typing import Dict, Any, Optional
 from wichy.config import settings
 from wichy.result_offload.store import get_result_store
+from wichy.helpers.multimodal import extract_multimodal_content
 
 
 def result_or_ref(
@@ -36,11 +37,12 @@ def result_or_ref(
 
     The logic:
     1. Handle edge cases (None, non-string, empty) → pass through
-    2. If agent can't query results (can_query_results=False) → pass through
-    3. If offloading disabled for this tool → pass through
-    4. If result size <= threshold → pass through
-    5. If result size <= threshold * (1 + tolerance) → pass through
-    6. Otherwise → offload (store + return reference)
+    2. If result contains multimodal content → pass through (LLM needs actual data)
+    3. If agent can't query results (can_query_results=False) → pass through
+    4. If offloading disabled for this tool → pass through
+    5. If result size <= threshold → pass through
+    6. If result size <= threshold * (1 + tolerance) → pass through
+    7. Otherwise → offload (store + return reference)
 
     Args:
         result: The tool result string
@@ -70,7 +72,16 @@ def result_or_ref(
         return result
 
     # -------------------------------------------------------------------------
-    # Check 0: If agent can't query results, skip offload entirely
+    # Check 0: Don't offload multimodal content (images, etc.)
+    # -------------------------------------------------------------------------
+    # Multimodal content must reach the LLM intact for vision processing.
+    # If we offload, the LLM receives a reference string instead of the image.
+    _, multimodal_parts = extract_multimodal_content(result)
+    if multimodal_parts is not None:
+        return result
+
+    # -------------------------------------------------------------------------
+    # Check 1: If agent can't query results, skip offload entirely
     # -------------------------------------------------------------------------
     # Without query_result tool, the agent cannot retrieve offloaded results
     if not can_query_results:

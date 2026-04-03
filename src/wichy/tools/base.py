@@ -47,9 +47,9 @@ class BaseTool(ABC, metaclass=ToolMeta):
     # -------------------------------------------------------------------------
     # Result offload control
     # -------------------------------------------------------------------------
-    # Set to False to opt out of result offloading for this tool
-    # Default is True (offloading enabled)
-    enable_result_offload: bool = True
+    # Set to True to opt in to result offloading for this tool
+    # Default is False (offloading disabled)
+    enable_result_offload: bool = False
 
     @abstractmethod
     def execute(self, **kwargs) -> str:

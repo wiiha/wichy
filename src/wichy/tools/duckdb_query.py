@@ -43,6 +43,7 @@ class DuckDBQueryTool(BaseTool):
 - Use duckdb_schema tool to see available tables and columns
 - Use duckdb_status tool to see current session state
 """
+    enable_result_offload = True
     parameters_model = DuckDBQueryParameters
 
     def execute(self, query: str, limit: int = 100, sample: bool = False) -> str:

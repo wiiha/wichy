@@ -33,6 +33,7 @@ class DuckDBSchemaTool(BaseTool):
 - **Note**: Tables created via CREATE TABLE/CREATE VIEW (from duckdb_query) will also appear here
 - Run duckdb_status to see overall session state
 """
+    enable_result_offload = True
     parameters_model = DuckDBSchemaParameters
 
     def execute(self, table_name: Optional[str] = None) -> str:

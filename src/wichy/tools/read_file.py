@@ -78,6 +78,7 @@ Multimodal Support (images):
 - The returned JSON contains a 'multimodal_content' field with OpenAI-compatible content blocks
 - Supported formats: JPEG, PNG, GIF, WebP
 - Use this when the user wants to show an image to a vision-capable LLM"""
+    enable_result_offload = True
     parameters_model = ReadFileParameters
 
     MAX_LINE_LENGTH = 2000

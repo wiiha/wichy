@@ -348,7 +348,7 @@ class DuckDBManager:
                     elif isinstance(val, (int, float)):
                         formatted_row.append(str(val))
                     else:
-                        formatted_row.append(str(val)[:100])  # Truncate long strings
+                        formatted_row.append(str(val))
                 result_str += "| " + " | ".join(formatted_row) + " |\n"
 
             return result_str.strip()

@@ -69,6 +69,7 @@ class SearchInFilesTool(BaseTool):
   - Use Task tool for open-ended searches requiring multiple rounds
   - Pattern syntax: Uses ripgrep (not grep) - literal braces need escaping (use `interface\\{\\}` to find `interface{}` in Go code)
   """
+    enable_result_offload = True
     parameters_model = SearchRecursiveParameters
 
     # Directories to exclude from search

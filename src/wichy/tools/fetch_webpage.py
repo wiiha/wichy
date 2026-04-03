@@ -1,6 +1,7 @@
 from typing import Literal
 
 import base64
+import json
 import os
 import random
 import tempfile
@@ -85,6 +86,7 @@ class FetchWebPageParameters(ParametersModel):
 class FetchWebPageTool(BaseTool):
     name = "web_fetch"
     description = "Fetch a webpage and return its text content as markdown."
+    enable_result_offload = True
     parameters_model = FetchWebPageParameters
 
     async def _fetch_webpage(self, url: str, wait_until: str = "networkidle") -> str:
@@ -318,10 +320,22 @@ class ScreenshotTool(BaseTool):
         try:
             screenshot_bytes = browser_manager.execute_serialized(_operation)
 
-            # If filename is 'base64', return raw base64 data
+            # If filename is 'base64', return multimodal JSON content
             if filename == "base64":
                 b64_data = base64.b64encode(screenshot_bytes).decode("utf-8")
-                return f"data:image/png;base64,{b64_data}"
+                mime_type = "image/png"
+                result = {
+                    "multimodal_content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{mime_type};base64,{b64_data}"},
+                        }
+                    ],
+                    "media_type": mime_type,
+                    "file_size_bytes": len(screenshot_bytes),
+                    "fullpage": fullpage,
+                }
+                return json.dumps(result, indent=2)
 
             # Determine the file path
             if os.path.isabs(filename) or os.path.dirname(filename):
@@ -383,6 +397,7 @@ class BrowserRawTool(BaseTool):
         "\"query_selector_all('a')\" returns all links, "
         "\"wait_for_selector('.item')\" waits for element to appear."
     )
+    enable_result_offload = True
     parameters_model = BrowserRawParameters
 
     def execute(self, code: str, limit: int = 20000) -> str:
