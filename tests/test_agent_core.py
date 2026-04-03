@@ -92,17 +92,23 @@ class TestAgentCoreToolCall:
 
         result, multimodal = agent._tool_call([mock_tool], mock_tool_call)
 
-        mock_tool.validate_and_execute.assert_called_once_with(arg1="value1")
+        mock_tool.validate_and_execute.assert_called_once_with(
+            arg1="value1", _can_query_results=False
+        )
         assert result["role"] == ROLE_TOOL
         assert result["tool_call_id"] == "call-123"
 
     def test_tool_call_injects_model_str_when_requested(self):
-        """Test _tool_call injects model_str when inject_model_str=True."""
+        """Test _tool_call injects model_str when inject_model_str=True and tool has model_str param."""
         agent = ConcreteAgent()
 
         mock_tool = Mock()
         mock_tool.name = "test_tool"
         mock_tool.validate_and_execute = Mock(return_value="result")
+        # Mock the parameters_model to return a schema with model_str property
+        mock_tool.parameters_model.model_json_schema = Mock(
+            return_value={"properties": {"arg1": {}, "model_str": {}}}
+        )
         agent.tools = [mock_tool]
 
         mock_tool_call = Mock()
@@ -113,7 +119,7 @@ class TestAgentCoreToolCall:
         agent._tool_call([mock_tool], mock_tool_call, inject_model_str=True)
 
         mock_tool.validate_and_execute.assert_called_once_with(
-            arg1="value1", model_str="test-model"
+            arg1="value1", model_str="test-model", _can_query_results=False
         )
 
     def test_tool_call_does_not_inject_model_str_by_default(self):
@@ -132,8 +138,10 @@ class TestAgentCoreToolCall:
 
         agent._tool_call([mock_tool], mock_tool_call)
 
-        # Should not include model_str
-        mock_tool.validate_and_execute.assert_called_once_with(arg1="value1")
+        # Should not include model_str (but will include _can_query_results)
+        mock_tool.validate_and_execute.assert_called_once_with(
+            arg1="value1", _can_query_results=False
+        )
 
 
 class TestAgentCoreFixMultimodalContext:
@@ -275,6 +283,10 @@ class TestMROSignatureCompatibility:
         mock_tool.validate_and_execute = Mock(
             side_effect=lambda **kwargs: captured_calls.append(kwargs) or "result"
         )
+        # Mock the parameters_model to return a schema with model_str property
+        mock_tool.parameters_model.model_json_schema = Mock(
+            return_value={"properties": {"arg1": {}, "model_str": {}}}
+        )
 
         # Create a context that tracks appends
         context_messages = []
@@ -311,8 +323,12 @@ class TestMROSignatureCompatibility:
         # Verify the call succeeded without TypeError
         assert modified is True
         assert len(captured_calls) == 1
-        # Verify model_str was injected
-        assert captured_calls[0] == {"arg1": "value1", "model_str": "gpt-4-turbo"}
+        # Verify model_str was injected (along with _can_query_results)
+        assert captured_calls[0] == {
+            "arg1": "value1",
+            "model_str": "gpt-4-turbo",
+            "_can_query_results": False,
+        }
 
     def test_handle_tools_base_without_inject_model_str(self):
         """
@@ -362,8 +378,8 @@ class TestMROSignatureCompatibility:
 
         assert modified is True
         assert len(captured_calls) == 1
-        # Verify model_str was NOT injected
-        assert captured_calls[0] == {"arg1": "value1"}
+        # Verify model_str was NOT injected (but _can_query_results is present)
+        assert captured_calls[0] == {"arg1": "value1", "_can_query_results": False}
 
     def test_handle_tools_base_multiple_tool_calls(self):
         """
@@ -382,12 +398,20 @@ class TestMROSignatureCompatibility:
             side_effect=lambda **kwargs: call_count.append(("tool1", kwargs))
             or "result1"
         )
+        # Mock the parameters_model to return a schema with model_str property
+        mock_tool1.parameters_model.model_json_schema = Mock(
+            return_value={"properties": {"x": {}, "model_str": {}}}
+        )
 
         mock_tool2 = Mock()
         mock_tool2.name = "tool2"
         mock_tool2.validate_and_execute = Mock(
             side_effect=lambda **kwargs: call_count.append(("tool2", kwargs))
             or "result2"
+        )
+        # Mock the parameters_model to return a schema with model_str property
+        mock_tool2.parameters_model.model_json_schema = Mock(
+            return_value={"properties": {"y": {}, "model_str": {}}}
         )
 
         context_messages = []
@@ -425,9 +449,15 @@ class TestMROSignatureCompatibility:
 
         assert modified is True
         assert len(call_count) == 2
-        # Both tools should receive model_str
-        assert call_count[0] == ("tool1", {"x": 1, "model_str": "test-model"})
-        assert call_count[1] == ("tool2", {"y": 2, "model_str": "test-model"})
+        # Both tools should receive model_str and _can_query_results
+        assert call_count[0] == (
+            "tool1",
+            {"x": 1, "model_str": "test-model", "_can_query_results": False},
+        )
+        assert call_count[1] == (
+            "tool2",
+            {"y": 2, "model_str": "test-model", "_can_query_results": False},
+        )
 
 
 class TestSubclassIntegration:
@@ -456,6 +486,10 @@ class TestSubclassIntegration:
         mock_tool = Mock()
         mock_tool.name = "my_tool"
         mock_tool.validate_and_execute = Mock(return_value="tool output")
+        # Mock the parameters_model to return a schema with model_str property
+        mock_tool.parameters_model.model_json_schema = Mock(
+            return_value={"properties": {"input": {}, "model_str": {}}}
+        )
 
         # Setup context
         context_messages = []
@@ -508,6 +542,10 @@ class TestSubclassIntegration:
         mock_tool = Mock()
         mock_tool.name = "test_tool"
         mock_tool.validate_and_execute = Mock(return_value="result")
+        # Mock the parameters_model to return a schema with model_str property
+        mock_tool.parameters_model.model_json_schema = Mock(
+            return_value={"properties": {"model_str": {}}}
+        )
 
         mock_tool_call = Mock()
         mock_tool_call.function.name = "test_tool"
@@ -519,7 +557,9 @@ class TestSubclassIntegration:
         result, _ = agent._tool_call([mock_tool], mock_tool_call, inject_model_str=True)
 
         assert result["role"] == ROLE_TOOL
-        mock_tool.validate_and_execute.assert_called_once_with(model_str="test-model")
+        mock_tool.validate_and_execute.assert_called_once_with(
+            model_str="test-model", _can_query_results=False
+        )
 
 
 class TestRootAgentInheritance:
@@ -567,6 +607,10 @@ class TestRootAgentInheritance:
         mock_tool_instance = Mock()
         mock_tool_instance.name = "test_tool"
         mock_tool_instance.validate_and_execute = Mock(return_value="result")
+        # Mock the parameters_model to return a schema with model_str property
+        mock_tool_instance.parameters_model.model_json_schema = Mock(
+            return_value={"properties": {"test": {}, "model_str": {}}}
+        )
         agent.tools = [mock_tool_instance]
 
         # This should not raise TypeError
@@ -643,4 +687,6 @@ class TestTaskAgentInheritance:
         agent._handle_tools([mock_tool_instance], mock_response)
 
         # Verify tool was executed WITHOUT model_str (TaskAgent behavior)
-        mock_tool_instance.validate_and_execute.assert_called_once_with(input="test")
+        mock_tool_instance.validate_and_execute.assert_called_once_with(
+            input="test", _can_query_results=False
+        )

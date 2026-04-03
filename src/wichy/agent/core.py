@@ -99,6 +99,10 @@ class AgentCore(ABC):
         if inject_model_str:
             args["model_str"] = self.model_str
 
+        # Check if query_result is available to this agent
+        can_query_results = any(t.name == "query_result" for t in tools)
+        args["_can_query_results"] = can_query_results
+
         for tool in tools:
             if name == tool.name:
                 result = tool.validate_and_execute(**args)

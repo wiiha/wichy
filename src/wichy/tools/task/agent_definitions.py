@@ -32,6 +32,7 @@ general_purpose_agent = TaskAgentDefinitionBase(
         "search_in_files",
         "insert_lines",
         "list_files",
+        "query_result",
         "replace_text",
         "todo",
         "web_fetch",
@@ -101,6 +102,7 @@ web_research_agent = TaskAgentDefinitionBase(
     name="web-research",
     description="Specialized agent for web-based research and information gathering. Use this agent when you need to search the internet for current information, fetch content from specific URLs, or conduct comprehensive online research across multiple sources. Put the phrase 'lite research' in the prompt for quick overview research.",
     tools=[
+        "query_result",
         "web_fetch",
         "web_search",
     ],

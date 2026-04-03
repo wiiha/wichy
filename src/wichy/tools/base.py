@@ -1,11 +1,9 @@
 from __future__ import annotations
 
+import random
 import time
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional, Type
-
-from wichy.hooks.executor import HookExecutor
-from wichy.tools.registry import ToolMeta
 
 from pydantic import BaseModel
 from rich.console import Console
@@ -13,7 +11,9 @@ from rich.markdown import Markdown
 
 from wichy.console import user_console
 from wichy.constants import HIDE_FROM_LLM_PREFIX
+from wichy.hooks.executor import HookExecutor
 from wichy.tools.errors import format_error
+from wichy.tools.registry import ToolMeta
 
 console_tool_result = Console(quiet=True)
 
@@ -44,6 +44,12 @@ class BaseTool(ABC, metaclass=ToolMeta):
     the user.
     """
     parameters_model: Type[ParametersModel]
+    # -------------------------------------------------------------------------
+    # Result offload control
+    # -------------------------------------------------------------------------
+    # Set to False to opt out of result offloading for this tool
+    # Default is True (offloading enabled)
+    enable_result_offload: bool = True
 
     @abstractmethod
     def execute(self, **kwargs) -> str:
@@ -194,6 +200,31 @@ class BaseTool(ABC, metaclass=ToolMeta):
                 # Use modified output if hooks changed it
                 if post_result.modified_output:
                     res = post_result.modified_output
+
+                # ---------------------------------------------------------------------
+                # Result offload check
+                # ---------------------------------------------------------------------
+                # Only consider offloading if execution was successful
+                if not execution_error:
+                    # Lazy import to avoid circular import with result_offload module
+                    from wichy.result_offload import get_result_store, result_or_ref
+
+                    # Clean up expired results periodically (1% chance per call)
+                    if random.random() < 0.01:
+                        store = get_result_store()
+                        store.cleanup_expired()
+
+                    # Apply offload logic
+                    res = result_or_ref(
+                        result=res,
+                        tool_name=self.name,
+                        input_args=final_args,
+                        model_str=kwargs.get("model_str"),  # May be None
+                        enable_offload=self.enable_result_offload,
+                        can_query_results=kwargs.get(
+                            "_can_query_results", True
+                        ),  # Default True if not provided
+                    )
 
         except Exception as e:
             res = format_error(f"{self.name}: {type(e).__name__}: {e}")

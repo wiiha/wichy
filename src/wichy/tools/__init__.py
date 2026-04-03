@@ -28,6 +28,7 @@ from wichy.tools.glob import GlobTool
 from wichy.tools.graph_tools import CreateGraphTool, ListGraphsTool, ReadGraphTool
 from wichy.tools.helpers import get_tool_definitions
 from wichy.tools.insert_lines import InsertLinesTool
+from wichy.result_offload import QueryResultTool
 
 from wichy.tools.list_files import ListFilesTool
 from wichy.tools.read_file import ReadFileTool
@@ -102,6 +103,7 @@ __all__ = [
     "SkillInfoTool",
     "SkillScriptTool",
     "SkillSearchTool",
+    "QueryResultTool",
     # Backward compatibility
     "ALL_TOOLS_NOT_INSTANTIATED",
 ]

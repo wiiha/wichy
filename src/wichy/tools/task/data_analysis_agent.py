@@ -15,6 +15,7 @@ data_analysis_agent = TaskAgentDefinitionBase(
         "duckdb_reset",
         "glob",
         "list_files",
+        "query_result",
         "read_file",
         "ask_user_question",
     ],

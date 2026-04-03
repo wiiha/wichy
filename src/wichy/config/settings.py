@@ -80,6 +80,32 @@ class Settings(BaseSettings):
 
     skills_dir_name: str = "skills"
 
+    # -------------------------------------------------------------------------
+    # Result Offload Configuration
+    # -------------------------------------------------------------------------
+
+    # Character threshold above which results may be offloaded
+    # Default: 8000 chars
+    result_offload_threshold: int = 8000
+
+    # Tolerance percentage for pass-through
+    # If result size <= threshold * (1 + tolerance), pass through normally
+    # Default: 0.10 (10%) - so 8000 * 1.10 = 8800 chars
+    result_offload_tolerance: float = 0.10
+
+    # Preview character count for offloaded results
+    # Included in the reference response so agents can see beginning
+    # Default: 500 chars (max 1000)
+    result_offload_preview_chars: int = 500
+
+    # Time-to-live for stored results (hours)
+    # Default: 24 hours
+    result_offload_ttl_hours: int = 24
+
+    # Maximum validation retries for summarizer
+    # Default: 2
+    result_offload_max_validation_retries: int = 2
+
     @property
     def skills_dir(self) -> Path:
         """Full path to skills directory."""

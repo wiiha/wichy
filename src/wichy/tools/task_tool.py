@@ -55,6 +55,9 @@ class TaskAgentTool(BaseTool):
     name = "task"
     description = "The Task tool launches specialized agents that autonomously handle complex, multi-step tasks like bash operations, codebase exploration, implementation planning, and general-purpose research. Each agent type has specific capabilities and tools available to it."
     parameters_model = TaskAgentParameters
+
+    # Task results are already synthesized by LLM, no need to offload
+    enable_result_offload = False
     description_long = (
         """
 Launch a new agent to handle complex, multi-step tasks autonomously.
