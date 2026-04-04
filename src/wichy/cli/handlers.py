@@ -126,7 +126,8 @@ def handle_list_skills():
 
     msg = "# Skills Available\n\n"
     for skill_name, skill in skills.items():
-        msg += f"- **{skill_name}**: {skill.description}\n"
+        inactive_marker = " [dim]\\[inactive][/dim]" if skill.inactive else ""
+        msg += f"- **{skill_name}**{inactive_marker}: {skill.description}\n"
         if skill.tags:
             msg += f"\t- Tags: {', '.join(skill.tags)}\n"
         if skill.scripts:

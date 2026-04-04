@@ -37,11 +37,14 @@ class SkillDiscoveryTool(BaseTool):
     parameters_model = ListSkillsParameters
 
     def execute(self, **kwargs) -> str:
-        """List all skills."""
+        """List all skills (excluding inactive)."""
         registry = SkillRegistry()
         skills = registry.list_all()
         result = []
         for skill in skills.values():
+            # Skip inactive skills - they're not available to agents
+            if skill.inactive:
+                continue
             result.append(
                 {
                     "name": skill.name,
@@ -76,12 +79,15 @@ class SkillSearchTool(BaseTool):
     parameters_model = SearchSkillsParameters
 
     def execute(self, **kwargs) -> str:
-        """Search skills."""
+        """Search skills (excluding inactive)."""
         params = self.parameters_model(**kwargs)
         registry = SkillRegistry()
         results = registry.search(params.keyword)
         result_list = []
         for skill in results.values():
+            # Skip inactive skills - they're not available to agents
+            if skill.inactive:
+                continue
             result_list.append(
                 {
                     "name": skill.name,
@@ -115,12 +121,16 @@ class SkillInfoTool(BaseTool):
     parameters_model = GetSkillInfoParameters
 
     def execute(self, **kwargs) -> str:
-        """Get skill info."""
+        """Get skill info (rejects inactive skills)."""
         params = self.parameters_model(**kwargs)
         registry = SkillRegistry()
         skill = registry.get(params.skill_name)
         if not skill:
             return format_error(f"Skill '{params.skill_name}' not found")
+        if skill.inactive:
+            return format_error(
+                f"Skill '{params.skill_name}' is inactive and cannot be used"
+            )
         result = {
             "name": skill.name,
             "description": skill.description,
@@ -160,12 +170,16 @@ class SkillScriptTool(BaseTool):
     parameters_model = ExecuteSkillScriptParameters
 
     def execute(self, **kwargs) -> str:
-        """Execute a skill script."""
+        """Execute a skill script (rejects inactive skills)."""
         params = self.parameters_model(**kwargs)
         registry = SkillRegistry()
         skill = registry.get(params.skill_name)
         if not skill:
             return format_error(f"Skill '{params.skill_name}' not found")
+        if skill.inactive:
+            return format_error(
+                f"Skill '{params.skill_name}' is inactive and cannot be used"
+            )
 
         script_path = skill.get_script_path(params.script_name)
         if not script_path:
@@ -266,12 +280,16 @@ class SkillFileTool(BaseTool):
     parameters_model = ReadSkillFileParameters
 
     def execute(self, **kwargs) -> str:
-        """Read a skill file."""
+        """Read a skill file (rejects inactive skills)."""
         params = self.parameters_model(**kwargs)
         registry = SkillRegistry()
         skill = registry.get(params.skill_name)
         if not skill:
             return format_error(f"Skill '{params.skill_name}' not found")
+        if skill.inactive:
+            return format_error(
+                f"Skill '{params.skill_name}' is inactive and cannot be used"
+            )
 
         # Determine which directory to search
         if params.file_type == "assets":

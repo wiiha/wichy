@@ -63,6 +63,24 @@ class Skill:
             tags = [t.strip() for t in tags.split(",")]
         return tags if isinstance(tags, list) else []
 
+    @property
+    def inactive(self) -> bool:
+        """Check if skill is temporarily inactivated.
+
+        A skill is inactive if:
+        - 'inactive' tag is in tags list, OR
+        - metadata.inactive is truthy (true, True, 1, etc.)
+
+        Returns:
+            True if skill should be skipped during loading.
+        """
+        # Check for 'inactive' in tags
+        if "inactive" in self.tags:
+            return True
+        # Check for truthy 'inactive' in metadata
+        inactive_value = self.metadata.get("inactive", False)
+        return bool(inactive_value)
+
     def list_scripts(self) -> List[Dict[str, Any]]:
         """Return list of scripts as dictionaries."""
         return [s.to_dict() for s in self.scripts]
