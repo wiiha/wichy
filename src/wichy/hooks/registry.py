@@ -2,8 +2,11 @@
 Hook registry for the Wichy hooks system.
 
 This module provides a singleton registry for storing and managing hooks.
-Hooks are registered with a type (PRE_TOOL or POST_TOOL), an optional tool name
-(wildcard if None), and are executed in priority order.
+Hooks are registered with a type (PRE_TOOL, POST_TOOL, or lifecycle hooks),
+an optional tool name (wildcard if None), and are executed in priority order.
+
+Lifecycle hooks (SESSION_START, SESSION_END, CONTEXT_RESET_PRE, etc.) do not
+have a tool context and are registered with tool_name=None.
 
 Usage:
     from wichy.hooks.registry import hook_registry, register_hook
@@ -14,8 +17,14 @@ Usage:
     # Register a tool-specific hook
     register_hook(HookType.PRE_TOOL, my_function, tool_name="bash", priority=50)
 
+    # Register a lifecycle hook
+    register_hook(HookType.SESSION_START, my_function, priority=10)
+
     # Get hooks for a specific tool
     hooks = hook_registry.get_hooks(HookType.PRE_TOOL, "bash")
+
+    # Get lifecycle hooks
+    hooks = hook_registry.get_hooks_for_type(HookType.SESSION_START)
 """
 
 from __future__ import annotations
@@ -149,6 +158,23 @@ class HookRegistry:
             # heapq.merge is O(n) for already-sorted iterables
             return list(heapq.merge(wildcard, specific, key=lambda h: h.priority))
 
+    def get_hooks_for_type(self, hook_type: HookType) -> List[RegisteredHook]:
+        """Get all hooks for a hook type, sorted by priority.
+
+        This method is used for lifecycle hooks (SESSION_START, SESSION_END,
+        CONTEXT_RESET_PRE, CONTEXT_RESET_POST, CONTEXT_COMPACT_PRE,
+        CONTEXT_COMPACT_POST) which don't have a tool context.
+
+        Args:
+            hook_type: The type of hook (lifecycle hook types)
+
+        Returns:
+            List of RegisteredHook objects sorted by priority
+        """
+        with self._registry_lock:
+            hooks = self._hooks[hook_type].get(None, [])
+            return list(hooks)
+
     def clear(self) -> None:
         """Clear all registered hooks.
 
@@ -202,9 +228,10 @@ def register_hook(
     """Convenience function to register a hook.
 
     Args:
-        hook_type: The type of hook (PRE_TOOL or POST_TOOL)
+        hook_type: The type of hook (PRE_TOOL, POST_TOOL, or lifecycle hooks)
         function: The hook function to execute
-        tool_name: Name of the tool to hook (None = wildcard for all tools)
+        tool_name: Name of the tool to hook (None = wildcard for all tools,
+            or None for lifecycle hooks which don't have a tool context)
         priority: Execution priority (lower = earlier). Default is 50.
         name: Human-readable name for the hook (defaults to function name)
         source: Where the hook was registered from ("python", "yaml", or "shell")
@@ -230,6 +257,20 @@ def get_hooks_for_tool(hook_type: HookType, tool_name: str) -> List[RegisteredHo
         List of RegisteredHook objects sorted by priority
     """
     return hook_registry.get_hooks(hook_type, tool_name)
+
+
+def get_hooks_for_type(hook_type: HookType) -> List[RegisteredHook]:
+    """Convenience function to get hooks for a hook type.
+
+    Used for lifecycle hooks which don't have a tool context.
+
+    Args:
+        hook_type: The type of hook (lifecycle hook types)
+
+    Returns:
+        List of RegisteredHook objects sorted by priority
+    """
+    return hook_registry.get_hooks_for_type(hook_type)
 
 
 def clear_hooks() -> None:

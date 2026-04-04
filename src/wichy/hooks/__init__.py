@@ -18,6 +18,20 @@ Example usage:
     def redact_secrets(ctx: HookContext) -> HookResult:
         output = ctx.output.replace("secret", "[REDACTED]")
         return HookResult.modify_output(output)
+
+Lifecycle hooks for session and context events:
+
+    from wichy.hooks import session_start, session_end, context_reset_pre
+
+    @session_start
+    def on_session_start(ctx: HookContext) -> HookResult:
+        print("Session started")
+        return HookResult.approve()
+
+    @context_compact_pre
+    def before_compact(ctx: HookContext) -> HookResult:
+        print("Context will be compacted")
+        return HookResult.approve()
 """
 
 # Console
@@ -25,7 +39,16 @@ from wichy.console import user_console
 from wichy.hooks.context import HookContext
 
 # Decorators (main user-facing API)
-from wichy.hooks.decorators import post_tool, pre_tool
+from wichy.hooks.decorators import (
+    context_compact_post,
+    context_compact_pre,
+    context_reset_post,
+    context_reset_pre,
+    post_tool,
+    pre_tool,
+    session_end,
+    session_start,
+)
 
 # Default hook template
 from wichy.hooks.default import DEFAULT_HOOKS_TEMPLATE
@@ -41,6 +64,7 @@ from wichy.hooks.registry import (
     HookRegistry,
     clear_hooks,
     get_hooks_for_tool,
+    get_hooks_for_type,
     hook_registry,
     register_hook,
 )
@@ -74,6 +98,12 @@ __all__ = [
     # Decorators
     "pre_tool",
     "post_tool",
+    "session_start",
+    "session_end",
+    "context_reset_pre",
+    "context_reset_post",
+    "context_compact_pre",
+    "context_compact_post",
     # Data classes
     "HookAction",
     "HookResult",
@@ -88,6 +118,7 @@ __all__ = [
     "hook_registry",
     "register_hook",
     "get_hooks_for_tool",
+    "get_hooks_for_type",
     "clear_hooks",
     # Executor
     "HookExecutor",

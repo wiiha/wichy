@@ -459,7 +459,8 @@ class TestHookType:
     def test_all_hook_types_count(self):
         """Test that all expected hook types are present."""
         types = list(HookType)
-        assert len(types) == 2
+        # 2 tool hooks + 6 lifecycle hooks = 8 total
+        assert len(types) == 8
 
 
 class TestHookPriority:

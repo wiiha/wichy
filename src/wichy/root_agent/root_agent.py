@@ -15,6 +15,8 @@ from wichy.llm_backend import (
     call,
     called_tool,
 )
+from wichy.hooks.executor import HookExecutor
+from wichy.hooks.types import HookType
 from wichy.tools import get_tool_definitions
 from wichy.tools.base import BaseTool
 
@@ -293,6 +295,14 @@ class RootAgent(AgentCore):
         if strategy == ContextResetStrategies.SUMMARY:
             return self.compact_context()
 
+        # Fire CONTEXT_RESET_PRE hook before nuking the context
+        HookExecutor.run_context_hooks(
+            HookType.CONTEXT_RESET_PRE,
+            context_handler=self.context,
+            root_agent=self,
+            reset_strategy=strategy.value,
+        )
+
         # nuke, default case
         first_prompt = self.context()[0]
         old_context = self.context
@@ -314,6 +324,14 @@ class RootAgent(AgentCore):
         except Exception:
             pass
 
+        # Fire CONTEXT_RESET_POST hook after new context is created
+        HookExecutor.run_context_hooks(
+            HookType.CONTEXT_RESET_POST,
+            context_handler=self.context,
+            root_agent=self,
+            reset_strategy=strategy.value,
+        )
+
     def compact_context(
         self,
         guideline_from_user_on_what_to_keep: Optional[str] = None,
@@ -321,6 +339,15 @@ class RootAgent(AgentCore):
     ):
         first_prompt = self.context()[0]
         old_context = self.context
+
+        # Fire CONTEXT_COMPACT_PRE hook before LLM summarization
+        HookExecutor.run_context_hooks(
+            HookType.CONTEXT_COMPACT_PRE,
+            context_handler=self.context,
+            root_agent=self,
+            is_auto_compact=is_auto_compact,
+        )
+
         guideline_for_compacting = "Please summarize our conversation. Keep it structured. Include any external sources mentioned."
         if guideline_from_user_on_what_to_keep:
             guideline_for_compacting += (
@@ -376,4 +403,13 @@ class RootAgent(AgentCore):
             context_editor_api.set_active_context(self.context)
         except Exception:
             pass
+
+        # Fire CONTEXT_COMPACT_POST hook after context is replaced with summary
+        HookExecutor.run_context_hooks(
+            HookType.CONTEXT_COMPACT_POST,
+            context_handler=self.context,
+            root_agent=self,
+            summary=summary_msg,
+            is_auto_compact=is_auto_compact,
+        )
         return

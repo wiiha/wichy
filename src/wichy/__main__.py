@@ -1,5 +1,8 @@
 import atexit
+import os
 import sys
+from datetime import datetime
+from pathlib import Path
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
@@ -20,6 +23,9 @@ from wichy.context.handler import context_from_file, latest_context_file
 from wichy.helpers.console import console
 from wichy.helpers.string import strip_thinking_content
 from wichy.hooks import initialize_hooks
+from wichy.hooks.context import HookContext
+from wichy.hooks.registry import hook_registry
+from wichy.hooks.types import HookType
 from wichy.repl import Repl
 from wichy.root_agent import ALL_ROOT_AGENT_DESC
 from wichy.root_agent.helpers import parse_root_agent_markdown_desc
@@ -32,6 +38,29 @@ from wichy.tools.base import console_tool_result
 from wichy.tools.notes import set_scratchpad_slug
 from wichy.tools.task import console_task_agents
 
+# Module-level session context for lifecycle hooks
+_session_context: HookContext | None = None
+
+
+def _run_lifecycle_hooks(hook_type: HookType, context: HookContext) -> None:
+    """Run all lifecycle hooks of the given type.
+
+    Lifecycle hooks (SESSION_START, SESSION_END, etc.) don't have a tool context
+    and are executed for their side effects only.
+
+    Args:
+        hook_type: The type of lifecycle hook to run
+        context: The hook context with session information
+    """
+    hooks = hook_registry.get_hooks_for_type(hook_type)
+    for hook in hooks:
+        if not hook.enabled:
+            continue
+        try:
+            hook.function(context)
+        except Exception as e:
+            user_console.print(f"[red]Hook {hook.name} failed: {e}[/red]")
+
 
 def _cleanup():
     """Clean up resources before Python exit.
@@ -39,6 +68,14 @@ def _cleanup():
     This atexit handler ensures daemon threads are properly shut down
     before Python finalization, preventing deadlocks on exit.
     """
+    # Fire SESSION_END hook before stopping threads
+    global _session_context
+    if _session_context is not None:
+        try:
+            _run_lifecycle_hooks(HookType.SESSION_END, _session_context)
+        except Exception:
+            pass
+
     # Stop console output thread first
     try:
         from wichy.console.user import user_console
@@ -237,6 +274,23 @@ def main():
     except AgentBuilderError as e:
         user_console.print(f"[red]error:[/red] {e}")
         exit(1)
+
+    # Fire SESSION_START hook after root agent is built
+    global _session_context
+    _session_context = HookContext(
+        tool_name=None,  # Lifecycle hooks use None
+        tool_instance=root_agent,  # Keep this, useful reference
+        input_args={},
+        raw_input_args={},
+        execution_id=hook_registry.generate_execution_id(),
+        timestamp=datetime.now(),
+        working_directory=Path(os.getcwd()),
+        environment=dict(os.environ),
+        event_data={
+            "root_agent": root_agent,
+        },
+    )
+    _run_lifecycle_hooks(HookType.SESSION_START, _session_context)
 
     # If we loaded a context, show a summary
     if loaded_context is not None:

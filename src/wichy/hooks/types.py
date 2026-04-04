@@ -4,6 +4,13 @@ Hook types for the Wichy hooks system.
 This module defines the hook type enum, priority levels, and the registered
 hook dataclass used internally by the hook registry.
 
+Hook Categories:
+    - Tool hooks (PRE_TOOL, POST_TOOL): Triggered before/after tool invocations.
+      Registered with a specific tool_name or None (wildcard matching all tools).
+    - Lifecycle hooks (SESSION_START, SESSION_END, CONTEXT_*): Triggered by session
+      and context lifecycle events. Always registered with tool_name=None since there
+      is no tool being invoked. The hook type itself identifies the event.
+
 Usage:
     from wichy.hooks.types import HookType, HookPriority, RegisteredHook
 """
@@ -20,16 +27,33 @@ if TYPE_CHECKING:
 class HookType(Enum):
     """Types of hooks available in the system.
 
-    Each hook type is triggered at a different point in the tool execution
-    lifecycle.
+    Hook types are divided into two categories:
 
-    Attributes:
+    **Tool Hooks** (registered with a specific tool_name or None for wildcard):
         PRE_TOOL: Executed before a tool runs. Can approve, deny, or modify inputs.
         POST_TOOL: Executed after a tool runs. Can approve, deny, or modify outputs.
+
+    **Lifecycle Hooks** (always registered with tool_name=None, since no tool is
+    being invoked; the hook type itself identifies the event):
+        SESSION_START: Executed when a wichy session starts.
+        SESSION_END: Executed when a wichy session ends.
+        CONTEXT_RESET_PRE: Executed before context is reset.
+        CONTEXT_RESET_POST: Executed after context is reset.
+        CONTEXT_COMPACT_PRE: Executed before context compaction.
+        CONTEXT_COMPACT_POST: Executed after context compaction.
+
+    For lifecycle hooks, event-specific data is provided in the HookContext.event_data
+    dictionary rather than through tool-related fields.
     """
 
     PRE_TOOL = "pre_tool"
     POST_TOOL = "post_tool"
+    SESSION_START = "session_start"
+    SESSION_END = "session_end"
+    CONTEXT_RESET_PRE = "context_reset_pre"
+    CONTEXT_RESET_POST = "context_reset_post"
+    CONTEXT_COMPACT_PRE = "context_compact_pre"
+    CONTEXT_COMPACT_POST = "context_compact_post"
 
 
 class HookPriority(Enum):
@@ -57,8 +81,11 @@ class RegisteredHook:
     registered with the hook registry.
 
     Attributes:
-        hook_type: The type of hook (PRE_TOOL or POST_TOOL)
-        tool_name: Name of the tool to hook (None = wildcard for all tools)
+        hook_type: The type of hook (PRE_TOOL, POST_TOOL, or lifecycle hooks)
+        tool_name: For tool hooks, the name of the tool to hook (e.g., "bash",
+            "write_file"), or None to match all tools (wildcard). For lifecycle
+            hooks (SESSION_START, SESSION_END, CONTEXT_*), this is always None
+            since there is no tool being invoked.
         function: The hook function to execute
         priority: Execution priority (lower = earlier). Default is 50.
         name: Human-readable name for the hook (defaults to function name)

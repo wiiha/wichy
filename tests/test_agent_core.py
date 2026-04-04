@@ -627,7 +627,7 @@ class TestTaskAgentInheritance:
     def test_task_agent_handle_tools_delegates_to_base(self):
         """
         Test that TaskAgent._handle_tools can call _handle_tools_base with
-        inject_model_str=False without TypeError.
+        inject_model_str=True without TypeError.
         """
         from unittest.mock import patch
         from wichy.tools.task.base import TaskAgent, TaskAgentDefinitionBase
@@ -686,7 +686,7 @@ class TestTaskAgentInheritance:
         # Tests that TaskAgent can call _handle_tools_base -> _tool_call
         agent._handle_tools([mock_tool_instance], mock_response)
 
-        # Verify tool was executed WITHOUT model_str (TaskAgent behavior)
+        # Verify tool was executed WITH model_str (TaskAgent behavior)
         mock_tool_instance.validate_and_execute.assert_called_once_with(
-            input="test", _can_query_results=False
+            input="test", model_str="test-model", _can_query_results=False
         )
