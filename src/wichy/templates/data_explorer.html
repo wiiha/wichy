@@ -1,0 +1,1291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wichy - Data Explorer</title>
+    <link rel="stylesheet" href="/shared/shared.css">
+    <style>
+        /* Data Explorer specific styles */
+        body {
+            padding: 0;
+        }
+
+        .page-container {
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+
+        /* Page Header */
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: var(--space-lg) var(--space-2xl);
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .page-header-left {
+            display: flex;
+            align-items: center;
+            gap: var(--space-md);
+        }
+
+        .page-header h1 {
+            margin: 0;
+            font-size: var(--font-size-xl);
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            gap: var(--space-sm);
+        }
+
+        .page-header-subtitle {
+            color: var(--text-muted);
+            font-size: var(--font-size-sm);
+        }
+
+        .page-header-nav a {
+            color: var(--primary-500);
+            text-decoration: none;
+            font-size: var(--font-size-sm);
+            transition: color var(--transition-fast);
+        }
+
+        .page-header-nav a:hover {
+            color: var(--primary-700);
+        }
+
+        /* Main Layout */
+        .main-layout {
+            display: flex;
+            flex: 1;
+            min-height: 0;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 300px;
+            background: var(--surface);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .sidebar-header {
+            padding: var(--space-lg);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .sidebar-header h2 {
+            margin: 0 0 var(--space-xs) 0;
+            font-size: var(--font-size-base);
+            font-weight: 600;
+        }
+
+        .sidebar-header .table-count {
+            font-size: var(--font-size-xs);
+            color: var(--text-muted);
+        }
+
+        .sidebar-search {
+            padding: var(--space-md) var(--space-lg);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .sidebar-search input {
+            width: 100%;
+            padding: var(--space-sm) var(--space-md);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            font-size: var(--font-size-sm);
+            background: var(--background);
+        }
+
+        .sidebar-search input:focus {
+            outline: none;
+            border-color: var(--primary-500);
+        }
+
+        .tables-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: var(--space-sm) 0;
+        }
+
+        .table-item {
+            padding: var(--space-md) var(--space-lg);
+            cursor: pointer;
+            border-bottom: 1px solid var(--border);
+            transition: background var(--transition-fast);
+        }
+
+        .table-item:last-child {
+            border-bottom: none;
+        }
+
+        .table-item:hover {
+            background: var(--background);
+        }
+
+        .table-item.active {
+            background: var(--primary-50);
+            border-left: 3px solid var(--primary-500);
+        }
+
+        .table-item-name {
+            display: flex;
+            align-items: center;
+            gap: var(--space-sm);
+            font-weight: 500;
+            color: var(--text);
+        }
+
+        .table-item-icon {
+            font-size: var(--font-size-base);
+        }
+
+        .table-item-count {
+            font-size: var(--font-size-xs);
+            color: var(--text-muted);
+            margin-top: var(--space-xs);
+            padding-left: calc(var(--font-size-base) + var(--space-sm));
+        }
+
+        /* Main Content */
+        .main-content {
+            flex: 1;
+            background: var(--background);
+            overflow-y: auto;
+        }
+
+        .content-area {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: var(--space-2xl);
+        }
+
+        /* Empty State */
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            min-height: 400px;
+            color: var(--text-muted);
+            text-align: center;
+        }
+
+        .empty-state-icon {
+            font-size: 3rem;
+            margin-bottom: var(--space-lg);
+        }
+
+        .empty-state-title {
+            font-size: var(--font-size-lg);
+            font-weight: 500;
+            color: var(--text);
+            margin-bottom: var(--space-sm);
+        }
+
+        .empty-state-description {
+            font-size: var(--font-size-base);
+        }
+
+        /* Loading State */
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: var(--space-md);
+            padding: var(--space-2xl);
+            color: var(--text-muted);
+        }
+
+        .loading-spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid var(--border);
+            border-top-color: var(--primary-500);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Error State */
+        .error-message {
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            border-radius: var(--radius-md);
+            padding: var(--space-lg);
+            color: #991b1b;
+            margin-bottom: var(--space-lg);
+        }
+
+        .error-message-title {
+            font-weight: 600;
+            margin-bottom: var(--space-sm);
+        }
+
+        /* Table Overview */
+        .table-overview {
+            background: var(--surface);
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--border);
+            overflow: hidden;
+        }
+
+        .overview-header {
+            padding: var(--space-lg) var(--space-xl);
+            border-bottom: 1px solid var(--border);
+            background: var(--background);
+        }
+
+        .overview-title {
+            margin: 0;
+            font-size: var(--font-size-xl);
+            display: flex;
+            align-items: center;
+            gap: var(--space-sm);
+        }
+
+        .overview-stats {
+            display: flex;
+            gap: var(--space-xl);
+            margin-top: var(--space-md);
+        }
+
+        .stat-item {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .stat-value {
+            font-size: var(--font-size-lg);
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        .stat-label {
+            font-size: var(--font-size-xs);
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .overview-actions {
+            padding: var(--space-lg) var(--space-xl);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            gap: var(--space-md);
+        }
+
+        .overview-columns {
+            padding: var(--space-lg) var(--space-xl);
+        }
+
+        .columns-header {
+            font-size: var(--font-size-base);
+            font-weight: 600;
+            margin-bottom: var(--space-md);
+        }
+
+        .columns-list {
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-sm);
+        }
+
+        .column-item {
+            display: flex;
+            align-items: center;
+            gap: var(--space-md);
+            padding: var(--space-md) var(--space-lg);
+            background: var(--background);
+            border-radius: var(--radius-md);
+            cursor: pointer;
+            transition: background var(--transition-fast), box-shadow var(--transition-fast);
+        }
+
+        .column-item:hover {
+            background: var(--background-alt);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .column-name {
+            flex: 1;
+            font-weight: 500;
+            color: var(--text);
+        }
+
+        .column-type {
+            font-size: var(--font-size-xs);
+            padding: var(--space-xs) var(--space-sm);
+            background: var(--surface);
+            border-radius: var(--radius-sm);
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+        }
+
+        .column-nullable {
+            font-size: var(--font-size-xs);
+            color: var(--text-muted);
+        }
+
+        /* Column Profile */
+        .column-profile {
+            background: var(--surface);
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--border);
+            overflow: hidden;
+        }
+
+        .profile-header {
+            padding: var(--space-lg) var(--space-xl);
+            border-bottom: 1px solid var(--border);
+            background: var(--background);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .profile-title {
+            margin: 0;
+            font-size: var(--font-size-xl);
+            display: flex;
+            align-items: center;
+            gap: var(--space-sm);
+        }
+
+        .back-btn {
+            background: none;
+            border: none;
+            color: var(--primary-500);
+            cursor: pointer;
+            font-size: var(--font-size-base);
+            padding: var(--space-sm) var(--space-md);
+            border-radius: var(--radius-md);
+            transition: background var(--transition-fast);
+        }
+
+        .back-btn:hover {
+            background: var(--primary-50);
+        }
+
+        .profile-content {
+            padding: var(--space-xl);
+        }
+
+        .profile-section {
+            margin-bottom: var(--space-xl);
+        }
+
+        .profile-section:last-child {
+            margin-bottom: 0;
+        }
+
+        .profile-section-title {
+            font-size: var(--font-size-sm);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            margin-bottom: var(--space-md);
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: var(--space-md);
+        }
+
+        .stat-card {
+            background: var(--background);
+            border-radius: var(--radius-md);
+            padding: var(--space-md);
+        }
+
+        .stat-card-value {
+            font-size: var(--font-size-lg);
+            font-weight: 600;
+            color: var(--text);
+            font-family: var(--font-mono);
+        }
+
+        .stat-card-label {
+            font-size: var(--font-size-xs);
+            color: var(--text-muted);
+            margin-top: var(--space-xs);
+        }
+
+        /* Histogram */
+        .histogram {
+            margin-top: var(--space-lg);
+        }
+
+        .histogram-title {
+            font-size: var(--font-size-sm);
+            font-weight: 600;
+            margin-bottom: var(--space-md);
+        }
+
+        .histogram-bars {
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-xs);
+        }
+
+        .histogram-bar {
+            display: flex;
+            align-items: center;
+            gap: var(--space-sm);
+        }
+
+        .histogram-label {
+            width: 100px;
+            font-size: var(--font-size-xs);
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+            text-align: right;
+        }
+
+        .histogram-track {
+            flex: 1;
+            height: 20px;
+            background: var(--background);
+            border-radius: var(--radius-sm);
+            overflow: hidden;
+        }
+
+        .histogram-fill {
+            height: 100%;
+            background: var(--primary-500);
+            border-radius: var(--radius-sm);
+            transition: width 0.3s ease;
+        }
+
+        .histogram-count {
+            width: 60px;
+            font-size: var(--font-size-xs);
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+        }
+
+        /* Top Values */
+        .top-values {
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-sm);
+        }
+
+        .value-row {
+            display: flex;
+            align-items: center;
+            gap: var(--space-md);
+            padding: var(--space-sm) var(--space-md);
+            background: var(--background);
+            border-radius: var(--radius-sm);
+        }
+
+        .value-name {
+            flex: 1;
+            font-family: var(--font-mono);
+            font-size: var(--font-size-sm);
+            color: var(--text);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .value-count {
+            font-size: var(--font-size-sm);
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+        }
+
+        .value-bar {
+            width: 100px;
+            height: 8px;
+            background: var(--background-alt);
+            border-radius: var(--radius-sm);
+            overflow: hidden;
+        }
+
+        .value-bar-fill {
+            height: 100%;
+            background: var(--primary-500);
+        }
+
+        /* Data Table */
+        .data-table-container {
+            background: var(--surface);
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--border);
+            overflow: hidden;
+        }
+
+        .data-table-header {
+            padding: var(--space-lg) var(--space-xl);
+            border-bottom: 1px solid var(--border);
+            background: var(--background);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .data-table-title {
+            margin: 0;
+            font-size: var(--font-size-xl);
+        }
+
+        .data-table-wrapper {
+            overflow-x: auto;
+            max-height: 500px;
+            overflow-y: auto;
+        }
+
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: var(--font-size-sm);
+        }
+
+        .data-table th {
+            position: sticky;
+            top: 0;
+            background: var(--background-alt);
+            padding: var(--space-sm) var(--space-md);
+            text-align: left;
+            font-weight: 600;
+            color: var(--text);
+            border-bottom: 1px solid var(--border);
+            white-space: nowrap;
+        }
+
+        .data-table td {
+            padding: var(--space-sm) var(--space-md);
+            border-bottom: 1px solid var(--border);
+            font-family: var(--font-mono);
+            color: var(--text);
+        }
+
+        .data-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .data-table tr:hover td {
+            background: var(--background);
+        }
+
+        .data-table td.null {
+            color: var(--text-light);
+            font-style: italic;
+        }
+
+        /* Correlation Matrix */
+        .correlation-container {
+            background: var(--surface);
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--border);
+            overflow: hidden;
+        }
+
+        .correlation-header {
+            padding: var(--space-lg) var(--space-xl);
+            border-bottom: 1px solid var(--border);
+            background: var(--background);
+        }
+
+        .correlation-title {
+            margin: 0;
+            font-size: var(--font-size-xl);
+        }
+
+        .correlation-subtitle {
+            font-size: var(--font-size-sm);
+            color: var(--text-muted);
+            margin-top: var(--space-xs);
+        }
+
+        .correlation-matrix-wrapper {
+            overflow: auto;
+            padding: var(--space-lg);
+        }
+
+        .correlation-matrix {
+            border-collapse: collapse;
+            font-size: var(--font-size-sm);
+        }
+
+        .correlation-matrix th {
+            padding: var(--space-sm);
+            font-weight: 500;
+            color: var(--text-muted);
+            white-space: nowrap;
+        }
+
+        .correlation-matrix td {
+            padding: var(--space-sm);
+            text-align: center;
+            font-family: var(--font-mono);
+            border: 1px solid var(--border);
+        }
+
+        .correlation-matrix .row-header {
+            text-align: left;
+            font-weight: 500;
+            color: var(--text);
+            background: var(--background);
+        }
+
+        .correlation-matrix .col-header {
+            background: var(--background);
+        }
+
+        .correlation-matrix .diagonal {
+            background: var(--primary-500);
+            color: white;
+            font-weight: 600;
+        }
+
+        /* Correlation color scale: -1 (red) to 1 (blue) */
+        .corr-neg-strong { background: #fca5a5; }
+        .corr-neg-medium { background: #fecaca; }
+        .corr-neg-weak { background: #fee2e2; }
+        .corr-neutral { background: var(--background-alt); }
+        .corr-pos-weak { background: #dbeafe; }
+        .corr-pos-medium { background: #93c5fd; }
+        .corr-pos-strong { background: #60a5fa; color: white; }
+
+        /* No numeric columns */
+        .no-correlation {
+            padding: var(--space-2xl);
+            text-align: center;
+            color: var(--text-muted);
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .page-header {
+                padding: var(--space-md) var(--space-lg);
+            }
+
+            .main-layout {
+                flex-direction: column;
+            }
+
+            .sidebar {
+                width: 100%;
+                max-height: 300px;
+            }
+
+            .content-area {
+                padding: var(--space-lg);
+            }
+
+            .overview-stats {
+                flex-wrap: wrap;
+            }
+
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="page-container">
+        <!-- Page Header -->
+        <header class="page-header">
+            <div class="page-header-left">
+                <h1>
+                    <span>📊</span>
+                    Data Explorer
+                </h1>
+                <span class="page-header-subtitle">Browse and explore your DuckDB tables</span>
+            </div>
+            <nav class="page-header-nav">
+                <a href="/">← Back to Home</a>
+            </nav>
+        </header>
+
+        <!-- Main Layout -->
+        <main class="main-layout">
+            <!-- Sidebar: Tables List -->
+            <aside class="sidebar">
+                <div class="sidebar-header">
+                    <h2>Tables</h2>
+                    <div id="table-count" class="table-count">Loading...</div>
+                </div>
+                <div class="sidebar-search">
+                    <input type="text" id="table-search" placeholder="Search tables...">
+                </div>
+                <div id="tables-list" class="tables-list">
+                    <!-- Tables rendered here -->
+                </div>
+            </aside>
+
+            <!-- Main Content Area -->
+            <section id="main-content" class="main-content">
+                <!-- Content rendered dynamically -->
+            </section>
+        </main>
+    </div>
+
+    <script>
+        // API Base URL
+        const API_BASE = '/tools/data/api';
+
+        // State
+        let tables = [];
+        let currentTable = null;
+        let currentView = null; // 'overview', 'column', 'sample', 'correlations'
+
+        // DOM Elements
+        const tablesList = document.getElementById('tables-list');
+        const tableCount = document.getElementById('table-count');
+        const tableSearch = document.getElementById('table-search');
+        const mainContent = document.getElementById('main-content');
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', loadTables);
+
+        // Search functionality
+        tableSearch.addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase();
+            renderTablesList(tables.filter(t => t.name.toLowerCase().includes(query)));
+        });
+
+        // API Functions
+        async function loadTables() {
+            showLoading(tablesList);
+            try {
+                const response = await fetch(`${API_BASE}/tables`);
+                const data = await response.json();
+                tables = data.tables || [];
+                renderTablesList(tables);
+                updateTableCount();
+                showEmptyState('Select a table to explore');
+            } catch (error) {
+                showError('Failed to load tables', error.message);
+            }
+        }
+
+        async function loadTableOverview(tableName) {
+            currentTable = tableName;
+            currentView = 'overview';
+            showLoading(mainContent);
+
+            try {
+                const response = await fetch(`${API_BASE}/table/${encodeURIComponent(tableName)}`);
+                const data = await response.json();
+                renderTableOverview(data);
+            } catch (error) {
+                showError('Failed to load table', error.message);
+            }
+        }
+
+        async function loadColumnProfile(tableName, columnName) {
+            currentView = 'column';
+            showLoading(mainContent);
+
+            try {
+                const response = await fetch(`${API_BASE}/column/${encodeURIComponent(tableName)}/${encodeURIComponent(columnName)}`);
+                const data = await response.json();
+                renderColumnProfile(data, tableName, columnName);
+            } catch (error) {
+                showError('Failed to load column profile', error.message);
+            }
+        }
+
+        async function loadSampleRows(tableName) {
+            currentView = 'sample';
+            showLoading(mainContent);
+
+            try {
+                const response = await fetch(`${API_BASE}/sample/${encodeURIComponent(tableName)}`);
+                const data = await response.json();
+                renderSampleRows(data, tableName);
+            } catch (error) {
+                showError('Failed to load sample rows', error.message);
+            }
+        }
+
+        async function loadCorrelations(tableName) {
+            currentView = 'correlations';
+            showLoading(mainContent);
+
+            try {
+                const response = await fetch(`${API_BASE}/correlations/${encodeURIComponent(tableName)}`);
+                const data = await response.json();
+                renderCorrelations(data, tableName);
+            } catch (error) {
+                showError('Failed to load correlations', error.message);
+            }
+        }
+
+        // Render Functions
+        function renderTablesList(tablesToRender) {
+            if (tablesToRender.length === 0) {
+                tablesList.innerHTML = `
+                    <div class="empty-state">
+                        <p>No tables found</p>
+                    </div>
+                `;
+                return;
+            }
+
+            tablesList.innerHTML = tablesToRender.map(table => `
+                <div class="table-item ${currentTable === table.name ? 'active' : ''}" 
+                     data-table="${escapeHtml(table.name)}" 
+                     onclick="selectTable('${escapeJs(table.name)}')">
+                    <div class="table-item-name">
+                        <span class="table-item-icon">📄</span>
+                        ${escapeHtml(table.name)}
+                    </div>
+                    <div class="table-item-count">
+                        ${table.row_count !== null ? formatNumber(table.row_count) + ' rows' : 'Unknown rows'}
+                        ${table.error ? ' ⚠️' : ''}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function renderTableOverview(data) {
+            const errorHtml = data.error ? `
+                <div class="error-message">
+                    <div class="error-message-title">Error</div>
+                    <div>${escapeHtml(data.error)}</div>
+                </div>
+            ` : '';
+
+            const columnsHtml = data.columns.map(col => `
+                <div class="column-item" onclick="selectColumn('${escapeJs(currentTable)}', '${escapeJs(col.name)}')">
+                    <span class="column-name">${escapeHtml(col.name)}</span>
+                    <span class="column-type">${escapeHtml(col.type)}</span>
+                    <span class="column-nullable">${col.nullable ? 'nullable' : 'required'}</span>
+                </div>
+            `).join('');
+
+            mainContent.innerHTML = `
+                <div class="content-area">
+                    ${errorHtml}
+                    <div class="table-overview">
+                        <div class="overview-header">
+                            <h2 class="overview-title">
+                                <span>📄</span>
+                                ${escapeHtml(data.name)}
+                            </h2>
+                            <div class="overview-stats">
+                                <div class="stat-item">
+                                    <span class="stat-value">${formatNumber(data.row_count)}</span>
+                                    <span class="stat-label">Rows</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-value">${formatNumber(data.columns.length)}</span>
+                                    <span class="stat-label">Columns</span>
+                                </div>
+                                ${data.size_bytes !== null ? `
+                                <div class="stat-item">
+                                    <span class="stat-value">${formatBytes(data.size_bytes)}</span>
+                                    <span class="stat-label">Size</span>
+                                </div>
+                                ` : ''}
+                            </div>
+                        </div>
+                        <div class="overview-actions">
+                            <button class="btn btn-primary" onclick="showSampleRows('${escapeJs(currentTable)}')">
+                                View Sample Rows
+                            </button>
+                            <button class="btn btn-secondary" onclick="showCorrelations('${escapeJs(currentTable)}')">
+                                View Correlations
+                            </button>
+                        </div>
+                        <div class="overview-columns">
+                            <h3 class="columns-header">Columns (click to profile)</h3>
+                            <div class="columns-list">
+                                ${columnsHtml}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            updateActiveTable();
+        }
+
+        function renderColumnProfile(data, tableName, columnName) {
+            const isNumeric = data.type === 'numeric';
+            
+            let profileHtml = '';
+            
+            if (isNumeric) {
+                profileHtml = renderNumericProfile(data);
+            } else {
+                profileHtml = renderCategoricalProfile(data);
+            }
+
+            mainContent.innerHTML = `
+                <div class="content-area">
+                    <div class="column-profile">
+                        <div class="profile-header">
+                            <h2 class="profile-title">
+                                <button class="back-btn" onclick="selectTable('${escapeJs(tableName)}')">← Back</button>
+                                <span>📊</span>
+                                ${escapeHtml(columnName)}
+                            </h2>
+                            <span class="column-type">${escapeHtml(data.column_type)}</span>
+                        </div>
+                        <div class="profile-content">
+                            <div class="profile-section">
+                                <div class="profile-section-title">Overview</div>
+                                <div class="stats-grid">
+                                    <div class="stat-card">
+                                        <div class="stat-card-value">${formatNumber(data.non_null_count)}</div>
+                                        <div class="stat-card-label">Non-null</div>
+                                    </div>
+                                    <div class="stat-card">
+                                        <div class="stat-card-value">${formatNumber(data.null_count)}</div>
+                                        <div class="stat-card-label">Nulls</div>
+                                    </div>
+                                    ${isNumeric ? `
+                                    <div class="stat-card">
+                                        <div class="stat-card-value">${formatNumber(data.distinct_count || 'N/A')}</div>
+                                        <div class="stat-card-label">Distinct</div>
+                                    </div>
+                                    ` : `
+                                    <div class="stat-card">
+                                        <div class="stat-card-value">${formatNumber(data.distinct_count)}</div>
+                                        <div class="stat-card-label">Distinct</div>
+                                    </div>
+                                    `}
+                                </div>
+                            </div>
+                            ${profileHtml}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderNumericProfile(data) {
+            let statsHtml = `
+                <div class="profile-section">
+                    <div class="profile-section-title">Statistics</div>
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-card-value">${formatNumber(data.min)}</div>
+                            <div class="stat-card-label">Min</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-card-value">${formatNumber(data.max)}</div>
+                            <div class="stat-card-label">Max</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-card-value">${formatNumber(data.avg)}</div>
+                            <div class="stat-card-label">Average</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-card-value">${formatNumber(data.stddev)}</div>
+                            <div class="stat-card-label">Std Dev</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-card-value">${formatNumber(data.median)}</div>
+                            <div class="stat-card-label">Median</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            let histogramHtml = '';
+            if (data.histogram && data.histogram.length > 0) {
+                const maxCount = Math.max(...data.histogram.map(h => h.count));
+                histogramHtml = `
+                    <div class="histogram">
+                        <h4 class="histogram-title">Distribution</h4>
+                        <div class="histogram-bars">
+                            ${data.histogram.map(bucket => `
+                                <div class="histogram-bar">
+                                    <span class="histogram-label">${formatNumber(bucket.bucket_min)}</span>
+                                    <div class="histogram-track">
+                                        <div class="histogram-fill" style="width: ${(bucket.count / maxCount * 100)}%"></div>
+                                    </div>
+                                    <span class="histogram-count">${formatNumber(bucket.count)}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+
+            return statsHtml + histogramHtml;
+        }
+
+        function renderCategoricalProfile(data) {
+            let valuesHtml = '';
+            if (data.top_values && data.top_values.length > 0) {
+                const maxCount = data.top_values[0].count;
+                valuesHtml = `
+                    <div class="profile-section">
+                        <div class="profile-section-title">Top Values</div>
+                        <div class="top-values">
+                            ${data.top_values.map(item => `
+                                <div class="value-row">
+                                    <span class="value-name" title="${escapeHtml(item.value)}">${escapeHtml(String(item.value))}</span>
+                                    <span class="value-count">${formatNumber(item.count)}</span>
+                                    <div class="value-bar">
+                                        <div class="value-bar-fill" style="width: ${(item.count / maxCount * 100)}%"></div>
+                                    </div>
+                                </div>
+                            `).join('')}
+                            ${data.other_count > 0 ? `
+                                <div class="value-row" style="color: var(--text-muted);">
+                                    <span class="value-name">Other values</span>
+                                    <span class="value-count">${formatNumber(data.other_count)}</span>
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                `;
+            }
+
+            return valuesHtml;
+        }
+
+        function renderSampleRows(data, tableName) {
+            if (data.error) {
+                mainContent.innerHTML = `
+                    <div class="content-area">
+                        <div class="data-table-container">
+                            <div class="data-table-header">
+                                <h2 class="data-table-title">
+                                    <button class="back-btn" onclick="selectTable('${escapeJs(tableName)}')">← Back</button>
+                                    Sample Rows: ${escapeHtml(tableName)}
+                                </h2>
+                            </div>
+                            <div class="error-message">
+                                <div class="error-message-title">Error</div>
+                                <div>${escapeHtml(data.error)}</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+
+            const headerHtml = data.columns.map(col => 
+                `<th>${escapeHtml(col)}</th>`
+            ).join('');
+
+            const rowsHtml = data.rows.map(row => `
+                <tr>
+                    ${row.map(val => 
+                        val === null 
+                            ? '<td class="null">null</td>'
+                            : `<td>${escapeHtml(String(val))}</td>`
+                    ).join('')}
+                </tr>
+            `).join('');
+
+            mainContent.innerHTML = `
+                <div class="content-area">
+                    <div class="data-table-container">
+                        <div class="data-table-header">
+                            <h2 class="data-table-title">
+                                <button class="back-btn" onclick="selectTable('${escapeJs(tableName)}')">← Back</button>
+                                Sample Rows: ${escapeHtml(tableName)}
+                            </h2>
+                            <span class="text-muted text-sm">${data.rows.length} rows</span>
+                        </div>
+                        <div class="data-table-wrapper">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>${headerHtml}</tr>
+                                </thead>
+                                <tbody>
+                                    ${rowsHtml}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderCorrelations(data, tableName) {
+            if (!data.columns || data.columns.length === 0) {
+                mainContent.innerHTML = `
+                    <div class="content-area">
+                        <div class="correlation-container">
+                            <div class="correlation-header">
+                                <h2 class="correlation-title">
+                                    <button class="back-btn" onclick="selectTable('${escapeJs(tableName)}')">← Back</button>
+                                    Correlations: ${escapeHtml(tableName)}
+                                </h2>
+                            </div>
+                            <div class="no-correlation">
+                                <p>No numeric columns found in this table.</p>
+                                <p class="text-sm text-muted">Correlation analysis requires at least one numeric column.</p>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+
+            const cols = data.columns;
+            const matrix = data.matrix;
+
+            const headerHtml = cols.map(col => 
+                `<th class="col-header">${escapeHtml(col)}</th>`
+            ).join('');
+
+            const rowsHtml = matrix.map((row, i) => `
+                <tr>
+                    <th class="row-header">${escapeHtml(cols[i])}</th>
+                    ${row.map((val, j) => {
+                        const isDiagonal = i === j;
+                        const corrClass = getCorrelationClass(val);
+                        const displayVal = val === null ? 'N/A' : val.toFixed(2);
+                        return `<td class="${isDiagonal ? 'diagonal' : corrClass}">${displayVal}</td>`;
+                    }).join('')}
+                </tr>
+            `).join('');
+
+            mainContent.innerHTML = `
+                <div class="content-area">
+                    <div class="correlation-container">
+                        <div class="correlation-header">
+                            <h2 class="correlation-title">
+                                <button class="back-btn" onclick="selectTable('${escapeJs(tableName)}')">← Back</button>
+                                Correlations: ${escapeHtml(tableName)}
+                            </h2>
+                            <p class="correlation-subtitle">Pearson correlation coefficient between numeric columns</p>
+                        </div>
+                        <div class="correlation-matrix-wrapper">
+                            <table class="correlation-matrix">
+                                <thead>
+                                    <tr>
+                                        <th></th>
+                                        ${headerHtml}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${rowsHtml}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Helper Functions
+        function selectTable(tableName) {
+            currentTable = tableName;
+            updateActiveTable();
+            loadTableOverview(tableName);
+        }
+
+        function selectColumn(tableName, columnName) {
+            loadColumnProfile(tableName, columnName);
+        }
+
+        function showSampleRows(tableName) {
+            loadSampleRows(tableName);
+        }
+
+        function showCorrelations(tableName) {
+            loadCorrelations(tableName);
+        }
+
+        function updateActiveTable() {
+            document.querySelectorAll('.table-item').forEach(item => {
+                if (item.dataset.table === currentTable) {
+                    item.classList.add('active');
+                } else {
+                    item.classList.remove('active');
+                }
+            });
+        }
+
+        function updateTableCount() {
+            tableCount.textContent = `${tables.length} table${tables.length !== 1 ? 's' : ''}`;
+        }
+
+        function showLoading(container) {
+            container.innerHTML = `
+                <div class="loading">
+                    <div class="loading-spinner"></div>
+                    <span>Loading...</span>
+                </div>
+            `;
+        }
+
+        function showEmptyState(message) {
+            mainContent.innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-state-icon">📊</div>
+                    <div class="empty-state-title">No Table Selected</div>
+                    <div class="empty-state-description">${escapeHtml(message)}</div>
+                </div>
+            `;
+        }
+
+        function showError(title, message) {
+            const target = tablesList.contains(document.querySelector('.loading')) ? tablesList : mainContent;
+            target.innerHTML = `
+                <div class="error-message">
+                    <div class="error-message-title">${escapeHtml(title)}</div>
+                    <div>${escapeHtml(message)}</div>
+                </div>
+            `;
+        }
+
+        function formatNumber(num) {
+            if (num === null || num === undefined) return 'N/A';
+            if (typeof num !== 'number') return num;
+            return num.toLocaleString(undefined, { maximumFractionDigits: 2 });
+        }
+
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+        }
+
+        function getCorrelationClass(value) {
+            // Handle null/undefined values (from NaN/Infinity correlations)
+            if (value === null || value === undefined) return 'corr-na';
+            // Color scale for correlation values
+            if (value < -0.7) return 'corr-neg-strong';
+            if (value < -0.3) return 'corr-neg-medium';
+            if (value < 0) return 'corr-neg-weak';
+            if (value === 0) return 'corr-neutral';
+            if (value < 0.3) return 'corr-pos-weak';
+            if (value < 0.7) return 'corr-pos-medium';
+            return 'corr-pos-strong';
+        }
+
+        function escapeHtml(str) {
+            if (str === null || str === undefined) return '';
+            const div = document.createElement('div');
+            div.textContent = String(str);
+            return div.innerHTML;
+        }
+
+        function escapeJs(str) {
+            return String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n');
+        }
+    </script>
+</body>
+</html>
