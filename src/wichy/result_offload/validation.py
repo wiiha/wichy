@@ -8,10 +8,10 @@ are accurate and complete when querying stored tool results.
 from dataclasses import dataclass
 from typing import List
 
-from wichy.result_offload.store import StoredResult
-from wichy.result_offload.hijack import format_stored_results
-from wichy.llm_backend import call
 from wichy.constants import ROLE_SYSTEM, ROLE_USER
+from wichy.llm_backend import call
+from wichy.result_offload.hijack import format_stored_results
+from wichy.result_offload.store import StoredResult
 
 
 @dataclass
@@ -83,7 +83,7 @@ INVALID: <specific feedback for improvement>
             context=context,
             tool_defs=None,
             model_str=model_str,
-            extra_args={"max_tokens": 500},
+            extra_args={"max_tokens": 2000},
         )
 
         if llm_response is None or llm_response.message is None:

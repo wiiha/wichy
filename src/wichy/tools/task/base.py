@@ -125,7 +125,7 @@ class TaskAgent(AgentCore):
     def _handle_tools(self, tools: List[BaseTool], response: Message) -> bool:
         """Handle tool calls from LLM response."""
         modified, _ = self._handle_tools_base(
-            tools, response, inject_model_str=False, pre_append_hook=None
+            tools, response, inject_model_str=True, pre_append_hook=None
         )
         return modified
 

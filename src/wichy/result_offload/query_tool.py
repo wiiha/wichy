@@ -38,6 +38,10 @@ class QueryResultParameters(ParametersModel):
         description=HIDE_FROM_LLM_PREFIX + " Model string from the calling agent",
     )
 
+    def info(self) -> str:
+        """Return a human-readable string describing this query."""
+        return f'query="{self.query}" ref_ids="{self.ref_ids}"'
+
 
 class QueryResultTool(BaseTool):
     """Query stored tool results using natural language."""
@@ -70,7 +74,7 @@ Examples:
 
         # Validate model_str
         if not model_str:
-            return "Error: model_str is required (internal error - should be injected)"
+            return "Error: model_str is required (internal error - should be injected, surface this to the user.)"
 
         # Load all requested results
         store = get_result_store()
