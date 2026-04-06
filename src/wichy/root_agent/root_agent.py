@@ -247,8 +247,10 @@ class RootAgent(AgentCore):
 
         # Ensure context handler is current (in case of reset/compaction)
         from wichy.session_map.api import set_context_handler
+        from wichy.tools.session_map_tools import set_session_map_globals
 
         set_context_handler(self.context)
+        set_session_map_globals(self._session_map_store, self.context)
 
         current_turn = self._get_user_turn_count()
         context_id = str(self.context.path)
