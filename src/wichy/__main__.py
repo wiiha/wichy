@@ -201,6 +201,7 @@ def main():
         set_user_output_quiet(True)
 
     settings.parallel_exec = not args.seq_exec
+    settings.max_backend_connections = args.max_backend_connections
 
     cmd_checker = None  # will be set after root_agent is created
 

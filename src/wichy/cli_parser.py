@@ -5,6 +5,17 @@ from dataclasses import dataclass
 from typing import Optional
 
 
+def _positive_int(value: str) -> int:
+    """Argparse type: must be a positive integer (>= 1)."""
+    ival = int(value)
+    if ival < 1:
+        raise argparse.ArgumentTypeError(
+            f"'{value}' is not a positive integer; "
+            f"--max-backend-connections must be >= 1 (or omitted for no limit)"
+        )
+    return ival
+
+
 @dataclass
 class CliConfig:
     """Typed configuration from CLI arguments."""
@@ -23,6 +34,7 @@ class CliConfig:
     no_server: bool = False
     user_first: bool = False
     seq_exec: bool = False
+    max_backend_connections: Optional[int] = None
     prompt: Optional[str] = None
     auto_compact_threshold: Optional[int] = None
     session_map_model: Optional[str] = (
@@ -153,6 +165,17 @@ class CliParser:
             metavar="<model_str>",
             help="Enable session map extraction. Optionally specify a model string for extraction. If no model is specified, uses the root agent's model.",
         )
+        self.parser.add_argument(
+            "--max-backend-connections",
+            "-mbc",
+            type=_positive_int,
+            dest="max_backend_connections",
+            default=None,
+            metavar="N",
+            help="Limit concurrent llm_backend.call() invocations to N. "
+            "Requests beyond N block until a slot is free. "
+            "Default: unlimited. Sensible value to match existing parallelism: 8.",
+        )
 
     def _add_subcommands(self):
         """Add subcommands."""
@@ -251,6 +274,7 @@ class CliParser:
             prompt=getattr(parsed, "prompt", None),
             auto_compact_threshold=getattr(parsed, "auto_compact_threshold", None),
             seq_exec=parsed.seq_exec,
+            max_backend_connections=getattr(parsed, "max_backend_connections", None),
             install_command=getattr(parsed, "install_command", None),
             install_force=getattr(parsed, "force", False),
             session_map_model=getattr(parsed, "session_map_model", None),

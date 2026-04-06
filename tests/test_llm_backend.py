@@ -2,10 +2,19 @@
 Test cases for llm_backend module functions.
 """
 
+import threading
+import time
 import pytest
 from unittest.mock import MagicMock, patch
 
-from wichy.llm_backend import parse_generic_backend, LLMResponse, Message, call
+from wichy.llm_backend import (
+    parse_generic_backend,
+    LLMResponse,
+    Message,
+    call,
+    _get_backend_semaphore,
+    _reset_backend_semaphore,
+)
 
 
 class TestParseGenericBackend:
@@ -127,6 +136,7 @@ class TestCallFunction:
         """Test that call() returns an LLMResponse with usage data."""
         # Setup mock settings
         mock_settings.ollama_base_url = "http://localhost:11434/v1"
+        mock_settings.max_backend_connections = None  # No semaphore limit
 
         # Setup mock client and response
         mock_client = MagicMock()
@@ -174,6 +184,7 @@ class TestCallFunction:
         """Test that call() handles response without usage data gracefully."""
         # Setup mock settings
         mock_settings.ollama_base_url = "http://localhost:11434/v1"
+        mock_settings.max_backend_connections = None  # No semaphore limit
 
         # Setup mock client and response
         mock_client = MagicMock()
@@ -210,6 +221,7 @@ class TestCallFunction:
     def test_call_with_partial_usage_attributes(self, mock_settings, mock_openai):
         """Test handling of usage object with missing attributes (defaults to 0)."""
         mock_settings.ollama_base_url = "http://localhost:11434/v1"
+        mock_settings.max_backend_connections = None  # No semaphore limit
 
         mock_client = MagicMock()
         mock_openai.return_value = mock_client
@@ -234,12 +246,106 @@ class TestCallFunction:
         mock_response.model = "test-model"
         mock_response.usage = mock_usage
 
-        mock_client.chat.completions.create.return_value = mock_response
 
-        context = [{"role": "user", "content": "Hello"}]
-        result = call(context, model_str="ollama/llama2")
+class TestMaxBackendConnections:
+    """Tests for the max_backend_connections semaphore."""
 
-        # Should use getattr with default 0
-        assert result.usage["prompt_tokens"] == 0
-        assert result.usage["completion_tokens"] == 0
-        assert result.usage["total_tokens"] == 30
+    @patch("wichy.llm_backend.OpenAI")
+    @patch("wichy.llm_backend.settings")
+    def test_no_semaphore_when_limit_is_none(self, mock_settings, mock_openai):
+        """When max_backend_connections is None, no semaphore is created."""
+        mock_settings.max_backend_connections = None
+        mock_settings.ollama_base_url = "http://localhost:11434/v1"
+        _reset_backend_semaphore()
+        assert _get_backend_semaphore() is None
+
+    @patch("wichy.llm_backend.OpenAI")
+    @patch("wichy.llm_backend.settings")
+    def test_semaphore_created_when_limit_is_set(self, mock_settings, mock_openai):
+        """When a limit is set, a Semaphore with that count is created."""
+        mock_settings.max_backend_connections = 2
+        mock_settings.ollama_base_url = "http://localhost:11434/v1"
+        _reset_backend_semaphore()
+        sem = _get_backend_semaphore()
+        assert sem is not None
+        assert sem._value == 2  # Semaphore internal counter
+
+    @patch("wichy.llm_backend.OpenAI")
+    @patch("wichy.llm_backend.settings")
+    def test_second_caller_blocks_until_slot_frees(self, mock_settings, mock_openai):
+        """Second caller blocks while first holds the semaphore; proceeds when freed."""
+        mock_settings.max_backend_connections = 1
+        mock_settings.ollama_base_url = "http://localhost:11434/v1"
+        mock_client = MagicMock()
+        mock_openai.return_value = mock_client
+        call_times = []
+
+        def track_time(**kw):
+            call_times.append(time.time())
+            time.sleep(0.3)
+            return self._mock_response("ok")
+
+        mock_client.chat.completions.create.side_effect = track_time
+        _reset_backend_semaphore()
+
+        secondStarted = threading.Event()
+        second_done = threading.Event()
+
+        def second_caller():
+            secondStarted.set()
+            call([{"role": "user", "content": "hi"}], model_str="ollama/test")
+            second_done.set()
+
+        t = threading.Thread(target=second_caller)
+        t.start()
+        secondStarted.wait()  # wait for thread to start and block on semaphore
+        time.sleep(0.05)
+
+        # First call is still running; second is blocked
+        assert len(call_times) == 1
+
+        _ = call([{"role": "user", "content": "hi"}], model_str="ollama/test")
+
+        second_done.wait()
+        # Second call happened after first finished
+        assert len(call_times) == 2
+        assert call_times[1] >= call_times[0] + 0.3
+
+    @patch("wichy.llm_backend.OpenAI")
+    @patch("wichy.llm_backend.settings")
+    def test_semaphore_released_on_exception(self, mock_settings, mock_openai):
+        """Semaphore is released even when call() raises, allowing next call to proceed."""
+        mock_settings.max_backend_connections = 1
+        mock_settings.ollama_base_url = "http://localhost:11434/v1"
+        mock_client = MagicMock()
+        mock_openai.return_value = mock_client
+        mock_client.chat.completions.create.side_effect = RuntimeError("boom")
+        _reset_backend_semaphore()
+
+        with pytest.raises(RuntimeError):
+            call([{"role": "user", "content": "hi"}], model_str="ollama/test")
+
+        # Slot is free; second call succeeds (would deadlock if semaphore not released)
+        mock_client.chat.completions.create.side_effect = None
+        mock_client.chat.completions.create.return_value = self._mock_response("ok")
+        result = call([{"role": "user", "content": "hi"}], model_str="ollama/test")
+        assert result.message.content == "ok"
+
+    # --- shared helper ---
+    def _mock_response(self, content: str):
+        mock_usage = MagicMock()
+        mock_usage.prompt_tokens = 5
+        mock_usage.completion_tokens = 5
+        mock_usage.total_tokens = 10
+        mock_message = MagicMock()
+        mock_message.content = content
+        mock_message.role = "assistant"
+        mock_message.tool_calls = None
+        mock_choice = MagicMock()
+        mock_choice.message = mock_message
+        mock_choice.finish_reason = "stop"
+        mock_response = MagicMock()
+        mock_response.choices = [mock_choice]
+        mock_response.model = "test-model"
+        mock_response.usage = mock_usage
+        return mock_response

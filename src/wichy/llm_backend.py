@@ -1,4 +1,6 @@
 import time
+import threading
+from threading import Semaphore
 from typing import Any, Dict, List, Optional, Union
 
 from openai import BadRequestError, OpenAI
@@ -7,6 +9,11 @@ from pydantic import BaseModel
 from wichy.config import settings
 from wichy.console import user_console
 from wichy.helpers.console import console
+
+# Global semaphore controlling concurrent call() invocations.
+# Lazily initialized; None means "unlimited".
+_semaphore: Optional[Semaphore] = None
+_semaphore_lock = threading.Lock()
 
 
 class LLMBackendContextLimitReached(Exception):
@@ -266,12 +273,50 @@ def error_indicates_multimodal_not_supported(error) -> bool:
     return has_pattern and has_type_indicator
 
 
+def _get_backend_semaphore() -> Optional[Semaphore]:
+    """
+    Return the global backend semaphore, creating it if needed.
+
+    Thread-safe via double-checked locking. Returns None when
+    settings.max_backend_connections is None (no limit).
+    """
+    if settings.max_backend_connections is None:
+        return None
+    global _semaphore
+    if _semaphore is None:
+        with _semaphore_lock:
+            if _semaphore is None:
+                _semaphore = Semaphore(settings.max_backend_connections)
+    return _semaphore
+
+
 def call(context, tool_defs=None, model_str=None, extra_args=None, **extra_kwargs):
     """
     Call an LLM backend with the given context and tools.
 
+    Acquires the global semaphore (if configured) before delegating to _call_impl.
+    """
+    sem = _get_backend_semaphore()
+    if sem is None:
+        return _call_impl(context, tool_defs, model_str, extra_args, **extra_kwargs)
+    with sem:
+        return _call_impl(context, tool_defs, model_str, extra_args, **extra_kwargs)
+
+
+def _call_impl(
+    context,
+    tool_defs=None,
+    model_str=None,
+    extra_args=None,
+    retry_count: int = 0,
+    **extra_kwargs,
+):
+    """
+    Internal implementation of LLM backend call.
+
     extra_args: optional dict of parameters to forward to client.chat.completions.create
     extra_kwargs: alternative way to pass forwarded parameters as kwargs
+    retry_count: explicit retry counter for rate limit handling
     """
     if model_str is None:
         raise ValueError("missing value for parameter model_str, cannot be None.")
@@ -392,7 +437,6 @@ def call(context, tool_defs=None, model_str=None, extra_args=None, **extra_kwarg
             )
         if message_indicates_rate_limit(e):
             MAX_RETRIES = 3
-            retry_count = extra_kwargs.pop("retry_count", 0)
             if retry_count >= MAX_RETRIES:
                 raise LLMBackendRateLimitExceeded(retry_count=retry_count)
             backoff = 3 * (2**retry_count)  # 3, 6, 12 seconds
@@ -403,7 +447,7 @@ def call(context, tool_defs=None, model_str=None, extra_args=None, **extra_kwarg
                 f"[dim][bold]→[/bold] LLM backend:[/dim] Rate limited, will retry in {backoff} seconds (attempt {retry_count + 1})"
             )
             time.sleep(backoff)
-            return call(
+            return _call_impl(
                 context=context,
                 tool_defs=tool_defs,
                 model_str=model_str,
@@ -444,3 +488,13 @@ def call(context, tool_defs=None, model_str=None, extra_args=None, **extra_kwarg
     console.log(log_msg)  # raw output
 
     return LLMResponse(message=m, usage=usage_data)
+
+
+def _reset_backend_semaphore():
+    """
+    Reset the global semaphore. Call between tests to ensure clean state.
+    Not part of the public API.
+    """
+    global _semaphore, _semaphore_lock
+    _semaphore = None
+    _semaphore_lock = threading.Lock()
