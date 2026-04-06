@@ -207,8 +207,7 @@ def register_routes(bp: Blueprint):
 
                 if _is_numeric_type(column_type):
                     # Numeric column profile
-                    result = conn.execute(
-                        f"""SELECT 
+                    result = conn.execute(f"""SELECT 
                             COUNT(*) as total,
                             COUNT("{col}") as non_null,
                             MIN("{col}")::VARCHAR as min_val,
@@ -216,8 +215,7 @@ def register_routes(bp: Blueprint):
                             AVG("{col}")::VARCHAR as avg_val,
                             STDDEV("{col}")::VARCHAR as std_dev,
                             PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY "{col}")::VARCHAR as median
-                        FROM "{table}" """
-                    ).fetchone()
+                        FROM "{table}" """).fetchone()
 
                     total = result[0]
                     non_null_count = result[1] or 0
@@ -260,15 +258,13 @@ def register_routes(bp: Blueprint):
                     ):
                         try:
                             bucket_size = (max_val - min_val) / 10
-                            hist_result = conn.execute(
-                                f"""SELECT 
+                            hist_result = conn.execute(f"""SELECT 
                                     FLOOR(("{col}" - {min_val}) / {bucket_size}) as bucket,
                                     COUNT(*) as count
                                 FROM "{table}"
                                 WHERE "{col}" IS NOT NULL
                                 GROUP BY bucket
-                                ORDER BY bucket"""
-                            ).fetchall()
+                                ORDER BY bucket""").fetchall()
 
                             # Create all 10 buckets
                             bucket_counts = {row[0]: row[1] for row in hist_result}

@@ -106,10 +106,28 @@ class Settings(BaseSettings):
     # Default: 2
     result_offload_max_validation_retries: int = 2
 
+    # -------------------------------------------------------------------------
+    # Session Map Configuration
+    # -------------------------------------------------------------------------
+
+    # Enable/disable session map extraction (opt-in via --session-map CLI flag)
+    session_map_enabled: bool = False
+
+    # Extract every N user turns
+    session_map_interval: int = 10
+
+    # Max validation retries
+    session_map_validation_retries: int = 2
+
     @property
     def skills_dir(self) -> Path:
         """Full path to skills directory."""
         return self.wichy_home / self.skills_dir_name
+
+    @property
+    def session_map_db_path(self) -> Path:
+        """Path to session map SQLite database."""
+        return self.wichy_home / "session_maps.db"
 
     @property
     def root_agent_defs_home_dir(self) -> Path:

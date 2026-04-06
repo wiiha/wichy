@@ -1,10 +1,7 @@
 """Tests for skill loader - inactive skills are loaded but tools filter them."""
 
 import pytest
-import tempfile
-from pathlib import Path
 from wichy.skills.loader import SkillLoader
-from wichy.skills.registry import SkillRegistry
 
 
 class TestLoaderInactiveHandling:
@@ -107,8 +104,12 @@ class TestLoaderInactiveHandling:
 
         # Load individual skills
         active_skill = loader.load_skill_from_dir(temp_skills_dir / "active-skill")
-        inactive_tag_skill = loader.load_skill_from_dir(temp_skills_dir / "inactive-tag-skill")
-        inactive_meta_skill = loader.load_skill_from_dir(temp_skills_dir / "inactive-meta-skill")
+        inactive_tag_skill = loader.load_skill_from_dir(
+            temp_skills_dir / "inactive-tag-skill"
+        )
+        inactive_meta_skill = loader.load_skill_from_dir(
+            temp_skills_dir / "inactive-meta-skill"
+        )
 
         assert active_skill.inactive is False
         assert inactive_tag_skill.inactive is True

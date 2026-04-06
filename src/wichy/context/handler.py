@@ -64,6 +64,11 @@ class ContextHandler:
         self._watch_active = False
         self._watch_interval = 2.0
 
+    @property
+    def path(self) -> Path:
+        """Return the path to the context file."""
+        return self._path
+
     def _ensure_context_dir(self):
         """Create the context storage directory (and any sub_dir) if missing."""
         self.context_dir = settings.contexts_dir

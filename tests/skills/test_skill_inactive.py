@@ -1,8 +1,7 @@
 """Tests for skill inactive functionality."""
 
-import pytest
 from pathlib import Path
-from wichy.skills.skill import Skill, ScriptInfo
+from wichy.skills.skill import Skill
 
 
 class TestSkillInactiveProperty:

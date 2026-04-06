@@ -29,7 +29,9 @@ def skills_information(skill_names: List[str] = None) -> str:
         skills = all_skills
 
     # Filter out inactive skills - agents cannot use them
-    active_skills = {name: skill for name, skill in skills.items() if not skill.inactive}
+    active_skills = {
+        name: skill for name, skill in skills.items() if not skill.inactive
+    }
 
     if not active_skills:
         return ""

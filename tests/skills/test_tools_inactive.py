@@ -2,9 +2,14 @@
 
 import pytest
 import json
-from pathlib import Path
 from wichy.skills.loader import SkillLoader
-from wichy.skills.tools import SkillDiscoveryTool, SkillSearchTool, SkillInfoTool, SkillScriptTool, SkillFileTool
+from wichy.skills.tools import (
+    SkillDiscoveryTool,
+    SkillSearchTool,
+    SkillInfoTool,
+    SkillScriptTool,
+    SkillFileTool,
+)
 
 
 class TestToolsFilterInactive:

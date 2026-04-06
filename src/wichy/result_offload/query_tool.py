@@ -60,6 +60,11 @@ If validation fails, the query is retried with feedback.
 Examples:
   query_result(ref_ids=["res_abc123"], query="What are the main functions?")
   query_result(ref_ids=["res_abc123", "res_def456"], query="Compare these results")
+
+Avoid:
+  # The following query questions should be avoided. Use them ONLY if it is vital to get the actual full content, otherwise, try to get summaries.
+  query_result(ref_ids=["res_abc123"], query="Show me the full file content")
+  query_result(ref_ids=["res_abc567"], query="Show me the exact output")
 """
 
     parameters_model = QueryResultParameters

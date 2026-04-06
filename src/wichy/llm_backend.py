@@ -187,7 +187,11 @@ def message_indicates_context_length_reached(m: str) -> bool:
     if "maximum" in m and "context" in m and "length" in m:
         return True
 
-    if "context" in m and "exceeds" in m and "limit" in m:
+    if (
+        "context" in m
+        and ("exceeds" in m or "exceeded" in m)
+        and ("limit" in m or "length" in m)
+    ):
         return True
 
     # can be extended with more conditions

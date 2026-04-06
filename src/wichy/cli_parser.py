@@ -25,6 +25,9 @@ class CliConfig:
     seq_exec: bool = False
     prompt: Optional[str] = None
     auto_compact_threshold: Optional[int] = None
+    session_map_model: Optional[str] = (
+        None  # None=disabled, ""=enabled+root_agent_model, "model"=specific model
+    )
 
     # Subcommands
     command: Optional[str] = None
@@ -141,6 +144,15 @@ class CliParser:
             action="store_true",
             help="Disable parallel tool execution; run one tool at a time.",
         )
+        self.parser.add_argument(
+            "--session-map",
+            dest="session_map_model",
+            nargs="?",
+            const="",  # Empty string means flag was passed without a value
+            default=None,  # None means flag was not passed
+            metavar="<model_str>",
+            help="Enable session map extraction. Optionally specify a model string for extraction. If no model is specified, uses the root agent's model.",
+        )
 
     def _add_subcommands(self):
         """Add subcommands."""
@@ -241,6 +253,7 @@ class CliParser:
             seq_exec=parsed.seq_exec,
             install_command=getattr(parsed, "install_command", None),
             install_force=getattr(parsed, "force", False),
+            session_map_model=getattr(parsed, "session_map_model", None),
         )
 
         # Extract new skill details if applicable

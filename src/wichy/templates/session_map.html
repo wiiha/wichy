@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wichy - Session Map</title>
+    <link rel="stylesheet" href="/shared/shared.css">
+    <link rel="stylesheet" href="/shared/session_map.css">
+    <script src="/tools/graph/static/vis-network.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header class="header-simple">
+            <div>
+                <h1 class="header-title">Session Map</h1>
+                <p class="header-subtitle">Visual overview of your conversation</p>
+            </div>
+            <nav class="header-nav">
+                <a href="/">Back to Home</a>
+            </nav>
+        </header>
+
+        <div class="main-layout">
+            <!-- Sidebar -->
+            <aside class="sidebar">
+                <div class="sidebar-section">
+                    <h3 class="sidebar-title">Status</h3>
+                    <div id="status">
+                        <p><strong>Turn:</strong> <span id="current-turn">-</span></p>
+                        <p><strong>Last extracted:</strong> <span id="last-extracted">-</span></p>
+                        <p><strong>Next extraction:</strong> <span id="next-extraction">-</span></p>
+                    </div>
+                </div>
+
+                <div class="sidebar-section">
+                    <h3 class="sidebar-title">Filters</h3>
+                    <div class="filters">
+                        <label><input type="checkbox" checked data-type="question"> Questions</label>
+                        <label><input type="checkbox" checked data-type="finding"> Findings</label>
+                        <label><input type="checkbox" checked data-type="decision"> Decisions</label>
+                        <label><input type="checkbox" checked data-type="file"> Files</label>
+                        <label><input type="checkbox" data-type="dead_end"> Dead ends</label>
+                        <label><input type="checkbox" checked data-type="note"> Notes</label>
+                    </div>
+                </div>
+
+                <div class="sidebar-section">
+                    <h3 class="sidebar-title">Actions</h3>
+                    <div class="sidebar-controls">
+                        <button id="btn-extract" class="btn btn-primary">Extract Now</button>
+                        <button id="btn-add-note" class="btn btn-secondary">+ Add Note</button>
+                        <button id="btn-clear" class="btn btn-danger">Clear Map</button>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Canvas -->
+            <main class="canvas-container">
+                <div id="network"></div>
+            </main>
+        </div>
+
+        <!-- Node detail panel -->
+        <div id="node-detail" class="node-detail hidden">
+            <div class="node-detail-header">
+                <span id="node-type-badge" class="type-badge"></span>
+                <span id="node-turn-badge" class="turn-badge"></span>
+                <button id="btn-close-detail" class="btn-close">×</button>
+            </div>
+            <div id="node-content" class="node-content"></div>
+            <div class="node-detail-actions">
+                <button id="btn-delete-node" class="btn btn-danger btn-sm">Delete</button>
+            </div>
+        </div>
+
+        <!-- Add note modal -->
+        <div id="add-note-modal" class="modal-overlay hidden">
+            <div class="modal-content">
+                <h3>Add Note</h3>
+                <div class="form-group">
+                    <label class="form-label">Content:</label>
+                    <textarea id="note-content" class="form-textarea" rows="4" placeholder="Enter your note..."></textarea>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Connect to (optional):</label>
+                    <select id="note-parent-nodes" class="form-select" multiple style="width: 100%; height: 80px;">
+                        <!-- Populated dynamically -->
+                    </select>
+                    <small class="form-hint">Hold Ctrl/Cmd to select multiple</small>
+                </div>
+                <div class="form-actions">
+                    <button id="btn-save-note" class="btn btn-primary">Save</button>
+                    <button id="btn-cancel-note" class="btn btn-secondary">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/shared/session_map.js"></script>
+</body>
+</html>

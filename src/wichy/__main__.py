@@ -156,6 +156,33 @@ def start_server(root_agent):
         user_console.print(
             f"[yellow]Warning: Could not set active context for web editor: {e}[/yellow]"
         )
+
+    # Set context handler for session map
+    try:
+        from wichy.session_map.api import (
+            set_context_handler,
+            set_session_map_model_str,
+            set_session_map_store,
+        )
+        from wichy.session_map.store import SessionMapStore
+
+        set_context_handler(root_agent.context)
+        # Pass session_map_model to API for manual extraction
+        # session_map_model: None=disabled, ""=use root agent's model, "model"=specific model
+        if root_agent._session_map_model is not None:
+            model_str = (
+                root_agent._session_map_model
+                if root_agent._session_map_model
+                else root_agent.model_str
+            )
+            set_session_map_model_str(model_str)
+            # Create and set the store for API routes
+            store = SessionMapStore()
+            set_session_map_store(store)
+    except Exception as e:
+        user_console.print(
+            f"[yellow]Warning: Could not set context handler for session map: {e}[/yellow]"
+        )
     user_console.print("[dim]Use --no-server to disable.[/dim]")
 
     return server_controller
