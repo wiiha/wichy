@@ -4,6 +4,7 @@ import json
 from datetime import datetime
 
 from wichy.config import settings
+from wichy.console import user_console
 from wichy.llm_backend import call
 
 from .models import Edge, EdgeType, Node, NodeType, SessionMap, generate_node_id
@@ -379,6 +380,9 @@ Please extract again, addressing these issues.
                 feedback = str(e)
 
         # All retries exhausted - return gracefully
+        user_console.print(
+            f"[yellow] session map extraction failed with feedback:[/yellow] {feedback}"
+        )
         return False, [], [], feedback or "Extraction failed after retries"
 
     def _convert_to_objects(
