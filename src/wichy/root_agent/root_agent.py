@@ -5,20 +5,20 @@ from typing import Any, Dict, List, Optional, Tuple
 from rich.markdown import Markdown
 
 from wichy.agent.core import AgentCore
+from wichy.config import settings
 from wichy.console import user_console
 from wichy.constants import ROLE_ASSISTANT, ROLE_USER
 from wichy.context.handler import new_context
 from wichy.helpers.console import console
 from wichy.helpers.string import strip_thinking_content
+from wichy.hooks.executor import HookExecutor
+from wichy.hooks.types import HookType
 from wichy.llm_backend import (
     LLMBackendMultimodalNotSupported,
     Message,
     call,
     called_tool,
 )
-from wichy.hooks.executor import HookExecutor
-from wichy.hooks.types import HookType
-from wichy.config import settings
 from wichy.session_map.extractor import SessionMapExtractor
 from wichy.session_map.store import SessionMapStore
 from wichy.tools import get_tool_definitions
@@ -378,6 +378,7 @@ class RootAgent(AgentCore):
         self.context.append(
             {"role": ROLE_ASSISTANT, "content": response.message.content}
         )
+        self._maybe_extract_session_map()
         # Final token update after processing complete
         self._update_token_counts(response.usage)
         if self.check_token_threshold():
@@ -389,7 +390,6 @@ class RootAgent(AgentCore):
             self.context.append(
                 {"role": ROLE_ASSISTANT, "content": response.message.content}
             )
-        self._maybe_extract_session_map()
         return response.message.content
 
     def drop_last_context_entry(self):

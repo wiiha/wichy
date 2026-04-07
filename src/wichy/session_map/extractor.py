@@ -387,9 +387,9 @@ Please extract again, addressing these issues.
                     feedback = combined_feedback or "Validation failed"
                     previous_response = response.message.content
                     user_console.print(
-                        f"[yellow] session map extraction failed[/yellow]\n\n"
-                        + "## response\n\n```\n{previous_response}\n```\n\n"
-                        + "## feedback\n\n{feedback}"
+                        "[yellow] session map extraction failed[/yellow]\n\n"
+                        + f"## response\n\n```\n{previous_response}\n```\n\n"
+                        + f"## feedback\n\n{feedback}"
                     )
 
             except ExtractionParseError as e:
@@ -398,9 +398,9 @@ Please extract again, addressing these issues.
                 previous_response = response.message.content
 
                 user_console.print(
-                    f"[yellow] session map extraction failed[/yellow]\n\n"
-                    + "## response\n\n```\n{previous_response}\n```\n\n"
-                    + "## feedback\n\n{feedback}"
+                    "[yellow] session map extraction failed[/yellow]\n\n"
+                    + f"## response\n\n```\n{previous_response}\n```\n\n"
+                    + f"## feedback\n\n{feedback}"
                 )
 
         # All retries exhausted - return gracefully
