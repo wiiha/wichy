@@ -77,6 +77,9 @@ Avoid:
         query = params.query
         model_str = params.model_str
 
+        if settings.query_result_tool_model_str:
+            model_str = settings.query_result_tool_model_str
+
         # Validate model_str
         if not model_str:
             return "Error: model_str is required (internal error - should be injected, surface this to the user.)"

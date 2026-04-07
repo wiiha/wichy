@@ -79,6 +79,11 @@ class Settings(BaseSettings):
     skip_human_verification: bool = False
     max_backend_connections: Optional[int] = None  # None = no limit
 
+    ## query result tool
+    query_result_tool_model_str: Optional[str] = (
+        None  # None = use same model_str as root agent
+    )
+
     skills_dir_name: str = "skills"
 
     # -------------------------------------------------------------------------
