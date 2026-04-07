@@ -115,7 +115,7 @@ class Settings(BaseSettings):
     session_map_enabled: bool = False
 
     # Extract every N user turns
-    session_map_interval: int = 10
+    session_map_interval: int = 4
 
     # Max validation retries
     session_map_validation_retries: int = 2

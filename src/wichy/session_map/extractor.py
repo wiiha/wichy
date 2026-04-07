@@ -299,6 +299,7 @@ class SessionMapExtractor:
         feedback = None
         proposed_nodes = []
         proposed_edges = []
+        previous_response = None
 
         for attempt in range(max_retries + 1):
             try:
@@ -309,7 +310,17 @@ class SessionMapExtractor:
                         new_messages=formatted_messages,
                     )
                 else:
-                    prompt = f"""Previous extraction failed: {feedback}
+                    prompt = f"""Previous extraction failed:
+
+```
+{feedback}
+```
+
+Your previous extraction was:
+
+```
+{previous_response}
+```
 
 Please extract again, addressing these issues.
 
@@ -374,15 +385,25 @@ Please extract again, addressing these issues.
                     if not is_valid and validation_feedback:
                         combined_feedback += validation_feedback
                     feedback = combined_feedback or "Validation failed"
+                    previous_response = response.message.content
+                    user_console.print(
+                        f"[yellow] session map extraction failed[/yellow]\n\n"
+                        + "## response\n\n```\n{previous_response}\n```\n\n"
+                        + "## feedback\n\n{feedback}"
+                    )
 
             except ExtractionParseError as e:
                 # Parsing failed - treat like validation failure
                 feedback = str(e)
+                previous_response = response.message.content
+
+                user_console.print(
+                    f"[yellow] session map extraction failed[/yellow]\n\n"
+                    + "## response\n\n```\n{previous_response}\n```\n\n"
+                    + "## feedback\n\n{feedback}"
+                )
 
         # All retries exhausted - return gracefully
-        user_console.print(
-            f"[yellow] session map extraction failed with feedback:[/yellow] {feedback}"
-        )
         return False, [], [], feedback or "Extraction failed after retries"
 
     def _convert_to_objects(
