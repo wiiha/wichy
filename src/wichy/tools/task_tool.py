@@ -2,7 +2,7 @@ from typing import Dict, Optional
 
 from pydantic import Field
 
-from wichy.constants import HIDE_FROM_LLM_PREFIX, ROLE_SYSTEM, ROLE_USER
+from wichy.constants import HIDE_FROM_LLM_PREFIX
 from wichy.helpers.string import strip_thinking_content
 from wichy.tools.base import BaseTool, ParametersModel
 from wichy.tools.errors import format_error
