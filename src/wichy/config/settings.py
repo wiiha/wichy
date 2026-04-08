@@ -84,6 +84,11 @@ class Settings(BaseSettings):
         None  # None = use same model_str as root agent
     )
 
+    ## task tool
+    task_tool_model_str: Optional[str] = (
+        None  # None = use same model_str as root agent or per task agent definition
+    )
+
     skills_dir_name: str = "skills"
 
     # -------------------------------------------------------------------------

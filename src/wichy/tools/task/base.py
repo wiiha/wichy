@@ -6,6 +6,7 @@ from rich.console import Console
 from rich.markdown import Markdown
 
 from wichy.agent.core import AgentCore
+from wichy.config import settings
 from wichy.constants import ROLE_ASSISTANT, ROLE_SYSTEM, ROLE_USER
 from wichy.context.handler import ContextHandler
 from wichy.helpers.environment_info import environment_information
@@ -43,7 +44,12 @@ class TaskAgent(AgentCore):
         super().__init__()
         self._name = agent_definition.name
         self.description = agent_definition.description
-        self.model_str = model  # Store in base class's model_str
+        self.model_str = (
+            settings.task_tool_model_str
+            or getattr(agent_definition, "model", None)
+            or getattr(agent_definition, "model_str", None)
+            or model
+        )
 
         tools: list[BaseTool] = []
         for t in all_tools_not_instantiated:
