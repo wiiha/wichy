@@ -2,6 +2,7 @@ from typing import Dict, Optional
 
 from pydantic import Field
 
+from wichy.constants import HIDE_FROM_LLM_PREFIX, ROLE_SYSTEM, ROLE_USER
 from wichy.helpers.string import strip_thinking_content
 from wichy.tools.base import BaseTool, ParametersModel
 from wichy.tools.errors import format_error
@@ -35,7 +36,8 @@ class TaskAgentParameters(ParametersModel):
     )
     model_str: str = Field(
         None,
-        description="HIDE_FROM_LLM What model to use. Should be a reference to a valid backend and model.",
+        description=HIDE_FROM_LLM_PREFIX
+        + " What model to use. Should be a reference to a valid backend and model.",
     )
 
     def info(self):
