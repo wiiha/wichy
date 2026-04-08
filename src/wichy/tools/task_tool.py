@@ -48,9 +48,7 @@ class TaskAgentParameters(ParametersModel):
         info_parts.append(f'description="{self.description}"')
 
         if self.model_str:
-            info_parts.append(
-                f'model="{self.model_str}" (value passed to task tool, could be modified later)'
-            )
+            info_parts.append(f'model="{self.model_str}"')
 
         return " ".join(info_parts)
 
