@@ -17,10 +17,11 @@ Usage:
     )
 """
 
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
+
 from wichy.config import settings
-from wichy.result_offload.store import get_result_store
 from wichy.helpers.multimodal import extract_multimodal_content
+from wichy.result_offload.store import get_result_store
 
 
 def result_or_ref(
@@ -188,13 +189,16 @@ def format_stored_results(results: list) -> str:
     Returns:
         Formatted string with results metadata and content
     """
-    return "\n\n".join(f"""--- RESULT {i} ---
+    return "\n\n".join(
+        f"""--- RESULT {i} ---
 Reference ID: {r.ref_id}
 Tool: {r.tool_name}
 Size: {r.char_count:,} characters
 Created: {r.created_at.isoformat()}
 
-{r.content}""" for i, r in enumerate(results, 1))
+{r.content}"""
+        for i, r in enumerate(results, 1)
+    )
 
 
 def format_results_for_summarizer(results: list, query: str) -> str:
@@ -229,6 +233,8 @@ def format_results_for_summarizer(results: list, query: str) -> str:
 3. Be specific and reference relevant parts of the data
 4. If the query cannot be answered from the data, say so clearly
 5. Do not hallucinate or make up information
+
+Note: It is only your response that will be passed back. Do not make reference to the result it self in phrases like "the result can be read above", "...is fully included above." or similar.
 
 Provide your response below:
 """
