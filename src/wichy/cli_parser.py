@@ -241,6 +241,15 @@ class CliParser:
             action="store_true",
             help="Overwrite existing hooks file if it exists",
         )
+        skills_parser = install_subparsers.add_parser(
+            "skills", help="Install default skills"
+        )
+        skills_parser.add_argument(
+            "--force",
+            "-f",
+            action="store_true",
+            help="Force reinstall (overwrite existing default skills)",
+        )
 
     def parse(self, args=None) -> CliConfig:
         """

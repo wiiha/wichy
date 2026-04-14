@@ -75,6 +75,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Runtime utilities
     curl \
     wget \
+    tmux \
     && rm -rf /var/lib/apt/lists/* \
     # Install ripgrep (not in Debian slim repos — fetch from GitHub releases)
     && RG_VERSION="14.1.0" \

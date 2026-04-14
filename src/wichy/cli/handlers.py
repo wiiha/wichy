@@ -2,6 +2,7 @@
 
 import json
 import re
+import shutil
 import sys
 from pathlib import Path
 
@@ -243,6 +244,36 @@ def handle_install_hooks(args):
         return False
 
 
+def handle_install_skills(args):
+    """Handle 'wichy install skills' command - install default skills."""
+    from wichy.skills.loader import DEFAULT_SKILLS_DIR, SkillLoader
+
+    skill_loader = SkillLoader()
+
+    if args.install_force:  # --force flag provided
+        # Delete only default skills (by name matching with bundled defaults)
+        default_skill_names = [
+            d.name for d in DEFAULT_SKILLS_DIR.iterdir() if d.is_dir()
+        ]
+        for name in default_skill_names:
+            target = skill_loader.skills_dir / name
+            if target.exists():
+                shutil.rmtree(target)
+
+        installed = skill_loader.install_default_skills()
+        user_console.print(f"[green]Reinstalled {installed} default skill(s)[/green]")
+    else:
+        installed = skill_loader.install_default_skills()
+        if installed == 0:
+            user_console.print("[yellow]All default skills already installed.[/yellow]")
+            user_console.print("[dim]Use --force to reinstall[/dim]")
+        else:
+            user_console.print(f"[green]Installed {installed} default skill(s)[/green]")
+
+    user_console.flush()
+    exit(0)
+
+
 # Router functions that dispatch to the handlers above
 
 
@@ -307,5 +338,8 @@ def handle_install_commands(args):
         handle_install_hooks(args)
         user_console.flush()
         exit(0)
+
+    if args.install_command == "skills":
+        handle_install_skills(args)
 
     return False

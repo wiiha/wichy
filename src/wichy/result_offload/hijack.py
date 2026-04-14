@@ -189,16 +189,13 @@ def format_stored_results(results: list) -> str:
     Returns:
         Formatted string with results metadata and content
     """
-    return "\n\n".join(
-        f"""--- RESULT {i} ---
+    return "\n\n".join(f"""--- RESULT {i} ---
 Reference ID: {r.ref_id}
 Tool: {r.tool_name}
 Size: {r.char_count:,} characters
 Created: {r.created_at.isoformat()}
 
-{r.content}"""
-        for i, r in enumerate(results, 1)
-    )
+{r.content}""" for i, r in enumerate(results, 1))
 
 
 def format_results_for_summarizer(results: list, query: str) -> str:
