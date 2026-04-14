@@ -26,6 +26,8 @@ tmux -S /workspace/tmux.sock send-keys -t mysession "command" Enter
 tmux -S /workspace/tmux.sock capture-pane -t mysession -p
 ```
 
+When not in a docker container, then the default socket location can be used, i.e. you can omit the -S flag for specifying socket.
+
 ## When to Use
 
 ✅ **USE this skill when:**
@@ -54,15 +56,21 @@ tmux -S /workspace/tmux.sock ls
 ### Capture Output
 
 ```bash
-# Last 20 lines of pane
+# Last 20 lines of pane (may show mostly empty lines)
 tmux -S /workspace/tmux.sock capture-pane -t shared -p | tail -20
 
-# Entire scrollback
+# Entire scrollback (useful when pane has lots of blank lines)
 tmux -S /workspace/tmux.sock capture-pane -t shared -p -S -
 
 # Specific pane in window
 tmux -S /workspace/tmux.sock capture-pane -t shared:0.0 -p
+
+# Find specific content using grep (avoids empty-line noise)
+tmux -S /workspace/tmux.sock capture-pane -t shared -p -S - | grep "pattern"
+tmux -S /workspace/tmux.sock capture-pane -t shared -p -S - | grep -A2 "pattern"
 ```
+
+**Tip:** `capture-pane -p` often returns lots of empty lines at the bottom. Use `-S -` for full scrollback and pipe through `grep` to find what you need.
 
 ### Send Keys
 
@@ -93,25 +101,60 @@ tmux -S /workspace/tmux.sock rename-session -t old new
 
 ## Sending Input Safely
 
-For interactive TUIs, split text and Enter into separate sends to avoid paste/multiline edge cases:
+### Use Literal Mode for Commands with Special Characters
+
+The `-l` (literal) flag sends text exactly as-is, avoiding tmux's interpretation of special characters. **Always use `-l --` when sending shell commands:**
 
 ```bash
-tmux -S /workspace/tmux.sock send-keys -t shared -l -- "long text here"
+# CORRECT: Use literal mode for shell commands
+tmux -S /workspace/tmux.sock send-keys -t shared -l -- 'echo "Hello World"'
 sleep 0.1 && tmux -S /workspace/tmux.sock send-keys -t shared Enter
+
+# WRONG: Without -l, special characters may cause issues
+tmux -S /workspace/tmux.sock send-keys -t shared 'echo "Hello!"' Enter  # ! triggers history expansion
 ```
+
+### Why Literal Mode Matters
+
+1. **Special characters** like `!` are interpreted by shells (history expansion)
+2. **Literal mode** bypasses tmux's own key interpretation
+3. **Predictable behavior** — what you send is exactly what gets typed
+
+### Always Use Straight Quotes
+
+When writing commands with quotes, ensure you're using **straight ASCII quotes** (0x22), not curly/smart quotes:
+
+| Character | ASCII/Unicode  | Works in shell?                 |
+| --------- | -------------- | ------------------------------- |
+| `"`       | ASCII 0x22     | ✅ Yes                          |
+| `"`       | Unicode U+201C | ❌ No (causes `dquote>` prompt) |
+| `"`       | Unicode U+201D | ❌ No                           |
+
+**Common pitfall:** Copying commands from chat interfaces may convert straight quotes to curly "smart quotes" for typography. This breaks shell commands silently — the shell sees an unclosed string.
+
+**Do instead:**
+
+- Type quotes manually when copying from chat
+- Paste into a text editor first to verify quotes are straight
+- Use the `-l` flag which helps but doesn't fix curly quotes in the original text
 
 ## Interactive Application Patterns
 
 ### Check if Application Needs Input
 
 ```bash
-tmux -S /workspace/tmux.sock capture-pane -t task-3 -p | tail -10 | grep -E "\\[y/n\\]|proceed|permission"
+tmux -S /workspace/tmux.sock capture-pane -t task-3 -p | grep -E "\\[y/n\\]|proceed|permission"
 ```
 
 ### Respond to Prompts
 
 ```bash
+# Simple response
 tmux -S /workspace/tmux.sock send-keys -t task-3 'y' Enter
+
+# With literal mode for safety
+tmux -S /workspace/tmux.sock send-keys -t task-3 -l -- 'yes'
+sleep 0.1 && tmux -S /workspace/tmux.sock send-keys -t task-3 Enter
 ```
 
 ### Check All Sessions Status
@@ -119,7 +162,7 @@ tmux -S /workspace/tmux.sock send-keys -t task-3 'y' Enter
 ```bash
 for s in shared task-2 task-3 task-4; do
   echo "=== $s ==="
-  tmux -S /workspace/tmux.sock capture-pane -t $s -p 2>/dev/null | tail -5
+  tmux -S /workspace/tmux.sock capture-pane -t $s -p -S - 2>/dev/null | grep -v "^$" | tail -5
 done
 ```
 
@@ -148,6 +191,21 @@ tmux -S /workspace/tmux.sock new-session -d -s collab
 3. Both see the same output in real-time
 4. To hand control back to user: just stop sending keys — they can interact directly
 
+### Effective Pane Reading
+
+When reading output in a multiplayer session, `capture-pane` often returns mostly blank lines. Use these patterns:
+
+```bash
+# Get everything and search for what matters
+tmux capture-pane -t collab -p -S - | grep "search term"
+
+# Get non-empty lines only
+tmux capture-pane -t collab -p -S - | grep -v "^$" | tail -20
+
+# Find context around a match
+tmux capture-pane -t collab -p -S - | grep -B2 -A5 "error"
+```
+
 ### Example Session Names
 
 | Session           | Purpose                   |
@@ -159,6 +217,9 @@ tmux -S /workspace/tmux.sock new-session -d -s collab
 ## Notes
 
 - Use `capture-pane -p` to print to stdout (essential for scripting)
-- `-S -` captures entire scrollback history
+- `-S -` captures entire scrollback history (useful when pane has blank lines)
+- Pipe through `grep` to filter out empty lines and find specific content
 - Target format: `session:window.pane` (e.g., `shared:0.0`)
 - Sessions persist across SSH disconnects
+- Always use `-l --` with `send-keys` for shell commands
+- Verify quotes are straight ASCII before sending commands
