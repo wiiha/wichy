@@ -32,6 +32,7 @@ class CliConfig:
     load_ctx: Optional[str] = None
     last_ctx: bool = False
     no_server: bool = False
+    no_mcp: bool = False
     user_first: bool = False
     seq_exec: bool = False
     max_backend_connections: Optional[int] = None
@@ -133,6 +134,11 @@ class CliParser:
             "--no-server",
             action="store_true",
             help="Do not start the web server (graph editor, etc.)",
+        )
+        self.parser.add_argument(
+            "--no-mcp",
+            action="store_true",
+            help="Do not discover or connect to MCP servers",
         )
         self.parser.add_argument(
             "--first",
@@ -251,6 +257,15 @@ class CliParser:
             help="Force reinstall (overwrite existing default skills)",
         )
 
+        mcp_parser = install_subparsers.add_parser(
+            "mcp", help="Install example MCP server configuration"
+        )
+        mcp_parser.add_argument(
+            "--force",
+            action="store_true",
+            help="Overwrite existing MCP config if it exists",
+        )
+
     def parse(self, args=None) -> CliConfig:
         """
         Parse command line arguments.
@@ -275,6 +290,7 @@ class CliParser:
             load_ctx=parsed.load_ctx,
             last_ctx=parsed.last_ctx,
             no_server=parsed.no_server,
+            no_mcp=parsed.no_mcp,
             command=parsed.command,
             ls_command=getattr(parsed, "ls_command", None),
             new_command=getattr(parsed, "new_command", None),

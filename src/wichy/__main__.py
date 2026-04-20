@@ -254,6 +254,38 @@ def main():
     # Determine tools based on priority
     in_tools = initialize_tools(tool_manager, selected_ra, args)
 
+    # MCP tool discovery
+    if not args.no_mcp:
+        try:
+            from wichy.mcp_host import discover_mcp_tools, shutdown_mcp
+
+            native_tool_names = {t.name for t in in_tools}
+            mcp_tools = discover_mcp_tools(native_tool_names)
+
+            if mcp_tools:
+                user_console.print(
+                    f"Discovered {len(mcp_tools)} MCP tool(s)",
+                )
+
+            # Apply same filtering as native tools
+            if args.tools:
+                allowed = set(args.tools.split(",")) if args.tools else None
+                if allowed:
+                    mcp_tools = [t for t in mcp_tools if t.name in allowed]
+
+            if args.not_tools:
+                excluded = set(args.not_tools.split(",")) if args.not_tools else None
+                if excluded:
+                    mcp_tools = [t for t in mcp_tools if t.name not in excluded]
+
+            # Merge with native tools
+            in_tools = in_tools + mcp_tools
+
+            # Register cleanup on exit
+            atexit.register(shutdown_mcp)
+        except Exception as e:
+            user_console.print(f"[red]MCP integration failed: {e}[/red]")
+
     # Load context from file if specified (before building agent)
     loaded_context = None
     if args.load_ctx and args.last_ctx:

@@ -20,6 +20,31 @@ from wichy.root_agent.root_agent_desc_template import root_agent_desc_template
 from wichy.skills import SkillLoader
 from wichy.skills.skill_template import skill_template
 
+# ---------------------------------------------------------------------------
+# MCP config template
+# ---------------------------------------------------------------------------
+
+DEFAULT_MCP_CONFIG_TEMPLATE = """{
+  "mcpServers": {
+    "filesystem": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"],
+      "disabled": true
+    },
+    "github": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}"
+      },
+      "disabled": true
+    }
+  }
+}
+"""
+
 
 def handle_list_root_agents():
     """Handle 'ls ra' command - list available root agents."""
@@ -329,6 +354,42 @@ def handle_ra_template(args):
     return False
 
 
+def handle_install_mcp(args):
+    """Handle 'install mcp' command - create example MCP server configuration."""
+    config_path = settings.wichy_home / "mcp_servers.json"
+
+    if config_path.exists():
+        if args.install_force:
+            config_path.write_text(DEFAULT_MCP_CONFIG_TEMPLATE)
+            user_console.print(f"[green]Overwritten:[/green] {config_path}")
+            return True
+        else:
+            user_console.print(
+                f"[yellow]MCP config already exists at {config_path}[/yellow]"
+            )
+            user_console.print(
+                "[yellow]Use 'wichy install mcp --force' to overwrite[/yellow]"
+            )
+            return False
+
+    try:
+        settings.wichy_home.mkdir(parents=True, exist_ok=True)
+        config_path.write_text(DEFAULT_MCP_CONFIG_TEMPLATE)
+        user_console.print(f"[green]Created:[/green] {config_path}")
+        user_console.print(
+            "[dim]Edit this file to configure your MCP servers. "
+            "Set disabled to false to enable a server. "
+            "${VAR} values are interpolated from your environment.[/dim]"
+        )
+        return True
+    except PermissionError as e:
+        user_console.print(f"[red]Error:[/red] Permission denied: {e}")
+        return False
+    except Exception as e:
+        user_console.print(f"[red]Error:[/red] {e}")
+        return False
+
+
 def handle_install_commands(args):
     """Handle all 'install' subcommands. Returns True if handled, False otherwise."""
     if args.command != "install":
@@ -336,6 +397,11 @@ def handle_install_commands(args):
 
     if args.install_command == "hooks":
         handle_install_hooks(args)
+        user_console.flush()
+        exit(0)
+
+    if args.install_command == "mcp":
+        handle_install_mcp(args)
         user_console.flush()
         exit(0)
 

@@ -130,6 +130,14 @@ class Settings(BaseSettings):
     # Max validation retries
     session_map_validation_retries: int = 2
 
+    # -------------------------------------------------------------------------
+    # MCP Configuration
+    # -------------------------------------------------------------------------
+
+    mcp_enabled: bool = True
+    mcp_connection_timeout: int = 10  # seconds
+    mcp_tool_timeout: int = 60  # seconds
+
     @property
     def skills_dir(self) -> Path:
         """Full path to skills directory."""
