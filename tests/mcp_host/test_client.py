@@ -4,21 +4,56 @@ from unittest.mock import MagicMock
 
 import pytest
 
+# Mocking fastmcp.Client's async context manager produces unawaited coroutines.
+# This is inherent to mocking async protocols in sync test code — the coroutines
+# are passed to MagicMock.run_sync() which records them but never awaits them.
+pytestmark = pytest.mark.filterwarnings("ignore:coroutine.*was never awaited:RuntimeWarning")
+
 from wichy.mcp_host.client import MCPClient
 from wichy.mcp_host.config import MCPServerConfigStdio, MCPServerConfigHttp
 from wichy.mcp_host.errors import MCPConnectionError, MCPToolExecutionError
 
 
 class FakeBridge:
-    """A fake async bridge that tracks calls for testing."""
+    """A fake async bridge that tracks calls and closes coroutines.
+
+    Unlike MagicMock, this properly closes coroutine objects to prevent
+    RuntimeWarning about unawaited coroutines in tests.
+    """
 
     def __init__(self):
         self.calls = []
+        self.run_sync_returns = None
+        self.run_sync_side_effect = None
 
     def run_sync(self, coro, timeout=60.0):
-        """Track the coroutine call and return a mock result."""
+        """Track the call, close the coroutine, return mock result."""
         self.calls.append(("run_sync", coro, timeout))
-        return None
+
+        # Close the coroutine to prevent RuntimeWarning
+        if hasattr(coro, "close"):
+            coro.close()
+
+        if self.run_sync_side_effect is not None:
+            raise self.run_sync_side_effect
+
+        if self.run_sync_returns is not None:
+            return self.run_sync_returns
+
+        return MagicMock()
+
+
+def _mock_client(**methods):
+    """Create a mock for fastmcp.Client without async context manager methods.
+
+    Using MagicMock() directly for _client generates __aenter__/__aexit__
+    coroutines that are never awaited, causing RuntimeWarnings in tests.
+    This helper creates a mock with only the explicitly requested methods.
+    """
+    mock = MagicMock(spec=["list_tools", "call_tool"])
+    for name, impl in methods.items():
+        getattr(mock, name).side_effect = impl
+    return mock
 
 
 class TestMCPClientInit:
@@ -50,9 +85,7 @@ class TestMCPClientConnect:
 
     def test_connect_creates_client(self):
         """connect() should set _client to a fastmcp Client."""
-        bridge = MagicMock()
-        # Simulate successful __aenter__
-        bridge.run_sync.return_value = MagicMock()
+        bridge = FakeBridge()
 
         config = MCPServerConfigStdio(
             transport="stdio", command="python", args=["server.py"]
@@ -62,12 +95,11 @@ class TestMCPClientConnect:
         client.connect()
         assert client._client is not None
         # Bridge should have been called for __aenter__
-        assert bridge.run_sync.call_count == 1
+        assert len(bridge.calls) == 1
 
     def test_connect_idempotent(self):
         """connect() should be a no-op if already connected."""
-        bridge = MagicMock()
-        bridge.run_sync.return_value = MagicMock()
+        bridge = FakeBridge()
 
         config = MCPServerConfigStdio(transport="stdio", command="python")
         client = MCPClient("test", config, bridge=bridge)
@@ -76,12 +108,12 @@ class TestMCPClientConnect:
 
         client.connect()
         assert client._client is first_client  # Same object
-        assert bridge.run_sync.call_count == 1  # Not called again
+        assert len(bridge.calls) == 1  # Not called again
 
     def test_connect_failure_raises_connection_error(self):
         """connect() should raise MCPConnectionError on failure."""
-        bridge = MagicMock()
-        bridge.run_sync.side_effect = RuntimeError("transport failed")
+        bridge = FakeBridge()
+        bridge.run_sync_side_effect = RuntimeError("transport failed")
 
         config = MCPServerConfigStdio(transport="stdio", command="nonexistent_cmd")
         client = MCPClient("test", config, bridge=bridge)
@@ -94,8 +126,7 @@ class TestMCPClientConnect:
 
     def test_connect_http_transport(self):
         """connect() should create HTTP transport for MCPServerConfigHttp."""
-        bridge = MagicMock()
-        bridge.run_sync.return_value = MagicMock()
+        bridge = FakeBridge()
 
         config = MCPServerConfigHttp(
             transport="http",
@@ -111,8 +142,7 @@ class TestMCPClientDisconnect:
 
     def test_disconnect_resets_client(self):
         """disconnect() should set _client to None."""
-        bridge = MagicMock()
-        bridge.run_sync.return_value = MagicMock()
+        bridge = FakeBridge()
 
         config = MCPServerConfigStdio(transport="stdio", command="python")
         client = MCPClient("test", config, bridge=bridge)
@@ -124,18 +154,21 @@ class TestMCPClientDisconnect:
 
     def test_disconnect_best_effort(self):
         """disconnect() should not raise even if __aexit__ fails."""
-        bridge = MagicMock()
-        # __aenter__ succeeds
+        bridge = FakeBridge()
         first_call = True
+        original_run_sync = bridge.run_sync
 
-        def side_effect(coro, **kwargs):
+        def run_sync_side_effect(coro, timeout=60.0):
             nonlocal first_call
             if first_call:
                 first_call = False
-                return MagicMock()
+                return original_run_sync(coro, timeout)
+            # Close the coroutine before raising to prevent RuntimeWarning
+            if hasattr(coro, "close"):
+                coro.close()
             raise RuntimeError("aexit failed")
 
-        bridge.run_sync.side_effect = side_effect
+        bridge.run_sync = run_sync_side_effect
 
         config = MCPServerConfigStdio(transport="stdio", command="python")
         client = MCPClient("test", config, bridge=bridge)
@@ -148,7 +181,7 @@ class TestMCPClientDisconnect:
     def test_disconnect_when_not_connected(self):
         """disconnect() on unconnected client is a no-op."""
         config = MCPServerConfigStdio(transport="stdio", command="python")
-        client = MCPClient("test", config, bridge=MagicMock())
+        client = MCPClient("test", config, bridge=FakeBridge())
         # Should not raise
         client.disconnect()
         assert client._client is None
@@ -171,7 +204,7 @@ class TestMCPClientCallTool:
 
         config = MCPServerConfigStdio(transport="stdio", command="python")
         client = MCPClient("test", config, bridge=bridge)
-        client._client = MagicMock()
+        client._client = _mock_client()
 
         result = client.call_tool("echo", {"message": "hello"})
         assert result == "Hello from MCP"
@@ -183,7 +216,7 @@ class TestMCPClientCallTool:
 
         config = MCPServerConfigStdio(transport="stdio", command="python")
         client = MCPClient("test", config, bridge=bridge)
-        client._client = MagicMock()
+        client._client = _mock_client()
 
         result = client.call_tool("echo", {"message": "hello"})
         assert "[MCP Error]" in result
@@ -379,7 +412,7 @@ class TestMCPClientListTools:
         bridge.run_sync.return_value = [tool1]
 
         client = MCPClient("test", config, bridge=bridge)
-        client._client = MagicMock()
+        client._client = _mock_client()
 
         tools1 = client.list_tools()
         tools2 = client.list_tools()
@@ -394,7 +427,7 @@ class TestMCPClientListTools:
         bridge.run_sync.side_effect = RuntimeError("server disconnected")
 
         client = MCPClient("test", config, bridge=bridge)
-        client._client = MagicMock()
+        client._client = _mock_client()
 
         with pytest.raises(MCPToolExecutionError, match="Failed to list tools"):
             client.list_tools()
