@@ -155,6 +155,26 @@ class SlashCommandChecker:
 
             return table
 
+        def handle_help(line: str) -> str | None:
+            """Handle /help - show available commands."""
+            from rich.table import Table
+
+            target = line.strip().split(maxsplit=1)
+            if len(target) > 1 and target[1].startswith("/"):
+                # Specific command help: /help /reset
+                cmd = target[1].lower()
+                desc = self._descriptions.get(cmd, "No description available.")
+                return f"[bold]{cmd}[/bold]: {desc}"
+
+            table = Table(title="Wichy Commands", show_header=True, header_style="bold cyan")
+            table.add_column("Command", style="cyan")
+            table.add_column("Description")
+
+            for cmd, desc in sorted(self._descriptions.items()):
+                table.add_row(cmd, desc)
+
+            return table
+
         self._handlers: dict[str, CommandHandler] = {
             "/btw": handle_btw,
             "/exit": handle_exit,
@@ -164,6 +184,19 @@ class SlashCommandChecker:
             "/drop": handle_drop,
             "/status": handle_status,
             "/hooks": handle_hooks,
+            "/help": handle_help,
+        }
+
+        self._descriptions: dict[str, str] = {
+            "/btw": "One-shot sandboxed question (carries recent context)",
+            "/exit": "Exit the REPL",
+            "/logging": "Toggle logging on/off (or show current state)",
+            "/reset": "Nuke the entire conversation context",
+            "/compact": "Summarize and compact the conversation context",
+            "/drop": "Drop the last context entry",
+            "/status": "Show current token count and auto-compact threshold",
+            "/hooks": "Reload and list all registered hooks",
+            "/help": "Show this help message",
         }
 
         self._completer = NestedCompleter.from_nested_dict(
@@ -179,6 +212,7 @@ class SlashCommandChecker:
                 "/status": None,
                 "/exit": None,
                 "/hooks": None,
+                "/help": None,
             }
         )
 
