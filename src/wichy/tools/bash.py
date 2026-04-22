@@ -323,7 +323,19 @@ Usage notes:
                 stdout=subprocess.PIPE,
                 timeout=timeout,
             )
-            return result.stdout
+            output = result.stdout
+            if result.returncode != 0:
+                # Command failed — always show exit code
+                if output:
+                    return output + f"\n[exit code: {result.returncode}]"
+                else:
+                    return f"[exit code: {result.returncode}]"
+            else:
+                # Command succeeded — show exit code only if no output
+                if output:
+                    return output
+                else:
+                    return f"[exit code: 0]"
         except Exception as e:
             return format_error(f"command execution failed: {e}")
 
