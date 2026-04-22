@@ -36,6 +36,7 @@ class RootAgent(AgentCore):
         model_str,
         tools: List[BaseTool],
         name: str = "NOT SET",
+        display_name: Optional[str] = None,
         context=None,
         skills=None,
         agent_has_first_initiative: bool = True,
@@ -49,6 +50,7 @@ class RootAgent(AgentCore):
         else:
             self.context = new_context()
         self._name = name
+        self._display_name = display_name
         self.model_str = model_str
         self.tools = tools
         self.skills = skills or {}
@@ -64,6 +66,9 @@ class RootAgent(AgentCore):
         info_lines = [
             f"### Root Agent Info\n - **template name:** {self._name}\n- **model string:** {self.model_str}\n- **tools:**\n{tool_str}"
         ]
+
+        if self._display_name:
+            info_lines.append(f"- **display name:** {self._display_name}")
 
         # Add skills in alphabetical order
         if self.skills:
@@ -98,6 +103,11 @@ class RootAgent(AgentCore):
     def name(self) -> str:
         """Return the agent name."""
         return self._name
+
+    @property
+    def display_name(self) -> str:
+        """Return the display name for terminal output. Falls back to 'Assistant'."""
+        return self._display_name or "Assistant"
 
     # -------------------------------------------------------------------------
     # AgentCore logging overrides - use RootAgent's console
@@ -138,7 +148,7 @@ class RootAgent(AgentCore):
             """Hook to display thinking content before processing tool calls."""
             if strip_thinking_content(resp.content) != "":
                 result = (
-                    "\n---\n\n### Assistant\n"
+                    f"\n---\n\n### {self.display_name}\n"
                     + strip_thinking_content(resp.content)
                     + "\n\n---"
                 )

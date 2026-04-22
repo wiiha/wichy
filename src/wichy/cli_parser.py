@@ -26,6 +26,7 @@ class CliConfig:
     log_tools: bool = False
     log_agents: bool = False
     model_str: str = ""
+    display_name: str = ""
     tools: str = ""
     not_tools: str = ""
     root_agent_description: str = "root-agent-code-advanced"
@@ -96,6 +97,12 @@ class CliParser:
             "--model-str",
             default="",
             help="Specify the model string. Format: <backend>/<model> for ollama/llama_cpp/open_router, or generic/<host>[:<port>]##<model> for OpenAI-compatible backends.",
+        )
+        self.parser.add_argument(
+            "--name",
+            dest="display_name",
+            default="",
+            help="Set a display name for the root agent (shown in terminal headers instead of 'Assistant')",
         )
         self.parser.add_argument(
             "--tools",
@@ -284,6 +291,7 @@ class CliParser:
             log_tools=parsed.log_tools,
             log_agents=parsed.log_agents,
             model_str=parsed.model_str,
+            display_name=parsed.display_name,
             tools=parsed.tools,
             not_tools=parsed.not_tools,
             root_agent_description=parsed.root_agent_description,

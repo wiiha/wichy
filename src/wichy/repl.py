@@ -119,7 +119,7 @@ class Repl:
 
     def _print_assistant_response(self, content: str) -> None:
         """Print the assistant's response as markdown."""
-        user_console.print(Markdown("\n---\n\n### Assistant\n"))
+        user_console.print(Markdown(f"\n---\n\n### {self.root_agent.display_name}\n"))
         markdown = Markdown(content)
         user_console.print(markdown)
 

@@ -166,7 +166,9 @@ class SlashCommandChecker:
                 desc = self._descriptions.get(cmd, "No description available.")
                 return f"[bold]{cmd}[/bold]: {desc}"
 
-            table = Table(title="Wichy Commands", show_header=True, header_style="bold cyan")
+            table = Table(
+                title="Wichy Commands", show_header=True, header_style="bold cyan"
+            )
             table.add_column("Command", style="cyan")
             table.add_column("Description")
 
@@ -174,6 +176,16 @@ class SlashCommandChecker:
                 table.add_row(cmd, desc)
 
             return table
+
+        def handle_name(line: str) -> str | None:
+            """Handle /name - set or show the agent display name."""
+            parts = line.strip().split(maxsplit=1)
+            if len(parts) > 1:
+                new_name = parts[1].strip()
+                self.root_agent._display_name = new_name
+                return f"[green]Display name set to:[/green] {new_name}"
+            current = self.root_agent.display_name
+            return f"Current display name: {current}"
 
         self._handlers: dict[str, CommandHandler] = {
             "/btw": handle_btw,
@@ -185,6 +197,7 @@ class SlashCommandChecker:
             "/status": handle_status,
             "/hooks": handle_hooks,
             "/help": handle_help,
+            "/name": handle_name,
         }
 
         self._descriptions: dict[str, str] = {
@@ -197,6 +210,7 @@ class SlashCommandChecker:
             "/status": "Show current token count and auto-compact threshold",
             "/hooks": "Reload and list all registered hooks",
             "/help": "Show this help message",
+            "/name": "Set or show the agent display name",
         }
 
         self._completer = NestedCompleter.from_nested_dict(
@@ -213,6 +227,7 @@ class SlashCommandChecker:
                 "/exit": None,
                 "/hooks": None,
                 "/help": None,
+                "/name": None,
             }
         )
 

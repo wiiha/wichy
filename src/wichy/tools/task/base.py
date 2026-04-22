@@ -104,7 +104,9 @@ class TaskAgent(AgentCore):
         )
         self._original_system_prompt = system_prompt
         if self._max_turns is not None:
-            system_prompt += f"\n\nYou have {self._max_turns} turns available for this task."
+            system_prompt += (
+                f"\n\nYou have {self._max_turns} turns available for this task."
+            )
             self._turns_remaining = self._max_turns
         else:
             self._turns_remaining = None
@@ -220,16 +222,23 @@ class TaskAgent(AgentCore):
 
                 # Penultimate round warning
                 if self._max_turns is not None and turns_used == self._max_turns:
-                    warning = ("This is your last turn with tools available. "
-                               "The next turn will be tool-free and you must provide a final answer. "
-                               "Use your remaining tools wisely.")
+                    warning = (
+                        "This is your last turn with tools available. "
+                        "The next turn will be tool-free and you must provide a final answer. "
+                        "Use your remaining tools wisely."
+                    )
                     self.context.add(role=ROLE_USER, content=warning)
 
                 # Update turns-remaining in system prompt
                 if self._turns_remaining is not None:
                     remaining = self._max_turns - turns_used
-                    updated_content = self._original_system_prompt + f"\n\nYou have {remaining} turns remaining for this task."
-                    self.context.update_message(0, {"role": ROLE_SYSTEM, "content": updated_content})
+                    updated_content = (
+                        self._original_system_prompt
+                        + f"\n\nYou have {remaining} turns remaining for this task."
+                    )
+                    self.context.update_message(
+                        0, {"role": ROLE_SYSTEM, "content": updated_content}
+                    )
 
                 try:
                     response = call(

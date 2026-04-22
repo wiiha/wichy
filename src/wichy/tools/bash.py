@@ -335,7 +335,7 @@ Usage notes:
                 if output:
                     return output
                 else:
-                    return f"[exit code: 0]"
+                    return "[exit code: 0]"
         except Exception as e:
             return format_error(f"command execution failed: {e}")
 
