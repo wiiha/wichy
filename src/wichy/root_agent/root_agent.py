@@ -51,7 +51,7 @@ class RootAgent(AgentCore):
             self.context = new_context()
         self._name = name
         self._display_name = display_name
-        self.model_str = model_str
+        self._model_str = model_str
         self.tools = tools
         self.skills = skills or {}
         console.log(
@@ -108,6 +108,18 @@ class RootAgent(AgentCore):
     def display_name(self) -> str:
         """Return the display name for terminal output. Falls back to 'Assistant'."""
         return self._display_name or "Assistant"
+
+    @property
+    def model_str(self) -> str:
+        """Return the current model string."""
+        return self._model_str
+
+    @model_str.setter
+    def model_str(self, value: str) -> None:
+        """Set a new model string for subsequent LLM calls."""
+        self._model_str = value
+        # Reset session map model so it re-initializes with new model on next extraction
+        self._session_map_model = None
 
     # -------------------------------------------------------------------------
     # AgentCore logging overrides - use RootAgent's console

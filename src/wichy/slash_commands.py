@@ -8,6 +8,7 @@ from wichy.helpers.console import console
 from wichy.hooks.loader import hook_loader
 from wichy.hooks.registry import hook_registry
 from wichy.hooks.types import HookType
+from wichy.llm_backend import backend_and_model_from_model_str, parse_generic_backend
 from wichy.root_agent.root_agent import ContextResetStrategies
 from wichy.tools.base import console_tool_result
 from wichy.tools.task import console_task_agents
@@ -187,6 +188,35 @@ class SlashCommandChecker:
             current = self.root_agent.display_name
             return f"Current display name: {current}"
 
+        def handle_model(line: str) -> str | None:
+            """Handle /model - swap the LLM model mid-session."""
+            parts = line.strip().split(maxsplit=1)
+            if len(parts) < 2:
+                return f"Current model: {self.root_agent.model_str}"
+            new_model = parts[1].strip()
+
+            KNOWN_BACKENDS = {"ollama", "llama_cpp", "open_router", "generic"}
+
+            try:
+                backend, model_name = backend_and_model_from_model_str(new_model)
+                if not backend:
+                    return "[red]Invalid model format: backend is empty. Expected: <backend>/<model>[/red]"
+                if not model_name:
+                    return "[red]Invalid model format: model name is empty. Expected: <backend>/<model>[/red]"
+                if backend not in KNOWN_BACKENDS:
+                    return (
+                        f"[red]Unknown backend '{backend}'. "
+                        f"Known backends: {', '.join(sorted(KNOWN_BACKENDS))}[/red]"
+                    )
+                if backend == "generic":
+                    parse_generic_backend(new_model)  # validates host##model format
+            except ValueError as e:
+                return f"[red]{e}[/red]"
+
+            old_model = self.root_agent.model_str
+            self.root_agent.model_str = new_model
+            return f"[green]Model changed:[/green] {old_model} → {new_model}"
+
         self._handlers: dict[str, CommandHandler] = {
             "/btw": handle_btw,
             "/exit": handle_exit,
@@ -198,6 +228,7 @@ class SlashCommandChecker:
             "/hooks": handle_hooks,
             "/help": handle_help,
             "/name": handle_name,
+            "/model": handle_model,
         }
 
         self._descriptions: dict[str, str] = {
@@ -211,6 +242,7 @@ class SlashCommandChecker:
             "/hooks": "Reload and list all registered hooks",
             "/help": "Show this help message",
             "/name": "Set or show the agent display name",
+            "/model": "Swap the LLM model mid-session (format: <backend>/<model>)",
         }
 
         self._completer = NestedCompleter.from_nested_dict(
@@ -228,6 +260,12 @@ class SlashCommandChecker:
                 "/hooks": None,
                 "/help": None,
                 "/name": None,
+                "/model": {
+                    "ollama": None,
+                    "llama_cpp": None,
+                    "open_router": None,
+                    "generic": None,
+                },
             }
         )
 
