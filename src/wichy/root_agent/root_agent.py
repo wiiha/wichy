@@ -11,6 +11,7 @@ from wichy.constants import ROLE_ASSISTANT, ROLE_USER
 from wichy.context.handler import new_context
 from wichy.helpers.console import console
 from wichy.helpers.string import strip_thinking_content
+from wichy.hooks.context_access import set_active_context as hooks_set_active_context
 from wichy.hooks.executor import HookExecutor
 from wichy.hooks.types import HookType
 from wichy.llm_backend import (
@@ -451,6 +452,7 @@ class RootAgent(AgentCore):
             from wichy.tools.context_editor import api as context_editor_api
 
             context_editor_api.set_active_context(self.context)
+            hooks_set_active_context(self.context)
         except Exception:
             pass
 
@@ -531,6 +533,7 @@ class RootAgent(AgentCore):
             from wichy.tools.context_editor import api as context_editor_api
 
             context_editor_api.set_active_context(self.context)
+            hooks_set_active_context(self.context)
         except Exception:
             pass
 

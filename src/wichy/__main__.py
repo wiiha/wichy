@@ -24,6 +24,7 @@ from wichy.helpers.console import console
 from wichy.helpers.string import strip_thinking_content
 from wichy.hooks import initialize_hooks
 from wichy.hooks.context import HookContext
+from wichy.hooks.context_access import set_active_context as hooks_set_active_context
 from wichy.hooks.registry import hook_registry
 from wichy.hooks.types import HookType
 from wichy.repl import Repl
@@ -334,6 +335,9 @@ def main():
     except AgentBuilderError as e:
         user_console.print(f"[red]error:[/red] {e}")
         exit(1)
+
+    # Set active context for hooks (works in all modes: REPL, pipeline, with/without server)
+    hooks_set_active_context(root_agent.context)
 
     # Fire SESSION_START hook after root agent is built
     global _session_context
