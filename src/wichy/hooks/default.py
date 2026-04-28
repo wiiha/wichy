@@ -31,6 +31,10 @@ Lifecycle Hooks (observe session and context events):
         - context_reset_pre/post: {"root_agent", "context_handler", "reset_strategy"}
         - context_compact_pre: {"root_agent", "context_handler", "is_auto_compact"}
         - context_compact_post: {"root_agent", "context_handler", "is_auto_compact", "summary"}
+
+      Available functions:
+          context_add(role, content) - Inject a message into the active conversation context.
+              Typically used in @session_start to seed project instructions or reminders.
 """
 
 from wichy.hooks import (
@@ -40,6 +44,8 @@ from wichy.hooks import (
     session_start, session_end,
     context_reset_pre, context_reset_post,
     context_compact_pre, context_compact_post,
+    # Context access
+    context_add,
     # Types
     HookResult, HookContext, print
 )
@@ -116,6 +122,13 @@ from wichy.hooks import (
 #     """Log after context compaction, show summary."""
 #     summary = ctx.event_data.get("summary", "")[:200]
 #     print(f"[dim]Compaction complete. Summary: {summary}...[/dim]")
+#     return HookResult.approve()
+
+# @session_start
+# def inject_project_context(ctx: HookContext) -> HookResult:
+#     """Inject project-specific instructions into the conversation context."""
+#     context_add("system", "Project convention: always add type hints to public functions.")
+#     print("[dim]Injected project context[/dim]")
 #     return HookResult.approve()
 
 # =============================================================================

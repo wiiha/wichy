@@ -4,14 +4,16 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from wichy.mcp_host.client import MCPClient
+from wichy.mcp_host.config import MCPServerConfigHttp, MCPServerConfigStdio
+from wichy.mcp_host.errors import MCPConnectionError, MCPToolExecutionError
+
 # Mocking fastmcp.Client's async context manager produces unawaited coroutines.
 # This is inherent to mocking async protocols in sync test code — the coroutines
 # are passed to MagicMock.run_sync() which records them but never awaits them.
-pytestmark = pytest.mark.filterwarnings("ignore:coroutine.*was never awaited:RuntimeWarning")
-
-from wichy.mcp_host.client import MCPClient
-from wichy.mcp_host.config import MCPServerConfigStdio, MCPServerConfigHttp
-from wichy.mcp_host.errors import MCPConnectionError, MCPToolExecutionError
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:coroutine.*was never awaited:RuntimeWarning"
+)
 
 
 class FakeBridge:

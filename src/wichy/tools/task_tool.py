@@ -30,7 +30,7 @@ class TaskAgentParameters(ParametersModel):
     )
     max_turns: Optional[int] = Field(
         None,
-        description="Maximum number of agentic turns (API round-trips) before stopping. Used internally for warmup.",
+        description="Maximum number of agentic turns (API round-trips) before stopping. Each turn is: agent calls tool, gets result, responds. Default: None (unlimited).",
         gt=0,
         le=9007199254740991,
     )
@@ -152,6 +152,7 @@ assistant: "I'm going to use the Task tool to launch the greeting-responder agen
             prompt=prompt,
             model=model_str,
             all_tools_not_instantiated=tools,
+            max_turns=max_turns,
         )
 
         result = sa.run()

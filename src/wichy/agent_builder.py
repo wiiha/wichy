@@ -120,6 +120,7 @@ class AgentBuilder:
             model_str=model_str,
             tools=self.tools,
             name=selected_root_agent.props.get("name"),
+            display_name=self.cli_config.display_name or None,
             context=context,
             skills=self.skills,
             agent_has_first_initiative=agent_goes_first,

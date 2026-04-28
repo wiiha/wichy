@@ -38,6 +38,9 @@ Lifecycle hooks for session and context events:
 from wichy.console import user_console
 from wichy.hooks.context import HookContext
 
+# Context access
+from wichy.hooks.context_access import context_add, set_active_context
+
 # Decorators (main user-facing API)
 from wichy.hooks.decorators import (
     context_compact_post,
@@ -128,6 +131,9 @@ __all__ = [
     "hook_loader",
     # Console
     "print",
+    # Context access
+    "context_add",
+    "set_active_context",
     # Default hook template
     "DEFAULT_HOOKS_TEMPLATE",
 ]

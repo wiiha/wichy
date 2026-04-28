@@ -1,5 +1,5 @@
 from datetime import date
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel
 from rich.console import Console
@@ -40,9 +40,12 @@ class TaskAgent(AgentCore):
         prompt: str,
         model: str,
         all_tools_not_instantiated: list[BaseTool],
+        max_turns: Optional[int] = None,
     ):
         super().__init__()
         self._name = agent_definition.name
+        self._max_turns = max_turns
+        self._turns_remaining = None
         self.description = agent_definition.description
         self.model_str = (
             settings.task_tool_model_str
@@ -99,6 +102,14 @@ class TaskAgent(AgentCore):
         context = ContextHandler(
             custom_suffix=f"{self._name}-{gen_id()}", sub_dir="task_agents"
         )
+        self._original_system_prompt = system_prompt
+        if self._max_turns is not None:
+            system_prompt += (
+                f"\n\nYou have {self._max_turns} turns available for this task."
+            )
+            self._turns_remaining = self._max_turns
+        else:
+            self._turns_remaining = None
         context.add(role=ROLE_SYSTEM, content=system_prompt)
         context.add(role=ROLE_USER, content=prompt)
         self.context = context
@@ -200,7 +211,35 @@ class TaskAgent(AgentCore):
                 else:
                     raise
 
+            turns_used = 1  # Initial call counts as turn 1
+
             while self._handle_tools(tools, response.message):
+                turns_used += 1
+
+                # Max turns enforcement — exceeded limit, force summary
+                if self._max_turns is not None and turns_used > self._max_turns:
+                    return self._gen_summary()
+
+                # Penultimate round warning
+                if self._max_turns is not None and turns_used == self._max_turns:
+                    warning = (
+                        "This is your last turn with tools available. "
+                        "The next turn will be tool-free and you must provide a final answer. "
+                        "Use your remaining tools wisely."
+                    )
+                    self.context.add(role=ROLE_USER, content=warning)
+
+                # Update turns-remaining in system prompt
+                if self._turns_remaining is not None:
+                    remaining = self._max_turns - turns_used
+                    updated_content = (
+                        self._original_system_prompt
+                        + f"\n\nYou have {remaining} turns remaining for this task."
+                    )
+                    self.context.update_message(
+                        0, {"role": ROLE_SYSTEM, "content": updated_content}
+                    )
+
                 try:
                     response = call(
                         self.context(tick=True), tool_defs, model_str=self.model_str
