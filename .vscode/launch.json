@@ -13,26 +13,20 @@
       "args": ["-r", "root-agent-basic", "--first"]
     },
     {
-      "name": "Python Debugger: Wichy (Open Router)",
-      "type": "debugpy",
-      "request": "launch",
-      "program": "${workspaceFolder}/src/wichy/__main__.py",
-      "console": "integratedTerminal",
-      "args": [
-        "--model-str",
-        // "open_router/arcee-ai/trinity-large-preview:free"
-        "open_router/stepfun/step-3.5-flash:free",
-        // "--show-log"
-        "--first"
-      ]
-    },
-    {
       "name": "Python Debugger: Wichy (Ollama)",
       "type": "debugpy",
       "request": "launch",
       "program": "${workspaceFolder}/src/wichy/__main__.py",
       "console": "integratedTerminal",
       "args": ["--model-str", "ollama/minimax-m2.7:cloud"]
+    },
+    {
+      "name": "Python Debugger: Wichy Server (Ollama)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/src/wichy/__main__.py",
+      "console": "integratedTerminal",
+      "args": ["--model-str", "ollama/minimax-m2.7:cloud", "server"]
     },
     {
       "name": "Python Debugger: Wichy (with args)",

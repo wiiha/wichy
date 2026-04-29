@@ -193,6 +193,10 @@ def main():
     parser = CliParser()
     args = parser.parse()
 
+    if args.server_mode and args.no_server:
+        print("error: server mode and --no-server are incompatible, choose one")
+        exit(1)
+
     # Reset scratchpad selection on every CLI run so no scratchpad is active at start
     set_scratchpad_slug(None)
 
@@ -400,6 +404,10 @@ def main():
         sys.stdout.write(result)
         sys.stdout.flush()
         exit(0)
+
+    if args.server_mode:
+        print("server mode not yet implemented")
+        exit(1)
 
     # Start the REPL
     repl = Repl(

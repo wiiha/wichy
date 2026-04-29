@@ -61,6 +61,9 @@ class CliConfig:
     install_command: Optional[str] = None
     install_force: bool = False
 
+    # Subcommand: server
+    server_mode: bool = False
+
 
 class CliParser:
     """Standalone CLI argument parser."""
@@ -273,6 +276,12 @@ class CliParser:
             help="Overwrite existing MCP config if it exists",
         )
 
+        # server mode command
+        server_parser = subparsers.add_parser(
+            "server",
+            help="Run Wichy in server mode, no repl, exposing a REST API instead.",
+        )
+
     def parse(self, args=None) -> CliConfig:
         """
         Parse command line arguments.
@@ -317,6 +326,9 @@ class CliParser:
         if parsed.command == "new" and parsed.new_command == "skill":
             config.new_skill_name = parsed.name
             config.new_skill_with_script = parsed.with_script
+
+        if parsed.command == "server":
+            config.server_mode = True
 
         return config
 
