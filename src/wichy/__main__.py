@@ -30,7 +30,7 @@ from wichy.hooks.types import HookType
 from wichy.repl import Repl
 from wichy.root_agent import ALL_ROOT_AGENT_DESC
 from wichy.root_agent.helpers import parse_root_agent_markdown_desc
-from wichy.server_controller import ServerController
+from wichy.server import run_server, start_server_in_background
 from wichy.skills import SkillLoader
 from wichy.slash_commands import SlashCommandChecker, slash_completer
 from wichy.tool_manager import ToolManager
@@ -139,13 +139,8 @@ def setup_console_logging(args):
         console.quiet = True
 
 
-def start_server(root_agent):
+def start_server(root_agent, in_background: bool = True):
     """Start the web server and return the controller."""
-    server_controller = ServerController()
-    actual_port = server_controller.start()
-    user_console.print(
-        f"[dim]Web server started on http://{server_controller.host}:{actual_port}[/dim]"
-    )
 
     # Set active context and root agent for context editor if server is enabled
     try:
@@ -184,9 +179,15 @@ def start_server(root_agent):
         user_console.print(
             f"[yellow]Warning: Could not set context handler for session map: {e}[/yellow]"
         )
-    user_console.print("[dim]Use --no-server to disable.[/dim]")
 
-    return server_controller
+    if not in_background:
+        return run_server()
+
+    actual_port = start_server_in_background()
+    user_console.print(
+        f"[dim]Web server started on http://{settings.server_host}:{actual_port}[/dim]"
+    )
+    user_console.print("[dim]Use --no-server to disable.[/dim]")
 
 
 def main():
@@ -378,10 +379,6 @@ def main():
     # Create command checker now that root_agent is available
     cmd_checker = SlashCommandChecker(root_agent)
 
-    # Start the web server in background (unless --no-server or pipeline mode)
-    if not args.no_server and args.prompt is None:
-        start_server(root_agent)
-
     if args.prompt is not None:
         # Pipeline mode — no REPL, single shot, print response and exit
         if root_agent.agent_has_first_initiative:
@@ -406,8 +403,12 @@ def main():
         exit(0)
 
     if args.server_mode:
-        print("server mode not yet implemented")
-        exit(1)
+        print("server mode not yet fully implemented")
+        return start_server(root_agent, in_background=False)
+
+    # Start the web server in background (unless --no-server)
+    if not args.no_server:
+        start_server(root_agent)
 
     # Start the REPL
     repl = Repl(
