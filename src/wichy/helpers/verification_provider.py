@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Optional
+from typing import Optional
 
 from pydantic import BaseModel
 
@@ -21,11 +21,11 @@ verification_provider: Optional[VerificationProvider] = None
 
 
 def get_verification_provider():
-    return external_verification_provider
+    return verification_provider
 
 
 def set_verification_provider(
     provider: VerificationProvider,
 ) -> None:
-    global external_verification_provider
-    external_verification_provider = provider
+    global verification_provider
+    verification_provider = provider

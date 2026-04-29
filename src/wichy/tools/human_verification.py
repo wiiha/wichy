@@ -1,10 +1,8 @@
 import functools
 import threading
-from abc import ABC, abstractmethod
 from typing import Any, Callable, Optional
 
 from prompt_toolkit import PromptSession
-from pydantic import BaseModel
 from rich.console import Console
 
 from wichy.config.settings import settings
