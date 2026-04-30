@@ -104,7 +104,7 @@ def require_human_verification(func: Callable) -> Callable:
         if current_vp:
             res = current_vp.verify(label, message, all_args)
             if res.ok:
-                return func(*args, *kwargs)
+                return func(*args, **kwargs)
 
             # not ok
             msg = f"User denied your suggested execution of: {all_args}"

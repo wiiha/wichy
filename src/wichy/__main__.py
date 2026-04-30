@@ -16,6 +16,7 @@ from wichy.cli.handlers import (
     handle_ra_template,
 )
 from wichy.cli_parser import CliParser
+from wichy.wichy_server import ChatSession, set_input_queue as set_server_input_queue
 from wichy.config import settings
 from wichy.console import set_user_output_quiet, user_console, ServerConsole
 from wichy.constants import ROLE_USER
@@ -38,6 +39,11 @@ from wichy.tools import human_verification
 from wichy.tools.base import console_tool_result
 from wichy.tools.notes import set_scratchpad_slug
 from wichy.tools.task import console_task_agents
+from wichy.helpers.shutdown import shutdown_requested
+from wichy.helpers.verification_provider import set_verification_provider
+from wichy.wichy_server.verification_provider import ServerVerificationProvider
+
+import threading
 
 # Module-level session context for lifecycle hooks
 _session_context: HookContext | None = None
@@ -139,8 +145,14 @@ def setup_console_logging(args):
         console.quiet = True
 
 
-def start_server(root_agent, in_background: bool = True):
-    """Start the web server and return the controller."""
+def setup_server(root_agent):
+    """
+    This function perform relevant configuration and setup of server before starting it.
+    Such as connecting root agent context to the server context editor.
+    The method should only contain setup things that are shared between all
+    modes wichy can run in (REPL, Server ...), things relevant for only one mode
+    should be configure in dedicated methods.
+    """
 
     # Set active context and root agent for context editor if server is enabled
     try:
@@ -179,15 +191,6 @@ def start_server(root_agent, in_background: bool = True):
         user_console.print(
             f"[yellow]Warning: Could not set context handler for session map: {e}[/yellow]"
         )
-
-    if not in_background:
-        return run_server()
-
-    actual_port = start_server_in_background()
-    user_console.print(
-        f"[dim]Web server started on http://{settings.server_host}:{actual_port}[/dim]"
-    )
-    user_console.print("[dim]Use --no-server to disable.[/dim]")
 
 
 def main():
@@ -407,11 +410,29 @@ def main():
 
     if args.server_mode:
         print("server mode not yet fully implemented")
-        return start_server(root_agent, in_background=False)
+        session = ChatSession(root_agent=root_agent, cmd_checker=cmd_checker)
+        setup_server(root_agent=root_agent)
+        set_server_input_queue(session.input_queue)
+        vp = ServerVerificationProvider()
+        set_verification_provider(vp)
+        flask_thread = threading.Thread(target=run_server, daemon=True)
+
+        session.start()
+        flask_thread.start()
+
+        shutdown_requested.wait()
+        session.stop()
+        sys.exit(0)
+        return
 
     # Start the web server in background (unless --no-server)
     if not args.no_server:
-        start_server(root_agent)
+        setup_server(root_agent)
+        actual_port = start_server_in_background()
+        user_console.print(
+            f"[dim]Web server started on http://{settings.server_host}:{actual_port}[/dim]"
+        )
+        user_console.print("[dim]Use --no-server to disable.[/dim]")
 
     # Start the REPL
     repl = Repl(
