@@ -9,6 +9,9 @@ from wichy.console import user_console
 from wichy.helpers.verification_provider import get_verification_provider
 from wichy.wichy_server.verification_provider import ServerVerificationProvider
 
+from wichy.helpers.interaction_provider import get_interaction_provider
+from wichy.wichy_server.interaction_provider import ServerInteractionProvider
+
 _input_queue: Optional[Queue[str]] = None
 
 
@@ -66,5 +69,40 @@ def register_routes(bp: Blueprint):
 
         if not vp.respond(vid, approved, reason):
             return jsonify({"error": "not found or already resolved"}), 404
+
+        return jsonify({"status": "ok"})
+
+    @bp.route("/questions", methods=["GET"])
+    def get_pending_questions():
+        provider = get_interaction_provider()
+        if not isinstance(provider, ServerInteractionProvider):
+            return jsonify({"error": "not configured"}), 503
+
+        pending = provider.list_pending()
+        return jsonify(
+            [
+                {
+                    "id": p.id,
+                    "timestamp": p.timestamp,
+                    "metadata": p.metadata,
+                    "questions": [q.model_dump(mode="json") for q in p.questions],
+                }
+                for p in pending
+            ]
+        )
+
+    @bp.route("/questions/<qid>", methods=["POST"])
+    def post_question_answers(qid):
+        provider = get_interaction_provider()
+        if not isinstance(provider, ServerInteractionProvider):
+            return jsonify({"error": "not configured"}), 503
+
+        data = request.get_json(silent=True) or {}
+        answers = data.get("answers")
+        if not isinstance(answers, dict):
+            return jsonify({"error": "answers dict required"}), 400
+
+        if not provider.respond(qid, answers):
+            return jsonify({"error": "not found or already answered"}), 404
 
         return jsonify({"status": "ok"})

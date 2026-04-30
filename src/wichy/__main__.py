@@ -3,6 +3,7 @@ import os
 import sys
 from datetime import datetime
 from pathlib import Path
+import threading
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
@@ -42,8 +43,8 @@ from wichy.tools.task import console_task_agents
 from wichy.helpers.shutdown import shutdown_requested
 from wichy.helpers.verification_provider import set_verification_provider
 from wichy.wichy_server.verification_provider import ServerVerificationProvider
-
-import threading
+from wichy.helpers.interaction_provider import set_interaction_provider
+from wichy.wichy_server.interaction_provider import ServerInteractionProvider
 
 # Module-level session context for lifecycle hooks
 _session_context: HookContext | None = None
@@ -413,8 +414,8 @@ def main():
         session = ChatSession(root_agent=root_agent, cmd_checker=cmd_checker)
         setup_server(root_agent=root_agent)
         set_server_input_queue(session.input_queue)
-        vp = ServerVerificationProvider()
-        set_verification_provider(vp)
+        set_interaction_provider(ServerInteractionProvider())
+        set_verification_provider(ServerVerificationProvider())
         flask_thread = threading.Thread(target=run_server, daemon=True)
 
         session.start()

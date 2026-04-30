@@ -1,6 +1,6 @@
 """Wichy running in server mode, exposing an API instead of REPL interaction"""
 
-from flask import Blueprint, render_template
+from flask import Blueprint
 from wichy.wichy_server.chat_session import ChatSession
 from wichy.wichy_server.api import set_input_queue
 
