@@ -18,6 +18,9 @@ from wichy.slash_commands import (
     SlashCommandChecker,
 )
 
+from wichy.repl_interaction_provider import REPLInteractionProvider
+from wichy.helpers.interaction_provider import set_interaction_provider
+
 # How many messages (from the end of the main conversation) to include in a
 # /btw one-shot agent call.
 # Set to None to include the full conversation history.
@@ -46,6 +49,7 @@ class Repl:
         self.root_agent = root_agent
         self.prompt_session = prompt_session
         self.cmd_checker = cmd_checker
+        set_interaction_provider(REPLInteractionProvider())
 
     def run(self) -> None:
         """Run the interactive REPL loop."""

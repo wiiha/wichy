@@ -8,6 +8,7 @@ from rich.console import Console
 from wichy.config.settings import settings
 from wichy.console import user_console
 from wichy.helpers.needs_user_attention import needs_user_attention
+from wichy.helpers.verification_provider import get_verification_provider
 
 PIPELINE_MODE = False
 
@@ -97,6 +98,19 @@ def require_human_verification(func: Callable) -> Callable:
             )
 
         message: Optional[str] = getattr(wrapper, "_action_message", None)
+
+        current_vp = get_verification_provider()
+
+        if current_vp:
+            res = current_vp.verify(label, message, all_args)
+            if res.ok:
+                return func(*args, **kwargs)
+
+            # not ok
+            msg = f"User denied your suggested execution of: {all_args}"
+            if res.reason != "":
+                msg += "\nReason for denied execution: " + res.reason
+            raise PermissionError(msg)
 
         with _user_interaction_lock:
 

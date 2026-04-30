@@ -125,12 +125,14 @@ def register_blueprints(app: Flask) -> None:
     from wichy.tools.notes import register as register_notes
     from wichy.tools.data import register as register_data
     from wichy.session_map import register as register_session_map
+    from wichy.wichy_server import register as register_server_api
 
     register_graph(app)
     register_context_editor(app)
     register_notes(app)
     register_data(app)
     register_session_map(app)
+    register_server_api(app)
 
 
 _server_thread: threading.Thread | None = None

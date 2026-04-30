@@ -3,6 +3,7 @@ import os
 import sys
 from datetime import datetime
 from pathlib import Path
+import threading
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
@@ -16,8 +17,9 @@ from wichy.cli.handlers import (
     handle_ra_template,
 )
 from wichy.cli_parser import CliParser
+from wichy.wichy_server import ChatSession, set_input_queue as set_server_input_queue
 from wichy.config import settings
-from wichy.console import set_user_output_quiet, user_console
+from wichy.console import set_user_output_quiet, user_console, ServerConsole
 from wichy.constants import ROLE_USER
 from wichy.context.handler import context_from_file, latest_context_file
 from wichy.helpers.console import console
@@ -30,7 +32,7 @@ from wichy.hooks.types import HookType
 from wichy.repl import Repl
 from wichy.root_agent import ALL_ROOT_AGENT_DESC
 from wichy.root_agent.helpers import parse_root_agent_markdown_desc
-from wichy.server_controller import ServerController
+from wichy.server import run_server, start_server_in_background
 from wichy.skills import SkillLoader
 from wichy.slash_commands import SlashCommandChecker, slash_completer
 from wichy.tool_manager import ToolManager
@@ -38,6 +40,11 @@ from wichy.tools import human_verification
 from wichy.tools.base import console_tool_result
 from wichy.tools.notes import set_scratchpad_slug
 from wichy.tools.task import console_task_agents
+from wichy.helpers.shutdown import shutdown_requested
+from wichy.helpers.verification_provider import set_verification_provider
+from wichy.wichy_server.verification_provider import ServerVerificationProvider
+from wichy.helpers.interaction_provider import set_interaction_provider
+from wichy.wichy_server.interaction_provider import ServerInteractionProvider
 
 # Module-level session context for lifecycle hooks
 _session_context: HookContext | None = None
@@ -139,13 +146,14 @@ def setup_console_logging(args):
         console.quiet = True
 
 
-def start_server(root_agent):
-    """Start the web server and return the controller."""
-    server_controller = ServerController()
-    actual_port = server_controller.start()
-    user_console.print(
-        f"[dim]Web server started on http://{server_controller.host}:{actual_port}[/dim]"
-    )
+def setup_server(root_agent):
+    """
+    This function perform relevant configuration and setup of server before starting it.
+    Such as connecting root agent context to the server context editor.
+    The method should only contain setup things that are shared between all
+    modes wichy can run in (REPL, Server ...), things relevant for only one mode
+    should be configure in dedicated methods.
+    """
 
     # Set active context and root agent for context editor if server is enabled
     try:
@@ -184,14 +192,18 @@ def start_server(root_agent):
         user_console.print(
             f"[yellow]Warning: Could not set context handler for session map: {e}[/yellow]"
         )
-    user_console.print("[dim]Use --no-server to disable.[/dim]")
-
-    return server_controller
 
 
 def main():
     parser = CliParser()
     args = parser.parse()
+
+    if args.server_mode and args.no_server:
+        print("error: server mode and --no-server are incompatible, choose one")
+        exit(1)
+
+    if args.server_mode:
+        user_console.set_impl(ServerConsole())
 
     # Reset scratchpad selection on every CLI run so no scratchpad is active at start
     set_scratchpad_slug(None)
@@ -374,10 +386,6 @@ def main():
     # Create command checker now that root_agent is available
     cmd_checker = SlashCommandChecker(root_agent)
 
-    # Start the web server in background (unless --no-server or pipeline mode)
-    if not args.no_server and args.prompt is None:
-        start_server(root_agent)
-
     if args.prompt is not None:
         # Pipeline mode — no REPL, single shot, print response and exit
         if root_agent.agent_has_first_initiative:
@@ -400,6 +408,32 @@ def main():
         sys.stdout.write(result)
         sys.stdout.flush()
         exit(0)
+
+    if args.server_mode:
+        print("server mode not yet fully implemented")
+        session = ChatSession(root_agent=root_agent, cmd_checker=cmd_checker)
+        setup_server(root_agent=root_agent)
+        set_server_input_queue(session.input_queue)
+        set_interaction_provider(ServerInteractionProvider())
+        set_verification_provider(ServerVerificationProvider())
+        flask_thread = threading.Thread(target=run_server, daemon=True)
+
+        session.start()
+        flask_thread.start()
+
+        shutdown_requested.wait()
+        session.stop()
+        sys.exit(0)
+        return
+
+    # Start the web server in background (unless --no-server)
+    if not args.no_server:
+        setup_server(root_agent)
+        actual_port = start_server_in_background()
+        user_console.print(
+            f"[dim]Web server started on http://{settings.server_host}:{actual_port}[/dim]"
+        )
+        user_console.print("[dim]Use --no-server to disable.[/dim]")
 
     # Start the REPL
     repl = Repl(

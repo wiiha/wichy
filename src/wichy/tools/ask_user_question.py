@@ -1,15 +1,11 @@
 import json
 from typing import Dict, List, Optional, Union
 
-from prompt_toolkit.shortcuts import checkboxlist_dialog, input_dialog, radiolist_dialog
-from prompt_toolkit.styles import Style
 from pydantic import BaseModel, Field, field_validator
 
-from wichy.console import user_console
-from wichy.helpers.needs_user_attention import needs_user_attention
+from wichy.helpers.interaction_provider import get_interaction_provider
 from wichy.tools.base import BaseTool, ParametersModel
 from wichy.tools.errors import format_error
-from wichy.tools.human_verification import _user_interaction_lock
 
 
 class QuestionOption(BaseModel):
@@ -129,103 +125,20 @@ Important notes:
         Returns:
             JSON string containing answers mapping question headers to selected option labels
         """
-
         try:
-            # Parse questions into Question objects if they are dicts
-            parsed_questions: List[Question] = []
+            # Ensure Question objects
+            parsed: List[Question] = []
             for q in questions:
                 if isinstance(q, dict):
-                    parsed_questions.append(Question(**q))
+                    parsed.append(Question(**q))
                 else:
-                    parsed_questions.append(q)
+                    parsed.append(q)
 
-            answers = {}
+            provider = get_interaction_provider()
+            if provider is None:
+                raise RuntimeError("No interaction provider configured")
 
-            # Style for the dialogs
-            style = Style.from_dict(
-                {
-                    "dialog": "bg:#000000 #ffffff",
-                    "dialog.frame": "bg:#000000 #ffffff",
-                    "dialog.body": "bg:#000000 #ffffff",
-                    "dialog.title": "bg:#000000 #ffffff bold",
-                }
-            )
-
-            with _user_interaction_lock:
-                with user_console.paused():
-                    needs_user_attention()
-                    for question in parsed_questions:
-                        # Prepare options for the dialog
-                        values = [
-                            (opt.label, f"{opt.label}: {opt.description}")
-                            for opt in question.options
-                        ]
-
-                        # Add "Other" option
-                        other_label = "Other (please specify)"
-                        other_was_passed = False
-                        for opt in question.options:
-                            if opt.label.lower().strip() == "other":
-                                other_label = opt.label
-                                other_was_passed = True
-                                break
-
-                        if not other_was_passed:
-                            values.append((other_label, "Provide a custom answer"))
-
-                        title = "Question"
-                        if metadata and "source" in metadata:
-                            title = f"Question from {metadata['source']}"
-
-                        if question.multiSelect:
-                            # Use checkbox list for multi-select
-                            dialog = checkboxlist_dialog(
-                                title=title,
-                                text=question.question,
-                                values=values,
-                                style=style,
-                            )
-                            result = dialog.run()
-
-                            if result:
-                                # Remove "Other" if present in multi-select (shouldn't be selected)
-                                filtered = [r for r in result if r != other_label]
-                                if filtered:
-                                    answers[question.header] = ", ".join(filtered)
-                                else:
-                                    answers[question.header] = "No selection"
-                            else:
-                                answers[question.header] = "No selection"
-                        else:
-                            # Use radio dialog for single-select
-                            dialog = radiolist_dialog(
-                                title=title,
-                                text=question.question,
-                                values=values,
-                                style=style,
-                            )
-                            result = dialog.run()
-
-                            if result and result != other_label:
-                                answers[question.header] = result
-                            elif result == other_label:
-                                # For "Other", prompt for custom text
-                                custom_input = input_dialog(
-                                    title="Custom Answer",
-                                    text=f"You selected 'Other' for '{question.question}'. Please specify:",
-                                    style=style,
-                                ).run()
-                                if custom_input:
-                                    answers[question.header] = custom_input
-                                else:
-                                    answers[question.header] = "No selection"
-                            else:
-                                answers[question.header] = "No selection"
-
-            result = {"answers": answers}
-            if metadata:
-                result["metadata"] = metadata
-
+            result = provider.ask_questions(parsed, metadata)
             return json.dumps(result, indent=2)
 
         except Exception as e:
