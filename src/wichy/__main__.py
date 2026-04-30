@@ -17,7 +17,7 @@ from wichy.cli.handlers import (
 )
 from wichy.cli_parser import CliParser
 from wichy.config import settings
-from wichy.console import set_user_output_quiet, user_console
+from wichy.console import set_user_output_quiet, user_console, ServerConsole
 from wichy.constants import ROLE_USER
 from wichy.context.handler import context_from_file, latest_context_file
 from wichy.helpers.console import console
@@ -197,6 +197,9 @@ def main():
     if args.server_mode and args.no_server:
         print("error: server mode and --no-server are incompatible, choose one")
         exit(1)
+
+    if args.server_mode:
+        user_console.set_impl(ServerConsole())
 
     # Reset scratchpad selection on every CLI run so no scratchpad is active at start
     set_scratchpad_slug(None)
