@@ -89,7 +89,7 @@ class TestPauseResume:
         assert self.console._pause_count == 0
 
         with pytest.raises(
-            RuntimeError, match="resume\\(\\) called without matching pause\\(\\)"
+            RuntimeError, match="resume\\(\\) without pause\\(\\)"
         ):
             self.console.resume()
 
