@@ -88,9 +88,7 @@ class TestPauseResume:
         """Test that resume() without matching pause raises error."""
         assert self.console._pause_count == 0
 
-        with pytest.raises(
-            RuntimeError, match="resume\\(\\) without pause\\(\\)"
-        ):
+        with pytest.raises(RuntimeError, match="resume\\(\\) without pause\\(\\)"):
             self.console.resume()
 
     def test_pause_buffers_output(self):

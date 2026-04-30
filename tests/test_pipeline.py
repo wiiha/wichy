@@ -58,7 +58,9 @@ class TestPipelineMode:
         with patch(
             "wichy.__main__.build_agent_from_config", return_value=mock_root_agent
         ):
-            with patch("wichy.__main__.start_server_in_background") as mock_start_server:
+            with patch(
+                "wichy.__main__.start_server_in_background"
+            ) as mock_start_server:
                 with patch.object(
                     sys, "argv", ["wichy", "--prompt", "hi", "--no-server"]
                 ):
