@@ -66,6 +66,23 @@ class LLMBackendRateLimitExceeded(Exception):
         return m
 
 
+class LLMBackendServerOverloaded(Exception):
+    """Raised when the LLM backend is overloaded after maximum retries."""
+
+    def __init__(
+        self, message="server overloaded after maximum retries", retry_count=None
+    ):
+        self.retry_count = retry_count
+        self.message = message
+        super().__init__(self.message)
+
+    def __str__(self):
+        m = self.message
+        if self.retry_count is not None:
+            m += f" (attempted {self.retry_count} retries)"
+        return m
+
+
 class function(BaseModel):
     arguments: str
     name: str
@@ -204,6 +221,11 @@ def message_indicates_context_length_reached(m: str) -> bool:
     # can be extended with more conditions
 
     return False
+
+
+def message_indicates_server_overloaded(error) -> bool:
+    m = str(error).lower()
+    return "server overloaded" in m or ("503" in m and "overload" in m)
 
 
 def message_indicates_rate_limit(error) -> bool:
@@ -445,6 +467,26 @@ def _call_impl(
             )
             user_console.print(
                 f"[dim][bold]→[/bold] LLM backend:[/dim] Rate limited, will retry in {backoff} seconds (attempt {retry_count + 1})"
+            )
+            time.sleep(backoff)
+            return _call_impl(
+                context=context,
+                tool_defs=tool_defs,
+                model_str=model_str,
+                extra_args=extra_args,
+                retry_count=retry_count + 1,
+                **extra_kwargs,
+            )
+        if message_indicates_server_overloaded(e):
+            MAX_RETRIES = 3
+            if retry_count >= MAX_RETRIES:
+                raise LLMBackendServerOverloaded(retry_count=retry_count)
+            backoff = 5 * (2**retry_count)  # 5, 10, 20 seconds
+            console.log(
+                f"server overloaded, will retry in {backoff} seconds (attempt {retry_count + 1})"
+            )
+            user_console.print(
+                f"[dim][bold]→[/bold] LLM backend:[/dim] Server overloaded, retrying in {backoff}s (attempt {retry_count + 1})"
             )
             time.sleep(backoff)
             return _call_impl(

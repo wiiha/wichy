@@ -1,7 +1,11 @@
 from wichy.config import settings
 from wichy.console import user_console
 from wichy.helpers.string import strip_thinking_content
-from wichy.llm_backend import LLMBackendContextLimitReached, LLMBackendRateLimitExceeded
+from wichy.llm_backend import (
+    LLMBackendContextLimitReached,
+    LLMBackendRateLimitExceeded,
+    LLMBackendServerOverloaded,
+)
 from wichy.root_agent.root_agent import RootAgent
 from wichy.helpers.shutdown import shutdown_requested
 from wichy.slash_commands import (
@@ -93,6 +97,13 @@ class ChatSession:
                     "[red bold]Error:[/red bold] "
                     + str(e)
                     + "\n[green bold]Tip:[/green bold] Rate limit reached. Please wait a moment before sending more requests."
+                )
+                continue
+            except LLMBackendServerOverloaded as e:
+                user_console.print(
+                    "[red bold]Error:[/red bold] "
+                    + str(e)
+                    + "\n[green bold]Tip:[/green bold] The server is overloaded. Please wait a moment before sending more requests."
                 )
                 continue
             except EOFError:

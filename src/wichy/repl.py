@@ -9,7 +9,11 @@ from wichy.constants import ROLE_SYSTEM
 from wichy.context.handler import new_context
 from wichy.helpers.needs_user_attention import needs_user_attention
 from wichy.helpers.string import strip_thinking_content
-from wichy.llm_backend import LLMBackendContextLimitReached, LLMBackendRateLimitExceeded
+from wichy.llm_backend import (
+    LLMBackendContextLimitReached,
+    LLMBackendRateLimitExceeded,
+    LLMBackendServerOverloaded,
+)
 from wichy.root_agent.root_agent import RootAgent
 from wichy.slash_commands import (
     BtwException,
@@ -100,6 +104,13 @@ class Repl:
                     "[red bold]Error:[/red bold] "
                     + str(e)
                     + "\n[green bold]Tip:[/green bold] Rate limit reached. Please wait a moment before sending more requests."
+                )
+                continue
+            except LLMBackendServerOverloaded as e:
+                user_console.print(
+                    "[red bold]Error:[/red bold] "
+                    + str(e)
+                    + "\n[green bold]Tip:[/green bold] The server is overloaded. Please wait a moment before sending more requests."
                 )
                 continue
             except KeyboardInterrupt:
