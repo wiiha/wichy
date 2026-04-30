@@ -277,7 +277,7 @@ class CliParser:
         )
 
         # server mode command
-        server_parser = subparsers.add_parser(
+        _ = subparsers.add_parser(
             "server",
             help="Run Wichy in server mode, no repl, exposing a REST API instead.",
         )
