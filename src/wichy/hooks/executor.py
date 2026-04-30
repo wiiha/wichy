@@ -168,22 +168,24 @@ class HookExecutor:
     @staticmethod
     def run_context_hooks(
         hook_type: HookType,
-        context_handler: Any,
         root_agent: Any,
+        context_handler: Any = None,
         summary: Optional[str] = None,
         is_auto_compact: bool = False,
         reset_strategy: Optional[str] = None,
     ) -> HookExecutionResult:
-        """Run context lifecycle hooks (reset/compact pre/post).
+        """Run lifecycle hooks for session and context events.
 
-        This method executes hooks for context lifecycle events. Unlike tool hooks,
-        context hooks are informational only - they cannot deny or modify the operation.
+        This method executes hooks for lifecycle events (session start/end,
+        context reset/compact pre/post). Unlike tool hooks, lifecycle hooks are
+        informational only - they cannot deny or modify the operation.
 
         Args:
-            hook_type: The type of hook (CONTEXT_RESET_PRE, CONTEXT_RESET_POST,
-                       CONTEXT_COMPACT_PRE, or CONTEXT_COMPACT_POST)
-            context_handler: The context handler instance
+            hook_type: The type of hook (SESSION_START, SESSION_END,
+                        CONTEXT_RESET_PRE, CONTEXT_RESET_POST,
+                        CONTEXT_COMPACT_PRE, or CONTEXT_COMPACT_POST)
             root_agent: The root agent instance
+            context_handler: The context handler instance (None for session hooks)
             summary: For CONTEXT_COMPACT_POST, the generated summary
             is_auto_compact: For compact hooks, whether this is auto-initiated
             reset_strategy: For reset hooks, the strategy being used ("nuke" or "summary")
@@ -194,8 +196,9 @@ class HookExecutor:
         result = HookExecutionResult()
         start_time = time.perf_counter()
 
-        # Get hooks for this lifecycle event (None for tool_name since it's not tool-specific)
-        hooks = hook_registry.get_hooks(hook_type, None)
+        # Get hooks for this lifecycle event, use get_hooks_for_type since
+        # lifecycle hooks are always registered with tool_name=None
+        hooks = hook_registry.get_hooks_for_type(hook_type)
 
         if not hooks:
             result.total_time_ms = (time.perf_counter() - start_time) * 1000
@@ -203,12 +206,14 @@ class HookExecutor:
 
         # Build event_data with all relevant context for lifecycle hooks
         # Hooks receive data via event_data, not via tool_instance or input_args
-        event_data = {
-            "context_handler": context_handler,
+        event_data: Dict[str, Any] = {
             "root_agent": root_agent,
         }
+        if context_handler is not None:
+            event_data["context_handler"] = context_handler
 
         # Add hook-type-specific data
+        # SESSION_START/END need no additional data beyond base dict
         if hook_type == HookType.CONTEXT_COMPACT_POST:
             event_data["summary"] = summary
             event_data["is_auto_compact"] = is_auto_compact
@@ -240,12 +245,9 @@ class HookExecutor:
             if not hook.enabled:
                 continue
 
-            hook_start = time.perf_counter()
-
             try:
                 # Execute the hook
                 hook.function(hook_ctx)
-                _ = (time.perf_counter() - hook_start) * 1000  # Timing for future use
 
                 # Track execution
                 result.hooks_executed.append(hook.name)
