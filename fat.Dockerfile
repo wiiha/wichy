@@ -83,6 +83,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && tar -xzf /tmp/ripgrep.tar.gz -C /tmp \
     && mv /tmp/ripgrep-"${RG_VERSION}"-x86_64-unknown-linux-musl/rg /usr/local/bin/rg \
     && rm -rf /tmp/ripgrep.tar.gz /tmp/ripgrep-*-x86_64-unknown-linux-musl \
+    # Install Go (pinned version)
+    && GO_VERSION="1.25.0" \
+    && curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tar.gz \
+    && tar -C /usr/local -xzf /tmp/go.tar.gz \
+    && rm /tmp/go.tar.gz \
+    && ln -s /usr/local/go/bin/go /usr/local/bin/go \
+    && ln -s /usr/local/go/bin/gofmt /usr/local/bin/gofmt \
     # Create the wichy user with home directory and locked password
     && useradd -r -m -d /home/wichy -s /bin/bash wichy && passwd -l wichy \
     # Create the Python venv at /opt/wichy
@@ -128,7 +135,7 @@ RUN /opt/wichy/bin/pip install --no-cache-dir --upgrade build \
 USER wichy
 
 # Environment variables
-ENV PATH="/opt/wichy/bin:$PATH"
+ENV PATH="/usr/local/go/bin:/opt/wichy/bin:$PATH"
 ENV WICHY_CONTAINER=1
 ENV WICHY_OLLAMA_BASE_URL="http://host.docker.internal:11434/v1"
 ENV WICHY_SERVER_HOST="0.0.0.0"
