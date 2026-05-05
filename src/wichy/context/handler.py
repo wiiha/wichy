@@ -15,6 +15,7 @@ from pathlib import Path
 from wichy.config import settings
 from wichy.console import user_console
 from wichy.constants import CONTEXT_FILE_EXT, LOG_TYPE, MESSAGE_TYPE
+from wichy.helpers.string import truncate_to_len
 
 
 class ContextHandler:
@@ -172,6 +173,31 @@ class ContextHandler:
             content (str): The message content.
         """
         self.append({"role": role, "content": content})
+
+    def steer(self, role: str, content: str) -> None:
+        """
+        Inject a mid-flight message into the conversation context.
+
+        This is the same as :meth:`add` semantically but communicates intent:
+        the message is injected externally while the agent is still running,
+        and will be picked up on the *next* LLM call boundary.
+
+        Thread-safe (uses the same :class:`threading.RLock` as all other
+        mutation methods).
+
+        Args:
+            role (str): The message role (e.g. ``"user"``, ``"system"``).
+            content (str): The message content.
+        """
+        if content is None or content.strip() == "":
+            return
+
+        from wichy.console import user_console
+
+        user_console.print(
+            f"[italic]steer injected ({role}): {truncate_to_len(text=content,new_len=80,suffix='...')}[/italic]"
+        )
+        self.add(role=role, content=content)
 
     def add_log(self, data: dict):
         """

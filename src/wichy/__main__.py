@@ -15,7 +15,11 @@ from wichy.cli.handlers import (
     handle_ra_template,
 )
 from wichy.cli_parser import CliParser
-from wichy.wichy_server import ChatSession, set_input_queue as set_server_input_queue
+from wichy.wichy_server import (
+    ChatSession,
+    set_input_queue as set_server_input_queue,
+    set_active_session as set_server_active_session,
+)
 from wichy.config import settings
 from wichy.console import set_user_output_quiet, user_console, ServerConsole
 from wichy.constants import ROLE_USER
@@ -380,10 +384,10 @@ def main():
         exit(0)
 
     if args.server_mode:
-        print("server mode not yet fully implemented")
         session = ChatSession(root_agent=root_agent, cmd_checker=cmd_checker)
         setup_server(root_agent=root_agent)
         set_server_input_queue(session.input_queue)
+        set_server_active_session(session)
         set_interaction_provider(ServerInteractionProvider())
         set_verification_provider(ServerVerificationProvider())
         flask_thread = threading.Thread(target=run_server, daemon=True)

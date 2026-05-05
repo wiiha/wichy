@@ -1,10 +1,15 @@
 """API endpoints for Wichy server mode"""
 
+from __future__ import annotations
+
 from queue import Queue
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from flask import Blueprint, jsonify, request
 from wichy.console import user_console
+
+if TYPE_CHECKING:
+    from wichy.wichy_server.chat_session import ChatSession
 
 from wichy.helpers.verification_provider import get_verification_provider
 from wichy.wichy_server.verification_provider import ServerVerificationProvider
@@ -25,6 +30,19 @@ def get_input_queue():
     return _input_queue
 
 
+_active_session: Optional["ChatSession"] = None
+
+
+def set_active_session(session: Optional["ChatSession"]):
+    """Set the currently active ChatSession so API routes can reach it."""
+    global _active_session
+    _active_session = session
+
+
+def get_active_session() -> Optional["ChatSession"]:
+    return _active_session
+
+
 def register_routes(bp: Blueprint):
     """Register all API routes on the given blueprint."""
 
@@ -43,6 +61,17 @@ def register_routes(bp: Blueprint):
             )
         data = request.get_json(silent=True) or {}
         q.put(data.get("line", ""))
+        return jsonify({"status": "ok"})
+
+    @bp.route("/steer", methods=["POST"])
+    def steer():
+        session = get_active_session()
+        if session is None:
+            return jsonify({"error": "no active session"}), 503
+        data = request.get_json(silent=True) or {}
+        role = data.get("role", "user")
+        content = data.get("content", "")
+        session.root_agent.steer(role=role, content=content)
         return jsonify({"status": "ok"})
 
     @bp.route("/verifications", methods=["GET"])

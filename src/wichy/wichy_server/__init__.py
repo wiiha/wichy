@@ -2,7 +2,7 @@
 
 from flask import Blueprint
 from wichy.wichy_server.chat_session import ChatSession
-from wichy.wichy_server.api import set_input_queue
+from wichy.wichy_server.api import set_input_queue, set_active_session
 
 # Create the main blueprint for the data explorer
 bp = Blueprint(
@@ -28,4 +28,4 @@ def register(app):
     app.register_blueprint(bp)
 
 
-__all__ = ["ChatSession", "set_input_queue", "register"]
+__all__ = ["ChatSession", "set_input_queue", "set_active_session", "register"]

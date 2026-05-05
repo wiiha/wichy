@@ -415,6 +415,21 @@ class RootAgent(AgentCore):
             )
         return response.message.content
 
+    def steer(self, role: str = ROLE_USER, content: str = "") -> None:
+        """
+        Inject a mid-flight message into the agent's context.
+
+        The message is appended via :meth:`ContextHandler.steer` so it is
+        thread-safe and persisted. It will be visible to the LLM on the
+        *next* call boundary (after the current LLM call or tool batch
+        finishes).
+
+        Args:
+            role (str): Message role. Defaults to ``"user"``.
+            content (str): Message content.
+        """
+        self.context.steer(role=role, content=content)
+
     def drop_last_context_entry(self):
         if len(self.context) < 2:
             # only system msg left, cant drop that
