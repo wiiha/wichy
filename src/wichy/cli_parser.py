@@ -242,6 +242,7 @@ class CliParser:
         ls_subparsers.add_parser(
             "skills", help="List available skills in ~/.wichy/skills/"
         )
+        ls_subparsers.add_parser("sa", help="List available sub agents")
         # install command
         install_parser = subparsers.add_parser(
             "install", help="Install Wichy components"
@@ -274,6 +275,15 @@ class CliParser:
             "--force",
             action="store_true",
             help="Overwrite existing MCP config if it exists",
+        )
+
+        sub_agents_parser = install_subparsers.add_parser(
+            "sub-agents", help="Install default sub agent template"
+        )
+        sub_agents_parser.add_argument(
+            "--force",
+            action="store_true",
+            help="Overwrite existing sub agent template if it exists",
         )
 
         # server mode command

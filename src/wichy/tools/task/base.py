@@ -31,6 +31,7 @@ class TaskAgentDefinitionBase(BaseModel):
     not_tools: list[str] | None = None
     system_prompt: str
     include_env_info: bool = False
+    model: Optional[str] = None
 
 
 class TaskAgent(AgentCore):
