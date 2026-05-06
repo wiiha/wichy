@@ -5,6 +5,10 @@ from wichy.tools.task.base import (
     TaskAgentDefinitionBase,
     console_task_agents,
 )
+from wichy.tools.task.loader import (
+    load_all_sub_agents,
+    load_sub_agents_from_dirs,
+)
 
 __all__ = [
     "TaskAgent",
@@ -12,4 +16,6 @@ __all__ = [
     "TASK_AGENT_DEFS",
     "generate_list_from_task_agent_defs",
     "console_task_agents",
+    "load_all_sub_agents",
+    "load_sub_agents_from_dirs",
 ]

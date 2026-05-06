@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     notes_dir_name: str = "notes"
     logs_dir_name: str = "logs"
     root_agent_defs_dir: str = "root_agent_defs"
+    sub_agent_defs_dir: str = "sub_agents"
 
     # History file
     history_file: Path = Path.home() / ".wichy_history"
@@ -157,6 +158,16 @@ class Settings(BaseSettings):
     def root_agent_defs_local_dir(self) -> Path:
         """Path to local project root agent defs directory."""
         return Path(".wichy") / self.root_agent_defs_dir
+
+    @property
+    def sub_agent_defs_home_dir(self) -> Path:
+        """Full path to home sub agent defs directory."""
+        return self.wichy_home / self.sub_agent_defs_dir
+
+    @property
+    def sub_agent_defs_local_dir(self) -> Path:
+        """Path to local project sub agent defs directory."""
+        return Path(".wichy") / self.sub_agent_defs_dir
 
     @property
     def graphs_dir(self) -> Path:

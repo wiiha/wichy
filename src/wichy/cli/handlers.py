@@ -328,8 +328,31 @@ def handle_ls_commands(args, tool_manager):
         user_console.flush()
         exit(0)
 
-    # Unknown ls subcommand
+    if args.ls_command == "sa":
+        handle_list_sub_agents()
+        user_console.flush()
+        exit(0)
+
     return False
+
+
+def handle_list_sub_agents():
+    """Handle 'ls sa' command - list available sub agents."""
+    from wichy.tools.task import TASK_AGENT_DEFS
+
+    msg = "# Sub Agents Available\n"
+    for agent_def in TASK_AGENT_DEFS.values():
+        msg += f"- **{agent_def.name}**: {agent_def.description}\n"
+        if agent_def.tools:
+            msg += f"  - tools: {', '.join(agent_def.tools)}\n"
+        if agent_def.model:
+            msg += f"  - model: {agent_def.model}\n"
+        if agent_def.include_env_info:
+            msg += f"  - include_env_info: true\n"
+    user_console.print(Markdown(msg))
+
+
+# Router functions that dispatch to the handlers above
 
 
 def handle_new_commands(args):
@@ -390,6 +413,52 @@ def handle_install_mcp(args):
         return False
 
 
+
+DEFAULT_SUB_AGENT_TEMPLATE = """---
+name: my-custom-agent
+description: Describe what this agent does
+tools: bash, read_file, glob
+# model: ollama/qwen3.5:4b
+# include_env_info: true
+---
+
+You are a helpful specialist agent. Describe your role, skills, and workflow here.
+"""
+
+
+def handle_install_sub_agents(args):
+    """Handle 'install sub-agents' command - create default sub agent template."""
+    sub_agents_dir = Path(".wichy") / "sub_agents"
+    template_file = sub_agents_dir / "template.md"
+
+    if template_file.exists():
+        if args.install_force:
+            pass  # fall through to overwrite
+        else:
+            user_console.print(
+                f"[yellow]Sub agent template already exists at {template_file}[/yellow]"
+            )
+            user_console.print(
+                "[yellow]Use 'wichy install sub-agents --force' to overwrite[/yellow]"
+            )
+            return False
+
+    try:
+        sub_agents_dir.mkdir(parents=True, exist_ok=True)
+        template_file.write_text(DEFAULT_SUB_AGENT_TEMPLATE)
+        user_console.print(f"[green]Created:[/green] {template_file}")
+        user_console.print(
+            "[dim]Edit this file or add new .md files to customize sub agents.[/dim]"
+        )
+        return True
+    except PermissionError as e:
+        user_console.print(f"[red]Error:[/red] Permission denied: {e}")
+        return False
+    except Exception as e:
+        user_console.print(f"[red]Error:[/red] {e}")
+        return False
+
+
 def handle_install_commands(args):
     """Handle all 'install' subcommands. Returns True if handled, False otherwise."""
     if args.command != "install":
@@ -407,5 +476,12 @@ def handle_install_commands(args):
 
     if args.install_command == "skills":
         handle_install_skills(args)
+        user_console.flush()
+        exit(0)
+
+    if args.install_command == "sub-agents":
+        handle_install_sub_agents(args)
+        user_console.flush()
+        exit(0)
 
     return False
