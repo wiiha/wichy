@@ -24,7 +24,8 @@ class QueryResultParameters(ParametersModel):
 
     ref_ids: List[str] = Field(
         description="List of reference IDs from offloaded results to query. "
-        "Can be a single ID or multiple IDs to query together."
+        "Can be a single ID or multiple IDs to query together.",
+        min_length=1,
     )
 
     query: str = Field(
