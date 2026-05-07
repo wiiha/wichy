@@ -19,12 +19,7 @@ class ToolManager:
         if all_tools is not None:
             self.all_tools = all_tools
         else:
-            # Get tools from registry, excluding ReverseDnsTool for backward compatibility
-            from wichy.tools.reverse_dns_tool import ReverseDnsTool
-
-            self.all_tools = [
-                tool for tool in get_all_tools() if tool is not ReverseDnsTool
-            ]
+            self.all_tools = get_all_tools()
 
     def instantiate_all(self) -> List[BaseTool]:
         """

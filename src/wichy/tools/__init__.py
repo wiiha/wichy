@@ -43,7 +43,6 @@ from wichy.tools.registry import (
     restore_registry,
 )
 from wichy.tools.replace_text import ReplaceTextTool
-from wichy.tools.reverse_dns_tool import ReverseDnsTool
 from wichy.tools.search_ddg import WebSearchTool
 from wichy.tools.task_tool import TaskAgentTool
 from wichy.tools.todo import TodoTool
@@ -94,7 +93,6 @@ __all__ = [
     "ReadScratchpadTool",
     "ReadSessionMapTool",
     "ReplaceTextTool",
-    "ReverseDnsTool",
     "WebSearchTool",
     "TaskAgentTool",
     "TodoTool",
@@ -111,7 +109,4 @@ __all__ = [
 ]
 
 # All registered tools, automatically populated from the registry.
-# Note: ReverseDnsTool is intentionally excluded for backward compatibility.
-ALL_TOOLS_NOT_INSTANTIATED: list[type[BaseTool]] = [
-    tool for tool in get_all_tools() if tool is not ReverseDnsTool
-]
+ALL_TOOLS_NOT_INSTANTIATED: list[type[BaseTool]] = [tool for tool in get_all_tools()]

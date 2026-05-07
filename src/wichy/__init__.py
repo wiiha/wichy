@@ -1,6 +1,6 @@
 """Agentic LLM for coding."""
 
-__version__ = "0.1.0"
+__version__ = "0.5.0"
 __author__ = "Wilhelm Hansson"
 __email__ = "wilhelm.hansson@pm.me"
 __description__ = "Agentic LLM for coding."

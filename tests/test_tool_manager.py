@@ -157,10 +157,8 @@ class TestToolManager:
 
     def test_tool_manager_default_uses_all_tools(self, isolated_tool_registry):
         """Test that ToolManager without args uses all tools from the registry."""
-        from wichy.tools.reverse_dns_tool import ReverseDnsTool
         from wichy.tools.registry import get_all_tools
 
         manager = ToolManager()
-        # ToolManager uses get_all_tools() and excludes ReverseDnsTool
-        expected = [tool for tool in get_all_tools() if tool is not ReverseDnsTool]
+        expected = get_all_tools()
         assert manager.all_tools == expected
