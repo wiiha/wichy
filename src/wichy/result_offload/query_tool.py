@@ -41,7 +41,10 @@ class QueryResultParameters(ParametersModel):
 
     def info(self) -> str:
         """Return a human-readable string describing this query."""
-        return f'query="{self.query}" ref_ids="{self.ref_ids}"'
+        ids = ""
+        if self.ref_ids:
+            ids = ",".join(self.ref_ids)
+        return f'query="{self.query}" ref_ids="{ids}"'
 
 
 class QueryResultTool(BaseTool):

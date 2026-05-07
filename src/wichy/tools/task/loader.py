@@ -33,7 +33,9 @@ def _parse_bool(value: Optional[str], default: bool = False) -> bool:
     return value.strip().lower() == "true"
 
 
-def _load_sub_agents_from_single_dir(dir_path: Path) -> Dict[str, TaskAgentDefinitionBase]:
+def _load_sub_agents_from_single_dir(
+    dir_path: Path,
+) -> Dict[str, TaskAgentDefinitionBase]:
     """Load sub-agent definitions from a single directory.
 
     Returns a dict keyed by agent name.  If multiple files declare the same
@@ -61,9 +63,7 @@ def _load_sub_agents_from_single_dir(dir_path: Path) -> Dict[str, TaskAgentDefin
             continue
 
         if name in agents:
-            user_console.print(
-                f"[yellow]name collision for sub agent {name}[/yellow]"
-            )
+            user_console.print(f"[yellow]name collision for sub agent {name}[/yellow]")
 
         agents[name] = TaskAgentDefinitionBase(
             name=name,
@@ -72,7 +72,9 @@ def _load_sub_agents_from_single_dir(dir_path: Path) -> Dict[str, TaskAgentDefin
             not_tools=_parse_comma_separated(frontmatter.get("not_tools")),
             system_prompt=body,
             model=frontmatter.get("model"),
-            include_env_info=_parse_bool(frontmatter.get("include_env_info"), default=False),
+            include_env_info=_parse_bool(
+                frontmatter.get("include_env_info"), default=False
+            ),
         )
 
     return agents

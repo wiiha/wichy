@@ -69,9 +69,7 @@ def test_collision_warning(isolated_dirs):
     """Same-name files in a single dir warn and last one wins."""
     _home_dir, local_dir = isolated_dirs
     local_dir.mkdir(parents=True)
-    (local_dir / "a.md").write_text(
-        "---\nname: dup\ndescription: first\n---\nfirst\n"
-    )
+    (local_dir / "a.md").write_text("---\nname: dup\ndescription: first\n---\nfirst\n")
     (local_dir / "b.md").write_text(
         "---\nname: dup\ndescription: second\n---\nsecond\n"
     )
@@ -103,12 +101,8 @@ def test_skips_invalid_files(isolated_dirs):
     """Files without a name key are skipped silently."""
     _home_dir, local_dir = isolated_dirs
     local_dir.mkdir(parents=True)
-    (local_dir / "bad.md").write_text(
-        "---\ndescription: no name here\n---\nbody\n"
-    )
-    (local_dir / "good.md").write_text(
-        "---\nname: good\ndescription: yes\n---\nbody\n"
-    )
+    (local_dir / "bad.md").write_text("---\ndescription: no name here\n---\nbody\n")
+    (local_dir / "good.md").write_text("---\nname: good\ndescription: yes\n---\nbody\n")
 
     result = _load_sub_agents_from_single_dir(local_dir)
     assert "good" in result
@@ -140,9 +134,7 @@ def test_include_env_info_bool_parsing(isolated_dirs):
     (local_dir / "t3.md").write_text(
         "---\nname: t3\ndescription: d\ninclude_env_info: false\n---\nbody\n"
     )
-    (local_dir / "t4.md").write_text(
-        "---\nname: t4\ndescription: d\n---\nbody\n"
-    )
+    (local_dir / "t4.md").write_text("---\nname: t4\ndescription: d\n---\nbody\n")
 
     result = _load_sub_agents_from_single_dir(local_dir)
     assert result["t1"].include_env_info is True

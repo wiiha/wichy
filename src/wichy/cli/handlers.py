@@ -348,7 +348,7 @@ def handle_list_sub_agents():
         if agent_def.model:
             msg += f"  - model: {agent_def.model}\n"
         if agent_def.include_env_info:
-            msg += f"  - include_env_info: true\n"
+            msg += "  - include_env_info: true\n"
     user_console.print(Markdown(msg))
 
 
@@ -411,7 +411,6 @@ def handle_install_mcp(args):
     except Exception as e:
         user_console.print(f"[red]Error:[/red] {e}")
         return False
-
 
 
 DEFAULT_SUB_AGENT_TEMPLATE = """---
