@@ -146,6 +146,11 @@ def register_file_routes(bp: Blueprint) -> None:
         user_message = request.form.get("message", "").strip()
         if user_message:
             msg += f"\nUser message: {user_message}"
+            sidecar = uploads_dir / f"{stored_name}_message.txt"
+            try:
+                sidecar.write_text(user_message, encoding="utf-8")
+            except (OSError, PermissionError):
+                pass
 
         try:
             session.root_agent.steer(role="user", content=msg)
@@ -178,6 +183,13 @@ def register_file_routes(bp: Blueprint) -> None:
             file_path.unlink()
         except (OSError, PermissionError) as exc:
             return jsonify({"error": f"cannot delete file: {exc}"}), 500
+
+        sidecar = uploads_dir / f"{name}_message.txt"
+        if sidecar.exists():
+            try:
+                sidecar.unlink()
+            except (OSError, PermissionError):
+                pass
 
         try:
             session.root_agent.steer(

@@ -144,6 +144,7 @@ class TestPostFile:
 
         assert response.status_code == 200
         assert response.json["file"] == "bar.txt"
+        assert (tmp_path / "bar.txt_message.txt").read_text() == "Please summarize this"
         assert session.root_agent.steer_calls == [
             (
                 "user",
@@ -376,6 +377,7 @@ class TestDeleteFile:
         assert response.json["status"] == "ok"
         assert response.json["file"] == "bye.txt"
         assert not (tmp_path / "bye.txt").exists()
+        assert not (tmp_path / "bye.txt_message.txt").exists()
         assert session.root_agent.steer_calls == [
             ("user", "file '.wichy/fileuploads/bye.txt' was deleted")
         ]
