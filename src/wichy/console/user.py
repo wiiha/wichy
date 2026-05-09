@@ -9,22 +9,67 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Optional
 
+
 from rich.console import Console as RichConsole
 from rich.markdown import Markdown
+from rich.table import Table
 
-# ── Protocol / shared helpers ─────────────────────
+
+def _table_to_markdown(table: Table) -> str:
+    """Convert a rich.table.Table into a Markdown table string.
+
+    Handles title, headers, row data, and column alignment.
+    """
+    lines: list[str] = []
+
+    # Optional title rendered as a Markdown heading
+    if table.title:
+        lines.append(f"**{table.title}**")
+        lines.append("")
+
+    # Build header row
+    headers = [col.header for col in table.columns]
+    lines.append("| " + " | ".join(headers) + " |")
+
+    # Build separator row with alignment indicators
+    sep_parts: list[str] = []
+    for col in table.columns:
+        justify = getattr(col, "justify", "left") or "left"
+        if justify == "right":
+            sep_parts.append("---:")
+        elif justify == "center":
+            sep_parts.append(":---:")
+        else:
+            sep_parts.append("---")
+    lines.append("| " + " | ".join(sep_parts) + " |")
+
+    # Build data rows
+    row_count = len(table.columns[0]._cells) if table.columns else 0
+    for row_idx in range(row_count):
+        cells: list[str] = []
+        for col in table.columns:
+            val = str(col._cells[row_idx]) if row_idx < len(col._cells) else ""
+            # Escape pipe characters inside cell content
+            val = val.replace("|", "\\|")
+            cells.append(val)
+        lines.append("| " + " | ".join(cells) + " |")
+
+    return "\n".join(lines)
 
 
 def _plain_text(*args, **__) -> str:
     """Convert print args into plain text for server mode.
 
-    - Markdown objects yield their raw source markup
-    - Non-string args become their str() representation
+    - Rich Table objects are converted to clean Markdown tables.
+    - Markdown objects yield their raw source markup.
+    - Everything else becomes their str() representation.
     """
     parts: list[str] = []
     for arg in args:
         if isinstance(arg, Markdown):
             parts.append(arg.markup)
+        elif isinstance(arg, Table):
+            parts.append(_table_to_markdown(arg))
         else:
             parts.append(str(arg))
     return " ".join(parts)
