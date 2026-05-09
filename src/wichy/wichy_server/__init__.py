@@ -15,9 +15,10 @@ bp = Blueprint(
 def register(app):
     """Register the data explorer blueprint with the Flask app."""
     # Import and register API routes on this blueprint
-    from . import api
+    from . import api, file_routes
 
     api.register_routes(bp)
+    file_routes.register_file_routes(bp)
 
     # Register a test route, this one will be shadowed by routes in api if they register the same route.
     @bp.route("/", methods=["GET"])
