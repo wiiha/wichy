@@ -13,6 +13,7 @@ from wichy.llm_backend import (
     LLMBackendContextLimitReached,
     LLMBackendRateLimitExceeded,
     LLMBackendServerOverloaded,
+    LLMBackendUnhandledException,
 )
 from wichy.root_agent.root_agent import RootAgent
 from wichy.slash_commands import (
@@ -105,6 +106,9 @@ class Repl:
                     + str(e)
                     + "\n[green bold]Tip:[/green bold] Rate limit reached. Please wait a moment before sending more requests."
                 )
+                continue
+            except LLMBackendUnhandledException as e:
+                user_console.print("[red bold]Error:[/red bold] " + str(e))
                 continue
             except LLMBackendServerOverloaded as e:
                 user_console.print(

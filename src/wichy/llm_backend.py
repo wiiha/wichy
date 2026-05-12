@@ -49,6 +49,17 @@ class LLMBackendMultimodalNotSupported(Exception):
         return self.message
 
 
+class LLMBackendUnhandledException(Exception):
+    """Raised when the backend throws some error we have not handled"""
+
+    def __init__(self, message="backend error that we have no handler for."):
+        self.message = message
+        super().__init__(self.message)
+
+    def __str__(self):
+        return self.message
+
+
 class LLMBackendRateLimitExceeded(Exception):
     """Raised when the LLM backend rate limit is exceeded after maximum retries."""
 
@@ -498,7 +509,9 @@ def _call_impl(
                 **extra_kwargs,
             )
         # something else is not right
-        raise e
+        raise LLMBackendUnhandledException(
+            message=f"LLM Backend error: {e.message or str(e)}"
+        )
 
     elapsed_time = time.time() - start_time
 
