@@ -101,15 +101,15 @@ class FetchWebPageTool(BaseTool):
             The text content of the page.
         """
         try:
-            # Get the page and add human-like delay before navigation
-            page = await browser_manager.get_page()
-            await page.wait_for_timeout(random.randint(1000, 3000))
-
-            # Use the navigate method for consistent navigation
+            # Navigate first (handles crash recovery internally)
             nav_result = await browser_manager.navigate(url, wait_until=wait_until)
 
             if nav_result.get("status") != "success":
                 return format_error(nav_result.get("error", "Navigation failed"))
+
+            # Re-fetch the page after navigate — recovery may have replaced it
+            page = await browser_manager.get_page()
+            await page.wait_for_timeout(random.randint(1000, 3000))
 
             # Get the page content
             content = await page.content()

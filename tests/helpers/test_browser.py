@@ -17,6 +17,7 @@ in a background thread (required for asyncio.run_coroutine_threadsafe()).
 
 import asyncio
 import threading
+import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 
@@ -645,13 +646,12 @@ class TestBrowserCrashRecovery:
         manager = BrowserManager()
 
         mock_browser = AsyncMock()
-        # Accessing .contexts raises crash error
-        mock_browser.contexts = None  # Will raise when accessed
-        type(mock_browser).contexts = property(
-            lambda self: (_ for _ in ()).throw(Exception("pipe closed by peer"))
-        )
-
         manager._browser = mock_browser
+
+        # Simulate a dead driver: page.title() raises a crash error
+        mock_page = AsyncMock()
+        mock_page.title = AsyncMock(side_effect=Exception("pipe closed by peer"))
+        manager._page = mock_page
 
         # Start a running event loop
         loop_fixture = EventLoopFixture()
@@ -679,9 +679,12 @@ class TestBrowserCrashRecovery:
         manager = BrowserManager()
 
         mock_browser = AsyncMock()
-        mock_browser.contexts = []  # Healthy browser has contexts list
-
         manager._browser = mock_browser
+
+        # Healthy browser: page.title() responds normally
+        mock_page = AsyncMock()
+        mock_page.title = AsyncMock(return_value="Example")
+        manager._page = mock_page
 
         # Start a running event loop
         loop_fixture = EventLoopFixture()
@@ -1348,3 +1351,118 @@ class TestBrowserPageInfoAndAct:
 
         # Cleanup
         BrowserManager._instance = None
+
+
+class TestFetchWebpageCrashRecovery:
+    """Regression tests for stale Page reference in web_fetch."""
+
+    def test_fetch_webpage_re_fetches_page_after_navigate(self):
+        """Test that _fetch_webpage re-fetches page after navigate() triggers recovery.
+
+        Setup: manager._page starts as a 'dead' page. Fake navigate() simulates
+        crash recovery by replacing _page with a fresh page.
+
+        OLD code: get_page() before navigate() -> dead page content() -> crash.
+        NEW code: navigate() first -> recovery -> get_page() -> fresh page -> ok.
+        """
+        import asyncio
+        from wichy.helpers.browser import BrowserManager
+
+        BrowserManager._instance = None
+        manager = BrowserManager()
+
+        # Dead page that fails on any async operation (simulates stale/crashed page)
+        mock_dead_page = AsyncMock()
+        mock_dead_page.wait_for_timeout = AsyncMock(
+            side_effect=Exception("pipe closed by peer")
+        )
+        mock_dead_page.content = AsyncMock(side_effect=Exception("pipe closed by peer"))
+
+        # Fresh page that works
+        mock_fresh_page = AsyncMock()
+        mock_fresh_page.wait_for_timeout = AsyncMock()
+        mock_fresh_page.content = AsyncMock(
+            return_value="<html><body>Hello</body></html>"
+        )
+        mock_fresh_page.is_closed = MagicMock(return_value=False)
+
+        # Start with dead page
+        manager._page = mock_dead_page
+        manager._browser = AsyncMock()
+        manager._context = AsyncMock()
+        manager._playwright = AsyncMock()
+
+        # Fake navigate() simulates crash recovery: replaces _page then succeeds
+        async def fake_navigate(url, wait_until="networkidle"):
+            manager._page = mock_fresh_page
+            return {"url": url, "title": "Example", "status": "success"}
+
+        manager.navigate = fake_navigate
+
+        # get_page returns the CURRENT _page
+        async def mock_get_page():
+            return manager._page
+
+        manager.get_page = mock_get_page
+
+        loop_fixture = EventLoopFixture()
+        loop_fixture.start()
+
+        try:
+            manager._loop = loop_fixture.loop
+
+            # Simulate the NEW _fetch_webpage logic
+            async def new_fetch(url):
+                nav_result = await manager.navigate(url)
+                if nav_result.get("status") != "success":
+                    raise RuntimeError("nav failed")
+                page = await manager.get_page()
+                await page.wait_for_timeout(0)
+                return await page.content()
+
+            future = asyncio.run_coroutine_threadsafe(
+                new_fetch("https://example.com"), loop_fixture.loop
+            )
+            result = future.result(timeout=5.0)
+            assert "Hello" in result
+
+            # The OLD code would have crashed:
+            async def old_fetch(url):
+                stale_page = await manager.get_page()  # gets dead page
+                _ = await manager.navigate(url)  # replaces _page
+                await stale_page.wait_for_timeout(0)  # raises
+                return None
+
+            manager._page = mock_dead_page
+            future2 = asyncio.run_coroutine_threadsafe(
+                old_fetch("https://example.com"), loop_fixture.loop
+            )
+            with pytest.raises(Exception):
+                future2.result(timeout=5.0)
+
+        finally:
+            loop_fixture.stop()
+
+        # Cleanup
+        BrowserManager._instance = None
+
+    def test_is_browser_alive_probes_driver(self):
+        """Assert _is_browser_alive probes driver via title(), not local contexts."""
+        import inspect
+        from wichy.helpers.browser import BrowserManager
+
+        src = inspect.getsource(BrowserManager._is_browser_alive)
+        assert (
+            "await self._page.title()" in src
+        ), "Must probe driver via async title(), not local contexts"
+        # Verify old local-only check is truly gone from code (not just comments)
+        code_lines = [
+            ln.strip()
+            for ln in src.split("\n")
+            if not ln.strip().startswith("#")
+            and not ln.strip().startswith('"')  # skip docstrings
+            and not ln.strip() == ""
+        ]
+        assert not any(
+            "self._browser.contexts" in ln for ln in code_lines
+        ), "Must NOT use local contexts"

@@ -188,9 +188,15 @@ class BrowserManager:
             return False
 
         try:
-            # Try a simple operation to verify browser is responsive
-            # If browser crashed, this will raise an error
-            _ = self._browser.contexts
+            # Probe the actual driver with an async page operation.
+            # self._browser.contexts is a local Python property and does NOT
+            # communicate with the Node driver; await self._page.title() does.
+            # NOTE: We intentionally do NOT check is_closed() here — a closed
+            # page is handled by page recreation in get_page(), not full recovery.
+            if self._page is not None:
+                _ = await self._page.title()
+                return True
+            # No page but browser exists — page creation in get_page() will handle it
             return True
         except Exception as e:
             if is_browser_crash_error(e):

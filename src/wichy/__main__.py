@@ -1,5 +1,7 @@
 from typing import Any
 import atexit
+import os
+import signal
 import sys
 import threading
 
@@ -178,6 +180,18 @@ def setup_server(root_agent):
 
 
 def main():
+    # Reap zombie child processes — we run as PID 1 in Docker containers
+    def _sigchld_handler(signum, frame):
+        try:
+            while True:
+                pid, _ = os.waitpid(-1, os.WNOHANG)
+                if pid == 0:
+                    break
+        except ChildProcessError:
+            pass
+
+    signal.signal(signal.SIGCHLD, _sigchld_handler)
+
     parser = CliParser()
     args = parser.parse()
 
