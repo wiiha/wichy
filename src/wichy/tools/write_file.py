@@ -1,4 +1,5 @@
 import os
+from typing import Any
 
 from pydantic import Field
 
@@ -14,7 +15,7 @@ class WriteFileParameters(ParametersModel):
     )
     content: str = Field(..., description="content to write")
 
-    def info(self):
+    def info(self) -> str:
         return f'path="{self.path}" content="{truncate_to_len(self.content)}"'
 
 
@@ -31,8 +32,10 @@ Usage:
 - ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.
 - Only use emojis if the user explicitly requests it. Avoid writing emojis to files unless asked."""
 
-    def execute(self, path, content) -> str:
+    def execute(self, *args: Any, **kwargs: Any) -> str:
         """Execute write file"""
+        path: str = kwargs["path"]
+        content: str = kwargs["content"]
         try:
             parent_dir_path = os.path.dirname(path)
             if parent_dir_path != "":

@@ -342,4 +342,4 @@ Usage notes:
 
 # Set the custom verification predicate on the execute method
 # The decorator copies attributes, so we need to set on the wrapper
-BashTool.execute._should_verify = is_destructive_command
+BashTool.execute._should_verify = is_destructive_command  # type: ignore[attr-defined]

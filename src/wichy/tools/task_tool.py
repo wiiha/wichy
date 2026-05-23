@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 from pydantic import Field
 
@@ -34,7 +34,7 @@ class TaskAgentParameters(ParametersModel):
         gt=0,
         le=9007199254740991,
     )
-    model_str: str = Field(
+    model_str: Optional[str] = Field(
         None,
         description=HIDE_FROM_LLM_PREFIX
         + " What model to use. Should be a reference to a valid backend and model.",
@@ -125,15 +125,12 @@ assistant: "I'm going to use the Task tool to launch the greeting-responder agen
 """
     )
 
-    def execute(
-        self,
-        description: str,
-        prompt: str,
-        subagent_type: str,
-        max_turns: Optional[int],
-        model_str: str,
-    ) -> str:
+    def execute(self, *args: Any, **kwargs: Any) -> str:
         """run task agent"""
+        prompt: str = kwargs["prompt"]
+        subagent_type: str = kwargs["subagent_type"]
+        max_turns: Optional[int] = kwargs.get("max_turns")
+        model_str: str = kwargs["model_str"]
         all_task_agent_defs: Dict[str, TaskAgentDefinitionBase] = {}
         # "alias" each def by generating the lower case version
         for x in TASK_AGENT_DEFS.values():
@@ -155,7 +152,7 @@ assistant: "I'm going to use the Task tool to launch the greeting-responder agen
             max_turns=max_turns,
         )
 
-        result = sa.run()
+        result: str = sa.run()
         old_result = result
         result = strip_thinking_content(result)
         if result.strip() == "":

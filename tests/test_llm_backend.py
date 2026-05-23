@@ -14,6 +14,7 @@ from wichy.llm_backend import (
     call,
     _get_backend_semaphore,
     _reset_backend_semaphore,
+    LLMBackendUnhandledException,
 )
 
 
@@ -322,7 +323,7 @@ class TestMaxBackendConnections:
         mock_client.chat.completions.create.side_effect = RuntimeError("boom")
         _reset_backend_semaphore()
 
-        with pytest.raises(RuntimeError):
+        with pytest.raises(LLMBackendUnhandledException):
             call([{"role": "user", "content": "hi"}], model_str="ollama/test")
 
         # Slot is free; second call succeeds (would deadlock if semaphore not released)

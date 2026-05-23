@@ -111,7 +111,8 @@ class ChromaDocumentStore(DocumentStore):
         )
         # Get or create collection
         self.collection = self.client.get_or_create_collection(
-            name=self._collection_name, embedding_function=self.embedding_function
+            name=self._collection_name,
+            embedding_function=self.embedding_function,  # type: ignore[arg-type]
         )
 
     def count(self) -> int:
@@ -144,7 +145,7 @@ class ChromaDocumentStore(DocumentStore):
             documents=[document], metadatas=[serialized_metadata], ids=[doc_id]
         )
 
-        return doc_id
+        return doc_id  # type: ignore[no-any-return]
 
     def get_document(self, doc_id: str) -> Optional[Dict]:
         """Get a single document by ID.
@@ -159,13 +160,13 @@ class ChromaDocumentStore(DocumentStore):
 
         # Deserialize metadata if present
         metadata = result["metadatas"][0] if result["metadatas"] else {}
-        metadata = _deserialize_metadata(metadata)
+        metadata = _deserialize_metadata(dict(metadata))  # type: ignore[arg-type]
         # Remove placeholder if present
         metadata = _clean_returned_metadata(metadata)
 
         return {
             "id": result["ids"][0],
-            "document": result["documents"][0],
+            "document": result["documents"][0] if result["documents"] is not None else "",  # type: ignore[index]
             "metadata": metadata,
         }
 
@@ -182,13 +183,14 @@ class ChromaDocumentStore(DocumentStore):
         result = self.collection.get(ids=doc_ids)
 
         # Deserialize metadata if present and clean placeholders
-        if result.get("metadatas"):
+        metadatas = result.get("metadatas")
+        if metadatas:
             result["metadatas"] = [
-                _clean_returned_metadata(_deserialize_metadata(m))
-                for m in result["metadatas"]
+                _clean_returned_metadata(_deserialize_metadata(dict(m)))  # type: ignore[arg-type]
+                for m in metadatas  # type: ignore[union-attr]
             ]
 
-        return result
+        return result  # type: ignore[return-value]
 
     def update_metadata(self, doc_id: str, metadata: Dict, merge: bool = True):
         """Update metadata for a document without changing its content or embedding.
@@ -256,7 +258,7 @@ class ChromaDocumentStore(DocumentStore):
         if "metadatas" in results and results["metadatas"]:
             results["metadatas"] = [
                 [
-                    _clean_returned_metadata(_deserialize_metadata(meta))
+                    _clean_returned_metadata(_deserialize_metadata(dict(meta)))  # type: ignore[arg-type]
                     for meta in meta_list
                 ]
                 for meta_list in results["metadatas"]
@@ -271,9 +273,9 @@ class ChromaDocumentStore(DocumentStore):
                     1.0 / (1.0 + d) if d is not None else None for d in distance_list
                 ]
                 scores.append(score_list)
-            results["scores"] = scores
+            results["scores"] = scores  # type: ignore[typeddict-unknown-key]
 
-        return results
+        return results  # type: ignore[return-value]
 
     def list(self, limit: Optional[int] = None, where: Optional[Dict] = None) -> Dict:
         """List documents in the store.
@@ -290,11 +292,11 @@ class ChromaDocumentStore(DocumentStore):
         # Deserialize metadata from storage and clean placeholders
         if "metadatas" in results and results["metadatas"]:
             results["metadatas"] = [
-                _clean_returned_metadata(_deserialize_metadata(meta))
+                _clean_returned_metadata(_deserialize_metadata(dict(meta)))  # type: ignore[arg-type]
                 for meta in results["metadatas"]
             ]
 
-        return results
+        return results  # type: ignore[return-value]
 
     def clear(self):
         """Clear all documents from this collection.

@@ -17,7 +17,7 @@ DEFAULT_SKILLS_DIR = Path(__file__).parent / "default"
 class SkillLoader:
     """Discovers and loads skills from the skills directory."""
 
-    def __init__(self, skills_dir: Path = None):
+    def __init__(self, skills_dir: Path | None = None):
         self.skills_dir = Path(skills_dir) if skills_dir else settings.skills_dir
         self.registry = SkillRegistry()
 
@@ -48,7 +48,7 @@ class SkillLoader:
 
         return installed_count
 
-    def load_skill_from_dir(self, skill_dir: Path) -> Skill:
+    def load_skill_from_dir(self, skill_dir: Path) -> Skill | None:
         """Load a skill from its directory."""
         skill_name = skill_dir.name
         markdown_path = skill_dir / "skill.md"
@@ -129,7 +129,7 @@ class SkillLoader:
 
     def _discover_files(self, directory: Path) -> List[Path]:
         """Recursively discover all files in a directory."""
-        files = []
+        files: List[Path] = []
         if not directory.exists() or not directory.is_dir():
             return files
         for item in directory.rglob("*"):

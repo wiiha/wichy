@@ -1,5 +1,5 @@
 import subprocess
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import Field
 
@@ -20,8 +20,10 @@ class PingTool(BaseTool):
     description = "Ping a host on the internet to check connectivity"
     parameters_model = PingParameters
 
-    def execute(self, host: str, count: int = 3) -> str:
+    def execute(self, *args: Any, **kwargs: Any) -> str:
         """Execute ping command."""
+        host: str = kwargs["host"]
+        count: int = kwargs.get("count", 3)
         if count > 5:
             count = 5
         try:

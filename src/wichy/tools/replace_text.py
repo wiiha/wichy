@@ -6,6 +6,7 @@ unified diff format. Much easier for agents to use correctly.
 """
 
 import os
+from typing import Any
 
 from pydantic import Field
 
@@ -58,15 +59,13 @@ class ReplaceTextTool(BaseTool):
 """
     parameters_model = ReplaceTextParameters
 
-    def execute(
-        self,
-        file_path: str,
-        old_content: str,
-        new_content: str,
-        count: int = 1,
-        encoding: str = "utf-8",
-    ) -> str:
+    def execute(self, *args: Any, **kwargs: Any) -> str:
         """Replace text in a file."""
+        file_path: str = kwargs["file_path"]
+        old_content: str = kwargs["old_content"]
+        new_content: str = kwargs["new_content"]
+        count: int = kwargs.get("count", 1)
+        encoding: str = kwargs.get("encoding", "utf-8")
         # Validate file exists
         if not os.path.isfile(file_path):
             return format_error_with_context(file_path, "File not found")

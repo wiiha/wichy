@@ -1,5 +1,7 @@
 """DuckDB session reset tool."""
 
+from typing import Any
+
 from wichy.tools.base import BaseTool, ParametersModel
 from wichy.tools.duckdb_manager import DuckDBManager
 
@@ -22,7 +24,7 @@ class DuckDBResetTool(BaseTool):
 """
     parameters_model = DuckDBResetParameters
 
-    def execute(self) -> str:
+    def execute(self, *args: Any, **kwargs: Any) -> str:
         """Reset the DuckDB session."""
         DuckDBManager.reset()
         return "DuckDB session reset. All tables cleared."

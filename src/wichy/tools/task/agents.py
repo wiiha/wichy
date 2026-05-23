@@ -18,7 +18,9 @@ _DEFAULT_TASK_AGENT_DEFS = {
 }
 
 # Task agent definitions — defaults merged with home dir and local dir overrides
-TASK_AGENT_DEFS = load_all_sub_agents(defaults=_DEFAULT_TASK_AGENT_DEFS)
+TASK_AGENT_DEFS: dict[str, TaskAgentDefinitionBase] = load_all_sub_agents(
+    defaults=_DEFAULT_TASK_AGENT_DEFS
+)
 
 
 def print_list(xs: dict[str, TaskAgentDefinitionBase]):

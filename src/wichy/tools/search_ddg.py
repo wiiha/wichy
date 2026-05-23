@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Any, Optional
 
 from ddgs import DDGS  # ref: https://pypi.org/project/ddgs/
 from pydantic import Field
@@ -47,8 +47,10 @@ IMPORTANT - Use the correct year in search queries:
 """
     parameters_model = WebSearchParameters
 
-    def execute(self, query: str, max_results: int = 5) -> str:
+    def execute(self, *args: Any, **kwargs: Any) -> str:
         """Execute DDG search with given parameters."""
+        query: str = kwargs["query"]
+        max_results: int = kwargs.get("max_results", 5)
         try:
             results = DDGS().text(query, max_results=max_results)
 

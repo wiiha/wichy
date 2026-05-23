@@ -8,7 +8,8 @@ from .skill import Skill
 class SkillRegistry:
     """Global registry for skills."""
 
-    _instance = None
+    _instance: Optional["SkillRegistry"] = None
+    _skills: Dict[str, Skill]
 
     def __new__(cls):
         if cls._instance is None:

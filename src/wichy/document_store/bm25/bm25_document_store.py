@@ -11,9 +11,9 @@ The `query()` method returns BM25 scores instead of vector similarity.
 
 import pickle
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
-from rank_bm25 import BM25Okapi
+from rank_bm25 import BM25Okapi  # type: ignore[import-untyped]
 
 from wichy.document_store.core import DocumentStore
 from wichy.helpers.gen_id import gen_id
@@ -32,7 +32,7 @@ class BM25DocumentStore(DocumentStore):
         index_path: Optional[str] = None,
         k1: float = 1.5,
         b: float = 0.75,
-        tokenizer: Optional[callable] = None,
+        tokenizer: Optional[Callable[[str], List[str]]] = None,
         stopwords: Optional[set] = None,
     ):
         """
@@ -140,7 +140,7 @@ class BM25DocumentStore(DocumentStore):
         Returns:
             The document ID
         """
-        doc_id = metadata.get("id", gen_id())
+        doc_id: str = metadata.get("id", gen_id())
 
         self._documents[doc_id] = document
         self._metadata[doc_id] = {k: v for k, v in metadata.items() if k != "id"}
@@ -219,6 +219,9 @@ class BM25DocumentStore(DocumentStore):
 
         # Get BM25 scores for all documents
         if not self._tokenized_corpus:
+            return {"ids": [[]], "documents": [[]], "metadatas": [[]], "scores": [[]]}
+
+        if self._bm25 is None:
             return {"ids": [[]], "documents": [[]], "metadatas": [[]], "scores": [[]]}
 
         doc_scores = self._bm25.get_scores(query_tokens)

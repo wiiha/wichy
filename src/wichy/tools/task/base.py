@@ -40,7 +40,7 @@ class TaskAgent(AgentCore):
         agent_definition: TaskAgentDefinitionBase,
         prompt: str,
         model: str,
-        all_tools_not_instantiated: list[BaseTool],
+        all_tools_not_instantiated: list[type[BaseTool]],
         max_turns: Optional[int] = None,
     ):
         super().__init__()
@@ -67,20 +67,20 @@ class TaskAgent(AgentCore):
                     new_tools.append(tool)
 
             all_tool_names = [t.name.lower() for t in tools]
-            for t in allowed_tools:
-                if t not in all_tool_names:
+            for tool_name in allowed_tools:
+                if tool_name not in all_tool_names:
                     console_task_agents.log(
-                        f"[yellow]warning[/yellow] task agent definition {agent_definition.name} mentions tool {t} which does not exist."
+                        f"[yellow]warning[/yellow] task agent definition {agent_definition.name} mentions tool {tool_name} which does not exist."
                     )
             tools = new_tools
 
         if agent_definition.not_tools and len(agent_definition.not_tools) > 0:
             new_tools = []
-            for t in tools:
-                if t.name in agent_definition.not_tools:
+            for tool in tools:
+                if tool.name in agent_definition.not_tools:
                     # listed as tool to skip
                     continue
-                new_tools.append(t)
+                new_tools.append(tool)
             tools = new_tools
 
         self.tools = tools

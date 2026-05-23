@@ -99,3 +99,16 @@ wichy = ["templates/**/*", "**/static/**/*"]
 testpaths = ["tests"]
 pythonpath = ["src"]
 addopts = "--ignore=tests/document_store"
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = false
+
+[[tool.mypy.overrides]]
+module = [
+    "rank_bm25",
+    "wichy.memory.tool_analyze_content_answer",
+]
+ignore_missing_imports = true

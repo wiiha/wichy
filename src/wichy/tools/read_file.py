@@ -1,7 +1,7 @@
 import base64
 import json
 import mimetypes
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import Field
 
@@ -91,6 +91,7 @@ Multimodal Support (images):
     def _read_as_multimodal(self, path: str, media_type: Optional[str]) -> str:
         """Read a binary file and return multimodal JSON content."""
         # Determine MIME type
+        mime_type: Optional[str]
         if media_type and media_type != "auto":
             mime_type = media_type
         else:
@@ -157,15 +158,13 @@ Multimodal Support (images):
                 visualized.append(char)
         return "".join(visualized)
 
-    def execute(
-        self,
-        path,
-        offset=1,
-        limit=2000,
-        show_none_printable_chars=False,
-        media_type=None,
-    ) -> str:
+    def execute(self, *args: Any, **kwargs: Any) -> str:
         """Execute read_file with optional offset, limit, show none printable chars, and media_type options."""
+        path: str = kwargs["path"]
+        offset: int = kwargs.get("offset", 1)
+        limit: int = kwargs.get("limit", 2000)
+        show_none_printable_chars: bool = kwargs.get("show_none_printable_chars", False)
+        media_type: Optional[str] = kwargs.get("media_type")
         # Handle multimodal request for binary/image files
         if media_type:
             return self._read_as_multimodal(path, media_type)

@@ -8,6 +8,7 @@ REPL and web editor.
 
 import os
 import time
+import io
 import fcntl
 from pathlib import Path
 from contextlib import contextmanager
@@ -30,7 +31,7 @@ class FileLock:
     def __init__(self, filepath: Path):
         self.filepath = Path(filepath)
         self.lockpath = self.filepath.parent / f".{self.filepath.name}.lock"
-        self._lockfile = None
+        self._lockfile: io.TextIOWrapper | None = None
         self._pid = os.getpid()
 
     @contextmanager

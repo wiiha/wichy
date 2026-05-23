@@ -102,11 +102,11 @@ class MCPToolProxy(BaseTool):
             else:
                 default = prop_schema.get("default", None)
                 fields[prop_name] = (
-                    py_type | None,
+                    py_type | None,  # type: ignore[assignment]
                     Field(default=default, description=description),
                 )
 
-        return create_model(
+        return create_model(  # type: ignore[call-overload, no-any-return]
             f"{self.name}_Parameters",
             __base__=ParametersModel,
             **fields,

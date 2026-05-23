@@ -297,8 +297,8 @@ class SessionMapExtractor:
         formatted_messages = format_messages_for_extraction(messages, start_turn)
 
         feedback = None
-        proposed_nodes = []
-        proposed_edges = []
+        proposed_nodes: list[dict] = []
+        proposed_edges: list[dict] = []
         previous_response = None
 
         for attempt in range(max_retries + 1):

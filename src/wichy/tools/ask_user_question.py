@@ -1,5 +1,5 @@
 import json
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -112,9 +112,7 @@ Important notes:
 - If you recommend a specific option, make that the first option in the list and add "(Recommended)" at the end of the label
 """
 
-    def execute(
-        self, questions: List[Question], metadata: Optional[Dict[str, str]] = None
-    ) -> str:
+    def execute(self, *args: Any, **kwargs: Any) -> str:
         """
         Execute the tool by prompting the user with questions.
 
@@ -125,6 +123,8 @@ Important notes:
         Returns:
             JSON string containing answers mapping question headers to selected option labels
         """
+        questions: List[Question] = kwargs["questions"]
+        metadata: Optional[Dict[str, str]] = kwargs.get("metadata")
         try:
             # Ensure Question objects
             parsed: List[Question] = []

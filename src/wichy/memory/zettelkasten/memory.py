@@ -9,7 +9,7 @@ from typing import Dict, List, Optional, Tuple
 
 from wichy.console import user_console
 from wichy.context.handler import ContextHandler
-from wichy.helpers.document_store import DocumentStore
+from wichy.helpers.document_store import DocumentStore  # type: ignore[import-untyped]
 from wichy.llm_backend import call
 from wichy.memory.zettelkasten.note import MemoryNote
 from wichy.memory.zettelkasten.prompts import (
@@ -428,7 +428,7 @@ class AgenticMemorySystem:
                     x = MemoryNote.model_validate_json(result)
                     note = x
                     # need to see if it was evolved
-                    p: ModifyNewMemoryParameters = t.parameters_model(**args)
+                    p = ModifyNewMemoryParameters(**args)
                     has_evolved = p.should_evolve
                     ctx.append(
                         {

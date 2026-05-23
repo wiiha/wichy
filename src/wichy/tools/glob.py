@@ -1,7 +1,7 @@
 import glob
 import os
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from pydantic import Field
 
@@ -49,10 +49,12 @@ class GlobTool(BaseTool):
 
     parameters_model = GlobParameters
 
-    def execute(
-        self, pattern: str, path: str = ".", limit: int = 50, exclude_venvs: bool = True
-    ) -> str:
+    def execute(self, *args: Any, **kwargs: Any) -> str:
         """Execute glob search and return matching files sorted by modification time."""
+        pattern: str = kwargs["pattern"]
+        path: str = kwargs.get("path", ".")
+        limit: int = kwargs.get("limit", 50)
+        exclude_venvs: bool = kwargs.get("exclude_venvs", True)
         try:
             # Construct the full search path
             search_path = os.path.join(path, pattern)
@@ -93,7 +95,7 @@ class GlobTool(BaseTool):
             return result.strip()
 
         except Exception as e:
-            return format_error(e)
+            return format_error(str(e))
 
     def _exclude_virtual_environments(self, files: List[str]) -> List[str]:
         """Exclude files that are in common virtual environment directories."""

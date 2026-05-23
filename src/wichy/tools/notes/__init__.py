@@ -69,13 +69,13 @@ def get_scratchpad_slug():
     return None
 
 
-def set_scratchpad_slug(slug: str):
+def set_scratchpad_slug(slug: str | None) -> None:
     """Write the scratchpad slug to the marker file.
 
     The notes directory must already exist (call get_notes_dir() first).
 
     Args:
-        slug: The slug string to persist.
+        slug: The slug string to persist, or None to clear.
     """
     marker_path = settings.scratchpad_marker_path
     try:

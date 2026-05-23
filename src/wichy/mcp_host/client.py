@@ -32,20 +32,20 @@ class MCPClient:
             if self.config.transport == "stdio":
                 from fastmcp.client.transports import StdioTransport
 
-                transport = StdioTransport(
+                stdio_transport = StdioTransport(
                     command=self.config.command,
                     args=self.config.args,
                     env=self.config.get_interpolated_env(),
                 )
+                self._client = Client(stdio_transport)
             else:  # http
                 from fastmcp.client.transports import StreamableHttpTransport
 
-                transport = StreamableHttpTransport(
+                http_transport = StreamableHttpTransport(
                     url=self.config.url,
                     headers=self.config.get_interpolated_headers(),
                 )
-
-            self._client = Client(transport)
+                self._client = Client(http_transport)
             # Enter async context via bridge
             self._bridge.run_sync(self._client.__aenter__())
 

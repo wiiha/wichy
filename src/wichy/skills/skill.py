@@ -15,7 +15,7 @@ def parse_markdown_frontmatter(content: str) -> tuple[Dict[str, Any], str]:
         frontmatter = match.group(1)
         body = match.group(2)
         try:
-            import yaml
+            import yaml  # type: ignore[import-untyped]
 
             metadata = yaml.safe_load(frontmatter) or {}
         except ImportError:
@@ -113,7 +113,7 @@ class Skill:
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize skill for tool responses."""
-        result = {
+        result: Dict[str, Any] = {
             "name": self.name,
             "description": self.description,
             "path": str(self.path),

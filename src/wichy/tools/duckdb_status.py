@@ -1,5 +1,7 @@
 """DuckDB session status tool."""
 
+from typing import Any
+
 from wichy.tools.base import BaseTool, ParametersModel
 from wichy.tools.duckdb_manager import DuckDBManager
 
@@ -24,7 +26,7 @@ class DuckDBStatusTool(BaseTool):
 """
     parameters_model = DuckDBStatusParameters
 
-    def execute(self) -> str:
+    def execute(self, *args: Any, **kwargs: Any) -> str:
         """Get DuckDB session status."""
         manager = DuckDBManager.get_instance()
         return manager.get_status()

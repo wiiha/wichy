@@ -27,6 +27,8 @@ def _process_conditional(conditional: str, verify_against: Dict[str, List[str]])
 
     pattern = re.compile(r"<([a-zA-Z0-9_-]+)>\s*(.*?)\s*<\/\1>", re.DOTALL)
     m = pattern.search(x)
+    if m is None:
+        raise ValueError("could not find tag in condition block")
     tag_name = m.group(1)
     tag_value = m.group(2)
 

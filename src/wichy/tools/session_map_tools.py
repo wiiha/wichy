@@ -5,7 +5,7 @@ This module provides tools for the LLM agent to read session maps,
 which track investigation progress, questions, findings, and decisions.
 """
 
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import Field
 
@@ -98,12 +98,7 @@ Parameters:
     # Valid node types for validation
     VALID_NODE_TYPES = {"question", "finding", "decision", "file", "dead_end", "note"}
 
-    def execute(
-        self,
-        node_types: Optional[list[str]] = None,
-        detail: str = "quick",
-        limit: int = 100,
-    ) -> str:
+    def execute(self, *args: Any, **kwargs: Any) -> str:
         """Execute the read_session_map tool.
 
         Args:
@@ -114,6 +109,9 @@ Parameters:
         Returns:
             Formatted session map output or error message
         """
+        node_types: Optional[list[str]] = kwargs.get("node_types")
+        detail: str = kwargs.get("detail", "quick")
+        limit: int = kwargs.get("limit", 100)
         # Check if globals are initialized
         if _session_map_store is None or _context_handler is None:
             return format_error(

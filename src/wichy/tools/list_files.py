@@ -1,5 +1,5 @@
 import subprocess
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import Field
 
@@ -14,7 +14,10 @@ class ListFilesParameters(ParametersModel):
     )
 
     def info(self):
-        return 'path="' + self.path + '"'
+        path = "."
+        if self.path:
+            path = self.path
+        return 'path="' + path + '"'
 
 
 class ListFilesTool(BaseTool):
@@ -22,8 +25,9 @@ class ListFilesTool(BaseTool):
     description = "List files in a directory"
     parameters_model = ListFilesParameters
 
-    def execute(self, path=".") -> str:
+    def execute(self, *args: Any, **kwargs: Any) -> str:
         """Execute file listing"""
+        path: str = kwargs.get("path", ".")
         try:
             result = subprocess.run(
                 ["ls", "-l", path],

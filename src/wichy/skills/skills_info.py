@@ -1,11 +1,11 @@
 """Generate skills information for system prompt injection."""
 
-from typing import List
+from typing import List, Optional
 
 from wichy.skills.registry import SkillRegistry
 
 
-def skills_information(skill_names: List[str] = None) -> str:
+def skills_information(skill_names: Optional[List[str]] = None) -> str:
     """
     Generate a formatted block of available skills for the system prompt.
 

@@ -1,5 +1,7 @@
 from pydantic import Field
 
+from typing import Any
+
 from wichy.helpers.string import truncate_to_len
 from wichy.tools.base import BaseTool, ParametersModel
 
@@ -47,5 +49,5 @@ Your analysis should have identified context, keywords and tags.
 
     parameters_model = AnalyzedContentAnswerParameters
 
-    def execute(self, context: str, keywords: list, tags: list) -> str:
+    def execute(self, *args: Any, **kwargs: Any) -> str:
         return ""

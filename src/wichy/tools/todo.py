@@ -1,7 +1,7 @@
 import time
 from datetime import datetime
 from enum import Enum
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -143,28 +143,36 @@ When in doubt, use this tool. Being proactive with task management demonstrates 
         # Initialize in-memory task store
         self.task_store: dict[str, Task] = {}
 
-    def execute(
-        self,
-        action: TodoActions,
-        task_name: Optional[str] = None,
-        task_description: Optional[str] = None,
-        task_id: Optional[str] = None,
-    ) -> str:
+    def execute(self, *args: Any, **kwargs: Any) -> str:
         """
         Execute the appropriate todo action based on parameters.
         """
+        action: TodoActions = kwargs["action"]
+        task_name: Optional[str] = kwargs.get("task_name")
+        task_description: Optional[str] = kwargs.get("task_description")
+        task_id: Optional[str] = kwargs.get("task_id")
         try:
             if action == "create":
+                if task_name is None:
+                    return format_error("task_name is required for create")
                 return self._create_task(task_name, task_description)
             elif action == "update":
+                if task_id is None:
+                    return format_error("task_id is required for update")
                 return self._update_task(task_id, task_name, task_description)
             elif action == "complete":
+                if task_id is None:
+                    return format_error("task_id is required for complete")
                 return self._complete_task(task_id)
             elif action == "view":
+                if task_id is None:
+                    return format_error("task_id is required for view")
                 return self._view_task(task_id)
             elif action == "list":
                 return self._list_tasks()
             elif action == "in_progress":
+                if task_id is None:
+                    return format_error("task_id is required for in_progress")
                 return self._in_progress_task(task_id)
             elif action == "current_in_progress_task":
                 return self._list_current_in_progress()

@@ -1,6 +1,7 @@
 import shutil
 import subprocess
 from enum import Enum
+from typing import Any
 
 from pydantic import Field
 
@@ -198,10 +199,30 @@ class SearchInFilesTool(BaseTool):
     # BaseTool interface
     # -------------------------------------------------------------------------
 
-    def execute(
-        self, path=".", pattern="", output_mode=OutputMode.FILES_WITH_MATCHES
-    ) -> str:
+    def execute(self, *args: Any, **kwargs: Any) -> str:
         """Execute recursive search."""
+        path: str
+        if "path" in kwargs:
+            path = kwargs["path"]
+        elif args:
+            path = args[0]
+        else:
+            path = "."
+        pattern: str
+        if "pattern" in kwargs:
+            pattern = kwargs["pattern"]
+        elif len(args) > 1:
+            pattern = args[1]
+        else:
+            pattern = ""
+
+        output_mode: Any = (
+            kwargs.get("output_mode")
+            if "output_mode" in kwargs
+            else (args[2] if len(args) > 2 else OutputMode.FILES_WITH_MATCHES)
+        )
+        if isinstance(output_mode, str):
+            output_mode = OutputMode(output_mode)
         if not pattern or pattern.strip() == "":
             return format_error("pattern is required")
 

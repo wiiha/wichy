@@ -1,3 +1,4 @@
+import math
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
@@ -125,7 +126,7 @@ class MemoryNote(BaseModel):
             float: Importance score in range [0.0, 1.0]
         """
         # Base: logarithmic retrieval count (diminishing returns)
-        base = min(1.0, (self.retrieval_count + 1) ** 0.5 / 10.0)
+        base: float = min(1.0, math.sqrt(self.retrieval_count + 1) / 10.0)
 
         # Recency boost (0-0.2) if accessed within last 24h
         recency_boost = 0.0
@@ -147,7 +148,7 @@ class MemoryNote(BaseModel):
                 age_penalty = min(0.3, 0.3 * (days_age - 90) / 90)
 
         # Combine: base + recency_boost - age_penalty
-        raw_score = base + recency_boost - age_penalty
+        raw_score: float = base + recency_boost - age_penalty
         return max(0.0, min(1.0, raw_score))  # Clamp to [0.0, 1.0]
 
     @classmethod

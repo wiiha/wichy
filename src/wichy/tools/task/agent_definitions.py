@@ -1,6 +1,6 @@
 from wichy.tools.task.base import TaskAgentDefinitionBase
 
-bash_agent = TaskAgentDefinitionBase(
+bash_agent: TaskAgentDefinitionBase = TaskAgentDefinitionBase(
     name="Bash",
     description="Command execution specialist for running bash commands. Use this for git operations, command execution, and other terminal tasks.",
     tools=["bash"],
@@ -21,7 +21,7 @@ Best practices:
 - Handle errors gracefully and suggest fixes""",
 )
 
-general_purpose_agent = TaskAgentDefinitionBase(
+general_purpose_agent: TaskAgentDefinitionBase = TaskAgentDefinitionBase(
     name="general-purpose",
     description="General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you.",
     tools=[
@@ -66,7 +66,7 @@ When searching:
 - Verify findings before reporting results""",
 )
 
-explore_agent = TaskAgentDefinitionBase(
+explore_agent: TaskAgentDefinitionBase = TaskAgentDefinitionBase(
     name="Explore",
     description="Fast agent specialized for exploring codebases. Use this when you need to quickly find files by patterns, search code for keywords, or answer questions about the codebase. Specify thoroughness level: 'quick', 'medium', or 'very thorough'.",
     tools=[
@@ -98,7 +98,7 @@ Best practices:
 - Adjust strategy based on requested thoroughness level""",
 )
 
-web_research_agent = TaskAgentDefinitionBase(
+web_research_agent: TaskAgentDefinitionBase = TaskAgentDefinitionBase(
     name="web-research",
     description="Specialized agent for web-based research and information gathering. Use this agent when you need to search the internet for current information, fetch content from specific URLs, or conduct comprehensive online research across multiple sources. Put the phrase 'lite research' in the prompt for quick overview research.",
     tools=[

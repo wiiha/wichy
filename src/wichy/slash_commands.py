@@ -13,7 +13,7 @@ from wichy.root_agent.root_agent import ContextResetStrategies
 from wichy.tools.base import console_tool_result
 from wichy.tools.task import console_task_agents
 
-CommandHandler: TypeAlias = Callable[[str], str | None]
+CommandHandler: TypeAlias = Callable[[str], str | None | Table]
 
 
 class ContextResetException(Exception):
@@ -102,7 +102,7 @@ class SlashCommandChecker:
             threshold_str = str(threshold) if threshold is not None else "off"
             return f"[Status] tokens: {tokens} | auto-compact: {threshold_str}"
 
-        def handle_hooks(_line: str) -> str | None:
+        def handle_hooks(_line: str) -> str | None | Table:
             """Handle /hooks - reload and list all registered hooks."""
             # Reload hooks from all hook files
             hook_loader.reload_hooks()
@@ -156,7 +156,7 @@ class SlashCommandChecker:
 
             return table
 
-        def handle_help(line: str) -> str | None:
+        def handle_help(line: str) -> str | None | Table:
             """Handle /help - show available commands."""
             from rich.table import Table
 
@@ -245,7 +245,7 @@ class SlashCommandChecker:
             "/model": "Swap the LLM model mid-session (format: <backend>/<model>)",
         }
 
-        self._completer = NestedCompleter.from_nested_dict(
+        self._completer: NestedCompleter = NestedCompleter.from_nested_dict(
             {
                 "/btw": None,
                 "/logging": {

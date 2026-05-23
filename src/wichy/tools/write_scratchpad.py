@@ -1,3 +1,5 @@
+from typing import Any
+
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -13,7 +15,7 @@ class WriteScratchpadParameters(ParametersModel):
         ..., description="The full markdown content for the scratchpad"
     )
 
-    def info(self):
+    def info(self) -> str:
         return f"content_length={len(self.content)}"
 
 
@@ -26,8 +28,9 @@ class WriteScratchpadTool(BaseTool):
     )
     parameters_model = WriteScratchpadParameters
 
-    def execute(self, content: str) -> str:
+    def execute(self, *args: Any, **kwargs: Any) -> str:
         """Write the scratchpad note and pin it."""
+        content: str = kwargs["content"]
         # Ensure notes directory exists
         notes_dir = Path(get_notes_dir())
 

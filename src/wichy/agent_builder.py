@@ -1,6 +1,6 @@
 """Agent builder - constructs RootAgent with proper configuration."""
 
-from typing import Dict
+from typing import Dict, Optional
 
 from wichy.console import user_console
 
@@ -54,7 +54,7 @@ class AgentBuilder:
         tools: list[BaseTool],
         skills: Dict[str, object],
         root_agent_descriptions: list[ParsedRootAgentDesc],
-        all_descriptions: list[ParsedRootAgentDesc] = None,
+        all_descriptions: Optional[list[ParsedRootAgentDesc]] = None,
     ):
         """
         Initialize AgentBuilder.
@@ -119,7 +119,7 @@ class AgentBuilder:
         root_agent = RootAgent(
             model_str=model_str,
             tools=self.tools,
-            name=selected_root_agent.props.get("name"),
+            name=selected_root_agent.props.get("name") or "NOT SET",
             display_name=self.cli_config.display_name or None,
             context=context,
             skills=self.skills,
@@ -231,7 +231,7 @@ def build_agent_from_config(
     cli_config: CliConfig,
     tools: list[BaseTool],
     skills: Dict[str, object],
-    root_agent_descriptions: list[ParsedRootAgentDesc] = None,
+    root_agent_descriptions: Optional[list[ParsedRootAgentDesc]] = None,
     context=None,
 ) -> RootAgent:
     """

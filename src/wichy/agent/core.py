@@ -8,7 +8,7 @@ shared functionality between RootAgent and TaskAgent.
 import json
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 
 from wichy.config import settings
 from wichy.constants import ROLE_ASSISTANT, ROLE_TOOL
@@ -130,7 +130,7 @@ class AgentCore(ABC):
         tools: List["BaseTool"],
         response: "Message",
         inject_model_str: bool = False,
-        pre_append_hook: Optional[callable] = None,
+        pre_append_hook: Optional[Callable[[Any], None]] = None,
     ) -> Tuple[bool, List[Dict[str, Any]]]:
         """
         Base implementation for handling tool calls from LLM response.
@@ -153,7 +153,7 @@ class AgentCore(ABC):
         if response.finish_reason != "tool_calls":
             return False, []
 
-        # Optional hook for subclass-specific behavior (e.g., thinking content display)
+        assert response.tool_calls is not None
         if pre_append_hook:
             pre_append_hook(response)
 
@@ -240,4 +240,5 @@ class AgentCore(ABC):
         """Get tool definitions for all tools."""
         from wichy.tools import get_tool_definitions
 
-        return get_tool_definitions(self.tools)
+        definitions: List[Dict[str, Any]] = get_tool_definitions(self.tools)
+        return definitions

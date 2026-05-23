@@ -8,7 +8,7 @@ register themselves when their classes are defined (via a metaclass on BaseTool)
 from __future__ import annotations
 
 from abc import ABCMeta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from wichy.tools.base import BaseTool
@@ -119,5 +119,5 @@ class ToolMeta(ABCMeta):
         cls = super().__new__(mcs, name, bases, namespace)
         # Register the class if it has a 'name' attribute (i.e., not BaseTool itself)
         if hasattr(cls, "name") and cls.name:
-            register_tool(cls)
+            register_tool(cast("type[BaseTool]", cls))
         return cls

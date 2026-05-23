@@ -34,7 +34,7 @@ class ContextResetStrategies(str, Enum):
 class RootAgent(AgentCore):
     def __init__(
         self,
-        model_str,
+        model_str: str,
         tools: List[BaseTool],
         name: str = "NOT SET",
         display_name: Optional[str] = None,
@@ -159,10 +159,11 @@ class RootAgent(AgentCore):
 
         def display_thinking_content(resp: Message) -> None:
             """Hook to display thinking content before processing tool calls."""
-            if strip_thinking_content(resp.content) != "":
+            content = resp.content
+            if isinstance(content, str) and strip_thinking_content(content) != "":
                 result = (
                     f"\n---\n\n### {self.display_name}\n"
-                    + strip_thinking_content(resp.content)
+                    + strip_thinking_content(content)
                     + "\n\n---"
                 )
                 markdown = Markdown(result)

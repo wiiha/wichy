@@ -55,7 +55,11 @@ class NaiveMemory(Memory):
             datetime.fromisoformat(last_accessed_str) if last_accessed_str else None
         )
         timestamp_str = metadata.get(self._KEY_TIMESTAMP)
-        created_at = datetime.fromisoformat(timestamp_str) if timestamp_str else None
+        created_at = (
+            datetime.fromisoformat(timestamp_str)
+            if timestamp_str
+            else datetime.now(timezone.utc)
+        )
 
         # Extract user metadata (exclude internal keys)
         user_metadata = {

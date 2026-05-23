@@ -68,7 +68,8 @@ class ContextHandler:
     @property
     def path(self) -> Path:
         """Return the path to the context file."""
-        return self._path
+        result: Path = self._path
+        return result
 
     def _ensure_context_dir(self):
         """Create the context storage directory (and any sub_dir) if missing."""
@@ -361,7 +362,8 @@ class ContextHandler:
         if self.custom_suffix:
             parts.append(self.custom_suffix)
         filename = "_".join(parts) + CONTEXT_FILE_EXT
-        return self.context_dir / filename
+        result: Path = self.context_dir / filename
+        return result
 
     def _write_line(self, obj: dict, entry_type: str | None):
         """

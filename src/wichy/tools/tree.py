@@ -1,5 +1,5 @@
 import os
-from typing import Optional
+from typing import Any, Optional
 
 import pathspec
 from pydantic import Field
@@ -102,8 +102,10 @@ class TreeTool(BaseTool):
         except Exception as e:
             return f"{prefix}[Error: {e}]"
 
-    def execute(self, path: str = ".", max_depth: Optional[int] = None) -> str:
+    def execute(self, *args: Any, **kwargs: Any) -> str:
         """Execute tree command."""
+        path: str = kwargs.get("path", ".")
+        max_depth: Optional[int] = kwargs.get("max_depth")
         try:
             path = os.path.abspath(path)
 

@@ -56,7 +56,8 @@ def truncate_to_len(text: str, new_len=50, suffix="...(truncated)") -> str:
     if len(text) < new_len:
         return text
 
-    return text[:new_len] + suffix
+    out: str = text[:new_len] + suffix
+    return out
 
 
 # Example usage and tests

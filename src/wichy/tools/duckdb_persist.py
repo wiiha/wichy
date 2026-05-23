@@ -1,5 +1,7 @@
 """DuckDB persistence tools for saving/loading databases."""
 
+from typing import Any
+
 from pydantic import Field
 
 from wichy.tools.base import BaseTool, ParametersModel
@@ -29,8 +31,9 @@ class DuckDBPersistTool(BaseTool):
 """
     parameters_model = DuckDBPersistParameters
 
-    def execute(self, db_path: str) -> str:
+    def execute(self, *args: Any, **kwargs: Any) -> str:
         """Persist database to disk."""
+        db_path: str = kwargs["db_path"]
         manager = DuckDBManager.get_instance()
         return manager.persist(db_path)
 
@@ -57,7 +60,8 @@ class DuckDBLoadDBTool(BaseTool):
 """
     parameters_model = DuckDBLoadDBParameters
 
-    def execute(self, db_path: str) -> str:
+    def execute(self, *args: Any, **kwargs: Any) -> str:
         """Load database from disk."""
+        db_path: str = kwargs["db_path"]
         manager = DuckDBManager.get_instance()
         return manager.load_database(db_path)

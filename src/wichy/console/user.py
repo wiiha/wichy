@@ -28,7 +28,7 @@ def _table_to_markdown(table: Table) -> str:
         lines.append("")
 
     # Build header row
-    headers = [col.header for col in table.columns]
+    headers = [str(col.header) for col in table.columns]
     lines.append("| " + " | ".join(headers) + " |")
 
     # Build separator row with alignment indicators
@@ -107,7 +107,9 @@ class ThreadSafeConsole:
 
     def __init__(self, rich_console: Optional[RichConsole] = None):
         self._rich_console = rich_console or RichConsole(quiet=False)
-        self._queue: queue.Queue[Optional[_PrintItem]] = queue.Queue(maxsize=1000)
+        self._queue: queue.Queue[Optional[_PrintItem | _FlushSentinel]] = queue.Queue(
+            maxsize=1000
+        )
         self._output_thread: Optional[threading.Thread] = None
         self._shutdown_event = threading.Event()
         self._state_lock = threading.Lock()
@@ -268,7 +270,7 @@ class ServerConsole:
     def __init__(self):
         self._messages: list[str] = []
         self._lock = threading.Lock()
-        self._quiet = False
+        self._quiet: bool = False
 
     # ── capture API ─────────────────────────────────
 

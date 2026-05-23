@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Any, Literal
 
 import base64
 import json
@@ -89,7 +89,9 @@ class FetchWebPageTool(BaseTool):
     enable_result_offload = True
     parameters_model = FetchWebPageParameters
 
-    async def _fetch_webpage(self, url: str, wait_until: str = "networkidle") -> str:
+    async def _fetch_webpage(
+        self, url: str, wait_until: WaitUntilType = "networkidle"
+    ) -> str:
         """
         Execute the fetch webpage tool.
 
@@ -117,9 +119,7 @@ class FetchWebPageTool(BaseTool):
         except Exception as e:
             return format_error(str(e))
 
-    def execute(
-        self, url: str, limit: int = 20000, wait_until: str = "networkidle"
-    ) -> str:
+    def execute(self, *args: Any, **kwargs: Any) -> str:
         """
         Execute the fetch webpage tool.
 
@@ -131,12 +131,15 @@ class FetchWebPageTool(BaseTool):
         Returns:
             The text content of the page as markdown, or an overview of headings if content exceeds limit.
         """
+        url: str = kwargs["url"]
+        limit: int = kwargs.get("limit", 20000)
+        wait_until: WaitUntilType = kwargs.get("wait_until", "networkidle")
 
         async def _operation():
             return await self._fetch_webpage(url, wait_until)
 
         try:
-            html_content = browser_manager.execute_serialized(_operation)
+            html_content: str = browser_manager.execute_serialized(_operation)
 
             # If content is an error message, return it directly
             if html_content.startswith("error:"):
@@ -175,7 +178,7 @@ class NavigateTool(BaseTool):
     description = "Navigate the browser to a URL."
     parameters_model = NavigateParameters
 
-    def execute(self, url: str, wait_until: str = "networkidle") -> str:
+    def execute(self, *args: Any, **kwargs: Any) -> str:
         """
         Navigate the browser to a URL.
 
@@ -186,6 +189,8 @@ class NavigateTool(BaseTool):
         Returns:
             A message indicating the result of the navigation.
         """
+        url: str = kwargs["url"]
+        wait_until: WaitUntilType = kwargs.get("wait_until", "networkidle")
 
         async def _operation():
             return await browser_manager.navigate(url, wait_until=wait_until)
@@ -211,7 +216,7 @@ class BrowserStatusTool(BaseTool):
     description = "Get the current status of the browser, including the current URL and page title."
     parameters_model = BrowserStatusParameters
 
-    def execute(self) -> str:
+    def execute(self, *args: Any, **kwargs: Any) -> str:
         """
         Get the current status of the browser.
 
@@ -248,7 +253,7 @@ class BrowserPageInfoTool(BaseTool):
     description = "Get information about the current page. Use detail='quick' for URL/title only, or detail='full' for structured page insight including headings, links, buttons, inputs, and tables. Use this to understand what's on the page before taking actions."
     parameters_model = BrowserPageInfoParameters
 
-    def execute(self, detail: str = "quick") -> str:
+    def execute(self, *args: Any, **kwargs: Any) -> str:
         """
         Get structured information about the current page.
 
@@ -258,6 +263,7 @@ class BrowserPageInfoTool(BaseTool):
         Returns:
             JSON string with page information.
         """
+        detail: DetailType = kwargs.get("detail", "quick")
         import json
 
         async def _operation():
@@ -300,7 +306,7 @@ class ScreenshotTool(BaseTool):
     description = "Take a screenshot of the current browser page and save it to a file."
     parameters_model = ScreenshotParameters
 
-    def execute(self, filename: str, fullpage: bool = False) -> str:
+    def execute(self, *args: Any, **kwargs: Any) -> str:
         """
         Take a screenshot of the current browser page.
 
@@ -313,6 +319,8 @@ class ScreenshotTool(BaseTool):
         Returns:
             The file path where the screenshot was saved, or base64 data URI if filename is 'base64'.
         """
+        filename: str = kwargs["filename"]
+        fullpage: bool = kwargs.get("fullpage", False)
 
         async def _operation():
             return await browser_manager.screenshot(fullpage=fullpage)
@@ -400,7 +408,7 @@ class BrowserRawTool(BaseTool):
     enable_result_offload = True
     parameters_model = BrowserRawParameters
 
-    def execute(self, code: str, limit: int = 20000) -> str:
+    def execute(self, *args: Any, **kwargs: Any) -> str:
         """
         Execute raw Playwright code on the browser page.
 
@@ -411,6 +419,8 @@ class BrowserRawTool(BaseTool):
         Returns:
             The result of the expression as a string representation.
         """
+        code: str = kwargs["code"]
+        limit: int = kwargs.get("limit", 20000)
 
         async def _operation():
             return await browser_manager.raw(code)
@@ -497,14 +507,7 @@ class BrowserActTool(BaseTool):
     description = "Perform browser actions declaratively. Use action='click' to click elements by text, action='fill' to fill form inputs by name/placeholder/id, or action='wait' to wait for elements to appear. Auto-waits for elements to be visible before acting."
     parameters_model = BrowserActParameters
 
-    def execute(
-        self,
-        action: str,
-        target: str,
-        value: str | None = None,
-        wait_until: str = "navigation",
-        timeout: int = 5000,
-    ) -> str:
+    def execute(self, *args: Any, **kwargs: Any) -> str:
         """
         Perform a declarative browser action.
 
@@ -518,6 +521,11 @@ class BrowserActTool(BaseTool):
         Returns:
             A human-readable message indicating the result.
         """
+        action: str = kwargs["action"]
+        target: str = kwargs["target"]
+        value: str | None = kwargs.get("value")
+        wait_until: WaitUntilActType = kwargs.get("wait_until", "navigation")
+        timeout: int = kwargs.get("timeout", 5000)
 
         async def _operation():
             return await browser_manager._act(

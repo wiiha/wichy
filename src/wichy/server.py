@@ -160,6 +160,7 @@ def start_server_in_background(port: int | None = None, host: str | None = None)
     global _server_thread, _server_app, _server_port
 
     if _server_thread is not None and _server_thread.is_alive():
+        assert _server_port is not None
         return _server_port  # Server already running, return its port
 
     # Use settings if not specified

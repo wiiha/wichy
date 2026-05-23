@@ -1,6 +1,6 @@
 """DuckDB SQL query execution tool for data analysis."""
 
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import Field
 
@@ -46,7 +46,10 @@ class DuckDBQueryTool(BaseTool):
     enable_result_offload = True
     parameters_model = DuckDBQueryParameters
 
-    def execute(self, query: str, limit: int = 100, sample: bool = False) -> str:
+    def execute(self, *args: Any, **kwargs: Any) -> str:
         """Execute SQL query and return results."""
+        query: str = kwargs["query"]
+        limit: int = kwargs.get("limit", 100)
+        sample: bool = kwargs.get("sample", False)
         manager = DuckDBManager.get_instance()
         return manager.execute_query(query, limit=limit, sample=sample)

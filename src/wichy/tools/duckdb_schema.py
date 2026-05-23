@@ -1,6 +1,6 @@
 """DuckDB schema inspection tool."""
 
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import Field
 
@@ -36,7 +36,8 @@ class DuckDBSchemaTool(BaseTool):
     enable_result_offload = True
     parameters_model = DuckDBSchemaParameters
 
-    def execute(self, table_name: Optional[str] = None) -> str:
+    def execute(self, *args: Any, **kwargs: Any) -> str:
         """Get schema information for tables."""
+        table_name: Optional[str] = kwargs.get("table_name")
         manager = DuckDBManager.get_instance()
         return manager.get_schema(table_name=table_name)

@@ -1,6 +1,6 @@
 """DuckDB data loading tool."""
 
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import Field
 
@@ -47,9 +47,10 @@ class DuckDBLoadTool(BaseTool):
 """
     parameters_model = DuckDBLoadParameters
 
-    def execute(
-        self, data_path: str, table_name: Optional[str] = None, overwrite: bool = False
-    ) -> str:
+    def execute(self, *args: Any, **kwargs: Any) -> str:
         """Load data file into DuckDB table."""
+        data_path: str = kwargs["data_path"]
+        table_name: Optional[str] = kwargs.get("table_name")
+        overwrite: bool = kwargs.get("overwrite", False)
         manager = DuckDBManager.get_instance()
         return manager.load_data(data_path, table_name=table_name, overwrite=overwrite)

@@ -12,8 +12,8 @@ from wichy.helpers.verification_provider import get_verification_provider
 
 PIPELINE_MODE = False
 
-prompt_session = PromptSession()
-special_console = Console(quiet=False)
+prompt_session: PromptSession[str] = PromptSession()
+special_console: Console = Console(quiet=False)
 
 _user_interaction_lock = threading.Lock()
 
@@ -209,10 +209,8 @@ def delete_file(path: str):
 
 
 # Set human-friendly label & message for the decorator to display
-delete_file._action_label = "Delete file"
-delete_file._action_message = (
-    "This will permanently remove the file from disk. Make sure you have backups."
-)
+delete_file._action_label = "Delete file"  # type: ignore[attr-defined]
+delete_file._action_message = "This will permanently remove the file from disk. Make sure you have backups."  # type: ignore[attr-defined]
 
 # Usage
 if __name__ == "__main__":

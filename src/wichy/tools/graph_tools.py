@@ -3,7 +3,7 @@ import os
 import re
 import uuid
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from pydantic import Field
 
@@ -71,7 +71,8 @@ Node colors are optional (defaults to blue). Edge labels are optional and should
             return "#" + color_str
         return "#97C2FC"
 
-    def execute(self, content: str) -> str:
+    def execute(self, *args: Any, **kwargs: Any) -> str:
+        content: str = kwargs["content"]
         """Create a graph from text definition."""
         try:
             nodes = []
@@ -191,7 +192,8 @@ class ReadGraphTool(BaseTool):
     description_long = "Read a graph from .wichy/graphs/ and return its contents as a concise edge list format. Useful for agent to analyze graph structure."
     parameters_model = ReadGraphParameters
 
-    def execute(self, filename: str = "latest.json") -> str:
+    def execute(self, *args: Any, **kwargs: Any) -> str:
+        filename: str = kwargs.get("filename", "latest.json")
         """Read a graph file."""
         try:
             graphs_dir = get_graphs_dir()
@@ -293,7 +295,7 @@ class ListGraphsTool(BaseTool):
     )
     parameters_model = ListGraphsParameters
 
-    def execute(self) -> str:
+    def execute(self, *args: Any, **kwargs: Any) -> str:
         """List all graph files."""
         try:
             graphs_dir = get_graphs_dir()

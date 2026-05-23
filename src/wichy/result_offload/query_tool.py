@@ -195,7 +195,7 @@ Please address this feedback in your response.
             if llm_response is None or llm_response.message is None:
                 return f"Error: LLM returned no response for query '{query}'"
 
-            return llm_response.message.content
+            return str(llm_response.message.content)
 
         except Exception as e:
             return f"Error querying stored result: {e}"

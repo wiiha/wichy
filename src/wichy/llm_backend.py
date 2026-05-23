@@ -510,7 +510,7 @@ def _call_impl(
             )
         # something else is not right
         raise LLMBackendUnhandledException(
-            message=f"LLM Backend error: {e.message or str(e)}"
+            message=f"LLM Backend error: {getattr(e, 'message', None) or str(e)}"
         )
 
     elapsed_time = time.time() - start_time

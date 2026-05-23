@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import Field
 
@@ -20,8 +20,8 @@ class ModifyNewMemoryParameters(ParametersModel):
         description="List of ids that this new memory note should connect to. "
         "You can select from the once that have been presented to you. Always present the full list",
     )
-    memory_note: MemoryNote = Field(
-        Optional[MemoryNote],
+    memory_note: Optional[MemoryNote] = Field(
+        None,
         description="HIDE_FROM_LLM The new note that will be modified and then returned using json string serialization.",
     )
 
@@ -38,14 +38,14 @@ You are expected to call this tool, even if it is to just indicate that no evolu
 
     parameters_model = ModifyNewMemoryParameters
 
-    def execute(
-        self,
-        should_evolve: bool,
-        tags: list[str],
-        links_to_neighbor_memories: list[str],
-        memory_note: MemoryNote,
-    ) -> str:
-        memory_note = MemoryNote(**memory_note)
+    def execute(self, *args: Any, **kwargs: Any) -> str:
+        should_evolve: bool = kwargs["should_evolve"]
+        tags: list[str] = kwargs.get("tags", [])
+        links_to_neighbor_memories: list[str] = kwargs.get(
+            "links_to_neighbor_memories", []
+        )
+        memory_note: MemoryNote = kwargs["memory_note"]
+        memory_note = MemoryNote(**memory_note.model_dump())
         if not should_evolve:
             return memory_note.model_dump_json()
 
@@ -58,11 +58,9 @@ You are expected to call this tool, even if it is to just indicate that no evolu
 
 
 class ModifyNeighborMemoryParameters(ParametersModel):
-    memory_id: str = (
-        Field(
-            ...,
-            description=("The memory_id for which these changes are relevant."),
-        ),
+    memory_id: str = Field(
+        ...,
+        description=("The memory_id for which these changes are relevant."),
     )
     context: str = Field(
         "",
@@ -96,15 +94,13 @@ You call this tool for every neighbor memory that you want to modify.
 
     parameters_model = ModifyNeighborMemoryParameters
 
-    def execute(
-        self,
-        memory_id: str,
-        context: str,
-        tags: list[str],
-        memory_notes: list[MemoryNote],
-    ) -> str:
+    def execute(self, *args: Any, **kwargs: Any) -> str:
+        memory_id: str = kwargs["memory_id"]
+        context: str = kwargs.get("context", "")
+        tags: list[str] = kwargs.get("tags", [])
+        memory_notes: list[MemoryNote] = kwargs["memory_notes"]
         n: Optional[MemoryNote] = None
-        xx = [MemoryNote(**x) for x in memory_notes]
+        xx = [MemoryNote(**x.model_dump()) for x in memory_notes]
         memory_notes = xx
         for x in memory_notes:
             if x.id == memory_id:
@@ -139,5 +135,5 @@ class DoneTool(BaseTool):
 
     parameters_model = DoneProcessingParameters
 
-    def execute(self) -> str:
+    def execute(self, *args: Any, **kwargs: Any) -> str:
         return self.exit_value

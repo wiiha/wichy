@@ -33,6 +33,7 @@ class SessionMapStore:
     CREATE INDEX IF NOT EXISTS idx_updated_at ON session_maps(updated_at);
     """
 
+    _db_path: Path
     _lock = threading.Lock()
     _instances: dict[Path, "SessionMapStore"] = {}
 

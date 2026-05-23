@@ -79,7 +79,7 @@ class ResultStore:
         self._init_db()
 
     @contextmanager
-    def _get_conn(self, for_write: bool = False) -> sqlite3.Connection:
+    def _get_conn(self, for_write: bool = False):
         """
         Create a new database connection with WAL mode.
 
@@ -109,6 +109,7 @@ class ResultStore:
 
     def _init_db(self) -> None:
         """Initialize the database schema."""
+        conn: sqlite3.Connection
         with self._get_conn() as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS results (
@@ -169,6 +170,7 @@ class ResultStore:
         now = datetime.utcnow()
         expires_at = now + timedelta(hours=self._get_ttl_hours())
 
+        conn: sqlite3.Connection
         with self._get_conn(for_write=True) as conn:
             conn.execute(
                 """
@@ -203,6 +205,7 @@ class ResultStore:
         """
         import json
 
+        conn: sqlite3.Connection
         with self._get_conn() as conn:
             cursor = conn.execute(
                 "SELECT * FROM results WHERE ref_id = ?",
@@ -240,6 +243,7 @@ class ResultStore:
         Returns:
             True if deleted, False if not found
         """
+        conn: sqlite3.Connection
         with self._get_conn(for_write=True) as conn:
             cursor = conn.execute(
                 "DELETE FROM results WHERE ref_id = ?",
@@ -255,6 +259,7 @@ class ResultStore:
         Returns:
             Number of expired results removed
         """
+        conn: sqlite3.Connection
         with self._get_conn(for_write=True) as conn:
             cursor = conn.execute(
                 "DELETE FROM results WHERE expires_at < ?",
@@ -270,6 +275,7 @@ class ResultStore:
         Returns:
             List of dicts with ref_id, tool_name, char_count, created_at, expires_at
         """
+        conn: sqlite3.Connection
         with self._get_conn() as conn:
             cursor = conn.execute("""
                 SELECT ref_id, tool_name, char_count, created_at, expires_at

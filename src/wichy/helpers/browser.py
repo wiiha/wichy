@@ -12,13 +12,22 @@ import inspect
 import random
 import threading
 import time
-from typing import Any, Callable, Coroutine, Optional, TypeVar
+from typing import Any, Callable, Coroutine, Literal, Optional, TypeVar
 
-from playwright.async_api import Browser, BrowserContext, Page, async_playwright
+from playwright.async_api import (
+    Browser,
+    BrowserContext,
+    ElementHandle,
+    Locator,
+    Page,
+    async_playwright,
+)
 
 from wichy.config import settings
 from wichy.helpers.console import console
 from wichy.tools.errors import format_error
+
+WaitUntilType = Literal["load", "domcontentloaded", "networkidle"]
 
 # Error patterns that indicate the browser process has crashed/disconnected
 BROWSER_CRASH_ERRORS = [
@@ -283,13 +292,18 @@ class BrowserManager:
                     if self._browser is None:
                         # Browser was lost, reinitialize everything
                         await self.initialize()
+                    if self._browser is None:
+                        # Reinitialization failed, raise error
+                        raise RuntimeError("Browser not initialized after recovery")
                     self._context = await self._browser.new_context(
                         user_agent=random.choice(settings.browser_user_agents),
-                        viewport=settings.browser_viewport,
+                        viewport=settings.browser_viewport,  # type: ignore[arg-type]
                         locale=settings.browser_locale,
                     )
                     self._page = await self._context.new_page()
 
+        if self._page is None:
+            raise RuntimeError("Page not available")
         return self._page
 
     async def status(self) -> dict:
@@ -334,7 +348,7 @@ class BrowserManager:
                 return {"url": url, "title": title}
 
             # Full detail - extract structured page info
-            result = {"url": url, "title": title}
+            result: dict[str, Any] = {"url": url, "title": title}
 
             # Extract headings
             headings = []
@@ -436,7 +450,9 @@ class BrowserManager:
                     return {"error": f"Failed after recovery: {str(retry_e)}"}
             return {"error": str(e)}
 
-    async def navigate(self, url: str, wait_until: str = "networkidle") -> dict:
+    async def navigate(
+        self, url: str, wait_until: WaitUntilType = "networkidle"
+    ) -> dict:
         """
         Navigate the persistent page to a URL.
 
@@ -556,6 +572,7 @@ class BrowserManager:
                     if action == "click":
                         return await self._act_click(page, target, wait_until, timeout)
                     elif action == "fill":
+                        assert value is not None
                         return await self._act_fill(page, target, value, timeout)
                     elif action == "wait":
                         return await self._act_wait(page, target, timeout)
@@ -615,7 +632,7 @@ class BrowserManager:
         Returns:
             Result dictionary with status
         """
-        input_element = None
+        input_element: ElementHandle | Locator | None = None
 
         # Try finding input by various selectors in order
         selectors = [
@@ -647,7 +664,10 @@ class BrowserManager:
 
         # Wait for element to be visible
         try:
-            await input_element.wait_for(state="visible", timeout=timeout)
+            if hasattr(input_element, "wait_for"):
+                await input_element.wait_for(state="visible", timeout=timeout)  # type: ignore[attr-defined]
+            else:
+                await input_element.wait_for_element_state("visible", timeout=timeout)  # type: ignore[attr-defined]
         except Exception:
             return {"status": "error", "error": f"Element not found: {target}"}
 
@@ -780,6 +800,8 @@ class BrowserManager:
 
             kwargs = {}
             for kw in node.keywords:
+                if kw.arg is None:
+                    continue
                 val = await self._eval_ast(kw.value, page)
                 if inspect.iscoroutine(val):
                     val = await val

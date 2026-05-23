@@ -6,6 +6,8 @@ Simplified alternative to patch tool that inserts content at line numbers. Usefu
 
 import os
 
+from typing import Any
+
 from pydantic import Field
 
 from wichy.tools.base import BaseTool, ParametersModel
@@ -52,14 +54,12 @@ class InsertLinesTool(BaseTool):
 """
     parameters_model = InsertLinesParameters
 
-    def execute(
-        self,
-        file_path: str,
-        offset: int,
-        content: str,
-        encoding: str = "utf-8",
-    ) -> str:
+    def execute(self, *args: Any, **kwargs: Any) -> str:
         """Insert content into a file at a specific line offset."""
+        file_path: str = kwargs["file_path"]
+        offset: int = kwargs["offset"]
+        content: str = kwargs["content"]
+        encoding: str = kwargs.get("encoding", "utf-8")
         # Validate file exists
         if not os.path.isfile(file_path):
             return format_error_with_context(file_path, "File not found")

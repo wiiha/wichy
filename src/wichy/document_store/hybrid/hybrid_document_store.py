@@ -3,7 +3,7 @@ Hybrid document store using both ChromaDB (dense) and BM25 (sparse) retrieval.
 Combines results using Reciprocal Rank Fusion (RRF) for optimal retrieval performance.
 """
 
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 from wichy.document_store.bm25.bm25_document_store import BM25DocumentStore
 from wichy.document_store.chromadb.chromadb_document_store import ChromaDocumentStore
@@ -35,7 +35,7 @@ class HybridDocumentStore(DocumentStore):
         bm25_index_path: Optional[str] = None,
         bm25_k1: float = 1.5,
         bm25_b: float = 0.75,
-        bm25_tokenizer: Optional[callable] = None,
+        bm25_tokenizer: Optional[Callable[[str], List[str]]] = None,
         bm25_stopwords: Optional[set] = None,
         rrf_k: int = 60,
         min_chroma_score: Optional[float] = 0.55,
@@ -171,7 +171,7 @@ class HybridDocumentStore(DocumentStore):
         self.chroma.add_document(document, meta_with_id)
         self.bm25.add_document(document, meta_with_id)
 
-        return doc_id
+        return doc_id  # type: ignore[no-any-return]
 
     def get_document(self, doc_id: str) -> Optional[Dict]:
         """
