@@ -1,16 +1,19 @@
 ---
 name: agent-notebook
-description: >
-  Activate this skill whenever you start work in a project that has prior history
-  -- or should. It provides a durable, searchable SQLite notebook for cross-session
-  memory. Before making any non-trivial decision, query the notebook for past
-  context. After any notable learning, write to it proactively. If the notebook
-  does not exist yet, create it automatically.
-  The notebook lives at `.wichy/notebook.db` and dumps to `.wichy/notebook.sql`
-  for Git versioning.
+description: Always activate this skill on startup. It provides a durable, searchable SQLite notebook for cross-session memory. Before making any non-trivial decision, query the notebook for past context. After any notable learning, write to it proactively. The notebook lives at `.wichy/notebook.db` and dumps to `.wichy/notebook.sql` for Git versioning.
 safe_scripts: init_notebook.py, dump_notebook.py
 metadata:
-  tags: [memory, sqlite, agent-memory, sessions, notebook, learning, persistence, knowledge-store]
+  tags:
+    [
+      memory,
+      sqlite,
+      agent-memory,
+      sessions,
+      notebook,
+      learning,
+      persistence,
+      knowledge-store,
+    ]
 ---
 
 # Agent Notebook
@@ -74,6 +77,7 @@ If you never query, you are hoarding, not thinking.
 alternatives matter as much as the winner. Tag each decision with its domain.
 
 **Organize memory with PARA.**
+
 - **Projects:** Active work with a goal and deadline.
 - **Areas:** Ongoing responsibilities (user preferences, recurring tasks).
 - **Resources:** Reusable knowledge (commands, patterns, examples).
@@ -173,6 +177,7 @@ rows = db("""
 ```
 
 Search before:
+
 - Opening or editing a file you touched before
 - Interpreting ambiguous instructions in a known project
 - Making a decision in a domain with history
@@ -223,27 +228,27 @@ conn.close()
 
 ## Kinds: When to Use Which
 
-| Kind | Use when |
-|---|---|
-| `decision` | We chose X over Y. A choice was made, even a small one. |
-| `mistake` | Something went wrong and we understood why. |
-| `insight` | A surprising tactic or fact that proved useful. |
-| `gotcha` | A recurring trap, edge case, or behavior that looks wrong but is expected. |
-| `pattern` | A theme confirmed across 2+ distinct sessions. |
-| `context` | Architecture, key resources, or domain state worth remembering. |
+| Kind       | Use when                                                                   |
+| ---------- | -------------------------------------------------------------------------- |
+| `decision` | We chose X over Y. A choice was made, even a small one.                    |
+| `mistake`  | Something went wrong and we understood why.                                |
+| `insight`  | A surprising tactic or fact that proved useful.                            |
+| `gotcha`   | A recurring trap, edge case, or behavior that looks wrong but is expected. |
+| `pattern`  | A theme confirmed across 2+ distinct sessions.                             |
+| `context`  | Architecture, key resources, or domain state worth remembering.            |
 
 ---
 
 ## What to Write vs. What to Skip
 
-| Write | Skip |
-|---|---|
+| Write                            | Skip                                       |
+| -------------------------------- | ------------------------------------------ |
 | Decisions made (even small ones) | Already-captured directives in static docs |
-| Mistakes and their root causes | Session summaries in `contexts/` files |
-| Gotchas and edge cases | Research deliverables |
-| Insights that feel non-obvious | Trivial one-line actions |
-| Patterns across 2+ sessions | Todo list changes |
-| Domain state worth remembering | |
+| Mistakes and their root causes   | Session summaries in `contexts/` files     |
+| Gotchas and edge cases           | Research deliverables                      |
+| Insights that feel non-obvious   | Trivial one-line actions                   |
+| Patterns across 2+ sessions      | Todo list changes                          |
+| Domain state worth remembering   |                                            |
 
 ---
 
@@ -265,6 +270,7 @@ conn.close()
 **Usage:** `./scripts/init_notebook.py <.wichy-dir>`
 
 **Arguments:**
+
 - `.wichy-dir`: Path to the project's `.wichy/` directory
 
 ### dump_notebook.py
@@ -274,6 +280,7 @@ conn.close()
 **Usage:** `./scripts/dump_notebook.py <notebook.db>`
 
 **Arguments:**
+
 - `notebook.db`: Path to the notebook database file. Outputs to `<dir>/notebook.sql`.
 
 ---

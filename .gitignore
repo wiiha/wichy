@@ -29,3 +29,4 @@ wheels/
 .env.docker
 .coverage
 src/wichy/.DS_Store
+.DS_Store
