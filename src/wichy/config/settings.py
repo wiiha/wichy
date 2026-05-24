@@ -43,7 +43,7 @@ class Settings(BaseSettings):
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
 
     # Show indication for content being reasoning extract
-    show_reasoning_extract_prefix_and_suffix: bool = True
+    show_reasoning_extract_prefix_and_suffix: bool = False
 
     # API Keys (loaded from environment with legacy names)
     # pydantic-settings will look for OPENAI_API_KEY and OPEN_ROUTER_API_KEY
