@@ -399,9 +399,10 @@ class RootAgent(AgentCore):
                 }
             )
 
-        self.context.append(
-            {"role": ROLE_ASSISTANT, "content": response.message.content}
-        )
+        entry = {"role": ROLE_ASSISTANT, "content": response.message.content}
+        if response.message.reasoning:
+            entry["reasoning"] = response.message.reasoning
+        self.context.append(entry)
         self._maybe_extract_session_map()
         # Final token update after processing complete
         self._update_token_counts(response.usage)
@@ -411,9 +412,10 @@ class RootAgent(AgentCore):
             # I still want the last response
             # from the model to be part of
             # the context.
-            self.context.append(
-                {"role": ROLE_ASSISTANT, "content": response.message.content}
-            )
+            re_entry = {"role": ROLE_ASSISTANT, "content": response.message.content}
+            if response.message.reasoning:
+                re_entry["reasoning"] = response.message.reasoning
+            self.context.append(re_entry)
         return response.message.content
 
     def steer(self, role: str = ROLE_USER, content: str = "") -> None:

@@ -128,6 +128,193 @@ class TestLLMResponse:
         assert response.usage is None
 
 
+class TestMessageReasoning:
+    """Tests for reasoning extraction in Message.from_choice()."""
+
+    def _make_mock_message(self, content, tool_calls=None, model_extra=None):
+        """Helper to create a mock message with controlled model_extra."""
+        msg = MagicMock()
+        msg.content = content
+        msg.role = "assistant"
+        msg.tool_calls = tool_calls
+        # Must explicitly set model_extra to avoid MagicMock's auto-mocking
+        msg.model_extra = model_extra if model_extra is not None else {}
+        return msg
+
+    def _make_mock_choice(self, message, finish_reason="stop"):
+        choice = MagicMock()
+        choice.message = message
+        choice.finish_reason = finish_reason
+        return choice
+
+    def test_no_model_extra_no_reasoning(self):
+        """When model_extra is empty dict, reasoning is None."""
+        msg = self._make_mock_message(content="Hello")
+        choice = self._make_mock_choice(msg)
+        result = Message.from_choice(choice)
+        assert result.content == "Hello"
+        assert result.reasoning is None
+
+    def test_model_extra_reasoning_present(self):
+        """When model_extra has 'reasoning', it is extracted."""
+        msg = self._make_mock_message(
+            content="Final answer", model_extra={"reasoning": "I think step by step..."}
+        )
+        choice = self._make_mock_choice(msg)
+        result = Message.from_choice(choice)
+        assert result.content == "Final answer"
+        assert result.reasoning == "I think step by step..."
+
+    def test_model_extra_reasoning_content_present(self):
+        """When model_extra has 'reasoning_content' (DeepSeek-style), it is extracted."""
+        msg = self._make_mock_message(
+            content="Final answer",
+            model_extra={"reasoning_content": "Chain of thought..."},
+        )
+        choice = self._make_mock_choice(msg)
+        result = Message.from_choice(choice)
+        assert result.content == "Final answer"
+        assert result.reasoning == "Chain of thought..."
+
+    def test_empty_content_with_reasoning_synthesizes(self):
+        """When content is empty and reasoning exists with finish_reason=stop, synthesize content."""
+        msg = self._make_mock_message(
+            content="", model_extra={"reasoning": "The answer is 4."}
+        )
+        choice = self._make_mock_choice(msg)
+        result = Message.from_choice(choice)
+        assert "REASONING" in result.content
+        assert "The answer is 4." in result.content
+        assert "END REASONING" in result.content
+        assert result.reasoning == "The answer is 4."
+
+    def test_empty_content_with_reasoning_tool_calls_no_synthesis(self):
+        """When finish_reason is 'tool_calls', do not synthesize (tool calls take priority)."""
+        mock_func = MagicMock()
+        mock_func.name = "test"
+        mock_func.arguments = "{}"
+        tool_calls = [MagicMock(id="call_1", type="function", function=mock_func)]
+        msg = self._make_mock_message(
+            content="",
+            tool_calls=tool_calls,
+            model_extra={"reasoning": "some reasoning"},
+        )
+        choice = self._make_mock_choice(msg, finish_reason="tool_calls")
+        result = Message.from_choice(choice)
+        assert result.content == ""
+        assert result.tool_calls is not None
+        assert result.reasoning == "some reasoning"
+
+    def test_model_extra_is_none(self):
+        """When model_extra is None, no reasoning is extracted."""
+        msg = MagicMock()
+        msg.content = "Hello"
+        msg.role = "assistant"
+        msg.tool_calls = None
+        msg.model_extra = None
+        choice = self._make_mock_choice(msg)
+        result = Message.from_choice(choice)
+        assert result.reasoning is None
+
+    def test_content_whitespace_with_reasoning_synthesizes(self):
+        """When content is whitespace-only and reasoning exists, synthesize."""
+        msg = self._make_mock_message(
+            content="   ", model_extra={"reasoning": "Thinking step..."}
+        )
+        choice = self._make_mock_choice(msg)
+        result = Message.from_choice(choice)
+        assert "REASONING" in result.content
+        assert "Thinking step..." in result.content
+        assert result.reasoning == "Thinking step..."
+
+    def test_empty_content_without_reasoning_stays_empty(self):
+        """When content is empty and no reasoning, content stays empty."""
+        msg = self._make_mock_message(content=None, model_extra={})
+        choice = self._make_mock_choice(msg)
+        result = Message.from_choice(choice)
+        assert result.content == ""
+        assert result.reasoning is None
+
+    def test_call_through_llm_backend_propagates_reasoning(self):
+        """End-to-end: call() returns LLMResponse with reasoning propagated."""
+        with (
+            patch("wichy.llm_backend.OpenAI") as mock_openai,
+            patch("wichy.llm_backend.settings") as mock_settings,
+        ):
+            mock_settings.ollama_base_url = "http://localhost:11434/v1"
+            mock_settings.max_backend_connections = None
+
+            mock_client = MagicMock()
+            mock_openai.return_value = mock_client
+
+            mock_message = MagicMock()
+            mock_message.content = ""
+            mock_message.role = "assistant"
+            mock_message.tool_calls = None
+            mock_message.model_extra = {"reasoning": "Hidden chain of thought."}
+
+            mock_choice = MagicMock()
+            mock_choice.message = mock_message
+            mock_choice.finish_reason = "stop"
+
+            mock_response = MagicMock()
+            mock_response.choices = [mock_choice]
+            mock_response.model = "test-model"
+            mock_response.usage = None
+
+            mock_client.chat.completions.create.return_value = mock_response
+
+            result = call(
+                context=[{"role": "user", "content": "Think about X"}],
+                model_str="ollama/test-model",
+            )
+
+            assert isinstance(result, LLMResponse)
+            assert result.message.reasoning == "Hidden chain of thought."
+            assert "REASONING" in result.message.content
+            assert "Hidden chain of thought." in result.message.content
+
+    def test_dual_field_precedence_reasoning_wins(self):
+        """When both 'reasoning' and 'reasoning_content' exist, 'reasoning' takes precedence."""
+        msg = self._make_mock_message(
+            content="Final answer",
+            model_extra={"reasoning": "Preferred", "reasoning_content": "Fallback"},
+        )
+        choice = self._make_mock_choice(msg)
+        result = Message.from_choice(choice)
+        assert result.reasoning == "Preferred"
+
+    def test_empty_string_reasoning_prefers_reasoning_content(self):
+        """When 'reasoning' is empty string, it is still preferred over 'reasoning_content'."""
+        msg = self._make_mock_message(
+            content="Final answer",
+            model_extra={"reasoning": "", "reasoning_content": "Fallback"},
+        )
+        choice = self._make_mock_choice(msg)
+        result = Message.from_choice(choice)
+        # With hardened logic: empty string is not None so reasoning wins
+        assert result.reasoning == ""
+
+    def test_empty_content_no_reasoning_content(self):
+        """When reasoning is None and no reasoning_content, empty content stays empty, reasoning None."""
+        msg = self._make_mock_message(content="", model_extra={})
+        choice = self._make_mock_choice(msg)
+        result = Message.from_choice(choice)
+        assert result.content == ""
+        assert result.reasoning is None
+
+    def test_reasoning_present_with_nonempty_content_no_synthesis(self):
+        """When content is non-empty and reasoning exists, content is not synthesized."""
+        msg = self._make_mock_message(
+            content="Direct answer",
+            model_extra={"reasoning": "Thinking..."},
+        )
+        choice = self._make_mock_choice(msg)
+        result = Message.from_choice(choice)
+        assert result.content == "Direct answer"
+        assert result.reasoning == "Thinking..."
+
+
 class TestCallFunction:
     """Tests for the call() function - token usage tracking."""
 
@@ -154,6 +341,7 @@ class TestCallFunction:
         mock_message.content = "Test response"
         mock_message.role = "assistant"
         mock_message.tool_calls = None
+        mock_message.model_extra = {}
 
         mock_choice = MagicMock()
         mock_choice.message = mock_message
@@ -196,6 +384,7 @@ class TestCallFunction:
         mock_message.content = "Test response"
         mock_message.role = "assistant"
         mock_message.tool_calls = None
+        mock_message.model_extra = {}
 
         mock_choice = MagicMock()
         mock_choice.message = mock_message
@@ -237,6 +426,7 @@ class TestCallFunction:
         mock_message.content = "Test"
         mock_message.role = "assistant"
         mock_message.tool_calls = None
+        mock_message.model_extra = {}
 
         mock_choice = MagicMock()
         mock_choice.message = mock_message
@@ -342,6 +532,7 @@ class TestMaxBackendConnections:
         mock_message.content = content
         mock_message.role = "assistant"
         mock_message.tool_calls = None
+        mock_message.model_extra = {}
         mock_choice = MagicMock()
         mock_choice.message = mock_message
         mock_choice.finish_reason = "stop"

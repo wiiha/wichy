@@ -98,8 +98,12 @@ class ContextHandler:
         with self._lock:
             result = []
             for msg in self.context:
-                # Create a copy without internal metadata fields
-                clean_msg = {k: v for k, v in msg.items() if not k.startswith("_")}
+                # Create a copy without internal metadata fields or reasoning
+                clean_msg = {
+                    k: v
+                    for k, v in msg.items()
+                    if not k.startswith("_") and k != "reasoning"
+                }
                 result.append(clean_msg)
             return result
 
@@ -196,7 +200,7 @@ class ContextHandler:
         from wichy.console import user_console
 
         user_console.print(
-            f"[italic]steer injected ({role}): {truncate_to_len(text=content,new_len=80,suffix='...')}[/italic]"
+            f"[italic]steer injected ({role}): {truncate_to_len(text=content, new_len=80, suffix='...')}[/italic]"
         )
         self.add(role=role, content=content)
 
@@ -463,7 +467,7 @@ class ContextHandler:
 
             if index >= len(message_indices):
                 raise IndexError(
-                    f"Message index {index} out of range (0-{len(message_indices)-1})"
+                    f"Message index {index} out of range (0-{len(message_indices) - 1})"
                 )
 
             # Build updated line
@@ -509,7 +513,7 @@ class ContextHandler:
 
             if index >= len(message_indices):
                 raise IndexError(
-                    f"Message index {index} out of range (0-{len(message_indices)-1})"
+                    f"Message index {index} out of range (0-{len(message_indices) - 1})"
                 )
 
             cut_index = message_indices[index]
@@ -553,7 +557,7 @@ class ContextHandler:
 
             if index >= len(message_indices):
                 raise IndexError(
-                    f"Message index {index} out of range (0-{len(message_indices)-1})"
+                    f"Message index {index} out of range (0-{len(message_indices) - 1})"
                 )
 
             line_idx = message_indices[index]
@@ -623,7 +627,7 @@ class ContextHandler:
 
             if index >= len(message_indices):
                 raise IndexError(
-                    f"Message index {index} out of range (0-{len(message_indices)-1})"
+                    f"Message index {index} out of range (0-{len(message_indices) - 1})"
                 )
 
             line_idx = message_indices[index]

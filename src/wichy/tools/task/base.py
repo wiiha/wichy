@@ -265,9 +265,11 @@ class TaskAgent(AgentCore):
                     else:
                         raise
 
-            self.context.append(
-                {"role": ROLE_ASSISTANT, "content": response.message.content}
-            )
+            # Append assistant message with reasoning if present
+            entry = {"role": ROLE_ASSISTANT, "content": response.message.content}
+            if response.message.reasoning:
+                entry["reasoning"] = response.message.reasoning
+            self.context.append(entry)
             return response.message.content
         except KeyboardInterrupt:
             return self._handle_interrupt(
@@ -298,9 +300,10 @@ class TaskAgent(AgentCore):
         response = call(
             self.context(tick=True), tool_defs=None, model_str=self.model_str
         )
-        self.context.append(
-            {"role": ROLE_ASSISTANT, "content": response.message.content}
-        )
+        entry = {"role": ROLE_ASSISTANT, "content": response.message.content}
+        if response.message.reasoning:
+            entry["reasoning"] = response.message.reasoning
+        self.context.append(entry)
         return response.message.content
 
     def _handle_interrupt(self, fallback_exception: Exception):

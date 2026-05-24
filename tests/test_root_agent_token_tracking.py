@@ -268,17 +268,17 @@ class TestProcessWithAutoCompaction:
             second_call_args = self.mock_context.append.call_args_list[1][0][0]
 
             # First append should be the user message (line 218 in process())
-            assert (
-                first_call_args["role"] == "user"
-            ), f"First append should have role='user', got role='{first_call_args['role']}'"
-            assert (
-                first_call_args["content"] == "Hello"
-            ), f"First append should have content='Hello', got content='{first_call_args['content']}'"
+            assert first_call_args["role"] == "user", (
+                f"First append should have role='user', got role='{first_call_args['role']}'"
+            )
+            assert first_call_args["content"] == "Hello", (
+                f"First append should have content='Hello', got content='{first_call_args['content']}'"
+            )
 
             # Second append should be the assistant response (lines 292-294 in process())
-            assert (
-                second_call_args["role"] == "assistant"
-            ), f"Second append should have role='assistant', got role='{second_call_args['role']}'"
+            assert second_call_args["role"] == "assistant", (
+                f"Second append should have role='assistant', got role='{second_call_args['role']}'"
+            )
             assert second_call_args["content"] == assistant_content, (
                 f"Second append should have content='{assistant_content}', "
                 f"got content='{second_call_args['content']}'"
@@ -476,3 +476,130 @@ class TestCompactContext:
             # Context should be MUCH smaller (2 instead of 21)
             assert new_size < original_size
             assert new_size == 2  # Only system prompt + summary
+
+
+class TestReasoningPersistence:
+    """Tests that reasoning survives context append and persistence."""
+
+    def _create_mock_llm_response_with_reasoning(
+        self, content: str, reasoning: str | None, prompt_tokens: int
+    ):
+        """Create a mock LLM response with optional reasoning."""
+        mock_response = MagicMock()
+        mock_response.message = MagicMock()
+        mock_response.message.content = content
+        mock_response.message.role = "assistant"
+        mock_response.message.finish_reason = "stop"
+        mock_response.message.tool_calls = None
+        mock_response.message.reasoning = reasoning
+        mock_response.usage = {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": 50,
+            "total_tokens": prompt_tokens + 50,
+        }
+        return mock_response
+
+    def test_reasoning_appended_to_context(self):
+        """When assistant response has reasoning, it is appended to context."""
+        from unittest.mock import MagicMock, patch
+        from wichy.root_agent.root_agent import RootAgent
+        from wichy.tools.base import BaseTool, ParametersModel
+
+        class MockToolParams(ParametersModel):
+            pass
+
+        class MockTool(BaseTool):
+            name: str = "mock_tool"
+            description: str = "A mock tool"
+            parameters_model = MockToolParams
+
+            def execute(self, **kwargs) -> str:
+                return "Mocked result"
+
+        mock_context = MagicMock()
+        mock_context.append = MagicMock()
+        mock_context.__len__ = MagicMock(return_value=1)
+        mock_context.start_watching = MagicMock()
+        mock_context.return_value = [
+            {"role": "system", "content": "You are helpful."},
+            {"role": "user", "content": "Hello"},
+        ]
+
+        agent = RootAgent(
+            model_str="ollama/test",
+            tools=[MockTool()],
+            context=mock_context,
+            name="test-agent",
+            agent_has_first_initiative=False,
+        )
+
+        main_response = self._create_mock_llm_response_with_reasoning(
+            content="The answer is 42.",
+            reasoning="Let me think step by step...",
+            prompt_tokens=200,
+        )
+
+        with patch("wichy.root_agent.root_agent.call") as mock_call:
+            mock_call.return_value = main_response
+            agent.process("Hello")
+
+        # Find assistant append calls (there may be 2: user + assistant)
+        assistant_calls = [
+            call[0][0]
+            for call in mock_context.append.call_args_list
+            if call[0][0].get("role") == "assistant"
+        ]
+        assert len(assistant_calls) >= 1
+        assert assistant_calls[0]["reasoning"] == "Let me think step by step..."
+
+    def test_reasoning_not_present_when_none(self):
+        """When assistant response has no reasoning, key should not appear."""
+        from unittest.mock import MagicMock, patch
+        from wichy.root_agent.root_agent import RootAgent
+        from wichy.tools.base import BaseTool, ParametersModel
+
+        class MockToolParams(ParametersModel):
+            pass
+
+        class MockTool(BaseTool):
+            name: str = "mock_tool"
+            description: str = "A mock tool"
+            parameters_model = MockToolParams
+
+            def execute(self, **kwargs) -> str:
+                return "Mocked result"
+
+        mock_context = MagicMock()
+        mock_context.append = MagicMock()
+        mock_context.__len__ = MagicMock(return_value=1)
+        mock_context.start_watching = MagicMock()
+        mock_context.return_value = [
+            {"role": "system", "content": "You are helpful."},
+            {"role": "user", "content": "Hello"},
+        ]
+
+        agent = RootAgent(
+            model_str="ollama/test",
+            tools=[MockTool()],
+            context=mock_context,
+            name="test-agent",
+            agent_has_first_initiative=False,
+        )
+
+        main_response = self._create_mock_llm_response_with_reasoning(
+            content="The answer is 42.",
+            reasoning=None,
+            prompt_tokens=200,
+        )
+
+        with patch("wichy.root_agent.root_agent.call") as mock_call:
+            mock_call.return_value = main_response
+            agent.process("Hello")
+
+        assistant_calls = [
+            call[0][0]
+            for call in mock_context.append.call_args_list
+            if call[0][0].get("role") == "assistant"
+        ]
+        assert len(assistant_calls) >= 1
+        assert "reasoning" not in assistant_calls[0]

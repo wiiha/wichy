@@ -395,8 +395,9 @@ class TestMROSignatureCompatibility:
         mock_tool1 = Mock()
         mock_tool1.name = "tool1"
         mock_tool1.validate_and_execute = Mock(
-            side_effect=lambda **kwargs: call_count.append(("tool1", kwargs))
-            or "result1"
+            side_effect=lambda **kwargs: (
+                call_count.append(("tool1", kwargs)) or "result1"
+            )
         )
         # Mock the parameters_model to return a schema with model_str property
         mock_tool1.parameters_model.model_json_schema = Mock(
@@ -406,8 +407,9 @@ class TestMROSignatureCompatibility:
         mock_tool2 = Mock()
         mock_tool2.name = "tool2"
         mock_tool2.validate_and_execute = Mock(
-            side_effect=lambda **kwargs: call_count.append(("tool2", kwargs))
-            or "result2"
+            side_effect=lambda **kwargs: (
+                call_count.append(("tool2", kwargs)) or "result2"
+            )
         )
         # Mock the parameters_model to return a schema with model_str property
         mock_tool2.parameters_model.model_json_schema = Mock(
@@ -690,3 +692,74 @@ class TestTaskAgentInheritance:
         mock_tool_instance.validate_and_execute.assert_called_once_with(
             input="test", model_str="test-model", _can_query_results=False
         )
+
+
+class TestHandleToolsBaseReasoning:
+    """Tests that _handle_tools_base preserves reasoning in context."""
+
+    def test_reasoning_appended_with_tool_calls(self):
+        """When response has tool_calls and reasoning, both are persisted."""
+        agent = ConcreteAgent()
+        agent.context.append = Mock()
+        agent.context.__len__ = Mock(return_value=0)
+
+        # Build a mock Message with tool calls and reasoning
+        mock_tool_call = Mock()
+        mock_tool_call.id = "call-1"
+        mock_tool_call.type = "function"
+        mock_tool_call.function = Mock()
+        mock_tool_call.function.name = "test_tool"
+        mock_tool_call.function.arguments = "{}"
+        mock_tool_call.model_dump = Mock(
+            return_value={
+                "id": "call-1",
+                "type": "function",
+                "function": {"name": "test_tool", "arguments": "{}"},
+            }
+        )
+
+        mock_response = Mock()
+        mock_response.finish_reason = "tool_calls"
+        mock_response.content = ""
+        mock_response.reasoning = "I need to use test_tool."
+        mock_response.tool_calls = [mock_tool_call]
+
+        agent._handle_tools_base([], mock_response)
+
+        # First append is the assistant entry (before tool execution)
+        call_args = agent.context.append.call_args_list[0][0][0]
+        assert call_args["role"] == "assistant"
+        assert call_args["tool_calls"][0]["id"] == "call-1"
+        assert call_args["reasoning"] == "I need to use test_tool."
+
+    def test_no_reasoning_key_when_absent(self):
+        """When response has tool calls but no reasoning, 'reasoning' key is absent."""
+        agent = ConcreteAgent()
+        agent.context.append = Mock()
+        agent.context.__len__ = Mock(return_value=0)
+
+        mock_tool_call = Mock()
+        mock_tool_call.id = "call-1"
+        mock_tool_call.type = "function"
+        mock_tool_call.function = Mock()
+        mock_tool_call.function.name = "test_tool"
+        mock_tool_call.function.arguments = "{}"
+        mock_tool_call.model_dump = Mock(
+            return_value={
+                "id": "call-1",
+                "type": "function",
+                "function": {"name": "test_tool", "arguments": "{}"},
+            }
+        )
+
+        mock_response = Mock()
+        mock_response.finish_reason = "tool_calls"
+        mock_response.content = ""
+        mock_response.reasoning = None
+        mock_response.tool_calls = [mock_tool_call]
+
+        agent._handle_tools_base([], mock_response)
+
+        # First append is the assistant entry (before tool execution)
+        call_args = agent.context.append.call_args_list[0][0][0]
+        assert "reasoning" not in call_args

@@ -157,13 +157,16 @@ class AgentCore(ABC):
         if pre_append_hook:
             pre_append_hook(response)
 
-        self.context.append(
-            {
-                "role": ROLE_ASSISTANT,
-                "content": response.content,
-                "tool_calls": [t.model_dump() for t in response.tool_calls],
-            }
-        )
+        entry = {
+            "role": ROLE_ASSISTANT,
+            "content": response.content,
+            "tool_calls": [t.model_dump() for t in response.tool_calls],
+        }
+
+        if response.reasoning:
+            entry["reasoning"] = response.reasoning
+
+        self.context.append(entry)
 
         self._log(
             "[italic]got " + str(len(response.tool_calls)) + " tool calls[/italic]"
@@ -178,7 +181,9 @@ class AgentCore(ABC):
         # Parallel execution when multiple tool calls exist
         if len(response.tool_calls) > 1 and settings.parallel_exec:
             # Each tool gets its own thread; results collected by future index
-            def run_one(idx: int, item: "called_tool") -> tuple[
+            def run_one(
+                idx: int, item: "called_tool"
+            ) -> tuple[
                 int,
                 Tuple[Dict, Optional[List[Dict[str, Any]]]],
             ]:

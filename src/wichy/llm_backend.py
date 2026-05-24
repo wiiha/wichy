@@ -110,6 +110,7 @@ class Message(BaseModel):
     role: str
     tool_calls: Optional[List[called_tool]] = None
     finish_reason: str
+    reasoning: Optional[str] = None
 
     @classmethod
     def from_choice(cls, c):
@@ -117,6 +118,23 @@ class Message(BaseModel):
         content = m.content
         if content is None:
             content = ""
+
+        # Extract reasoning from model_extra — providers use "reasoning" or
+        # "reasoning_content" depending on the backend.
+        reasoning = None
+        extra = getattr(m, "model_extra", None) or {}
+        if extra:
+            reasoning = (
+                extra.get("reasoning")
+                if extra.get("reasoning") is not None
+                else extra.get("reasoning_content")
+            )
+
+        # When finish_reason == "stop" and content is empty but reasoning
+        # exists, synthesize displayable content.
+        if reasoning and not content.strip() and c.finish_reason == "stop":
+            content = f"REASONING\n\n{reasoning}\n\nEND REASONING"
+
         x = []
         if m.tool_calls:
             for t in m.tool_calls:
@@ -135,7 +153,11 @@ class Message(BaseModel):
             x = None
 
         return cls(
-            content=content, role=m.role, tool_calls=x, finish_reason=c.finish_reason
+            content=content,
+            role=m.role,
+            tool_calls=x,
+            finish_reason=c.finish_reason,
+            reasoning=reasoning,
         )
 
 
