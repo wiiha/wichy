@@ -133,7 +133,9 @@ class Message(BaseModel):
         # When finish_reason == "stop" and content is empty but reasoning
         # exists, synthesize displayable content.
         if reasoning and not content.strip() and c.finish_reason == "stop":
-            content = f"REASONING\n\n{reasoning}\n\nEND REASONING"
+            content = reasoning
+            if settings.show_reasoning_extract_prefix_and_suffix:
+                content = f"REASONING EXTRACT\n\n{content}\n\nEND REASONING EXTRACT"
 
         x = []
         if m.tool_calls:
