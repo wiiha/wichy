@@ -133,6 +133,32 @@
         overflow: hidden;
       }
 
+      #export-btn {
+        background: var(--background);
+        border: 1px solid var(--border);
+        padding: var(--space-sm) var(--space-lg);
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        font-size: var(--font-size-base);
+      }
+
+      #export-btn:hover {
+        background: var(--background-alt);
+      }
+
+      #search-input {
+        width: 200px;
+        padding: var(--space-sm) var(--space-md);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+        font-size: var(--font-size-base);
+      }
+
+      #search-input:focus {
+        border-color: var(--primary-500);
+        outline: none;
+      }
+
       #network {
         width: 100%;
         height: 70vh;
@@ -260,6 +286,19 @@
           ↻
         </button>
         <button id="save-btn" onclick="saveGraph()">Save Graph</button>
+        <button id="export-btn" onclick="exportPNG()">Export PNG</button>
+        <span id="search-wrap" style="position:relative; display:inline-block;">
+          <input
+            type="text"
+            id="search-input"
+            placeholder="Search nodes and edges..."
+            oninput="debouncedSearch(this.value)"
+            onkeydown="if(event.key==='Escape'){this.value='';debouncedSearch('');}"
+          />
+          <button onclick="var el=document.getElementById('search-input'); el.value=''; debouncedSearch(''); el.focus();"
+                  title="Clear search"
+                  style="position:absolute; right:4px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:14px; padding:0 6px;">×</button>
+        </span>
         <div class="control-group">
           <label
             for="repulsion"
@@ -771,6 +810,159 @@
         clearTimeout(autoSaveTimeout);
         statusEl.textContent = "Modified (unsaved)";
       });
+
+      // ---- Search Feature ----
+      var searchTimeout = null;
+      var statusClearTimeout = null;
+      var nodeDefaults = options.nodes || {};
+      var defaultFontColor = (nodeDefaults.font && nodeDefaults.font.color) ? nodeDefaults.font.color : "#333333";
+
+      function debouncedSearch(query) {
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(function () {
+          doSearch(query);
+        }, 200);
+      }
+
+      function doSearch(query) {
+        clearTimeout(searchTimeout);
+        query = (query || "").toLowerCase().trim();
+
+        if (!query) {
+          resetSearch();
+          return;
+        }
+
+        var allNodes = nodes.get({ returnType: "Array" });
+        var allEdges = edges.get({ returnType: "Array" });
+        var matchingNodeIds = new Set();
+        var matchingEdgeIds = new Set();
+
+        // Find matching nodes
+        allNodes.forEach(function (node) {
+          var label = (node.label || "").toLowerCase();
+          var id = (node.id != null ? String(node.id) : "").toLowerCase();
+          if (label.indexOf(query) !== -1 || id.indexOf(query) !== -1) {
+            matchingNodeIds.add(node.id);
+          }
+        });
+
+        // Find matching edges AND highlight connected nodes
+        allEdges.forEach(function (edge) {
+          var edgeLabel = (edge.label || "").toLowerCase();
+          if (edgeLabel.indexOf(query) !== -1) {
+            matchingEdgeIds.add(edge.id);
+            matchingNodeIds.add(edge.from);
+            matchingNodeIds.add(edge.to);
+          }
+        });
+
+        // Update nodes
+        var nodeUpdates = [];
+        allNodes.forEach(function (node) {
+          if (matchingNodeIds.has(node.id)) {
+            nodeUpdates.push({
+              id: node.id,
+              opacity: 1,
+              font: { color: defaultFontColor }
+            });
+          } else {
+            nodeUpdates.push({
+              id: node.id,
+              opacity: 0.15,
+              font: { color: "transparent" }
+            });
+          }
+        });
+        nodes.update(nodeUpdates);
+
+        // Update edges
+        var edgeUpdates = [];
+        allEdges.forEach(function (edge) {
+          if (matchingEdgeIds.has(edge.id)) {
+            edgeUpdates.push({ id: edge.id, color: { opacity: 1 }, font: { color: defaultFontColor } });
+          } else {
+            edgeUpdates.push({ id: edge.id, color: { opacity: 0.05 }, font: { color: "transparent" } });
+          }
+        });
+        edges.update(edgeUpdates);
+      }
+
+      function resetSearch() {
+        clearTimeout(searchTimeout);
+
+        var allNodes = nodes.get({ returnType: "Array" });
+        var allEdges = edges.get({ returnType: "Array" });
+
+        var nodeUpdates = [];
+        allNodes.forEach(function (node) {
+          nodeUpdates.push({
+            id: node.id,
+            opacity: 1,
+            font: { color: defaultFontColor }
+          });
+        });
+        nodes.update(nodeUpdates);
+
+        var edgeUpdates = [];
+        allEdges.forEach(function (edge) {
+          edgeUpdates.push({ id: edge.id, color: { opacity: 1 }, font: { color: defaultFontColor } });
+        });
+        edges.update(edgeUpdates);
+      }
+
+      // ---- PNG Export Feature ----
+      var exportStatusTimeout = null;
+
+      function exportPNG() {
+        var originalCanvas = document.querySelector("#network canvas");
+        if (!originalCanvas) {
+          safeStatusText("Error: canvas not found");
+          return;
+        }
+
+        safeStatusText("Exporting...");
+
+        var exportCanvas = document.createElement("canvas");
+        exportCanvas.width = originalCanvas.width;
+        exportCanvas.height = originalCanvas.height;
+        var ctx = exportCanvas.getContext("2d");
+
+        // Fill white background
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+
+        // Draw original canvas on top
+        ctx.drawImage(originalCanvas, 0, 0);
+
+        var dataURL = exportCanvas.toDataURL("image/png");
+
+        var link = document.createElement("a");
+        var now = new Date();
+        var timestamp = now.toISOString().slice(0, 10) + "-" +
+          String(now.getUTCHours()).padStart(2, "0") +
+          String(now.getUTCMinutes()).padStart(2, "0") +
+          String(now.getUTCSeconds()).padStart(2, "0");
+        link.download = "wichy-graph-" + timestamp + ".png";
+        link.href = dataURL;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        safeStatusText("Exported " + link.download, 3000);
+      }
+
+      function safeStatusText(msg, timeout) {
+        clearTimeout(statusClearTimeout);
+        statusEl.textContent = msg;
+        if (typeof timeout === "number") {
+          statusClearTimeout = setTimeout(function () {
+            if (statusEl.textContent === msg) {
+              statusEl.textContent = "";
+            }
+          }, timeout);
+        }
+      }
     </script>
   </body>
 </html>
