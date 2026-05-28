@@ -46,6 +46,15 @@
                 </div>
 
                 <div class="sidebar-section">
+                    <h3 class="sidebar-title">Task Agents</h3>
+                    <div id="task-agents-container">
+                        <p id="task-agents-empty" class="text-sm">No task agents running.</p>
+                        <div id="task-agents-list" class="hidden"></div>
+                    </div>
+                    <p class="text-sm">Updates every <span id="task-agents-sync-interval">3</span>s</p>
+                </div>
+
+                <div class="sidebar-section">
                     <p class="text-sm">Auto-sync every <span id="sync-interval">3</span>s</p>
                     <p id="sync-indicator" class="status-indicator status-idle">Idle</p>
                 </div>
@@ -116,6 +125,25 @@
             <p class="modal-body">The context has been modified by another client (REPL) since you last loaded it.</p>
             <p class="modal-body">Please refresh the page to see the latest changes.</p>
             <button id="btn-refresh-conflict" class="btn btn-primary">Refresh Now</button>
+        </div>
+    </div>
+
+    <!-- Task Agent Context Modal -->
+    <div id="ta-context-modal" class="modal-overlay hidden">
+        <div class="modal-content ta-modal-content">
+            <div class="modal-header">
+                <h3 id="ta-modal-title" class="modal-title">Agent Context</h3>
+                <button id="ta-modal-close" class="btn btn-secondary">&times;</button>
+            </div>
+            <div id="ta-context-body" class="ta-modal-body">
+                <!-- Messages rendered here -->
+            </div>
+            <div id="ta-steer-footer" class="ta-steer-footer hidden">
+                <textarea id="ta-steer-input" class="form-textarea" rows="2" placeholder="Enter steer message..."></textarea>
+                <div class="ta-steer-actions">
+                    <button id="ta-steer-send" class="btn btn-primary">Steer</button>
+                </div>
+            </div>
         </div>
     </div>
 

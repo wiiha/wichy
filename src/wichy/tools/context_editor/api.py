@@ -215,3 +215,63 @@ def register_routes(bp: Blueprint):
             return jsonify({"success": True})
         except Exception as e:
             return jsonify({"error": str(e)}), 500
+
+
+    @bp.route("/api/task-agents", methods=["GET"])
+    def list_task_agents():
+        """List all currently running task agents."""
+        from wichy.tools.task.base import _TASK_AGENT_REGISTRY, _TASK_AGENT_REGISTRY_LOCK
+        try:
+            with _TASK_AGENT_REGISTRY_LOCK:
+                agents = [agent.status() for agent in _TASK_AGENT_REGISTRY.values()]
+        except NameError:
+            return jsonify({"error": "Task agent subsystem unavailable"}), 503
+        return jsonify({"agents": agents})
+
+
+    @bp.route("/api/task-agents/<agent_id>/stop", methods=["POST"])
+    def stop_task_agent(agent_id: str):
+        """Signal a task agent to stop cooperatively. Idempotent."""
+        from wichy.tools.task.base import _TASK_AGENT_REGISTRY, _TASK_AGENT_REGISTRY_LOCK
+        with _TASK_AGENT_REGISTRY_LOCK:
+            agent = _TASK_AGENT_REGISTRY.get(agent_id)
+        if agent is None:
+            return jsonify({"error": f"Agent '{agent_id}' not found"}), 404
+        agent.request_stop()
+        return jsonify({"status": "stopping"})
+
+
+    @bp.route("/api/task-agents/<agent_id>/steer", methods=["POST"])
+    def steer_task_agent(agent_id: str):
+        """Inject a steer message into a running task agent."""
+        from wichy.tools.task.base import _TASK_AGENT_REGISTRY, _TASK_AGENT_REGISTRY_LOCK
+        data = request.get_json(force=True, silent=True) or {}
+        content = data.get("content")
+        if not content:
+            return jsonify({"error": "Missing 'content' field"}), 400
+        role = data.get("role", "user")
+        if role not in ("user", "assistant", "system", "tool"):
+            return jsonify(
+                {"error": f"Invalid role '{role}'. Must be one of: user, assistant, system, tool"}
+            ), 400
+        with _TASK_AGENT_REGISTRY_LOCK:
+            agent = _TASK_AGENT_REGISTRY.get(agent_id)
+        if agent is None:
+            return jsonify({"error": f"Agent '{agent_id}' not found"}), 404
+        agent.steer(role, content)
+        return jsonify({"status": "injected"})
+
+
+    @bp.route("/api/task-agents/<agent_id>/context", methods=["GET"])
+    def get_task_agent_context(agent_id: str):
+        """Read-only view of a task agent's context messages."""
+        from wichy.tools.task.base import _TASK_AGENT_REGISTRY, _TASK_AGENT_REGISTRY_LOCK
+        with _TASK_AGENT_REGISTRY_LOCK:
+            agent = _TASK_AGENT_REGISTRY.get(agent_id)
+        if agent is None:
+            return jsonify({"error": f"Agent '{agent_id}' not found"}), 404
+        try:
+            msgs = agent.context(tick=False)
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 500
+        return jsonify({"messages": msgs})

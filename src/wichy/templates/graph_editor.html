@@ -133,6 +133,164 @@
         overflow: hidden;
       }
 
+      #export-btn {
+        background: var(--background);
+        border: 1px solid var(--border);
+        padding: var(--space-sm) var(--space-lg);
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        font-size: var(--font-size-base);
+      }
+
+      #export-btn:hover {
+        background: var(--background-alt);
+      }
+
+      #search-input {
+        width: 200px;
+        padding: var(--space-sm) var(--space-md);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+        font-size: var(--font-size-base);
+      }
+
+      #search-input:focus {
+        border-color: var(--primary-500);
+        outline: none;
+      }
+
+      #network-container {
+        position: relative;
+      }
+
+      #sidebar {
+        position: fixed;
+        top: 0;
+        right: 0;
+        width: 300px;
+        height: 100vh;
+        background: var(--surface);
+        border-left: 1px solid var(--border);
+        box-shadow: var(--shadow-lg);
+        transform: translateX(100%);
+        transition: transform 150ms ease-out;
+        z-index: 1000;
+        padding: var(--space-md);
+        box-sizing: border-box;
+        overflow-y: auto;
+      }
+      #sidebar.active {
+        transform: translateX(0);
+      }
+      #sidebar-empty {
+        color: var(--text-muted);
+        text-align: center;
+        margin-top: 40vh;
+      }
+      .sb-header {
+        margin-bottom: var(--space-md);
+        position: relative;
+      }
+      .sb-title {
+        display: block;
+        font-size: var(--font-size-lg);
+        font-weight: bold;
+        color: var(--text);
+        word-break: break-word;
+      }
+      .sb-subtitle {
+        display: block;
+        font-size: var(--font-size-sm);
+        color: var(--text-muted);
+      }
+      .sb-close {
+        position: absolute;
+        top: 0;
+        right: 0;
+        background: none;
+        border: none;
+        font-size: 1.5rem;
+        color: var(--text-muted);
+        cursor: pointer;
+        line-height: 1;
+      }
+      .sb-close:hover {
+        color: var(--text);
+      }
+      .sb-section {
+        margin-bottom: var(--space-lg);
+      }
+      .sb-section h4 {
+        margin: 0 0 var(--space-sm) 0;
+        font-size: var(--font-size-sm);
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+      .sb-section label {
+        color: var(--text-muted);
+        font-size: var(--font-size-sm);
+        margin-right: var(--space-sm);
+      }
+      .sb-section ul {
+        list-style: none;
+        padding: 0;
+        margin: var(--space-xs) 0;
+      }
+      .sb-section li {
+        padding: var(--space-xs) 0;
+      }
+      .color-swatch {
+        display: inline-block;
+        width: 16px;
+        height: 16px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        vertical-align: middle;
+        margin-right: var(--space-sm);
+      }
+      #sb-note {
+        width: 100%;
+        padding: var(--space-sm);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+        font-size: var(--font-size-base);
+        resize: vertical;
+        min-height: 60px;
+        box-sizing: border-box;
+      }
+      #sb-note:focus {
+        border-color: var(--primary-500);
+        outline: none;
+      }
+      .sb-actions button {
+        margin-right: var(--space-sm);
+        padding: var(--space-sm) var(--space-md);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+        background: var(--background);
+        cursor: pointer;
+        font-size: var(--font-size-base);
+      }
+      .sb-actions button:hover {
+        background: var(--background-alt);
+      }
+      #sb-incoming li,
+      #sb-outgoing li {
+        cursor: pointer;
+        color: var(--primary-500);
+      }
+      #sb-incoming li:hover,
+      #sb-outgoing li:hover {
+        text-decoration: underline;
+      }
+
+      @media (max-width: 768px) {
+        #sidebar {
+          width: 100%;
+        }
+      }
+
       #network {
         width: 100%;
         height: 70vh;
@@ -260,6 +418,20 @@
           ↻
         </button>
         <button id="save-btn" onclick="saveGraph()">Save Graph</button>
+        <button id="export-btn" onclick="exportPNG()">Export PNG</button>
+        <span id="search-wrap" style="position:relative; display:inline-block;">
+          <input
+            type="text"
+            id="search-input"
+            placeholder="Search nodes and edges..."
+            oninput="debouncedSearch(this.value)"
+            onkeydown="if(event.key==='Escape'){this.value='';debouncedSearch('');}"
+          />
+          <button onclick="var el=document.getElementById('search-input'); el.value=''; debouncedSearch(''); el.focus();"
+                  title="Clear search"
+                  style="position:absolute; right:4px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:14px; padding:0 6px;">×</button>
+        </span>
+        <button id="show-hidden-btn" onclick="showAllHidden()" style="display:none;">Show Hidden</button>
         <div class="control-group">
           <label
             for="repulsion"
@@ -290,6 +462,48 @@
     </div>
     <div id="network-container">
       <div id="network"></div>
+    </div>
+    <div id="sidebar">
+      <div id="sidebar-empty">Click a node to inspect.</div>
+      <div id="sidebar-content" style="display:none">
+        <div class="sb-header">
+          <span class="sb-title" id="sb-label"></span>
+          <span class="sb-subtitle" id="sb-id"></span>
+          <button class="sb-close" onclick="closeSidebar()" title="Close sidebar">&times;</button>
+        </div>
+        <div class="sb-section">
+          <h4>Properties</h4>
+          <div>
+            <label>Color:</label>
+            <span id="sb-color-box" class="color-swatch"></span>
+            <span id="sb-color-hex"></span>
+          </div>
+        </div>
+        <div class="sb-section">
+          <h4>Connections</h4>
+          <div>
+            <label>Incoming:</label>
+            <ul id="sb-incoming"></ul>
+          </div>
+          <div>
+            <label>Outgoing:</label>
+            <ul id="sb-outgoing"></ul>
+          </div>
+        </div>
+        <div class="sb-section">
+          <h4>Note</h4>
+          <textarea
+            id="sb-note"
+            rows="3"
+            placeholder="Add a note..."
+            onblur="saveSidebarNote()"
+          ></textarea>
+        </div>
+        <div class="sb-actions">
+          <button onclick="focusSidebarNode()">Focus</button>
+          <button onclick="hideSidebarNode()">Hide</button>
+        </div>
+      </div>
     </div>
 
     <script type="text/javascript">
@@ -723,9 +937,21 @@
         saveBtn.disabled = true;
         statusEl.textContent = "Saving...";
 
+        var rawNodes = nodes.get();
+        var rawEdges = edges.get();
+        var saveNodes = rawNodes.map(function (n) {
+          var copy = Object.assign({}, n);
+          delete copy.hidden;
+          return copy;
+        });
+        var saveEdges = rawEdges.map(function (e) {
+          var copy = Object.assign({}, e);
+          delete copy.hidden;
+          return copy;
+        });
         var graphData = {
-          nodes: nodes.get(),
-          edges: edges.get(),
+          nodes: saveNodes,
+          edges: saveEdges,
         };
 
         fetch("/tools/graph/api/save", {
@@ -771,6 +997,329 @@
         clearTimeout(autoSaveTimeout);
         statusEl.textContent = "Modified (unsaved)";
       });
+
+      // ---- Search Feature ----
+      var searchTimeout = null;
+      var statusClearTimeout = null;
+      var nodeDefaults = options.nodes || {};
+      var defaultFontColor = (nodeDefaults.font && nodeDefaults.font.color) ? nodeDefaults.font.color : "#333333";
+
+      function debouncedSearch(query) {
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(function () {
+          doSearch(query);
+        }, 200);
+      }
+
+      function doSearch(query) {
+        clearTimeout(searchTimeout);
+        query = (query || "").toLowerCase().trim();
+
+        if (!query) {
+          resetSearch();
+          return;
+        }
+
+        var allNodes = nodes.get({ returnType: "Array" });
+        var allEdges = edges.get({ returnType: "Array" });
+        var matchingNodeIds = new Set();
+        var matchingEdgeIds = new Set();
+
+        // Find matching nodes
+        allNodes.forEach(function (node) {
+          var label = (node.label || "").toLowerCase();
+          var id = (node.id != null ? String(node.id) : "").toLowerCase();
+          if (label.indexOf(query) !== -1 || id.indexOf(query) !== -1) {
+            matchingNodeIds.add(node.id);
+          }
+        });
+
+        // Find matching edges AND highlight connected nodes
+        allEdges.forEach(function (edge) {
+          var edgeLabel = (edge.label || "").toLowerCase();
+          if (edgeLabel.indexOf(query) !== -1) {
+            matchingEdgeIds.add(edge.id);
+            matchingNodeIds.add(edge.from);
+            matchingNodeIds.add(edge.to);
+          }
+        });
+
+        // Update nodes
+        var nodeUpdates = [];
+        allNodes.forEach(function (node) {
+          if (matchingNodeIds.has(node.id)) {
+            nodeUpdates.push({
+              id: node.id,
+              opacity: 1,
+              font: { color: defaultFontColor }
+            });
+          } else {
+            nodeUpdates.push({
+              id: node.id,
+              opacity: 0.15,
+              font: { color: "transparent" }
+            });
+          }
+        });
+        nodes.update(nodeUpdates);
+
+        // Update edges
+        var edgeUpdates = [];
+        allEdges.forEach(function (edge) {
+          if (matchingEdgeIds.has(edge.id)) {
+            edgeUpdates.push({ id: edge.id, color: { opacity: 1 }, font: { color: defaultFontColor } });
+          } else {
+            edgeUpdates.push({ id: edge.id, color: { opacity: 0.05 }, font: { color: "transparent" } });
+          }
+        });
+        edges.update(edgeUpdates);
+      }
+
+      function resetSearch() {
+        clearTimeout(searchTimeout);
+
+        var allNodes = nodes.get({ returnType: "Array" });
+        var allEdges = edges.get({ returnType: "Array" });
+
+        var nodeUpdates = [];
+        allNodes.forEach(function (node) {
+          nodeUpdates.push({
+            id: node.id,
+            opacity: 1,
+            font: { color: defaultFontColor }
+          });
+        });
+        nodes.update(nodeUpdates);
+
+        var edgeUpdates = [];
+        allEdges.forEach(function (edge) {
+          edgeUpdates.push({ id: edge.id, color: { opacity: 1 }, font: { color: defaultFontColor } });
+        });
+        edges.update(edgeUpdates);
+      }
+
+      // ---- PNG Export Feature ----
+      var exportStatusTimeout = null;
+
+      function exportPNG() {
+        var originalCanvas = document.querySelector("#network canvas");
+        if (!originalCanvas) {
+          safeStatusText("Error: canvas not found");
+          return;
+        }
+
+        safeStatusText("Exporting...");
+
+        var exportCanvas = document.createElement("canvas");
+        exportCanvas.width = originalCanvas.width;
+        exportCanvas.height = originalCanvas.height;
+        var ctx = exportCanvas.getContext("2d");
+
+        // Fill white background
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+
+        // Draw original canvas on top
+        ctx.drawImage(originalCanvas, 0, 0);
+
+        var dataURL = exportCanvas.toDataURL("image/png");
+
+        var link = document.createElement("a");
+        var now = new Date();
+        var timestamp = now.toISOString().slice(0, 10) + "-" +
+          String(now.getUTCHours()).padStart(2, "0") +
+          String(now.getUTCMinutes()).padStart(2, "0") +
+          String(now.getUTCSeconds()).padStart(2, "0");
+        link.download = "wichy-graph-" + timestamp + ".png";
+        link.href = dataURL;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        safeStatusText("Exported " + link.download, 3000);
+      }
+
+      function safeStatusText(msg, timeout) {
+        clearTimeout(statusClearTimeout);
+        statusEl.textContent = msg;
+        if (typeof timeout === "number") {
+          statusClearTimeout = setTimeout(function () {
+            if (statusEl.textContent === msg) {
+              statusEl.textContent = "";
+            }
+          }, timeout);
+        }
+      }
+
+      var currentSidebarNodeId = null;
+      var clickTimer = null;
+      var clickDelay = 250;
+
+      network.on("click", function (params) {
+        if (clickTimer) {
+          clearTimeout(clickTimer);
+          clickTimer = null;
+          return; // This click is part of a double-click, ignore it
+        }
+        clickTimer = setTimeout(function () {
+          clickTimer = null;
+          if (params.nodes.length === 1) {
+            openSidebar(params.nodes[0]);
+          } else if (params.nodes.length === 0 && params.edges.length === 0) {
+            closeSidebar();
+          }
+        }, clickDelay);
+      });
+
+      network.on("doubleClick", function (params) {
+        if (clickTimer) {
+          clearTimeout(clickTimer);
+          clickTimer = null;
+        }
+        if (params.nodes.length === 1) {
+          closeSidebar();
+          var node = nodes.get(params.nodes[0]);
+          showModal("Edit Node", [
+            { id: "label", label: "Node Label:", value: node.label || "" },
+            { id: "color", label: "Node Color:", value: normalizeColor(node.color), type: "color" },
+          ], function (result, cancelled) {
+            if (!cancelled && result) {
+              var updated = { id: node.id, label: result.label || "Node", color: result.color };
+              if (node.data) { updated.data = node.data; }
+              nodes.update(updated);
+            }
+          });
+        }
+      });
+    </script>
+    <script type="text/javascript">
+      function openSidebar(nodeId) {
+        var node = nodes.get(nodeId);
+        if (!node) return;
+        currentSidebarNodeId = nodeId;
+
+        document.getElementById("sidebar-empty").style.display = "none";
+        document.getElementById("sidebar-content").style.display = "block";
+        document.getElementById("sidebar").classList.add("active");
+
+        document.getElementById("sb-label").textContent = node.label || node.id;
+        document.getElementById("sb-id").textContent = node.id;
+        var colorBox = normalizeColor(node.color || "#97C2FC");
+        var swatch = document.getElementById("sb-color-box");
+        swatch.style.background = colorBox;
+        document.getElementById("sb-color-hex").textContent = colorBox;
+
+        var allEdges = edges.get({ returnType: "Array" });
+        var incoming = [];
+        var outgoing = [];
+        allEdges.forEach(function (edge) {
+          if (edge.to === nodeId) {
+            var neighbor = nodes.get(edge.from);
+            incoming.push({ neighbor: neighbor, label: edge.label || "" });
+          }
+          if (edge.from === nodeId) {
+            var neighbor = nodes.get(edge.to);
+            outgoing.push({ neighbor: neighbor, label: edge.label || "" });
+          }
+        });
+
+        renderConnectionList("sb-incoming", incoming);
+        renderConnectionList("sb-outgoing", outgoing);
+
+        var noteText = node.data && node.data.note ? node.data.note : "";
+        document.getElementById("sb-note").value = noteText;
+      }
+
+      function closeSidebar() {
+        currentSidebarNodeId = null;
+        document.getElementById("sidebar-empty").style.display = "block";
+        document.getElementById("sidebar-content").style.display = "none";
+        document.getElementById("sidebar").classList.remove("active");
+      }
+
+      function renderConnectionList(ulId, items) {
+        var ul = document.getElementById(ulId);
+        ul.innerHTML = "";
+        if (items.length === 0) {
+          ul.innerHTML = "<li>—</li>";
+          return;
+        }
+        items.forEach(function (item) {
+          var label = item.neighbor ? item.neighbor.label || item.neighbor.id : "?";
+          var li = document.createElement("li");
+          li.textContent = label + (item.label ? " (" + item.label + ")" : "");
+          li.onclick = function () {
+            if (item.neighbor) {
+              openSidebar(item.neighbor.id);
+              network.selectNodes([item.neighbor.id]);
+            }
+          };
+          ul.appendChild(li);
+        });
+      }
+
+      function normalizeColor(color) {
+        if (typeof color === "object" && color) {
+          return color.background || "#97C2FC";
+        }
+        return color || "#97C2FC";
+      }
+
+      function saveSidebarNote() {
+        if (!currentSidebarNodeId) return;
+        var note = document.getElementById("sb-note").value;
+        var node = nodes.get(currentSidebarNodeId);
+        if (!node) return;
+        var data = node.data || {};
+        data.note = note;
+        nodes.update({ id: currentSidebarNodeId, data: data });
+      }
+
+      function focusSidebarNode() {
+        if (!currentSidebarNodeId) return;
+        network.focus(currentSidebarNodeId, { scale: 1.5, animation: { duration: 1000, easingFunction: "easeInOutQuad" } });
+      }
+
+      var hiddenNodeIds = new Set();
+      var hiddenEdgeIds = new Set();
+
+      function hideSidebarNode() {
+        if (!currentSidebarNodeId) return;
+        hiddenNodeIds.add(currentSidebarNodeId);
+        hideNodeAndEdges(currentSidebarNodeId);
+        closeSidebar();
+        updateShowHiddenButton();
+      }
+
+      function hideNodeAndEdges(nodeId) {
+        nodes.update({ id: nodeId, hidden: true });
+        var connectedEdges = edges.get({ returnType: "Array" }).filter(function (e) {
+          return e.from === nodeId || e.to === nodeId;
+        });
+        connectedEdges.forEach(function (e) {
+          edges.update({ id: e.id, hidden: true });
+          hiddenEdgeIds.add(e.id);
+        });
+      }
+
+      function showAllHidden() {
+        hiddenNodeIds.forEach(function (nodeId) {
+          nodes.update({ id: nodeId, hidden: false });
+        });
+        hiddenEdgeIds.forEach(function (edgeId) {
+          edges.update({ id: edgeId, hidden: false });
+        });
+        hiddenNodeIds.clear();
+        hiddenEdgeIds.clear();
+        updateShowHiddenButton();
+      }
+
+      function updateShowHiddenButton() {
+        var btn = document.getElementById("show-hidden-btn");
+        if (btn) {
+          btn.style.display = hiddenNodeIds.size > 0 ? "inline-block" : "none";
+        }
+      }
     </script>
   </body>
 </html>

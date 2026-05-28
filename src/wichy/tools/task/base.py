@@ -1,5 +1,6 @@
 from datetime import date
 from typing import Dict, List, Optional
+import threading
 
 from pydantic import BaseModel
 from rich.console import Console
@@ -22,6 +23,12 @@ from wichy.tools import get_tool_definitions
 from wichy.tools.base import BaseTool
 
 console_task_agents = Console(quiet=True)
+
+# ---------------------------------------------------------------------------
+# Global in-memory registry of running task agents
+# ---------------------------------------------------------------------------
+_TASK_AGENT_REGISTRY: dict[str, "TaskAgent"] = {}
+_TASK_AGENT_REGISTRY_LOCK = threading.Lock()
 
 
 class TaskAgentDefinitionBase(BaseModel):
@@ -47,6 +54,11 @@ class TaskAgent(AgentCore):
         self._name = agent_definition.name
         self._max_turns = max_turns
         self._turns_remaining = None
+        # Stop / steer machinery
+        self._stop_event = threading.Event()
+        self._steer_queue: list[tuple[str, str]] = []
+        self._steer_queue_lock = threading.Lock()
+        self._turns_used = 0
         self.description = agent_definition.description
         self.model_str = (
             settings.task_tool_model_str
@@ -152,32 +164,41 @@ class TaskAgent(AgentCore):
     # -------------------------------------------------------------------------
 
     def run(self):
-        console_task_agents.log(
-            Markdown(
-                "\n\n---\n\n ### Task Agent "
-                + self._name
-                + " called\n\n- llm model: "
-                + self.model_str
-                + "\n\n- available tools: "
-                + ",".join([t.name for t in self.tools])
-                + "\n\n- given task:\n\n"
-                + (
-                    self.context()[1]["content"]
-                    if len(self.context) >= 2
-                    else self.context()[0]["content"]
+        # Register in global registry
+        agent_id = self.context.custom_suffix  # format: <name>-<12-char-hex>
+        with _TASK_AGENT_REGISTRY_LOCK:
+            _TASK_AGENT_REGISTRY[agent_id] = self
+
+        try:
+            console_task_agents.log(
+                Markdown(
+                    "\n\n---\n\n ### Task Agent "
+                    + self._name
+                    + " called\n\n- llm model: "
+                    + self.model_str
+                    + "\n\n- available tools: "
+                    + ",".join([t.name for t in self.tools])
+                    + "\n\n- given task:\n\n"
+                    + (
+                        self.context()[1]["content"]
+                        if len(self.context) >= 2
+                        else self.context()[0]["content"]
+                    )
                 )
             )
-        )
-        res = self._process()
-        console_task_agents.log(
-            Markdown(
-                "\n\n---\n\n ### Task Agent "
-                + self._name
-                + " - final message\n\n"
-                + res
+            res = self._process()
+            console_task_agents.log(
+                Markdown(
+                    "\n\n---\n\n ### Task Agent "
+                    + self._name
+                    + " - final message\n\n"
+                    + res
+                )
             )
-        )
-        return res
+            return res
+        finally:
+            with _TASK_AGENT_REGISTRY_LOCK:
+                _TASK_AGENT_REGISTRY.pop(agent_id, None)
 
     def _process(self, line=""):
 
@@ -186,6 +207,13 @@ class TaskAgent(AgentCore):
             if line != "":
                 self.context.add(role=ROLE_USER, content=line)
             tool_defs = get_tool_definitions(tools)
+
+            # --- stop / steer hook before initial call ---
+            if self._stop_event.is_set():
+                self._drain_steer_queue()
+                return self._gen_summary()
+            self._drain_steer_queue()
+            # --- end ---
 
             try:
                 response = call(
@@ -212,17 +240,17 @@ class TaskAgent(AgentCore):
                 else:
                     raise
 
-            turns_used = 1  # Initial call counts as turn 1
+            self._turns_used = 1  # Initial call counts as turn 1
 
             while self._handle_tools(tools, response.message):
-                turns_used += 1
+                self._turns_used += 1
 
                 # Max turns enforcement — exceeded limit, force summary
-                if self._max_turns is not None and turns_used > self._max_turns:
+                if self._max_turns is not None and self._turns_used > self._max_turns:
                     return self._gen_summary()
 
                 # Penultimate round warning
-                if self._max_turns is not None and turns_used == self._max_turns:
+                if self._max_turns is not None and self._turns_used == self._max_turns:
                     warning = (
                         "This is your last turn with tools available. "
                         "The next turn will be tool-free and you must provide a final answer. "
@@ -232,7 +260,7 @@ class TaskAgent(AgentCore):
 
                 # Update turns-remaining in system prompt
                 if self._turns_remaining is not None:
-                    remaining = self._max_turns - turns_used
+                    remaining = self._max_turns - self._turns_used
                     updated_content = (
                         self._original_system_prompt
                         + f"\n\nYou have {remaining} turns remaining for this task."
@@ -240,6 +268,13 @@ class TaskAgent(AgentCore):
                     self.context.update_message(
                         0, {"role": ROLE_SYSTEM, "content": updated_content}
                     )
+
+                # --- stop / steer hook at bottom of loop ---
+                if self._stop_event.is_set():
+                    self._drain_steer_queue()
+                    return self._gen_summary()
+                self._drain_steer_queue()
+                # --- end ---
 
                 try:
                     response = call(
@@ -359,3 +394,40 @@ class TaskAgent(AgentCore):
         # we should never end up here
         # if we do, use fallback error
         raise fallback_exception
+
+    # ---------------------------------------------------------------------------
+    # Stop / steer / status API
+    # ---------------------------------------------------------------------------
+
+    def request_stop(self) -> None:
+        """Signal the agent to stop after its current tool/LLM round."""
+        self._stop_event.set()
+
+    def steer(self, role: str, content: str) -> None:
+        """Queue a steer message to be injected before the next LLM call."""
+        with self._steer_queue_lock:
+            self._steer_queue.append((role, content))
+
+    def _drain_steer_queue(self) -> None:
+        """Flush all queued steer messages into the context.
+
+        Uses self.context.steer() to preserve the existing console log
+        (ContextHandler.steer() prints [italic]steer injected...[/italic]).
+        """
+        with self._steer_queue_lock:
+            queue = self._steer_queue[:]
+            self._steer_queue.clear()
+        for role, content in queue:
+            self.context.steer(role=role, content=content)
+
+    def status(self) -> dict:
+        """Return a JSON-serializable status snapshot."""
+        return {
+            "id": self.context.custom_suffix,
+            "name": self._name,
+            "description": self.description,
+            "model": self.model_str,
+            "turns_used": self._turns_used,
+            "turns_limit": self._max_turns,
+            "status": "stopping" if self._stop_event.is_set() else "running",
+        }

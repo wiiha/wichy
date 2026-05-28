@@ -211,7 +211,9 @@ document.addEventListener('DOMContentLoaded', () => {
         fetchMessages();
         fetchStatus();
     });
-});
+
+    startTaskAgentsPolling();
+    setupTaskAgentModalListeners();});
 
 async function fetchStatus() {
     try {
@@ -557,4 +559,259 @@ async function checkForChanges() {
     } catch (e) {
         console.error('Polling error:', e);
     }
+}
+
+
+// ============================================================================
+// Task Agents Panel
+// ============================================================================
+
+const TASK_AGENTS_POLL_INTERVAL = 3000;
+let taskAgentsInterval = null;
+let _taModalAgentId = null;
+let modalContextInterval = null;
+let _lastModalMsgCount = 0;
+
+// Track which cards are expanded so re-renders preserve state
+const _expandedAgentIds = new Set();
+
+function startTaskAgentsPolling() {
+    fetchTaskAgents();
+    taskAgentsInterval = setInterval(fetchTaskAgents, TASK_AGENTS_POLL_INTERVAL);
+}
+
+async function fetchTaskAgents() {
+    try {
+        const resp = await fetch('/tools/context/api/task-agents');
+        if (!resp.ok) throw new Error('Failed to fetch task agents');
+        const data = await resp.json();
+        renderTaskAgents(data.agents || []);
+    } catch (err) {
+        console.error('Task agents poll error:', err);
+    }
+}
+
+function renderTaskAgents(agents) {
+    const emptyEl = document.getElementById('task-agents-empty');
+    const listEl = document.getElementById('task-agents-list');
+    if (!agents.length) {
+        emptyEl.classList.remove('hidden');
+        listEl.classList.add('hidden');
+        listEl.innerHTML = '';
+        _expandedAgentIds.clear();
+        return;
+    }
+    // Preserve expanded state before rebuild
+    listEl.querySelectorAll('.ta-card').forEach(card => {
+        const details = card.querySelector('.ta-card-details');
+        if (details && !details.classList.contains('hidden')) {
+            _expandedAgentIds.add(card.dataset.agentId);
+        }
+    });
+
+    emptyEl.classList.add('hidden');
+    listEl.classList.remove('hidden');
+    listEl.innerHTML = agents.map(agent => `
+        <div class="ta-card" data-agent-id="${escapeHtml(agent.id)}">
+            <div class="ta-card-header">
+                <span class="ta-name">${escapeHtml(agent.name)}</span>
+                <span class="ta-status ta-status-${agent.status}">${escapeHtml(agent.status)}</span>
+            </div>
+            <div class="ta-card-details ${_expandedAgentIds.has(agent.id) ? '' : 'hidden'}">
+                <p class="text-sm">${escapeHtml(agent.description || '')}</p>
+                <p class="text-sm"><strong>Model:</strong> ${escapeHtml(agent.model)}</p>
+                <p class="text-sm"><strong>Turns:</strong> ${agent.turns_used}${agent.turns_limit ? ' / ' + agent.turns_limit : ''}</p>
+                <div class="ta-card-actions">
+                    <button class="btn btn-secondary btn-sm ta-btn-view">View Context</button>
+                    <button class="btn btn-danger btn-sm ta-btn-stop">Stop</button>
+                </div>
+            </div>
+        </div>
+    `).join('');
+
+    // Attach click handlers
+    listEl.querySelectorAll('.ta-card-header').forEach(hdr => {
+        hdr.addEventListener('click', () => {
+            const details = hdr.parentElement.querySelector('.ta-card-details');
+            details.classList.toggle('hidden');
+        });
+    });
+    listEl.querySelectorAll('.ta-btn-stop').forEach(btn => {
+        btn.addEventListener('click', e => {
+            const id = e.target.closest('.ta-card').dataset.agentId;
+            requestStopAgent(id);
+        });
+    });
+    listEl.querySelectorAll('.ta-btn-view').forEach(btn => {
+        btn.addEventListener('click', e => {
+            const id = e.target.closest('.ta-card').dataset.agentId;
+            openAgentContextModal(id);
+        });
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Modal Context Viewer — auto-refreshes every 3s while open
+// ---------------------------------------------------------------------------
+
+function isModalScrolledNearBottom() {
+    const el = document.getElementById('ta-context-body');
+    if (!el) return true;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    return distanceFromBottom <= SCROLL_NEAR_BOTTOM_THRESHOLD;
+}
+
+function startModalContextPolling(agentId) {
+    _taModalAgentId = agentId;
+    _lastModalMsgCount = 0;
+    pollModalContext(); // initial load
+    modalContextInterval = setInterval(pollModalContext, TASK_AGENTS_POLL_INTERVAL);
+}
+
+function stopModalContextPolling() {
+    if (modalContextInterval) {
+        clearInterval(modalContextInterval);
+        modalContextInterval = null;
+    }
+    _taModalAgentId = null;
+    _lastModalMsgCount = 0;
+}
+
+async function pollModalContext() {
+    const modal = document.getElementById('ta-context-modal');
+    if (modal.classList.contains('hidden') || !_taModalAgentId) return;
+
+    const body = document.getElementById('ta-context-body');
+
+    try {
+        const resp = await fetch(`/tools/context/api/task-agents/${encodeURIComponent(_taModalAgentId)}/context`);
+        if (!resp.ok) throw new Error('Failed to load context');
+        const data = await resp.json();
+        const msgs = data.messages || [];
+
+        // Only re-render if message count changed
+        if (msgs.length === _lastModalMsgCount) return;
+        _lastModalMsgCount = msgs.length;
+
+        if (!msgs.length) {
+            body.innerHTML = '<p class="text-sm">No messages.</p>';
+            return;
+        }
+
+        const wasAtBottom = isModalScrolledNearBottom();
+        body.innerHTML = msgs.map(m => `
+            <div class="ta-msg">
+                <div class="ta-msg-role">${escapeHtml(m.role)}</div>
+                <div class="ta-msg-content">${escapeHtml(String(m.content || ''))}</div>
+            </div>
+        `).join('');
+        if (wasAtBottom) {
+            body.scrollTop = body.scrollHeight;
+        }
+    } catch (err) {
+        // Don't overwrite on error — might be transient
+        console.error('Modal context poll error:', err);
+    }
+}
+
+async function openAgentContextModal(agentId) {
+    const modal = document.getElementById('ta-context-modal');
+    const body = document.getElementById('ta-context-body');
+    const title = document.getElementById('ta-modal-title');
+    const steerFooter = document.getElementById('ta-steer-footer');
+    const steerInput = document.getElementById('ta-steer-input');
+
+    body.innerHTML = '<p class="text-sm">Loading...</p>';
+    steerFooter.classList.remove('hidden');
+    steerInput.value = '';
+    modal.classList.remove('hidden');
+
+    // Find agent name from sidebar card
+    const card = document.querySelector(`.ta-card[data-agent-id="${agentId}"]`);
+    const name = card ? card.querySelector('.ta-name').textContent : agentId;
+    title.textContent = `Context: ${name}`;
+
+    startModalContextPolling(agentId);
+}
+
+// ---------------------------------------------------------------------------
+// Stop + Steer
+// ---------------------------------------------------------------------------
+
+async function requestStopAgent(agentId) {
+    const card = document.querySelector(`.ta-card[data-agent-id="${agentId}"]`);
+    const name = card ? card.querySelector('.ta-name').textContent : agentId;
+    if (!confirm(`Stop agent "${name}"? It will finish its current task, then summarize.`)) return;
+    try {
+        const resp = await fetch(`/tools/context/api/task-agents/${encodeURIComponent(agentId)}/stop`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+        });
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            alert(err.error || 'Failed to stop agent');
+            return;
+        }
+        // Status will update on next poll
+    } catch (err) {
+        alert('Network error: ' + err.message);
+    }
+}
+
+async function submitSteer(agentId, content) {
+    try {
+        const resp = await fetch(`/tools/context/api/task-agents/${encodeURIComponent(agentId)}/steer`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ role: 'user', content }),
+        });
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            alert(err.error || 'Failed to inject steer');
+            return;
+        }
+        const data = await resp.json();
+        if (data.status === 'injected') {
+            // Flash "Steered!" in the send button
+            const sendBtn = document.getElementById('ta-steer-send');
+            if (sendBtn) {
+                const original = sendBtn.textContent;
+                sendBtn.textContent = 'Steered!';
+                setTimeout(() => { sendBtn.textContent = original; }, 1500);
+            }
+            // The modal context will auto-refresh via pollModalContext
+        }
+    } catch (err) {
+        alert('Network error: ' + err.message);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Modal listeners (called from DOMContentLoaded)
+// ---------------------------------------------------------------------------
+
+function setupTaskAgentModalListeners() {
+    document.getElementById('ta-modal-close').addEventListener('click', () => {
+        document.getElementById('ta-context-modal').classList.add('hidden');
+        stopModalContextPolling();
+    });
+    document.getElementById('ta-context-modal').addEventListener('click', e => {
+        if (e.target.id === 'ta-context-modal') {
+            e.target.classList.add('hidden');
+            stopModalContextPolling();
+        }
+    });
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape') {
+            document.getElementById('ta-context-modal').classList.add('hidden');
+            stopModalContextPolling();
+        }
+    });
+    document.getElementById('ta-steer-send').addEventListener('click', () => {
+        const input = document.getElementById('ta-steer-input');
+        const text = input.value.trim();
+        if (!text || !_taModalAgentId) return;
+        submitSteer(_taModalAgentId, text);
+        input.value = '';
+    });
 }
