@@ -369,3 +369,102 @@
 .message-actions .btn-delete:hover {
   background: #fecaca;
 }
+/* Task Agent Cards */
+.ta-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  margin-bottom: var(--space-md);
+  cursor: pointer;
+  transition: box-shadow var(--transition-normal);
+}
+.ta-card:hover {
+  box-shadow: var(--shadow-md);
+}
+.ta-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.ta-name {
+  font-weight: 600;
+  font-size: var(--font-size-sm);
+}
+.ta-status {
+  font-size: var(--font-size-xs);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
+  text-transform: uppercase;
+}
+.ta-status-running {
+  background: var(--success-bg);
+  color: var(--success-text);
+}
+.ta-status-stopping {
+  background: var(--warning-bg);
+  color: var(--warning-text);
+}
+.ta-card-details {
+  margin-top: var(--space-sm);
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--border);
+}
+.ta-card-actions {
+  display: flex;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+}
+.ta-steer-box {
+  margin-top: var(--space-sm);
+}
+.ta-steer-text {
+  width: 100%;
+  margin-bottom: var(--space-sm);
+}
+
+/* Task Agent Modal */
+.ta-modal-content {
+  max-width: 800px;
+  width: 90vw;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+.ta-modal-content .modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: var(--space-md);
+  margin-bottom: var(--space-md);
+}
+.ta-modal-body {
+  overflow-y: auto;
+  flex: 1;
+}
+.ta-msg {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  margin-bottom: var(--space-md);
+}
+.ta-msg-role {
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: var(--space-xs);
+}
+
+/* Steer footer inside modal */
+.ta-steer-footer {
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-md);
+  margin-top: var(--space-md);
+}
+.ta-steer-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-sm);
+}
