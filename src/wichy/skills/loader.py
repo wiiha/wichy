@@ -3,6 +3,7 @@
 import json
 import os
 import shutil
+import stat
 from pathlib import Path
 from typing import Dict, List
 
@@ -155,6 +156,9 @@ class SkillLoader:
             if not script_dir.exists() or not script_dir.is_dir():
                 continue
             for script_path in script_dir.iterdir():
+                if not os.access(script_path, os.X_OK):
+                    mode = os.stat(script_path).st_mode | stat.S_IXUSR
+                    os.chmod(script_path, mode)
                 if script_path.is_file() and os.access(script_path, os.X_OK):
                     script_name = script_path.name
                     # Try to extract description from shebang or first line comment
