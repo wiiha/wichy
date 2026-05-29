@@ -268,17 +268,17 @@ class TestProcessWithAutoCompaction:
             second_call_args = self.mock_context.append.call_args_list[1][0][0]
 
             # First append should be the user message (line 218 in process())
-            assert first_call_args["role"] == "user", (
-                f"First append should have role='user', got role='{first_call_args['role']}'"
-            )
-            assert first_call_args["content"] == "Hello", (
-                f"First append should have content='Hello', got content='{first_call_args['content']}'"
-            )
+            assert (
+                first_call_args["role"] == "user"
+            ), f"First append should have role='user', got role='{first_call_args['role']}'"
+            assert (
+                first_call_args["content"] == "Hello"
+            ), f"First append should have content='Hello', got content='{first_call_args['content']}'"
 
             # Second append should be the assistant response (lines 292-294 in process())
-            assert second_call_args["role"] == "assistant", (
-                f"Second append should have role='assistant', got role='{second_call_args['role']}'"
-            )
+            assert (
+                second_call_args["role"] == "assistant"
+            ), f"Second append should have role='assistant', got role='{second_call_args['role']}'"
             assert second_call_args["content"] == assistant_content, (
                 f"Second append should have content='{assistant_content}', "
                 f"got content='{second_call_args['content']}'"

@@ -134,7 +134,7 @@ class Message(BaseModel):
         # exists, synthesize displayable content.
         if reasoning and not content.strip() and c.finish_reason == "stop":
             user_console.print(
-                f"[dim][bold]→[/bold] LLM backend:[/dim][yellow]warn:[/yellow] LLM returned empty content on stop, using reasoning as content."
+                "[dim][bold]→[/bold] LLM backend:[/dim][yellow]warn:[/yellow] LLM returned empty content on stop, using reasoning as content."
             )
             content = reasoning
             if settings.show_reasoning_extract_prefix_and_suffix:
