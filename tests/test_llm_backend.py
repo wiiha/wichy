@@ -183,9 +183,7 @@ class TestMessageReasoning:
         )
         choice = self._make_mock_choice(msg)
         result = Message.from_choice(choice)
-        assert "REASONING" in result.content
-        assert "The answer is 4." in result.content
-        assert "END REASONING" in result.content
+        assert result.content == "The answer is 4."
         assert result.reasoning == "The answer is 4."
 
     def test_empty_content_with_reasoning_tool_calls_no_synthesis(self):
@@ -223,8 +221,7 @@ class TestMessageReasoning:
         )
         choice = self._make_mock_choice(msg)
         result = Message.from_choice(choice)
-        assert "REASONING" in result.content
-        assert "Thinking step..." in result.content
+        assert result.content == "Thinking step..."
         assert result.reasoning == "Thinking step..."
 
     def test_empty_content_without_reasoning_stays_empty(self):
@@ -243,7 +240,7 @@ class TestMessageReasoning:
         ):
             mock_settings.ollama_base_url = "http://localhost:11434/v1"
             mock_settings.max_backend_connections = None
-
+            mock_settings.show_reasoning_extract_prefix_and_suffix = False
             mock_client = MagicMock()
             mock_openai.return_value = mock_client
 
@@ -271,8 +268,7 @@ class TestMessageReasoning:
 
             assert isinstance(result, LLMResponse)
             assert result.message.reasoning == "Hidden chain of thought."
-            assert "REASONING" in result.message.content
-            assert "Hidden chain of thought." in result.message.content
+            assert result.message.content == "Hidden chain of thought."
 
     def test_dual_field_precedence_reasoning_wins(self):
         """When both 'reasoning' and 'reasoning_content' exist, 'reasoning' takes precedence."""
