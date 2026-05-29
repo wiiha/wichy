@@ -1,22 +1,17 @@
 """Skill discovery and execution tools."""
 
 import json
-import os
 import subprocess
-from pathlib import Path
 from typing import List, Literal
 
 from pydantic import Field
 
+from wichy.config.settings import settings
 from wichy.console import user_console
 from wichy.skills.registry import SkillRegistry
 from wichy.tools.base import BaseTool, ParametersModel
 from wichy.tools.errors import format_error
-from wichy.config.settings import settings
-from wichy.tools.human_verification import (
-    in_pipeline_mode,
-    prompt_session,
-)
+from wichy.tools.human_verification import in_pipeline_mode, prompt_session
 
 
 class ListSkillsParameters(ParametersModel):
@@ -234,8 +229,7 @@ class SkillScriptTool(BaseTool):
                 text=True,
                 capture_output=True,
                 timeout=params.timeout,
-                cwd=Path.home(),  # Run from home directory
-                env=os.environ.copy(),  # Inherit current environment
+                # cwd=Path.home(),  # Run from home directory
             )
             output = f"Exit code: {result.returncode}\n"
             if result.stdout:
