@@ -701,11 +701,12 @@
         #recipes-btn {
           width: 100%;
           margin-top: var(--space-md);
-          padding: var(--space-sm);
+          padding: var(--space-md) var(--space-lg);
           background: var(--surface);
           color: var(--text);
           border: 1px solid var(--border);
           border-radius: var(--radius-sm);
+          font-size: var(--font-size-base);
           cursor: pointer;
         }
         #recipes-btn:hover {
@@ -750,8 +751,8 @@
         }
         .recipe-step-item select,
         .recipe-step-item input {
-          font-size: var(--font-size-sm);
-          padding: var(--space-xs);
+          font-size: var(--font-size-base);
+          padding: var(--space-sm);
         }
         #error-banner {
           color: var(--warning-text);
@@ -841,7 +842,7 @@
         let tables = [];
         let currentTable = null;
         let currentView = null; // 'overview', 'column', 'sample', 'correlations'
-
+          let tableColumns = {};
         // DOM Elements
         const tablesList = document.getElementById('tables-list');
         const tableCount = document.getElementById('table-count');
@@ -881,6 +882,9 @@
                 const response = await fetch(`${API_BASE}/table/${encodeURIComponent(tableName)}`);
                 const data = await response.json();
                 renderTableOverview(data);
+                  if (data.columns) {
+                      tableColumns[data.name] = data.columns.map(col => col.name);
+                  }
             } catch (error) {
                 showError('Failed to load table', error.message);
             }
@@ -1410,7 +1414,7 @@ function renderRecipesList(recipes) {
   let html = `
     <div class="content-header">
       <h2>Recipes</h2>
-      <button onclick="startNewRecipe()">+ New Recipe</button>
+      <button onclick="startNewRecipe()" style="padding:var(--space-md) var(--space-lg); font-size:var(--font-size-base);">+ New recipe</button>
     </div>
   `;
   if (!recipes.length) {
@@ -1438,23 +1442,98 @@ function startNewRecipe() {
   renderRecipeEditor();
 }
 
+let lastPreviewedSteps = null;
+let stepSchemaCache = new Map();
+let schemaTimers = {};
+
+function getSchemaForStep(idx) {
+  if (stepSchemaCache.has(idx)) return stepSchemaCache.get(idx);
+  return null;
+}
+
+function scheduleSchemaFetch(idx) {
+  if (schemaTimers[idx]) clearTimeout(schemaTimers[idx]);
+  schemaTimers[idx] = setTimeout(() => fetchSchemaForStep(idx), 300);
+}
+
+async function fetchSchemaForStep(idx) {
+  if (idx === 0) {
+    const srcStep = currentRecipeSteps[0];
+    if (srcStep && srcStep.table && tableColumns[srcStep.table]) {
+      stepSchemaCache.set(idx, tableColumns[srcStep.table]);
+      renderRecipeEditor();
+    }
+    return;
+  }
+  const precedingSteps = currentRecipeSteps.slice(0, idx);
+  try {
+    const resp = await fetch(`${API_BASE}/recipe/preview`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ steps: precedingSteps })
+    });
+    const data = await resp.json();
+    if (data.columns) {
+      stepSchemaCache.set(idx, data.columns);
+      delete schemaTimers[idx];
+      renderRecipeEditor();
+    }
+  } catch (e) {
+    console.warn('Schema fetch failed for step', idx, e);
+  }
+}
+
+function renderColumnSelect(idx, fieldName, currentVal, width) {
+  const cols = getSchemaForStep(idx);
+  if (!cols) {
+    return `<input type="text" placeholder="Column" value="${escapeHtml(currentVal || '')}" onchange="updateStepField(${idx}, '${fieldName}', this.value)" style="width:${width || '100px'};"/>`;
+  }
+  let opts = cols.map(c => `<option value="${escapeHtml(c)}" ${c === currentVal ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('');
+  return `<select onchange="updateStepField(${idx}, '${fieldName}', this.value)" style="width:${width || '120px'};"><option value="">-- column --</option>${opts}</select>`;
+}
+
+function renderMultiColumnSelect(idx, fieldName, currentVals, width) {
+  const cols = getSchemaForStep(idx);
+  const valSet = new Set(currentVals || []);
+  if (!cols) {
+    return `<input type="text" placeholder="e.g. region, country" value="${escapeHtml(currentVals ? currentVals.join(', ') : '')}" onchange="updateGroupStep(${idx}, '${fieldName}', this.value)" style="width:${width || '180px'};"/>`;
+  }
+  let opts = cols.map(c => `<option value="${escapeHtml(c)}" ${valSet.has(c) ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('');
+  return `<select multiple onchange="const selected=[...this.selectedOptions].map(o=>o.value); updateGroupStep(${idx}, '${fieldName}', selected.join(','))" style="width:${width || '180px'};">${opts}</select>`;
+}
+
+function renderSortInputWithDatalist(idx, currentVal, width) {
+  const cols = getSchemaForStep(idx);
+  if (!cols) {
+    return `<input type="text" placeholder="e.g. date desc, amount asc" value="${escapeHtml(currentVal || '')}" onchange="updateSortStep(${idx}, this.value)" style="width:${width || '220px'};"/>`;
+  }
+  const datalistId = `sort-cols-${idx}`;
+  const listOpts = cols.flatMap(c => [
+    `<option value="${escapeHtml(c)} desc">`,
+    `<option value="${escapeHtml(c)} asc">`
+  ]).join('');
+  return `<input type="text" list="${datalistId}" placeholder="e.g. date desc, amount asc" value="${escapeHtml(currentVal || '')}" onchange="updateSortStep(${idx}, this.value)" style="width:${width || '220px'};"/><datalist id="${datalistId}">${listOpts}</datalist>`;
+}
 function renderRecipeEditor() {
   const container = document.getElementById('main-content');
   let html = `
     <div class="content-header">
       <h2>Recipe Editor</h2>
       <div class="actions">
-        <button onclick="previewRecipe()">▶ Preview</button>
-        <button onclick="saveRecipe()">💾 Save</button>
-        <button onclick="exportRecipe('sql')">SQL</button>
-        <button onclick="showRecipesView()">← Back</button>
+        <button onclick="previewRecipe()" style="padding:var(--space-sm) var(--space-lg); font-size:var(--font-size-base);">▶ Preview</button>
+        <button onclick="saveRecipe()" style="padding:var(--space-sm) var(--space-lg); font-size:var(--font-size-base);">💾 Save</button>
+        <button onclick="exportRecipe('sql')" style="padding:var(--space-sm) var(--space-lg); font-size:var(--font-size-base);">SQL</button>
+        <button onclick="showRecipesView()" style="padding:var(--space-sm) var(--space-lg); font-size:var(--font-size-base);">← Back</button>
       </div>
     </div>
     <div id="recipe-steps-list">
       ${currentRecipeSteps.map((s, i) => renderStepForm(s, i)).join('')}
     </div>
-    <button onclick="addStep()">+ Add Step</button>
-    <div id="recipe-preview-area" style="display:none; margin-top:var(--space-lg);">
+    <button onclick="addStep()" style="padding:var(--space-md) var(--space-lg); font-size:var(--font-size-base);">+ Add Step</button>
+    <div id="recipe-preview-area" style="margin-top:var(--space-lg);">
+      <div id="recipe-stale-banner" style="display:none; padding:var(--space-sm); background:var(--warning-bg); color:var(--warning-text); border-radius:var(--radius-sm); margin-bottom:var(--space-sm); font-size:var(--font-size-sm);">
+        ⚠ Stale preview — press ▶ Preview to refresh
+      </div>
       <h3>SQL Preview</h3>
       <pre id="recipe-sql-preview"></pre>
       <h3>Result Preview</h3>
@@ -1462,10 +1541,26 @@ function renderRecipeEditor() {
       <div id="recipe-preview-error" style="color:var(--warning-text); display:none;"></div>
     </div>
   `;
+    const oldSql = document.getElementById('recipe-sql-preview')?.textContent || '';
+    const oldGrid = document.getElementById('recipe-result-grid')?.innerHTML || '';
   container.innerHTML = html;
+    if (oldSql) document.getElementById('recipe-sql-preview').textContent = oldSql;
+    if (oldGrid) document.getElementById('recipe-result-grid').innerHTML = oldGrid;
+  const staleEl = document.getElementById('recipe-stale-banner');
+  if (staleEl) {
+    const currentStr = JSON.stringify(currentRecipeSteps);
+    if (lastPreviewedSteps && currentStr !== lastPreviewedSteps) {
+      staleEl.style.display = 'block';
+    } else {
+      staleEl.style.display = 'none';
+    }
+  }
 }
 
 function renderStepForm(step, idx) {
+    if (!getSchemaForStep(idx)) {
+      scheduleSchemaFetch(idx);
+    }
     const stype = step.type;
     let fields = '';
     if (stype === 'source') {
@@ -1473,7 +1568,7 @@ function renderStepForm(step, idx) {
     } else if (stype === 'filter') {
       fields = `
         <label style="font-size:11px; color:var(--text-muted);">Where</label>
-        <input type="text" placeholder="Column" value="${escapeHtml(step.column || '')}" onchange="updateStepField(${idx}, 'column', this.value)" style="width:80px;"/>
+        ${renderColumnSelect(idx, 'column', step.column, '120px')}
         <select onchange="updateFilterOperator(${idx}, this.value)">
           <option value="==" ${step.operator==='=='?'selected':''}>==</option>
           <option value="!=" ${step.operator==='!='?'selected':''}>!=</option>
@@ -1492,18 +1587,21 @@ function renderStepForm(step, idx) {
       const colStr = cols.map(c => `${c.column} ${c.order}`).join(', ');
       fields = `
         <label style="font-size:11px; color:var(--text-muted);">Sort columns (comma-separated):</label>
-        <input type="text" placeholder="e.g. date desc, amount asc" value="${escapeHtml(colStr)}" onchange="updateSortStep(${idx}, this.value)" style="width:220px;"/>`;
+        ${renderSortInputWithDatalist(idx, colStr, '220px')}`;
     } else if (stype === 'group') {
         const dims = (step.dimensions || []).join(', ');
-        const agg = step.aggregates?.[0] || { column: '', function: 'sum' };
-        fields = `
-          <div style="display:flex; flex-direction:column; gap:4px;">
-            <label style="font-size:11px; color:var(--text-muted);">Group by (dimensions):</label>
-            <input type="text" placeholder="e.g. region, country" value="${escapeHtml(dims)}" onchange="updateGroupStep(${idx}, 'dimensions', this.value)" style="width:180px;"/>
-            <label style="font-size:11px; color:var(--text-muted);">Aggregate:</label>
-            <div style="display:flex; gap:4px;">
-              <input type="text" placeholder="Column" value="${escapeHtml(agg.column)}" onchange="updateGroupAgg(${idx}, 0, 'column', this.value)" style="width:80px;"/>
-              <select onchange="updateGroupAgg(${idx}, 0, 'function', this.value)">
+        const aggs = step.aggregates || [{ column: '', function: 'sum' }];
+        let aggRows = '';
+        aggs.forEach((agg, ai) => {
+          aggRows += `
+            <div style="display:flex; gap:4px; align-items:center; margin-bottom:4px;">
+              ${(() => {
+                const cols = getSchemaForStep(idx);
+                if (!cols) return `<input type="text" placeholder="Column" value="${escapeHtml(agg.column || '')}" onchange="updateGroupAgg(${idx}, ${ai}, 'column', this.value)" style="width:80px;"/>`;
+                let opts = cols.map(c => `<option value="${escapeHtml(c)}" ${c === agg.column ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('');
+                return `<select onchange="updateGroupAgg(${idx}, ${ai}, 'column', this.value)" style="width:120px;"><option value="">-- column --</option>${opts}</select>`;
+              })()}
+              <select onchange="updateGroupAgg(${idx}, ${ai}, 'function', this.value)">
                 <option value="count" ${agg.function==='count'?'selected':''}>count</option>
                 <option value="sum" ${agg.function==='sum'?'selected':''}>sum</option>
                 <option value="avg" ${agg.function==='avg'?'selected':''}>avg</option>
@@ -1511,7 +1609,16 @@ function renderStepForm(step, idx) {
                 <option value="max" ${agg.function==='max'?'selected':''}>max</option>
                 <option value="count_distinct" ${agg.function==='count_distinct'?'selected':''}>count_distinct</option>
               </select>
-            </div>
+              ${aggs.length > 1 ? `<button onclick="removeGroupAggregate(${idx}, ${ai})" title="Remove aggregate">✕</button>` : ''}
+            </div>`;
+        });
+        fields = `
+          <div style="display:flex; flex-direction:column; gap:4px;">
+            <label style="font-size:11px; color:var(--text-muted);">Group by (dimensions):</label>
+            ${renderMultiColumnSelect(idx, 'dimensions', step.dimensions, '180px')}
+            <label style="font-size:11px; color:var(--text-muted);">Aggregates:</label>
+            ${aggRows}
+            <button onclick="addGroupAggregate(${idx})">+ Add aggregate</button>
           </div>`;
     } else if (stype === 'limit') {
       fields = `<input type="number" value="${step.n || 100}" min="1" max="10000" onchange="updateStepField(${idx}, 'n', parseInt(this.value))"/>`;
@@ -1538,9 +1645,14 @@ function renderStepForm(step, idx) {
               </select>
             </div>
             <div style="display:flex; gap:4px; align-items:center;">
-              <input type="text" placeholder="Left column" value="${escapeHtml(step.left_column || '')}" onchange="updateStepField(${idx}, 'left_column', this.value)" style="width:100px;"/>
+              ${renderColumnSelect(idx, 'left_column', step.left_column, '120px')}
               <span style="font-size:11px; color:var(--text-muted);">=</span>
-              <input type="text" placeholder="Right column" value="${escapeHtml(step.right_column || '')}" onchange="updateStepField(${idx}, 'right_column', this.value)" style="width:100px;"/>
+              ${(() => {
+                const rightCols = step.table ? (tableColumns[step.table] || null) : null;
+                if (!rightCols) return `<input type="text" placeholder="Right column" value="${escapeHtml(step.right_column || '')}" onchange="updateStepField(${idx}, 'right_column', this.value)" style="width:100px;"/>`;
+                let opts = rightCols.map(c => `<option value="${escapeHtml(c)}" ${c === step.right_column ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('');
+                return `<select onchange="updateStepField(${idx}, 'right_column', this.value)" style="width:120px;"><option value="">-- column --</option>${opts}</select>`;
+              })()}
             </div>
           </div>`;
     }
@@ -1572,11 +1684,13 @@ function addStep() {
 function removeStep(idx) {
   if (idx === 0) { alert('Cannot remove source step'); return; }
   currentRecipeSteps.splice(idx, 1);
+  stepSchemaCache.clear();
   renderRecipeEditor();
 }
 
 function updateStepType(idx, newType) {
   currentRecipeSteps[idx] = { type: newType };
+  stepSchemaCache.clear();
   renderRecipeEditor();
 }
 
@@ -1628,6 +1742,9 @@ async function previewRecipe() {
     }
     if (sqlEl) sqlEl.textContent = data.sql_preview || '';
     if (gridEl) renderPreviewGrid(gridEl, data.columns, data.rows);
+    lastPreviewedSteps = JSON.stringify(currentRecipeSteps);
+    const staleEl = document.getElementById('recipe-stale-banner');
+    if (staleEl) staleEl.style.display = 'none';
   } catch (e) {
     if (errEl) { errEl.textContent = 'Preview failed: ' + e; errEl.style.display = 'block'; }
   }
@@ -1646,6 +1763,21 @@ function updateGroupAgg(idx, aggIdx, field, value) {
     currentRecipeSteps[idx].aggregates[aggIdx] = { column: '', function: 'sum' };
   }
   currentRecipeSteps[idx].aggregates[aggIdx][field] = value;
+}
+function addGroupAggregate(idx) {
+  if (!currentRecipeSteps[idx].aggregates) {
+    currentRecipeSteps[idx].aggregates = [];
+  }
+  currentRecipeSteps[idx].aggregates.push({ column: '', function: 'sum' });
+  renderRecipeEditor();
+}
+function removeGroupAggregate(idx, aggIdx) {
+  if (!currentRecipeSteps[idx].aggregates) return;
+  currentRecipeSteps[idx].aggregates.splice(aggIdx, 1);
+  if (currentRecipeSteps[idx].aggregates.length === 0) {
+    currentRecipeSteps[idx].aggregates = [{ column: '', function: 'sum' }];
+  }
+  renderRecipeEditor();
 }
 function renderPreviewGrid(container, columns, rows) {
   if (!columns.length) { container.innerHTML = '<p>No data.</p>'; return; }
@@ -1712,6 +1844,7 @@ async function loadRecipe(slug) {
     alert('Load failed: ' + e);
   }
 }
+
 
     </script>
 </body>
