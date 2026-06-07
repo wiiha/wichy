@@ -492,6 +492,23 @@ def _get_columns_for_table(table_name: str) -> set[str]:
         return {row[0] for row in cursor.fetchall()}
 
 
+def _inline_params(sql: str, params: list) -> str:
+    """Replace ? placeholders with literal SQL values."""
+    result = sql
+    for val in params:
+        if val is None:
+            literal = "NULL"
+        elif isinstance(val, bool):
+            literal = "TRUE" if val else "FALSE"
+        elif isinstance(val, (int, float)):
+            literal = str(val)
+        else:
+            escaped = str(val).replace("'", "''")
+            literal = f"'{escaped}'"
+        result = result.replace("?", literal, 1)
+    return result
+
+
 def register_recipe_routes(bp):
     """Attach recipe-related routes to the data blueprint."""
 
@@ -540,7 +557,7 @@ def register_recipe_routes(bp):
                 rows = cursor.fetchall()
                 col_names = [desc[0] for desc in cursor.description] if cursor.description else []
             result_rows = [dict(zip(col_names, row)) for row in rows]
-            return jsonify({"columns": col_names, "rows": result_rows, "row_count": len(result_rows), "sql_preview": sql})
+            return jsonify({"columns": col_names, "rows": result_rows, "row_count": len(result_rows), "sql_preview": _inline_params(sql, params)})
         except (ValidationError, CompileError) as e:
             return jsonify({"error": str(e)}), 400
         except Exception as e:
@@ -583,17 +600,17 @@ def register_recipe_routes(bp):
             slug = data.get("slug", "recipe")
             if fmt not in ("sql", "python"):
                 return jsonify({"error": "format must be 'sql' or 'python'"}), 400
-            sql, _ = compile_recipe(steps)
+            sql, params = compile_recipe(steps)
             qdir = _get_query_steps_dir()
             if fmt == "sql":
                 path = qdir / f"{slug}.sql"
-                path.write_text(f"-- Recipe: {slug}\n{sql}\n")
+                path.write_text(f"-- Recipe: {slug}\n{_inline_params(sql, params)}\n")
             else:
                 path = qdir / f"{slug}.py"
                 python_code = (
                     f"# Recipe: {slug}\n"
                     f"import duckdb\n\n"
-                    f"SQL = \"\"\"{sql}\"\"\"\n\n"
+                    f"SQL = \"\"\"{_inline_params(sql, params)}\"\"\"\n\n"
                     f"conn = duckdb.connect()\n"
                     f"result = conn.execute(SQL).fetchall()\n"
                     f"print(result)\n"
