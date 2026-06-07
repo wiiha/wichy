@@ -512,6 +512,18 @@ def register_recipe_routes(bp):
         except Exception as e:
             return jsonify({"error": str(e)}), 500
 
+    @bp.route("/api/recipe/<slug>", methods=["GET"])
+    def get_recipe(slug):
+        try:
+            qdir = _get_query_steps_dir()
+            filepath = qdir / f"{slug}.json"
+            if not filepath.exists():
+                return jsonify({"error": "Recipe not found"}), 404
+            data = json.loads(filepath.read_text())
+            return jsonify({"recipe": data})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
     @bp.route("/api/recipe/preview", methods=["POST"])
     def preview_recipe():
         from wichy.tools.duckdb_manager import DuckDBManager

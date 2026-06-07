@@ -1832,13 +1832,14 @@ async function exportRecipe(format) {
 
 async function loadRecipe(slug) {
   try {
-    const resp = await fetch(`${API_BASE}/recipes`);
+    const resp = await fetch(`${API_BASE}/recipe/${encodeURIComponent(slug)}`);
     const data = await resp.json();
-    const recipe = (data.recipes || []).find(r => r.slug === slug);
+    if (data.error) { alert('Recipe not found: ' + data.error); return; }
+    const recipe = data.recipe;
     if (!recipe) { alert('Recipe not found'); return; }
     currentRecipeName = recipe.name;
     currentRecipeSlug = recipe.slug;
-    currentRecipeSteps = [{ type: 'source', table: '' }];
+    currentRecipeSteps = recipe.steps || [{ type: 'source', table: '' }];
     renderRecipeEditor();
   } catch (e) {
     alert('Load failed: ' + e);
