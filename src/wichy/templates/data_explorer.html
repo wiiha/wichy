@@ -1659,6 +1659,8 @@ function renderStepForm(step, idx) {
     return `
       <div class="recipe-step-item" data-idx="${idx}">
         <span class="step-number">${idx + 1}</span>
+        <button onclick="previewRecipeUpTo(${idx})" title="Preview up to this step" style="font-size:var(--font-size-base); padding:var(--space-xs) var(--space-sm);">👁</button>
+        <button onclick="removeStep(${idx})" title="Remove step" style="font-size:var(--font-size-base); padding:var(--space-xs) var(--space-sm); margin-left:2px;">✕</button>
         <select onchange="updateStepType(${idx}, this.value)">
           <option value="source" ${stype==='source'?'selected':''}>source</option>
           <option value="filter" ${stype==='filter'?'selected':''}>filter</option>
@@ -1669,7 +1671,6 @@ function renderStepForm(step, idx) {
           <option value="join" ${stype==='join'?'selected':''}>join</option>
         </select>
         <div class="step-fields">${fields}</div>
-        <button onclick="removeStep(${idx})">✕</button>
       </div>
     `;
   }
@@ -1749,6 +1750,39 @@ async function previewRecipe() {
     if (errEl) { errEl.textContent = 'Preview failed: ' + e; errEl.style.display = 'block'; }
   }
 }
+async function previewRecipeUpTo(idx) {
+    const area = document.getElementById('recipe-preview-area');
+    const errEl = document.getElementById('recipe-preview-error');
+    const sqlEl = document.getElementById('recipe-sql-preview');
+    const gridEl = document.getElementById('recipe-result-grid');
+    if (area) area.style.display = 'block';
+    if (errEl) errEl.style.display = 'none';
+    if (sqlEl) sqlEl.textContent = 'Loading...';
+    if (gridEl) gridEl.innerHTML = 'Loading...';
+    try {
+      const steps = currentRecipeSteps.slice(0, idx + 1);
+      const resp = await fetch(`${API_BASE}/recipe/preview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ steps: steps })
+      });
+      const data = await resp.json();
+      if (data.error) {
+        if (errEl) { errEl.textContent = data.error; errEl.style.display = 'block'; }
+        if (gridEl) gridEl.innerHTML = '';
+        if (sqlEl) sqlEl.textContent = '';
+        return;
+      }
+      if (sqlEl) sqlEl.textContent = data.sql_preview || '';
+      if (gridEl) renderPreviewGrid(gridEl, data.columns, data.rows);
+      lastPreviewedSteps = JSON.stringify(steps);
+      const staleEl = document.getElementById('recipe-stale-banner');
+      if (staleEl) staleEl.style.display = 'none';
+    } catch (e) {
+      if (errEl) { errEl.textContent = 'Preview failed: ' + e; errEl.style.display = 'block'; }
+    }
+  }
+
 
 
 function updateFilterOperator(idx, op) {
