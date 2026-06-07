@@ -1,13 +1,20 @@
 """Recipe-to-SQL CTE compiler for the Query Steps feature."""
 
-import json
 import re
 from typing import Any
 
 MAX_STEPS = 20
 FILTER_OPS = {
-    "==", "!=", ">", ">=", "<", "<=",
-    "contains", "starts_with", "is_null", "is_not_null",
+    "==",
+    "!=",
+    ">",
+    ">=",
+    "<",
+    "<=",
+    "contains",
+    "starts_with",
+    "is_null",
+    "is_not_null",
 }
 AGG_FUNCS = {"count", "sum", "avg", "min", "max", "count_distinct"}
 

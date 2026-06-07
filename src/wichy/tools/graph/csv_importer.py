@@ -4,9 +4,18 @@ import csv
 import io
 
 AUTO_COLORS = [
-    "#4f46e5", "#16a34a", "#dc2626", "#f59e0b",
-    "#06b6d4", "#8b5cf6", "#ec4899", "#84cc16",
-    "#f97316", "#14b8a6", "#6366f1", "#e11d48",
+    "#4f46e5",
+    "#16a34a",
+    "#dc2626",
+    "#f59e0b",
+    "#06b6d4",
+    "#8b5cf6",
+    "#ec4899",
+    "#84cc16",
+    "#f97316",
+    "#14b8a6",
+    "#6366f1",
+    "#e11d48",
 ]
 
 MAX_NODES = 500
@@ -25,7 +34,9 @@ class NodeCapError(Exception):
     node_count = 0
 
     def __init__(self, node_count):
-        self.message = f"Import would create {node_count} nodes. Max allowed: {MAX_NODES}."
+        self.message = (
+            f"Import would create {node_count} nodes. Max allowed: {MAX_NODES}."
+        )
         self.node_count = node_count
         super().__init__(self.message)
 

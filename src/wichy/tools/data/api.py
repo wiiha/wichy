@@ -1,10 +1,14 @@
 """API endpoints for data explorer."""
 
+import json
 import math
+from pathlib import Path
 
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, request
 
 from wichy.tools.duckdb_manager import DuckDBManager
+from wichy.tools.query_steps.compiler import CompileError, compile_recipe
+from wichy.tools.query_steps.validator import ValidationError, validate_recipe
 
 
 def _is_numeric_type(dtype: str) -> bool:
@@ -128,11 +132,11 @@ def register_routes(bp: Blueprint):
 
                 # Get column information from information_schema
                 columns_result = conn.execute(
-                    """SELECT 
-                        column_name, 
-                        data_type, 
+                    """SELECT
+                        column_name,
+                        data_type,
                         is_nullable
-                    FROM information_schema.columns 
+                    FROM information_schema.columns
                     WHERE table_schema = 'main' AND table_name = ?
                     ORDER BY ordinal_position""",
                     [name],
@@ -207,7 +211,7 @@ def register_routes(bp: Blueprint):
 
                 if _is_numeric_type(column_type):
                     # Numeric column profile
-                    result = conn.execute(f"""SELECT 
+                    result = conn.execute(f"""SELECT
                             COUNT(*) as total,
                             COUNT("{col}") as non_null,
                             MIN("{col}")::VARCHAR as min_val,
@@ -258,7 +262,7 @@ def register_routes(bp: Blueprint):
                     ):
                         try:
                             bucket_size = (max_val - min_val) / 10
-                            hist_result = conn.execute(f"""SELECT 
+                            hist_result = conn.execute(f"""SELECT
                                     FLOOR(("{col}" - {min_val}) / {bucket_size}) as bucket,
                                     COUNT(*) as count
                                 FROM "{table}"
@@ -365,8 +369,8 @@ def register_routes(bp: Blueprint):
 
                 # Get column names
                 columns_result = conn.execute(
-                    """SELECT column_name 
-                    FROM information_schema.columns 
+                    """SELECT column_name
+                    FROM information_schema.columns
                     WHERE table_schema = 'main' AND table_name = ?
                     ORDER BY ordinal_position""",
                     [table],
@@ -410,7 +414,7 @@ def register_routes(bp: Blueprint):
                 # Get all columns with their types
                 columns_result = conn.execute(
                     """SELECT column_name, data_type
-                    FROM information_schema.columns 
+                    FROM information_schema.columns
                     WHERE table_schema = 'main' AND table_name = ?
                     ORDER BY ordinal_position""",
                     [table],
@@ -466,12 +470,6 @@ def register_routes(bp: Blueprint):
         except Exception as e:
             return jsonify({"error": str(e)})
 
-import json
-import os
-from pathlib import Path
-from flask import request
-from wichy.tools.query_steps.compiler import compile_recipe, CompileError
-from wichy.tools.query_steps.validator import validate_recipe, ValidationError
 
 QUERY_STEPS_DIR = Path(".wichy") / "query_steps"
 
@@ -484,6 +482,7 @@ def _get_query_steps_dir() -> Path:
 def _get_columns_for_table(table_name: str) -> set[str]:
     """Return column names for a given table."""
     from wichy.tools.duckdb_manager import DuckDBManager
+
     with DuckDBManager.get_connection() as conn:
         cursor = conn.execute(
             "SELECT column_name FROM information_schema.columns WHERE table_schema = 'main' AND table_name = ?",
@@ -519,12 +518,14 @@ def register_recipe_routes(bp):
             recipes = []
             for f in sorted(qdir.glob("*.json")):
                 data = json.loads(f.read_text())
-                recipes.append({
-                    "name": data.get("name", f.stem),
-                    "slug": data.get("slug", f.stem),
-                    "created_at": data.get("created_at", ""),
-                    "step_count": len(data.get("steps", [])),
-                })
+                recipes.append(
+                    {
+                        "name": data.get("name", f.stem),
+                        "slug": data.get("slug", f.stem),
+                        "created_at": data.get("created_at", ""),
+                        "step_count": len(data.get("steps", [])),
+                    }
+                )
             return jsonify({"recipes": recipes})
         except Exception as e:
             return jsonify({"error": str(e)}), 500
@@ -544,6 +545,7 @@ def register_recipe_routes(bp):
     @bp.route("/api/recipe/preview", methods=["POST"])
     def preview_recipe():
         from wichy.tools.duckdb_manager import DuckDBManager
+
         try:
             data = request.get_json()
             if not data or "steps" not in data:
@@ -555,9 +557,20 @@ def register_recipe_routes(bp):
             with DuckDBManager.get_connection() as conn:
                 cursor = conn.execute(preview_sql, params)
                 rows = cursor.fetchall()
-                col_names = [desc[0] for desc in cursor.description] if cursor.description else []
+                col_names = (
+                    [desc[0] for desc in cursor.description]
+                    if cursor.description
+                    else []
+                )
             result_rows = [dict(zip(col_names, row)) for row in rows]
-            return jsonify({"columns": col_names, "rows": result_rows, "row_count": len(result_rows), "sql_preview": _inline_params(sql, params)})
+            return jsonify(
+                {
+                    "columns": col_names,
+                    "rows": result_rows,
+                    "row_count": len(result_rows),
+                    "sql_preview": _inline_params(sql, params),
+                }
+            )
         except (ValidationError, CompileError) as e:
             return jsonify({"error": str(e)}), 400
         except Exception as e:
@@ -576,6 +589,7 @@ def register_recipe_routes(bp):
             qdir = _get_query_steps_dir()
             filepath = qdir / f"{slug}.json"
             from datetime import datetime, timezone
+
             recipe_data = {
                 "name": name,
                 "slug": slug,
@@ -610,7 +624,7 @@ def register_recipe_routes(bp):
                 python_code = (
                     f"# Recipe: {slug}\n"
                     f"import duckdb\n\n"
-                    f"SQL = \"\"\"{_inline_params(sql, params)}\"\"\"\n\n"
+                    f'SQL = """{_inline_params(sql, params)}"""\n\n'
                     f"conn = duckdb.connect()\n"
                     f"result = conn.execute(SQL).fetchall()\n"
                     f"print(result)\n"

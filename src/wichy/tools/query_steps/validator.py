@@ -2,7 +2,18 @@
 
 from typing import Callable
 
-FILTER_OPS = {"==", "!=", ">", ">=", "<", "<=", "contains", "starts_with", "is_null", "is_not_null"}
+FILTER_OPS = {
+    "==",
+    "!=",
+    ">",
+    ">=",
+    "<",
+    "<=",
+    "contains",
+    "starts_with",
+    "is_null",
+    "is_not_null",
+}
 AGG_FUNCS = {"count", "sum", "avg", "min", "max", "count_distinct"}
 SORT_ORDERS = {"asc", "desc"}
 JOIN_TYPES = {"inner", "left", "right", "cross"}

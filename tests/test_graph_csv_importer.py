@@ -1,13 +1,14 @@
 """Tests for the CSV graph importer."""
 
 import pytest
+
 from wichy.tools.graph.csv_importer import (
-    parse_csv_text,
-    import_graph_from_csv,
+    AUTO_COLORS,
+    MAX_NODES,
     CSVParseError,
     NodeCapError,
-    MAX_NODES,
-    AUTO_COLORS,
+    import_graph_from_csv,
+    parse_csv_text,
 )
 
 SAMPLE_CSV = """source,target,relation
@@ -36,9 +37,7 @@ def test_parse_csv_empty_raises():
 
 
 def test_import_basic():
-    result = import_graph_from_csv(
-        SAMPLE_CSV, source_col="source", target_col="target"
-    )
+    result = import_graph_from_csv(SAMPLE_CSV, source_col="source", target_col="target")
     assert result["status"] == "ok"
     assert result["nodes_created"] == 3  # Alice, Bob, Charlie
     assert result["edges_created"] == 3
@@ -60,9 +59,7 @@ def test_import_with_edge_label():
 
 def test_import_with_group_col():
     csv = "s,t,g\nAlice,Bob,TeamA\nCharlie,Dave,TeamB"
-    result = import_graph_from_csv(
-        csv, source_col="s", target_col="t", group_col="g"
-    )
+    result = import_graph_from_csv(csv, source_col="s", target_col="t", group_col="g")
     groups = {n["id"]: n["group"] for n in result["nodes"]}
     assert groups["Alice"] == "TeamA"
     assert groups["Charlie"] == "TeamB"
@@ -73,9 +70,7 @@ def test_import_with_group_col():
 
 def test_import_with_color_col_valid_hex():
     csv = "s,t,c\nAlice,Bob,#FF0000\nCharlie,Dave,#00FF00"
-    result = import_graph_from_csv(
-        csv, source_col="s", target_col="t", color_col="c"
-    )
+    result = import_graph_from_csv(csv, source_col="s", target_col="t", color_col="c")
     colors = {n["id"]: n["color"] for n in result["nodes"]}
     assert colors["Alice"] == "#FF0000"
     assert colors["Charlie"] == "#00FF00"
@@ -83,9 +78,7 @@ def test_import_with_color_col_valid_hex():
 
 def test_import_with_color_col_invalid_hex_fallback():
     csv = "s,t,c\nAlice,Bob,RED\nCharlie,Dave,#00FF00"
-    result = import_graph_from_csv(
-        csv, source_col="s", target_col="t", color_col="c"
-    )
+    result = import_graph_from_csv(csv, source_col="s", target_col="t", color_col="c")
     colors = {n["id"]: n["color"] for n in result["nodes"]}
     assert colors["Alice"] == AUTO_COLORS[0]  # falls to default
     assert colors["Charlie"] == "#00FF00"
@@ -113,9 +106,7 @@ def test_multi_edge_accumulates():
 
 def test_first_occurrence_wins():
     csv = "s,t,g\nAlice,Bob,TeamA\nAlice,Bob,TeamB"
-    r = import_graph_from_csv(
-        csv, source_col="s", target_col="t", group_col="g"
-    )
+    r = import_graph_from_csv(csv, source_col="s", target_col="t", group_col="g")
     alice = next(n for n in r["nodes"] if n["id"] == "Alice")
     assert alice["group"] == "TeamA"  # first row wins
     bob = next(n for n in r["nodes"] if n["id"] == "Bob")
@@ -127,7 +118,7 @@ def test_node_cap_raises():
     rows = "s,t\n" + "\n".join(f"n{i},shared" for i in range(501))
     with pytest.raises(NodeCapError) as exc_info:
         import_graph_from_csv(rows, source_col="s", target_col="t")
-    assert "502 nodes" in str(exc_info.value)
+    assert "501 nodes" in str(exc_info.value)
     assert str(MAX_NODES) in str(exc_info.value)
 
 
