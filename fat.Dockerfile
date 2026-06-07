@@ -77,6 +77,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     tmux \
     openssh-client \
+    sqlite3 \
     && rm -rf /var/lib/apt/lists/* \
     # Install ripgrep (not in Debian slim repos — fetch from GitHub releases)
     && RG_VERSION="14.1.0" \
