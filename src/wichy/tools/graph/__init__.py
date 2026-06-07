@@ -6,6 +6,7 @@ The agent tools (create_graph, read_graph, list_graphs) remain in graph_tools.py
 """
 
 import json
+from datetime import datetime
 import os
 
 from flask import Blueprint, jsonify, render_template, request, send_from_directory
@@ -81,8 +82,6 @@ def load_graph(filename):
 def save_graph():
     """Save graph data to JSON file."""
     try:
-        from datetime import datetime
-
         data = request.get_json()
         if not data or "nodes" not in data or "edges" not in data:
             return (
@@ -117,6 +116,96 @@ def save_graph():
         )
     except Exception as e:
         return json.dumps({"status": "error", "message": str(e)}), 500
+
+
+
+# ——— CSV Import Routes ———
+
+
+@bp.route("/api/import-csv/preview", methods=["POST"])
+def import_csv_preview():
+    """Preview CSV: return columns + first 10 rows."""
+    from .csv_importer import parse_csv_text, CSVParseError
+
+    try:
+        data = request.get_json()
+        csv_text = data.get("csv_text", "") if data else ""
+        if not csv_text:
+            return jsonify({"error": "No csv_text provided"}), 400
+        result = parse_csv_text(csv_text)
+        return jsonify(result)
+    except CSVParseError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@bp.route("/api/import-csv", methods=["POST"])
+def import_csv():
+    """Import CSV into graph and save."""
+    from .csv_importer import (
+        import_graph_from_csv,
+        CSVParseError,
+        NodeCapError,
+    )
+
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No JSON body"}), 400
+
+        csv_text = data.get("csv_text", "")
+        source_col = data.get("source_col", "")
+        target_col = data.get("target_col", "")
+        edge_label_col = data.get("edge_label_col") or None
+        group_col = data.get("group_col") or None
+        color_col = data.get("color_col") or None
+
+        if not csv_text:
+            return jsonify({"error": "No csv_text provided"}), 400
+        if not source_col or not target_col:
+            return jsonify({"error": "source_col and target_col are required"}), 400
+
+        result = import_graph_from_csv(
+            csv_text,
+            source_col=source_col,
+            target_col=target_col,
+            edge_label_col=edge_label_col,
+            group_col=group_col,
+            color_col=color_col,
+        )
+
+        # Re-use existing save logic
+        graph_data = {"nodes": result["nodes"], "edges": result["edges"]}
+
+        graphs_dir = get_graphs_dir()
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"graph_{timestamp}.json"
+        filepath = os.path.join(graphs_dir, filename)
+
+        with open(filepath, "w") as f:
+            json.dump(graph_data, f, indent=2)
+
+        latest_path = os.path.join(graphs_dir, "latest.json")
+        with open(latest_path, "w") as f:
+            json.dump(graph_data, f, indent=2)
+
+        return jsonify(
+            {
+                "status": "ok",
+                "filename": filename,
+                "nodes_created": result["nodes_created"],
+                "edges_created": result["edges_created"],
+            }
+        )
+    except CSVParseError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except NodeCapError as exc:
+        return jsonify({"error": exc.message}), 413
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
 
 
 def register(app):

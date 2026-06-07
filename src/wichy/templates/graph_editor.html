@@ -146,6 +146,19 @@
         background: var(--background-alt);
       }
 
+      #import-csv-btn {
+        background: var(--surface);
+        color: var(--text);
+        border: 1px solid var(--border);
+        padding: var(--space-sm) var(--space-md);
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+        font-size: var(--font-size-sm);
+      }
+      #import-csv-btn:hover {
+        background: var(--primary-light);
+      }
+
       #search-input {
         width: 200px;
         padding: var(--space-sm) var(--space-md);
@@ -418,6 +431,7 @@
           ↻
         </button>
         <button id="save-btn" onclick="saveGraph()">Save Graph</button>
+        <button id="import-csv-btn" onclick="openImportWizard()">Import CSV</button>
         <button id="export-btn" onclick="exportPNG()">Export PNG</button>
         <span id="search-wrap" style="position:relative; display:inline-block;">
           <input
@@ -532,6 +546,248 @@
 
       // Modal dialog functions
       var modalCallback = null;
+
+// ——— CSV Import Wizard State ———
+var csvWizardState = {
+  currentStep: 1,
+  csvText: "",
+  columns: [],
+  rows: [],
+  previewData: null
+};
+
+function openImportWizard() {
+  csvWizardState.currentStep = 1;
+  document.getElementById("csv-import-modal").style.display = "flex";
+  resetImportWizardUI();
+  document.getElementById("csv-step-1").style.display = "block";
+  updateWizardTitle();
+}
+
+function closeImportWizard() {
+  document.getElementById("csv-import-modal").style.display = "none";
+  if (csvWizardState.currentStep === 5) {
+    loadGraphList();
+    loadSelectedGraph();
+  }
+}
+
+function resetImportWizardUI() {
+  var steps = document.querySelectorAll(".csv-step");
+  for (var i = 0; i < steps.length; i++) { steps[i].style.display = "none"; }
+  document.getElementById("csv-text-input").value = "";
+  document.getElementById("csv-file-input").value = "";
+  document.getElementById("csv-btn-next-1").disabled = true;
+  document.getElementById("csv-step-1-error").style.display = "none";
+  document.getElementById("csv-step-1-error").textContent = "";
+  document.getElementById("csv-large-warning").style.display = "none";
+  document.getElementById("csv-mapping-error").style.display = "none";
+  document.getElementById("csv-import-error").style.display = "none";
+}
+
+function updateWizardTitle() {
+  var title = "Import CSV - Step " + csvWizardState.currentStep;
+  if (csvWizardState.currentStep === 5) { title = "Import Complete"; }
+  document.getElementById("csv-wizard-title").textContent = title;
+}
+
+function showWizardStep(stepNum) {
+  csvWizardState.currentStep = stepNum;
+  updateWizardTitle();
+  for (var i = 1; i <= 5; i++) {
+    var el = document.getElementById("csv-step-" + i);
+    if (el) el.style.display = (i === stepNum) ? "block" : "none";
+  }
+}
+
+function csvStepBack(targetStep) {
+  showWizardStep(targetStep);
+}
+
+function handleCSVFileUpload(input) {
+  var file = input.files[0];
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    document.getElementById("csv-text-input").value = e.target.result;
+    document.getElementById("csv-btn-next-1").disabled = false;
+  };
+  reader.readAsText(file);
+}
+
+document.addEventListener("DOMContentLoaded", function() {
+  var ta = document.getElementById("csv-text-input");
+  if (ta) {
+    ta.addEventListener("input", function() {
+      document.getElementById("csv-btn-next-1").disabled = this.value.trim().length === 0;
+    });
+  }
+});
+
+function csvStep1Next() {
+  var text = document.getElementById("csv-text-input").value.trim();
+  if (!text) return;
+  csvWizardState.csvText = text;
+  document.getElementById("csv-step-1-error").style.display = "none";
+
+  fetch("/tools/graph/api/import-csv/preview", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ csv_text: text })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    document.getElementById("csv-step-1-error").style.display = "none";
+    if (data.error) {
+      var err = document.getElementById("csv-step-1-error");
+      err.textContent = data.error;
+      err.style.display = "block";
+      return;
+    }
+    csvWizardState.previewData = data;
+    csvWizardState.columns = data.columns;
+    csvWizardState.rows = data.preview;
+    showWizardStep(2);
+    renderCSVPreview(data);
+  })
+  .catch(function(e) {
+    var err = document.getElementById("csv-step-1-error");
+    err.textContent = "Network error: " + e;
+    err.style.display = "block";
+  });
+}
+
+function renderCSVPreview(data) {
+  var summary = document.getElementById("csv-preview-summary");
+  summary.textContent = "Detected " + data.columns.length + " columns, " + data.row_count + " rows.";
+
+  var thead = document.querySelector("#csv-preview-table thead");
+  var tbody = document.querySelector("#csv-preview-table tbody");
+  thead.innerHTML = "";
+  tbody.innerHTML = "";
+
+  var headerRow = document.createElement("tr");
+  data.columns.forEach(function(col) {
+    var th = document.createElement("th");
+    th.textContent = col;
+    th.style.border = "1px solid var(--border)";
+    th.style.padding = "var(--space-xs)";
+    headerRow.appendChild(th);
+  });
+  thead.appendChild(headerRow);
+
+  data.preview.forEach(function(row) {
+    var tr = document.createElement("tr");
+    data.columns.forEach(function(col) {
+      var td = document.createElement("td");
+      td.textContent = row[col] || "";
+      td.style.border = "1px solid var(--border)";
+      td.style.padding = "var(--space-xs)";
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+
+  document.getElementById("csv-large-warning").style.display = data.row_count > 100 ? "block" : "none";
+}
+
+function csvStep2Next() {
+  var cols = csvWizardState.columns;
+  populateSelect("csv-source-col", cols, true);
+  populateSelect("csv-target-col", cols, true);
+  populateSelect("csv-label-col", cols, false, "-- None --");
+  populateSelect("csv-group-col", cols, false, "-- None --");
+  populateSelect("csv-color-col", cols, false, "-- None --");
+  showWizardStep(3);
+}
+
+function populateSelect(id, options, required, emptyLabel) {
+  var sel = document.getElementById(id);
+  sel.innerHTML = "";
+  if (!required && emptyLabel) {
+    var opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = emptyLabel;
+    sel.appendChild(opt);
+  }
+  options.forEach(function(v) {
+    var opt = document.createElement("option");
+    opt.value = v;
+    opt.textContent = v;
+    sel.appendChild(opt);
+  });
+}
+
+function csvStep3Next() {
+  var source = document.getElementById("csv-source-col").value;
+  var target = document.getElementById("csv-target-col").value;
+  var err = document.getElementById("csv-mapping-error");
+
+  if (!source || !target) {
+    err.textContent = "Source and Target columns are required.";
+    err.style.display = "block";
+    return;
+  }
+  err.style.display = "none";
+
+  var seenNodes = new Set();
+  var edgeCount = 0;
+  var rows = csvWizardState.rows;
+  rows.forEach(function(r) {
+    seenNodes.add(r[source] || "");
+    seenNodes.add(r[target] || "");
+    edgeCount++;
+  });
+  var factor = Math.max(1, csvWizardState.previewData.row_count / Math.max(1, rows.length));
+  var estNodes = Math.ceil((seenNodes.size - (seenNodes.has("") ? 1 : 0)) * factor);
+  var estEdges = Math.ceil(edgeCount * factor);
+
+  document.getElementById("csv-est-nodes").textContent = "~" + estNodes;
+  document.getElementById("csv-est-edges").textContent =  "~" + estEdges;
+  showWizardStep(4);
+}
+
+function csvDoImport() {
+  var btn = document.getElementById("csv-btn-import");
+  var err = document.getElementById("csv-import-error");
+  btn.disabled = true;
+  err.style.display = "none";
+
+  var payload = {
+    csv_text: csvWizardState.csvText,
+    source_col: document.getElementById("csv-source-col").value,
+    target_col: document.getElementById("csv-target-col").value,
+    edge_label_col: document.getElementById("csv-label-col").value || null,
+    group_col: document.getElementById("csv-group-col").value || null,
+    color_col: document.getElementById("csv-color-col").value || null,
+  };
+
+  fetch("/tools/graph/api/import-csv", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  })
+  .then(function(r) {
+    return r.json().then(function(data) { return { status: r.status, data: data }; });
+  })
+  .then(function(resp) {
+    btn.disabled = false;
+    if (resp.data.error) {
+      err.textContent = resp.data.error;
+      err.style.display = "block";
+      return;
+    }
+    document.getElementById("csv-res-nodes").textContent = resp.data.nodes_created;
+    document.getElementById("csv-res-edges").textContent = resp.data.edges_created;
+    showWizardStep(5);
+  })
+  .catch(function(e) {
+    btn.disabled = false;
+    err.textContent = "Network error: " + e;
+    err.style.display = "block";
+  });
+}
+
 
       function showModal(title, fields, callback) {
         modalCallback = callback;
@@ -1321,5 +1577,79 @@
         }
       }
     </script>
+<div id="csv-import-modal" class="wizard-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:9999; justify-content:center; align-items:center;">
+  <div class="wizard-content" style="background:var(--surface); width:600px; max-width:90vw; max-height:80vh; overflow-y:auto; border:1px solid var(--border); border-radius:var(--radius-lg); padding:var(--space-xl); display:flex; flex-direction:column; gap:var(--space-md);">
+    <div class="wizard-header" style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); padding-bottom:var(--space-md);">
+      <h2 id="csv-wizard-title">Import CSV - Step 1</h2>
+      <button onclick="closeImportWizard()" style="background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:20px;">×</button>
+    </div>
+
+    <div id="csv-step-1" class="csv-step">
+      <label>Paste CSV text below or use file upload:</label>
+      <textarea id="csv-text-input" rows="10" style="width:100%; font-family:var(--font-mono);" placeholder="source,target,relation
+Alice,Bob,knows
+Bob,Charlie,reports_to"></textarea>
+      <input type="file" id="csv-file-input" accept=".csv" onchange="handleCSVFileUpload(this)" style="margin-top:var(--space-sm);" />
+      <div id="csv-step-1-error" style="color:var(--warning-text); font-size:var(--font-size-sm); display:none;"></div>
+      <div style="display:flex; justify-content:flex-end; margin-top:var(--space-md);">
+        <button id="csv-btn-next-1" onclick="csvStep1Next()" disabled>Next →</button>
+      </div>
+    </div>
+
+    <div id="csv-step-2" class="csv-step" style="display:none;">
+      <p id="csv-preview-summary"></p>
+      <div style="overflow-x:auto; max-height:300px;">
+        <table id="csv-preview-table" style="width:100%; border-collapse:collapse; font-size:var(--font-size-sm);">
+          <thead></thead><tbody></tbody>
+        </table>
+      </div>
+      <div id="csv-large-warning" style="color:var(--warning-text); font-size:var(--font-size-sm); display:none;">This is a large file. Consider importing a subset.</div>
+      <div style="display:flex; justify-content:space-between; margin-top:var(--space-md);">
+        <button onclick="csvStepBack(1)">← Back</button>
+        <button id="csv-btn-next-2" onclick="csvStep2Next()">Next →</button>
+      </div>
+    </div>
+
+    <div id="csv-step-3" class="csv-step" style="display:none;">
+      <div style="display:flex; flex-direction:column; gap:var(--space-sm);">
+        <label>Source Node Column *</label>
+        <select id="csv-source-col"></select>
+        <label>Target Node Column *</label>
+        <select id="csv-target-col"></select>
+        <label>Edge Label Column</label>
+        <select id="csv-label-col"><option value="">-- None --</option></select>
+        <label>Node Group Column</label>
+        <select id="csv-group-col"><option value="">-- None --</option></select>
+        <label>Node Color Column</label>
+        <select id="csv-color-col"><option value="">-- None --</option></select>
+      </div>
+      <div id="csv-mapping-error" style="color:var(--warning-text); font-size:var(--font-size-sm); display:none;"></div>
+      <div style="display:flex; justify-content:space-between; margin-top:var(--space-md);">
+        <button onclick="csvStepBack(2)">← Back</button>
+        <button id="csv-btn-next-3" onclick="csvStep3Next()">Next →</button>
+      </div>
+    </div>
+
+    <div id="csv-step-4" class="csv-step" style="display:none;">
+      <div id="csv-step-4-summary">
+        <p>This will create approximately <strong id="csv-est-nodes"></strong> nodes and <strong id="csv-est-edges"></strong> edges.</p>
+      </div>
+      <div id="csv-import-error" style="color:var(--warning-text); display:none;"></div>
+      <div style="display:flex; justify-content:space-between; margin-top:var(--space-md);">
+        <button onclick="csvStepBack(3)">← Back</button>
+        <button id="csv-btn-import" onclick="csvDoImport()">Import</button>
+      </div>
+    </div>
+
+    <div id="csv-step-5" class="csv-step" style="display:none;">
+      <p>✅ Import complete!</p>
+      <p>Created <strong id="csv-res-nodes"></strong> nodes and <strong id="csv-res-edges"></strong> edges.</p>
+      <div style="display:flex; justify-content:flex-end; margin-top:var(--space-md);">
+        <button onclick="closeImportWizard()">Close &amp; View Graph</button>
+      </div>
+    </div>
+  </div>
+</div>
+
   </body>
 </html>
