@@ -465,3 +465,140 @@ def register_routes(bp: Blueprint):
 
         except Exception as e:
             return jsonify({"error": str(e)})
+
+import json
+import os
+from pathlib import Path
+from flask import request
+from wichy.tools.query_steps.compiler import compile_recipe, CompileError
+from wichy.tools.query_steps.validator import validate_recipe, ValidationError
+
+QUERY_STEPS_DIR = Path(".wichy") / "query_steps"
+
+
+def _get_query_steps_dir() -> Path:
+    QUERY_STEPS_DIR.mkdir(parents=True, exist_ok=True)
+    return QUERY_STEPS_DIR
+
+
+def _get_columns_for_table(table_name: str) -> set[str]:
+    """Return column names for a given table."""
+    from wichy.tools.duckdb_manager import DuckDBManager
+    with DuckDBManager.get_connection() as conn:
+        cursor = conn.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema = 'main' AND table_name = ?",
+            [table_name],
+        )
+        return {row[0] for row in cursor.fetchall()}
+
+
+def register_recipe_routes(bp):
+    """Attach recipe-related routes to the data blueprint."""
+
+    @bp.route("/api/recipes")
+    def list_recipes():
+        try:
+            qdir = _get_query_steps_dir()
+            recipes = []
+            for f in sorted(qdir.glob("*.json")):
+                data = json.loads(f.read_text())
+                recipes.append({
+                    "name": data.get("name", f.stem),
+                    "slug": data.get("slug", f.stem),
+                    "created_at": data.get("created_at", ""),
+                    "step_count": len(data.get("steps", [])),
+                })
+            return jsonify({"recipes": recipes})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @bp.route("/api/recipe/preview", methods=["POST"])
+    def preview_recipe():
+        from wichy.tools.duckdb_manager import DuckDBManager
+        try:
+            data = request.get_json()
+            if not data or "steps" not in data:
+                return jsonify({"error": "Missing 'steps'"}), 400
+            steps = data["steps"]
+            validate_recipe(steps, _get_columns_for_table)
+            sql, params = compile_recipe(steps)
+            preview_sql = f"{sql} LIMIT 100"
+            with DuckDBManager.get_connection() as conn:
+                cursor = conn.execute(preview_sql, params)
+                rows = cursor.fetchall()
+                col_names = [desc[0] for desc in cursor.description] if cursor.description else []
+            result_rows = [dict(zip(col_names, row)) for row in rows]
+            return jsonify({"columns": col_names, "rows": result_rows, "row_count": len(result_rows), "sql_preview": sql})
+        except (ValidationError, CompileError) as e:
+            return jsonify({"error": str(e)}), 400
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @bp.route("/api/recipe/save", methods=["POST"])
+    def save_recipe():
+        try:
+            data = request.get_json()
+            if not data or "name" not in data or "steps" not in data:
+                return jsonify({"error": "Missing 'name' or 'steps'"}), 400
+            name = data["name"]
+            slug = data.get("slug", name.lower().replace(" ", "-"))
+            steps = data["steps"]
+            validate_recipe(steps, _get_columns_for_table)
+            qdir = _get_query_steps_dir()
+            filepath = qdir / f"{slug}.json"
+            from datetime import datetime, timezone
+            recipe_data = {
+                "name": name,
+                "slug": slug,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "steps": steps,
+            }
+            filepath.write_text(json.dumps(recipe_data, indent=2))
+            return jsonify({"status": "ok", "slug": slug, "filename": str(filepath)})
+        except (ValidationError, CompileError) as e:
+            return jsonify({"error": str(e)}), 400
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @bp.route("/api/recipe/export", methods=["POST"])
+    def export_recipe():
+        try:
+            data = request.get_json()
+            if not data or "format" not in data or "steps" not in data:
+                return jsonify({"error": "Missing 'format' or 'steps'"}), 400
+            fmt = data["format"]
+            steps = data["steps"]
+            slug = data.get("slug", "recipe")
+            if fmt not in ("sql", "python"):
+                return jsonify({"error": "format must be 'sql' or 'python'"}), 400
+            sql, _ = compile_recipe(steps)
+            qdir = _get_query_steps_dir()
+            if fmt == "sql":
+                path = qdir / f"{slug}.sql"
+                path.write_text(f"-- Recipe: {slug}\n{sql}\n")
+            else:
+                path = qdir / f"{slug}.py"
+                python_code = (
+                    f"# Recipe: {slug}\n"
+                    f"import duckdb\n\n"
+                    f"SQL = \"\"\"{sql}\"\"\"\n\n"
+                    f"conn = duckdb.connect()\n"
+                    f"result = conn.execute(SQL).fetchall()\n"
+                    f"print(result)\n"
+                )
+                path.write_text(python_code)
+            return jsonify({"status": "ok", "filename": str(path)})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @bp.route("/api/recipe/<slug>", methods=["DELETE"])
+    def delete_recipe(slug):
+        try:
+            qdir = _get_query_steps_dir()
+            filepath = qdir / f"{slug}.json"
+            if not filepath.exists():
+                return jsonify({"error": "Recipe not found"}), 404
+            filepath.unlink()
+            return jsonify({"status": "ok", "slug": slug})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500

@@ -17,6 +17,7 @@ def register(app):
     from . import api
 
     api.register_routes(bp)
+    api.register_recipe_routes(bp)
 
     # Register the main explorer route
     @bp.route("/", methods=["GET"])

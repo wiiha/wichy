@@ -698,6 +698,99 @@
                 grid-template-columns: repeat(2, 1fr);
             }
         }
+        #recipes-btn {
+          width: 100%;
+          margin-top: var(--space-md);
+          padding: var(--space-sm);
+          background: var(--surface);
+          color: var(--text);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          cursor: pointer;
+        }
+        #recipes-btn:hover {
+          background: var(--primary-light);
+        }
+        .recipe-card {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-md);
+          padding: var(--space-md);
+          margin-bottom: var(--space-md);
+          cursor: pointer;
+          transition: box-shadow var(--transition-normal);
+        }
+        .recipe-card:hover {
+          box-shadow: var(--shadow-md);
+        }
+        .recipe-card-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+        .recipe-step-item {
+          display: flex;
+          gap: var(--space-sm);
+          align-items: center;
+          padding: var(--space-sm);
+          background: var(--background);
+          border-radius: var(--radius-sm);
+          margin-bottom: var(--space-xs);
+        }
+        .step-number {
+          font-weight: 600;
+          color: var(--text-muted);
+          min-width: 24px;
+        }
+        .step-fields {
+          flex: 1;
+          display: flex;
+          gap: var(--space-sm);
+          align-items: center;
+        }
+        .recipe-step-item select,
+        .recipe-step-item input {
+          font-size: var(--font-size-sm);
+          padding: var(--space-xs);
+        }
+        #error-banner {
+          color: var(--warning-text);
+          background: var(--warning-bg);
+          padding: var(--space-md);
+          border-radius: var(--radius-sm);
+          margin: var(--space-md) 0;
+          display: none;
+        }
+        .preview-grid {
+          width: 100%;
+          border-collapse: collapse;
+          font-size: var(--font-size-sm);
+        }
+        .preview-grid th,
+        .preview-grid td {
+          border: 1px solid var(--border);
+          padding: var(--space-xs);
+          text-align: left;
+        }
+        .preview-grid th {
+          background: var(--background);
+          font-weight: 600;
+        }
+        .preview-grid tr:nth-child(even) {
+          background: var(--surface);
+        }
+        #recipe-sql-preview {
+          background: var(--background);
+          padding: var(--space-md);
+          border-radius: var(--radius-sm);
+          overflow-x: auto;
+          font-family: var(--font-mono);
+          font-size: var(--font-size-sm);
+          white-space: pre-wrap;
+          max-height: 200px;
+          overflow-y: auto;
+          border: 1px solid var(--border);
+        }
     </style>
 </head>
 <body>
@@ -727,6 +820,7 @@
                 <div class="sidebar-search">
                     <input type="text" id="table-search" placeholder="Search tables...">
                 </div>
+                <button id="recipes-btn" onclick="showRecipesView()">📝 Recipes</button>
                 <div id="tables-list" class="tables-list">
                     <!-- Tables rendered here -->
                 </div>
@@ -1286,6 +1380,339 @@
         function escapeJs(str) {
             return String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n');
         }
+
+// ─── Recipes State ───
+let currentRecipeSteps = [];
+let currentRecipeSlug = null;
+let currentRecipeName = "";
+
+function showRecipesView() {
+  currentTable = null;
+  currentView = 'recipes';
+  updateActiveTable(null);
+  loadRecipesList();
+}
+
+async function loadRecipesList() {
+  const container = document.getElementById('main-content');
+  showLoading(container);
+  try {
+    const resp = await fetch(`${API_BASE}/recipes`);
+    const data = await resp.json();
+    renderRecipesList(data.recipes || []);
+  } catch (e) {
+    showError(container, 'Failed to load recipes: ' + e);
+  }
+}
+
+function renderRecipesList(recipes) {
+  const container = document.getElementById('main-content');
+  let html = `
+    <div class="content-header">
+      <h2>Recipes</h2>
+      <button onclick="startNewRecipe()">+ New Recipe</button>
+    </div>
+  `;
+  if (!recipes.length) {
+    html += `<div class="empty-state"><p>No saved recipes yet.</p></div>`;
+  } else {
+    recipes.forEach(r => {
+      html += `
+        <div class="recipe-card" onclick="loadRecipe('${escapeJs(r.slug)}')">
+          <div class="recipe-card-header">
+            <strong>${escapeHtml(r.name)}</strong>
+            <span class="badge">${r.step_count} steps</span>
+          </div>
+          <div class="recipe-card-meta">${escapeHtml(r.created_at)}</div>
+        </div>
+      `;
+    });
+  }
+  container.innerHTML = html;
+}
+
+function startNewRecipe() {
+  currentRecipeSteps = [{ type: 'source', table: '' }];
+  currentRecipeSlug = null;
+  currentRecipeName = '';
+  renderRecipeEditor();
+}
+
+function renderRecipeEditor() {
+  const container = document.getElementById('main-content');
+  let html = `
+    <div class="content-header">
+      <h2>Recipe Editor</h2>
+      <div class="actions">
+        <button onclick="previewRecipe()">▶ Preview</button>
+        <button onclick="saveRecipe()">💾 Save</button>
+        <button onclick="exportRecipe('sql')">SQL</button>
+        <button onclick="showRecipesView()">← Back</button>
+      </div>
+    </div>
+    <div id="recipe-steps-list">
+      ${currentRecipeSteps.map((s, i) => renderStepForm(s, i)).join('')}
+    </div>
+    <button onclick="addStep()">+ Add Step</button>
+    <div id="recipe-preview-area" style="display:none; margin-top:var(--space-lg);">
+      <h3>SQL Preview</h3>
+      <pre id="recipe-sql-preview"></pre>
+      <h3>Result Preview</h3>
+      <div id="recipe-result-grid"></div>
+      <div id="recipe-preview-error" style="color:var(--warning-text); display:none;"></div>
+    </div>
+  `;
+  container.innerHTML = html;
+}
+
+function renderStepForm(step, idx) {
+    const stype = step.type;
+    let fields = '';
+    if (stype === 'source') {
+      fields = `<label>Table:</label><select onchange="updateStepField(${idx}, 'table', this.value)"><option value="">-- Select table --</option>${tables.map(t => { const sel = step.table === t.name ? 'selected' : ''; return `<option value="${escapeHtml(t.name)}" ${sel}>${escapeHtml(t.name)}</option>`; }).join('')}</select>`;
+    } else if (stype === 'filter') {
+      fields = `
+        <label style="font-size:11px; color:var(--text-muted);">Where</label>
+        <input type="text" placeholder="Column" value="${escapeHtml(step.column || '')}" onchange="updateStepField(${idx}, 'column', this.value)" style="width:80px;"/>
+        <select onchange="updateFilterOperator(${idx}, this.value)">
+          <option value="==" ${step.operator==='=='?'selected':''}>==</option>
+          <option value="!=" ${step.operator==='!='?'selected':''}>!=</option>
+          <option value=">" ${step.operator==='>'?'selected':''}>></option>
+          <option value=">=" ${step.operator==='>='?'selected':''}>>=</option>
+          <option value="<" ${step.operator==='<'?'selected':''}><</option>
+          <option value="<=" ${step.operator==='<='?'selected':''}><=</option>
+          <option value="contains" ${step.operator==='contains'?'selected':''}>contains</option>
+          <option value="starts_with" ${step.operator==='starts_with'?'selected':''}>starts_with</option>
+          <option value="is_null" ${step.operator==='is_null'?'selected':''}>is_null</option>
+          <option value="is_not_null" ${step.operator==='is_not_null'?'selected':''}>is_not_null</option>
+        </select>
+        <input type="text" id="filter-value-${idx}" placeholder="Value" value="${escapeHtml(step.value !== undefined ? String(step.value) : '')}" onchange="updateStepField(${idx}, 'value', this.value)" style="width:100px; ${step.operator==='is_null' || step.operator==='is_not_null' ? 'display:none;' : ''}"/>`;
+    } else if (stype === 'sort') {
+      const cols = step.columns || [];
+      const colStr = cols.map(c => `${c.column} ${c.order}`).join(', ');
+      fields = `
+        <label style="font-size:11px; color:var(--text-muted);">Sort columns (comma-separated):</label>
+        <input type="text" placeholder="e.g. date desc, amount asc" value="${escapeHtml(colStr)}" onchange="updateSortStep(${idx}, this.value)" style="width:220px;"/>`;
+    } else if (stype === 'group') {
+        const dims = (step.dimensions || []).join(', ');
+        const agg = step.aggregates?.[0] || { column: '', function: 'sum' };
+        fields = `
+          <div style="display:flex; flex-direction:column; gap:4px;">
+            <label style="font-size:11px; color:var(--text-muted);">Group by (dimensions):</label>
+            <input type="text" placeholder="e.g. region, country" value="${escapeHtml(dims)}" onchange="updateGroupStep(${idx}, 'dimensions', this.value)" style="width:180px;"/>
+            <label style="font-size:11px; color:var(--text-muted);">Aggregate:</label>
+            <div style="display:flex; gap:4px;">
+              <input type="text" placeholder="Column" value="${escapeHtml(agg.column)}" onchange="updateGroupAgg(${idx}, 0, 'column', this.value)" style="width:80px;"/>
+              <select onchange="updateGroupAgg(${idx}, 0, 'function', this.value)">
+                <option value="count" ${agg.function==='count'?'selected':''}>count</option>
+                <option value="sum" ${agg.function==='sum'?'selected':''}>sum</option>
+                <option value="avg" ${agg.function==='avg'?'selected':''}>avg</option>
+                <option value="min" ${agg.function==='min'?'selected':''}>min</option>
+                <option value="max" ${agg.function==='max'?'selected':''}>max</option>
+                <option value="count_distinct" ${agg.function==='count_distinct'?'selected':''}>count_distinct</option>
+              </select>
+            </div>
+          </div>`;
+    } else if (stype === 'limit') {
+      fields = `<input type="number" value="${step.n || 100}" min="1" max="10000" onchange="updateStepField(${idx}, 'n', parseInt(this.value))"/>`;
+    } else if (stype === 'custom_sql') {
+      fields = `<textarea rows="2" style="width:200px; font-family:var(--font-mono);" onchange="updateStepField(${idx}, 'sql', this.value)" placeholder="SELECT * FROM {{previous}}">${escapeHtml(step.sql || '')}</textarea>`;
+    } else if (stype === 'join') {
+        let joinTableOpts = '<option value="">-- Select table --</option>';
+        if (tables.length) {
+          tables.forEach(t => {
+            const sel = step.table === t.name ? 'selected' : '';
+            joinTableOpts += `<option value="${escapeHtml(t.name)}" ${sel}>${escapeHtml(t.name)}</option>`;
+          });
+        }
+        fields = `
+          <div style="display:flex; flex-direction:column; gap:4px;">
+            <div style="display:flex; gap:4px; align-items:center;">
+              <label style="font-size:11px; color:var(--text-muted);">Join with:</label>
+              <select onchange="updateStepField(${idx}, 'table', this.value)" style="width:120px;">${joinTableOpts}</select>
+              <select onchange="updateStepField(${idx}, 'how', this.value)" style="width:80px;">
+                <option value="inner" ${step.how==='inner'?'selected':''}>inner</option>
+                <option value="left" ${step.how==='left'?'selected':''}>left</option>
+                <option value="right" ${step.how==='right'?'selected':''}>right</option>
+                <option value="cross" ${step.how==='cross'?'selected':''}>cross</option>
+              </select>
+            </div>
+            <div style="display:flex; gap:4px; align-items:center;">
+              <input type="text" placeholder="Left column" value="${escapeHtml(step.left_column || '')}" onchange="updateStepField(${idx}, 'left_column', this.value)" style="width:100px;"/>
+              <span style="font-size:11px; color:var(--text-muted);">=</span>
+              <input type="text" placeholder="Right column" value="${escapeHtml(step.right_column || '')}" onchange="updateStepField(${idx}, 'right_column', this.value)" style="width:100px;"/>
+            </div>
+          </div>`;
+    }
+    return `
+      <div class="recipe-step-item" data-idx="${idx}">
+        <span class="step-number">${idx + 1}</span>
+        <select onchange="updateStepType(${idx}, this.value)">
+          <option value="source" ${stype==='source'?'selected':''}>source</option>
+          <option value="filter" ${stype==='filter'?'selected':''}>filter</option>
+          <option value="sort" ${stype==='sort'?'selected':''}>sort</option>
+          <option value="group" ${stype==='group'?'selected':''}>group</option>
+          <option value="limit" ${stype==='limit'?'selected':''}>limit</option>
+          <option value="custom_sql" ${stype==='custom_sql'?'selected':''}>custom_sql</option>
+          <option value="join" ${stype==='join'?'selected':''}>join</option>
+        </select>
+        <div class="step-fields">${fields}</div>
+        <button onclick="removeStep(${idx})">✕</button>
+      </div>
+    `;
+  }
+// --- Step manipulation ---
+function addStep() {
+  if (currentRecipeSteps.length >= 20) { alert('Max 20 steps'); return; }
+
+  currentRecipeSteps.push({ type: 'filter', column: '', operator: '==', value: '' });
+  renderRecipeEditor();
+}
+
+function removeStep(idx) {
+  if (idx === 0) { alert('Cannot remove source step'); return; }
+  currentRecipeSteps.splice(idx, 1);
+  renderRecipeEditor();
+}
+
+function updateStepType(idx, newType) {
+  currentRecipeSteps[idx] = { type: newType };
+  renderRecipeEditor();
+}
+
+function updateStepField(idx, field, value) {
+  currentRecipeSteps[idx][field] = value;
+}
+
+function updateSortStep(idx, val) {
+  const parts = val.split(',').map(s => s.trim()).filter(Boolean);
+  currentRecipeSteps[idx].columns = parts.map(p => {
+    const [col, order] = p.split(/\s+/);
+    return { column: col, order: order || 'asc' };
+  });
+}
+
+function updateGroupStep(idx, field, val) {
+  if (field === 'dimensions') {
+    currentRecipeSteps[idx].dimensions = val.split(',').map(s => s.trim()).filter(Boolean);
+  } else {
+    currentRecipeSteps[idx].aggregates = val.split(',').map(s => s.trim()).filter(Boolean).map(p => {
+      const [col, fn] = p.split(':');
+      return { column: col, function: fn || 'sum' };
+    });
+  }
+}
+
+// ─── Actions ───
+async function previewRecipe() {
+  const area = document.getElementById('recipe-preview-area');
+  const errEl = document.getElementById('recipe-preview-error');
+  const sqlEl = document.getElementById('recipe-sql-preview');
+  const gridEl = document.getElementById('recipe-result-grid');
+  if (area) area.style.display = 'block';
+  if (errEl) errEl.style.display = 'none';
+  if (sqlEl) sqlEl.textContent = 'Loading...';
+  if (gridEl) gridEl.innerHTML = 'Loading...';
+  try {
+    const resp = await fetch(`${API_BASE}/recipe/preview`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ steps: currentRecipeSteps })
+    });
+    const data = await resp.json();
+    if (data.error) {
+      if (errEl) { errEl.textContent = data.error; errEl.style.display = 'block'; }
+      if (gridEl) gridEl.innerHTML = '';
+      if (sqlEl) sqlEl.textContent = '';
+      return;
+    }
+    if (sqlEl) sqlEl.textContent = data.sql_preview || '';
+    if (gridEl) renderPreviewGrid(gridEl, data.columns, data.rows);
+  } catch (e) {
+    if (errEl) { errEl.textContent = 'Preview failed: ' + e; errEl.style.display = 'block'; }
+  }
+}
+
+
+function updateFilterOperator(idx, op) {
+  currentRecipeSteps[idx].operator = op;
+  renderRecipeEditor();
+}
+function updateGroupAgg(idx, aggIdx, field, value) {
+  if (!currentRecipeSteps[idx].aggregates) {
+    currentRecipeSteps[idx].aggregates = [];
+  }
+  if (!currentRecipeSteps[idx].aggregates[aggIdx]) {
+    currentRecipeSteps[idx].aggregates[aggIdx] = { column: '', function: 'sum' };
+  }
+  currentRecipeSteps[idx].aggregates[aggIdx][field] = value;
+}
+function renderPreviewGrid(container, columns, rows) {
+  if (!columns.length) { container.innerHTML = '<p>No data.</p>'; return; }
+  let html = '<table class="preview-grid"><thead><tr>';
+  columns.forEach(c => html += `<th>${escapeHtml(c)}</th>`);
+  html += '</tr></thead><tbody>';
+  rows.forEach(row => {
+    html += '<tr>';
+    columns.forEach(c => {
+      const v = row[c] !== undefined ? String(row[c]) : '';
+      html += `<td>${escapeHtml(v)}</td>`;
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  container.innerHTML = html;
+}
+
+async function saveRecipe() {
+  const name = prompt('Recipe name:', currentRecipeName || 'My Recipe');
+  if (!name) return;
+  currentRecipeName = name;
+  try {
+    const resp = await fetch(`${API_BASE}/recipe/save`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name, steps: currentRecipeSteps })
+    });
+    const data = await resp.json();
+    if (data.error) { alert('Save failed: ' + data.error); return; }
+    currentRecipeSlug = data.slug;
+    alert('Recipe saved!');
+  } catch (e) {
+    alert('Save failed: ' + e);
+  }
+}
+
+async function exportRecipe(format) {
+  try {
+    const resp = await fetch(`${API_BASE}/recipe/export`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ format: format, steps: currentRecipeSteps, slug: currentRecipeSlug || 'recipe' })
+    });
+    const data = await resp.json();
+    if (data.error) { alert('Export failed: ' + data.error); return; }
+    alert('Exported to ' + data.filename);
+  } catch (e) {
+    alert('Export failed: ' + e);
+  }
+}
+
+async function loadRecipe(slug) {
+  try {
+    const resp = await fetch(`${API_BASE}/recipes`);
+    const data = await resp.json();
+    const recipe = (data.recipes || []).find(r => r.slug === slug);
+    if (!recipe) { alert('Recipe not found'); return; }
+    currentRecipeName = recipe.name;
+    currentRecipeSlug = recipe.slug;
+    currentRecipeSteps = [{ type: 'source', table: '' }];
+    renderRecipeEditor();
+  } catch (e) {
+    alert('Load failed: ' + e);
+  }
+}
+
     </script>
 </body>
 </html>
