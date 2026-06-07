@@ -20,8 +20,9 @@
       "console": "integratedTerminal",
       "args": [
         "--model-str",
-        "ollama/kimi-k2.6:cloud"
+        "ollama/kimi-k2.6:cloud",
         // "ollama/deepseek-v4-flash:cloud"
+        "--first"
       ]
     },
     {
