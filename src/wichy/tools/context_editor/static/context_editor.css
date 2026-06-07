@@ -456,6 +456,63 @@
   color: var(--text-muted);
   margin-bottom: var(--space-xs);
 }
+.ta-msg-content {
+  white-space: pre-wrap;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.ta-msg-toolcall-id {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  margin-top: var(--space-xs);
+}
+
+.ta-msg-toolcalls {
+  margin-top: var(--space-sm);
+  padding: var(--space-sm);
+  background: var(--background);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.ta-msg-toolcall-item {
+  margin-bottom: var(--space-sm);
+  padding: var(--space-sm);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.ta-msg-toolcall-item:last-child {
+  margin-bottom: 0;
+}
+
+.ta-msg-toolcall-name {
+  font-weight: 600;
+  font-size: var(--font-size-xs);
+  margin-bottom: 2px;
+}
+
+.ta-msg-toolcall-id-small {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  margin-bottom: var(--space-xs);
+}
+
+.ta-msg-toolcall-args {
+  white-space: pre-wrap;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  background: var(--background);
+  padding: var(--space-xs);
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+  margin: 0;
+}
 
 /* Steer footer inside modal */
 .ta-steer-footer {

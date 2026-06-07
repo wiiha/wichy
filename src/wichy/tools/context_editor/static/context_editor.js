@@ -668,6 +668,54 @@ function startModalContextPolling(agentId) {
     modalContextInterval = setInterval(pollModalContext, TASK_AGENTS_POLL_INTERVAL);
 }
 
+
+/**
+ * Render a single message for the task agent context modal.
+ * Mirrors the root context editor's rendering:
+ * - tool_calls are shown with name + formatted arguments
+ * - content preserves newlines via CSS `white-space: pre-wrap`
+ * - tool_call_id badge shown for tool responses
+ */
+function renderModalMessage(m) {
+    const role = escapeHtml(m.role || 'unknown');
+    const content = m.content || '';
+    const toolCalls = m.tool_calls || null;
+    const toolCallId = m.tool_call_id || null;
+
+    let html = `\n        <div class="ta-msg">\n            <div class="ta-msg-role">${role}</div>\n`;
+
+    // Content text
+    html += `            <div class="ta-msg-content">${escapeHtml(String(content))}</div>\n`;
+
+    // Tool call ID badge (for tool responses)
+    if (toolCallId) {
+        html += `            <div class="ta-msg-toolcall-id">🔗 ${escapeHtml(toolCallId)}</div>\n`;
+    }
+
+    // Tool calls section (for assistant messages that initiated tool calls)
+    if (toolCalls && Array.isArray(toolCalls) && toolCalls.length > 0) {
+        html += '            <div class="ta-msg-toolcalls">\n';
+        toolCalls.forEach(tc => {
+            const fnName = tc.function?.name || 'unknown';
+            const fnArgs = tc.function?.arguments || '{}';
+            const tcId = tc.id || '';
+            html += '                <div class="ta-msg-toolcall-item">\n';
+            html += `                    <div class="ta-msg-toolcall-name">🔧 ${escapeHtml(fnName)}</div>\n`;
+            html += `                    <div class="ta-msg-toolcall-id-small">ID: ${escapeHtml(tcId)}</div>\n`;
+            try {
+                const parsedArgs = typeof fnArgs === 'string' ? JSON.parse(fnArgs) : fnArgs;
+                html += `                    <pre class="ta-msg-toolcall-args">${escapeHtml(JSON.stringify(parsedArgs, null, 2))}</pre>\n`;
+            } catch (e) {
+                html += `                    <pre class="ta-msg-toolcall-args">${escapeHtml(fnArgs)}</pre>\n`;
+            }
+            html += '                </div>\n';
+        });
+        html += '            </div>\n';
+    }
+
+    html += '        </div>\n';
+    return html;
+}
 function stopModalContextPolling() {
     if (modalContextInterval) {
         clearInterval(modalContextInterval);
@@ -699,12 +747,7 @@ async function pollModalContext() {
         }
 
         const wasAtBottom = isModalScrolledNearBottom();
-        body.innerHTML = msgs.map(m => `
-            <div class="ta-msg">
-                <div class="ta-msg-role">${escapeHtml(m.role)}</div>
-                <div class="ta-msg-content">${escapeHtml(String(m.content || ''))}</div>
-            </div>
-        `).join('');
+          body.innerHTML = msgs.map(m => renderModalMessage(m)).join('');
         if (wasAtBottom) {
             body.scrollTop = body.scrollHeight;
         }
