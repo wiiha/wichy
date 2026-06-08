@@ -42,14 +42,20 @@ def validate_recipe(steps: list[dict], get_columns: Callable[[str], set[str]]) -
     if steps[0].get("type") != "source":
         raise ValidationError("First step must be 'source'")
 
+    if len(steps) > MAX_STEPS:
+        raise ValidationError(f"Max {MAX_STEPS} steps allowed")
+
     available_cols: set[str] = set()
     current_table = steps[0].get("table", "")
     if current_table:
         available_cols = get_columns(current_table)
 
+    strict_validation = True
     for i, step in enumerate(steps):
         stype = step.get("type", "")
-        _validate_step(stype, step, available_cols, i)
+        _validate_step(stype, step, available_cols, i, strict_validation)
+        if stype == "custom_sql":
+            strict_validation = False
         if stype == "group":
             dims = step.get("dimensions", [])
             aggs = step.get("aggregates", [])
@@ -68,7 +74,8 @@ def validate_recipe(steps: list[dict], get_columns: Callable[[str], set[str]]) -
                 available_cols = available_cols | other_cols
 
 
-def _validate_step(stype: str, step: dict, available_cols: set[str], idx: int) -> None:
+
+def _validate_step(stype: str, step: dict, available_cols: set[str], idx: int, strict_validation: bool = True) -> None:
     prefix = f"Step {idx + 1} ({stype}): "
     if stype == "source":
         if not step.get("table"):
@@ -80,7 +87,7 @@ def _validate_step(stype: str, step: dict, available_cols: set[str], idx: int) -
             raise ValidationError(f"{prefix}Missing 'column'")
         if op not in FILTER_OPS:
             raise ValidationError(f"{prefix}Invalid operator '{op}'")
-        if available_cols and col not in available_cols:
+        if strict_validation and available_cols and col not in available_cols:
             raise ValidationError(f"{prefix}Unknown column '{col}'")
         if op not in ("is_null", "is_not_null") and "value" not in step:
             raise ValidationError(f"{prefix}Missing 'value' for operator '{op}'")
@@ -95,7 +102,7 @@ def _validate_step(stype: str, step: dict, available_cols: set[str], idx: int) -
                 raise ValidationError(f"{prefix}Missing sort column name")
             if order.lower() not in SORT_ORDERS:
                 raise ValidationError(f"{prefix}Invalid sort order '{order}'")
-            if available_cols and col_name not in available_cols:
+            if strict_validation and available_cols and col_name not in available_cols:
                 raise ValidationError(f"{prefix}Unknown column '{col_name}'")
     elif stype == "group":
         dims = step.get("dimensions", [])
@@ -103,14 +110,14 @@ def _validate_step(stype: str, step: dict, available_cols: set[str], idx: int) -
         if not dims and not aggs:
             raise ValidationError(f"{prefix}Requires 'dimensions' or 'aggregates'")
         for dim in dims:
-            if available_cols and dim not in available_cols:
+            if strict_validation and available_cols and dim not in available_cols:
                 raise ValidationError(f"{prefix}Unknown dimension '{dim}'")
         for a in aggs:
             fn = a.get("function", "")
             col = a.get("column", "")
             if fn not in AGG_FUNCS:
                 raise ValidationError(f"{prefix}Invalid aggregate function '{fn}'")
-            if available_cols and col not in available_cols:
+            if strict_validation and available_cols and col not in available_cols:
                 raise ValidationError(f"{prefix}Unknown aggregate column '{col}'")
     elif stype == "limit":
         n = step.get("n", 100)
@@ -133,7 +140,7 @@ def _validate_step(stype: str, step: dict, available_cols: set[str], idx: int) -
             raise ValidationError(f"{prefix}Missing join columns")
         if how not in JOIN_TYPES:
             raise ValidationError(f"{prefix}Invalid join type '{how}'")
-        if available_cols and left_col not in available_cols:
+        if strict_validation and available_cols and left_col not in available_cols:
             raise ValidationError(f"{prefix}Unknown left column '{left_col}'")
     else:
         raise ValidationError(f"{prefix}Unknown step type '{stype}'")

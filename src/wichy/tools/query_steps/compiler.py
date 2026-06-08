@@ -25,6 +25,13 @@ class CompileError(ValueError):
     pass
 
 
+def _escape_id(value: str | None) -> str:
+    """Escape a SQL identifier by doubling literal double quotes."""
+    if value is None:
+        return ""
+    return str(value).replace('"', '""')
+
+
 def compile_recipe(steps: list[dict]) -> tuple[str, list[Any]]:
     """Compile recipe steps into a CTE SQL string and parameters.
 
@@ -53,12 +60,13 @@ def compile_recipe(steps: list[dict]) -> tuple[str, list[Any]]:
     table = src_step.get("table", "")
     if not table:
         raise CompileError("Source step requires 'table'")
-    ctes.append(f'step_0 AS (SELECT * FROM "{table}")')
+    ctes.append(f'step_0 AS (SELECT * FROM "{_escape_id(table)}")')
 
     # Subsequent steps
     for i, step in enumerate(steps[1:], start=1):
         prev = f"step_{i - 1}"
         stype = step.get("type")
+
         if stype == "filter":
             sql, p = _compile_filter(step, prev)
         elif stype == "sort":
@@ -94,15 +102,17 @@ def _compile_filter(step: dict, prev: str) -> tuple[str, list]:
     if not col:
         raise CompileError("Filter step requires 'column'")
 
+    safe_col = _escape_id(col)
+
     if op in ("is_null", "is_not_null"):
         null_op = "IS NULL" if op == "is_null" else "IS NOT NULL"
-        return f'SELECT * FROM {prev} WHERE "{col}" {null_op}', []
+        return f'SELECT * FROM {prev} WHERE "{safe_col}" {null_op}', []
     elif op == "contains":
-        return f'SELECT * FROM {prev} WHERE "{col}" LIKE ?', [f"%{val}%"]
+        return f'SELECT * FROM {prev} WHERE "{safe_col}" LIKE ?', [f"%{val}%"]
     elif op == "starts_with":
-        return f'SELECT * FROM {prev} WHERE "{col}" LIKE ?', [f"{val}%"]
+        return f'SELECT * FROM {prev} WHERE "{safe_col}" LIKE ?', [f"{val}%"]
     else:
-        return f'SELECT * FROM {prev} WHERE "{col}" {op} ?', [val]
+        return f'SELECT * FROM {prev} WHERE "{safe_col}" {op} ?', [val]
 
 
 def _compile_sort(step: dict, prev: str) -> str:
@@ -115,7 +125,7 @@ def _compile_sort(step: dict, prev: str) -> str:
         order = c.get("order", "asc").upper()
         if order not in ("ASC", "DESC"):
             raise CompileError(f"Invalid sort order: {order}")
-        parts.append(f'"{name}" {order}')
+        parts.append(f'"{_escape_id(name)}" {order}')
     order_by = ", ".join(parts)
     return f"SELECT * FROM {prev} ORDER BY {order_by}"
 
@@ -126,26 +136,27 @@ def _compile_group(step: dict, prev: str) -> str:
     if not dims and not aggs:
         raise CompileError("Group step requires 'dimensions' or 'aggregates'")
 
-    dim_str = ", ".join(f'"{d}"' for d in dims) if dims else ""
+    dim_str = ", ".join(f'"{_escape_id(d)}"' for d in dims) if dims else ""
     agg_parts = []
     for a in aggs:
         fn = a.get("function", "")
         col = a.get("column", "")
         if fn not in AGG_FUNCS:
             raise CompileError(f"Invalid aggregate function: {fn}")
+        safe_col = _escape_id(col)
         if fn == "count_distinct":
-            agg_parts.append(f'COUNT(DISTINCT "{col}") AS "{col}_count_distinct"')
+            agg_parts.append(f'COUNT(DISTINCT "{safe_col}") AS "{safe_col}_count_distinct"')
         elif fn == "count":
-            agg_parts.append(f'COUNT(*) AS "{col}_count"')
+            agg_parts.append(f'COUNT(*) AS "{safe_col}_count"')
         else:
-            agg_parts.append(f'{fn.upper()}("{col}") AS "{col}_{fn}"')
+            agg_parts.append(f'{fn.upper()}("{safe_col}") AS "{safe_col}_{fn}"')
 
     select_parts = []
     if dim_str:
         select_parts.append(dim_str)
     select_parts.extend(agg_parts)
     select_clause = ", ".join(select_parts)
-    group_clause = ", ".join(f'"{d}"' for d in dims) if dims else ""
+    group_clause = ", ".join(f'"{_escape_id(d)}"' for d in dims) if dims else ""
     if group_clause:
         return f"SELECT {select_clause} FROM {prev} GROUP BY {group_clause}"
     return f"SELECT {select_clause} FROM {prev}"
@@ -164,7 +175,7 @@ def _compile_custom_sql(step: dict, prev: str) -> tuple[str, list]:
         raise CompileError("Custom SQL step requires 'sql'")
     if "{{previous}}" not in sql:
         raise CompileError("Custom SQL must contain {{previous}} placeholder")
-    replaced = sql.replace("{{previous}}", prev)
+    replaced = sql.replace("{{previous}}", prev).strip().rstrip(";")
     lowered = replaced.lower()
     for forbidden in ("insert", "update", "delete", "drop", "create", "alter"):
         if re.search(rf"\b{forbidden}\b", lowered):
@@ -182,6 +193,6 @@ def _compile_join(step: dict, prev: str) -> tuple[str, list]:
     if not table or not left_col or not right_col:
         raise CompileError("Join step requires 'table', 'left_column', 'right_column'")
     return (
-        f'SELECT * FROM {prev} {how} JOIN "{table}" ON {prev}."{left_col}" = "{table}"."{right_col}"',
+        f'SELECT * FROM {prev} {how} JOIN "{_escape_id(table)}" ON {prev}."{_escape_id(left_col)}" = "{_escape_id(table)}"."{_escape_id(right_col)}"',
         [],
     )

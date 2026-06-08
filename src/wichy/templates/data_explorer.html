@@ -792,6 +792,13 @@
           overflow-y: auto;
           border: 1px solid var(--border);
         }
+/* Sidebar collapse toggle */
+#sidebar { position: relative; transition: width 0.3s ease; overflow: hidden; }
+#sidebar.collapsed { width: 40px !important; }
+#sidebar.collapsed .sidebar-content { display: none; }
+#sidebar.collapsed h2 { display: none; }
+#sidebar.collapsed #table-count { display: none; }
+#sidebar-toggle { position: absolute; top: 8px; right: 4px; padding: 2px 6px; font-size: 12px; cursor: pointer; }
     </style>
 </head>
 <body>
@@ -813,17 +820,20 @@
         <!-- Main Layout -->
         <main class="main-layout">
             <!-- Sidebar: Tables List -->
-            <aside class="sidebar">
+            <aside class="sidebar" id="sidebar">
                 <div class="sidebar-header">
                     <h2>Tables</h2>
+                    <button id="sidebar-toggle" onclick="toggleSidebar()" title="Toggle sidebar">◀</button>
                     <div id="table-count" class="table-count">Loading...</div>
                 </div>
-                <div class="sidebar-search">
-                    <input type="text" id="table-search" placeholder="Search tables...">
-                </div>
-                <button id="recipes-btn" onclick="showRecipesView()">📝 Recipes</button>
-                <div id="tables-list" class="tables-list">
-                    <!-- Tables rendered here -->
+                <div class="sidebar-content">
+                    <div class="sidebar-search">
+                        <input type="text" id="table-search" placeholder="Search tables...">
+                    </div>
+                    <button id="recipes-btn" onclick="showRecipesView()">📝 Recipes</button>
+                    <div id="tables-list" class="tables-list">
+                        <!-- Tables rendered here -->
+                    </div>
                 </div>
             </aside>
 
@@ -1514,6 +1524,13 @@ function renderSortInputWithDatalist(idx, currentVal, width) {
   ]).join('');
   return `<input type="text" list="${datalistId}" placeholder="e.g. date desc, amount asc" value="${escapeHtml(currentVal || '')}" onchange="updateSortStep(${idx}, this.value)" style="width:${width || '220px'};"/><datalist id="${datalistId}">${listOpts}</datalist>`;
 }
+function toggleSidebar() {
+  const sb = document.getElementById('sidebar');
+  sb.classList.toggle('collapsed');
+  const btn = document.getElementById('sidebar-toggle');
+  if (btn) btn.innerHTML = sb.classList.contains('collapsed') ? '▶' : '◀';
+}
+
 function renderRecipeEditor() {
   const container = document.getElementById('main-content');
   let html = `
@@ -1523,7 +1540,8 @@ function renderRecipeEditor() {
         <button onclick="previewRecipe()" style="padding:var(--space-sm) var(--space-lg); font-size:var(--font-size-base);">▶ Preview</button>
         <button onclick="saveRecipe()" style="padding:var(--space-sm) var(--space-lg); font-size:var(--font-size-base);">💾 Save</button>
         <button onclick="exportRecipe('sql')" style="padding:var(--space-sm) var(--space-lg); font-size:var(--font-size-base);">SQL</button>
-        <button onclick="exportRecipe('python')" style="padding:var(--space-sm) var(--space-lg); font-size:var(--font-size-base);">Python</button>        <button onclick="showRecipesView()" style="padding:var(--space-sm) var(--space-lg); font-size:var(--font-size-base);">← Back</button>
+        <button onclick="exportRecipe('python')" style="padding:var(--space-sm) var(--space-lg); font-size:var(--font-size-base);">Python</button>
+        <button onclick="showRecipesView()" style="padding:var(--space-sm) var(--space-lg); font-size:var(--font-size-base);">← Back</button>
       </div>
     </div>
     <div id="recipe-steps-list">
@@ -1541,11 +1559,11 @@ function renderRecipeEditor() {
       <div id="recipe-preview-error" style="color:var(--warning-text); display:none;"></div>
     </div>
   `;
-    const oldSql = document.getElementById('recipe-sql-preview')?.textContent || '';
-    const oldGrid = document.getElementById('recipe-result-grid')?.innerHTML || '';
   container.innerHTML = html;
-    if (oldSql) document.getElementById('recipe-sql-preview').textContent = oldSql;
-    if (oldGrid) document.getElementById('recipe-result-grid').innerHTML = oldGrid;
+  const oldSql = document.getElementById('recipe-sql-preview')?.textContent || '';
+  const oldGrid = document.getElementById('recipe-result-grid')?.innerHTML || '';
+  if (oldSql) document.getElementById('recipe-sql-preview').textContent = oldSql;
+  if (oldGrid) document.getElementById('recipe-result-grid').innerHTML = oldGrid;
   const staleEl = document.getElementById('recipe-stale-banner');
   if (staleEl) {
     const currentStr = JSON.stringify(currentRecipeSteps);
@@ -1623,7 +1641,7 @@ function renderStepForm(step, idx) {
     } else if (stype === 'limit') {
       fields = `<input type="number" value="${step.n || 100}" min="1" max="10000" onchange="updateStepField(${idx}, 'n', parseInt(this.value))"/>`;
     } else if (stype === 'custom_sql') {
-      fields = `<textarea rows="2" style="width:200px; font-family:var(--font-mono);" onchange="updateStepField(${idx}, 'sql', this.value)" placeholder="SELECT * FROM {{previous}}">${escapeHtml(step.sql || '')}</textarea>`;
+      fields = `<textarea rows="2" style="width:200px; font-family:var(--font-mono);" onchange="updateStepField(${idx}, 'sql', this.value)" placeholder="SELECT * FROM {{ '{{' }}previous{{ '}}' }}">${escapeHtml(step.sql || '')}</textarea>`;
     } else if (stype === 'join') {
         let joinTableOpts = '<option value="">-- Select table --</option>';
         if (tables.length) {
@@ -1656,10 +1674,16 @@ function renderStepForm(step, idx) {
             </div>
           </div>`;
     }
+    const canMoveUp = idx > 0;
+    const canMoveDown = idx < currentRecipeSteps.length - 1;
+    const canInsert = true;
     return `
       <div class="recipe-step-item" data-idx="${idx}">
         <span class="step-number">${idx + 1}</span>
         <button onclick="previewRecipeUpTo(${idx})" title="Preview up to this step" style="font-size:var(--font-size-base); padding:var(--space-xs) var(--space-sm);">👁</button>
+        <button onclick="moveStepUp(${idx})" ${canMoveUp ? '' : 'disabled'} title="Move up" style="font-size:var(--font-size-base); padding:var(--space-xs) var(--space-sm); margin-left:2px;">▲</button>
+        <button onclick="moveStepDown(${idx})" ${canMoveDown ? '' : 'disabled'} title="Move down" style="font-size:var(--font-size-base); padding:var(--space-xs) var(--space-sm);">▼</button>
+        <button onclick="insertStepBelow(${idx})" ${canInsert ? '' : 'disabled'} title="Insert below" style="font-size:var(--font-size-base); padding:var(--space-xs) var(--space-sm);">+</button>
         <button onclick="removeStep(${idx})" title="Remove step" style="font-size:var(--font-size-base); padding:var(--space-xs) var(--space-sm); margin-left:2px;">✕</button>
         <select onchange="updateStepType(${idx}, this.value)">
           <option value="source" ${stype==='source'?'selected':''}>source</option>
@@ -1677,8 +1701,8 @@ function renderStepForm(step, idx) {
 // --- Step manipulation ---
 function addStep() {
   if (currentRecipeSteps.length >= 20) { alert('Max 20 steps'); return; }
-
   currentRecipeSteps.push({ type: 'filter', column: '', operator: '==', value: '' });
+  stepSchemaCache.clear();
   renderRecipeEditor();
 }
 
@@ -1695,6 +1719,26 @@ function updateStepType(idx, newType) {
   renderRecipeEditor();
 }
 
+function moveStepUp(idx) {
+  if (idx <= 0) return;
+  [currentRecipeSteps[idx - 1], currentRecipeSteps[idx]] = [currentRecipeSteps[idx], currentRecipeSteps[idx - 1]];
+  stepSchemaCache.clear();
+  renderRecipeEditor();
+}
+
+function moveStepDown(idx) {
+  if (idx >= currentRecipeSteps.length - 1) return;
+  [currentRecipeSteps[idx], currentRecipeSteps[idx + 1]] = [currentRecipeSteps[idx + 1], currentRecipeSteps[idx]];
+  stepSchemaCache.clear();
+  renderRecipeEditor();
+}
+
+function insertStepBelow(idx) {
+  currentRecipeSteps.splice(idx + 1, 0, { type: 'filter' });
+  stepSchemaCache.clear();
+  renderRecipeEditor();
+}
+
 function updateStepField(idx, field, value) {
   currentRecipeSteps[idx][field] = value;
 }
@@ -1702,8 +1746,13 @@ function updateStepField(idx, field, value) {
 function updateSortStep(idx, val) {
   const parts = val.split(',').map(s => s.trim()).filter(Boolean);
   currentRecipeSteps[idx].columns = parts.map(p => {
-    const [col, order] = p.split(/\s+/);
-    return { column: col, order: order || 'asc' };
+    const words = p.split(/\s+/);
+    const last = words[words.length - 1].toLowerCase();
+    if (last === 'asc' || last === 'desc') {
+      words.pop();
+      return { column: words.join(' '), order: last };
+    }
+    return { column: words.join(' '), order: 'asc' };
   });
 }
 
