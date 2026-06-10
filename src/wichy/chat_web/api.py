@@ -46,3 +46,64 @@ def register_routes(bp: Blueprint) -> None:
             return jsonify({"status": "ok"})
         except Exception as e:
             return jsonify({"error": str(e)}), 502
+
+    @bp.route("/api/verifications/<vid>/resolve", methods=["POST"])
+    def resolve_verification(vid: str):
+        data = request.get_json(silent=True) or {}
+        approved = bool(data.get("approved", False))
+        reason = str(data.get("reason", ""))
+
+        import requests
+
+        port = get_server_port()
+        if port is None:
+            return jsonify({"error": "server not running"}), 503
+
+        base = f"http://127.0.0.1:{port}"
+        try:
+            resp = requests.post(
+                f"{base}/server/api/verifications/{vid}",
+                json={"approved": approved, "reason": reason},
+                timeout=5.0,
+            )
+            _ = resp.text
+            if resp.status_code == 404:
+                return jsonify({"error": "not found"}), 404
+            if resp.status_code != 200:
+                return jsonify({"error": f"server returned {resp.status_code}"}), 502
+
+            state.resolve_verification(vid, approved)
+            return jsonify({"status": "ok"})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 502
+
+    @bp.route("/api/questions/<qid>/answer", methods=["POST"])
+    def answer_question(qid: str):
+        data = request.get_json(silent=True) or {}
+        answers = data.get("answers")
+        if not isinstance(answers, dict):
+            return jsonify({"error": "answers dict required"}), 400
+
+        import requests
+
+        port = get_server_port()
+        if port is None:
+            return jsonify({"error": "server not running"}), 503
+
+        base = f"http://127.0.0.1:{port}"
+        try:
+            resp = requests.post(
+                f"{base}/server/api/questions/{qid}",
+                json={"answers": answers},
+                timeout=5.0,
+            )
+            _ = resp.text
+            if resp.status_code == 404:
+                return jsonify({"error": "not found"}), 404
+            if resp.status_code != 200:
+                return jsonify({"error": f"server returned {resp.status_code}"}), 502
+
+            state.resolve_question(qid, answers)
+            return jsonify({"status": "ok"})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 502

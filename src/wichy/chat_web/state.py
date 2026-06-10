@@ -68,7 +68,41 @@ def append(entry: dict[str, Any]) -> None:
                 _rewrite(entries[-MAX_HISTORY:])
 
 
-def create_entry(role: str, content: str, msg_type: str = "message") -> dict[str, Any]:
+def resolve_verification(vid: str, approved: bool) -> None:
+    """Mark a verification entry in history as resolved."""
+    entries = load_history()
+    updated = False
+    for e in entries:
+        v = (e.get("metadata") or {}).get("verification")
+        if v and v.get("id") == vid and not v.get("resolved"):
+            v["resolved"] = True
+            v["approved"] = approved
+            e["metadata"] = e.get("metadata", {})
+            e["metadata"]["verification"] = v
+            updated = True
+            break
+    if updated:
+        _rewrite(entries)
+
+
+def resolve_question(qid: str, answers: dict[str, str]) -> None:
+    """Mark a question entry in history as answered."""
+    entries = load_history()
+    updated = False
+    for e in entries:
+        g = (e.get("metadata") or {}).get("group")
+        if g and g.get("id") == qid and not g.get("answered"):
+            g["answered"] = True
+            g["answers"] = answers
+            e["metadata"] = e.get("metadata", {})
+            e["metadata"]["group"] = g
+            updated = True
+            break
+    if updated:
+        _rewrite(entries)
+
+
+def create_entry(role: str, content: str, msg_type: str = "message", metadata: dict[str, Any] | None = None) -> dict[str, Any]:
     """Create a new history entry."""
     return {
         "id": str(uuid.uuid4()),
@@ -76,4 +110,5 @@ def create_entry(role: str, content: str, msg_type: str = "message") -> dict[str
         "role": role,
         "content": content,
         "type": msg_type,
+        "metadata": metadata or {},
     }
