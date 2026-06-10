@@ -23,6 +23,7 @@ def register_routes(bp: Blueprint) -> None:
         content = str(data.get("content", "")).strip()
         if not content:
             return jsonify({"error": "content required"}), 400
+        msg_type = data.get("type", "message")
 
         import requests
 
@@ -32,16 +33,24 @@ def register_routes(bp: Blueprint) -> None:
 
         base = f"http://127.0.0.1:{port}"
         try:
-            resp = requests.post(
-                f"{base}/server/api/messages",
-                json={"line": content},
-                timeout=5.0,
-            )
+            if msg_type == "steer":
+                resp = requests.post(
+                    f"{base}/server/api/steer",
+                    json={"role": "user", "content": content},
+                    timeout=5.0,
+                )
+            else:
+                resp = requests.post(
+                    f"{base}/server/api/messages",
+                    json={"line": content},
+                    timeout=5.0,
+                )
             _ = resp.text
             if resp.status_code != 200:
                 return jsonify({"error": f"server returned {resp.status_code}"}), 502
 
-            entry = state.create_entry("user", content)
+            role = "steer" if msg_type == "steer" else "user"
+            entry = state.create_entry(role, content)
             state.append(entry)
             return jsonify({"status": "ok"})
         except Exception as e:
