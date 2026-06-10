@@ -31,7 +31,13 @@
       "request": "launch",
       "program": "${workspaceFolder}/src/wichy/__main__.py",
       "console": "integratedTerminal",
-      "args": ["--model-str", "ollama/minimax-m2.7:cloud", "server"]
+      "args": [
+        "--model-str",
+        "ollama/kimi-k2.6:cloud",
+        // "ollama/minimax-m2.7:cloud",
+        "--first",
+        "server"
+      ]
     },
     {
       "name": "Python Debugger: Wichy (with args)",
