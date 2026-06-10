@@ -35,7 +35,7 @@ from wichy.hooks.types import HookType
 from wichy.repl import Repl
 from wichy.root_agent import ALL_ROOT_AGENT_DESC
 from wichy.root_agent.helpers import parse_root_agent_markdown_desc
-from wichy.server import run_server, start_server_in_background
+from wichy.server import run_server, set_server_port, start_server_in_background
 from wichy.skills import SkillLoader
 from wichy.slash_commands import SlashCommandChecker, slash_completer
 from wichy.tool_manager import ToolManager
@@ -400,6 +400,7 @@ def main():
     if args.server_mode:
         session = ChatSession(root_agent=root_agent, cmd_checker=cmd_checker)
         setup_server(root_agent=root_agent)
+        set_server_port(settings.server_port)
         set_server_input_queue(session.input_queue)
         set_server_active_session(session)
         set_interaction_provider(ServerInteractionProvider())

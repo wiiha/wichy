@@ -120,11 +120,12 @@ def create_app() -> Flask:
 
 def register_blueprints(app: Flask) -> None:
     """Register all tool blueprints with the Flask app."""
-    from wichy.tools.graph import register as register_graph
-    from wichy.tools.context_editor import register as register_context_editor
-    from wichy.tools.notes import register as register_notes
-    from wichy.tools.data import register as register_data
+    from wichy.chat_web import register as register_chat
     from wichy.session_map import register as register_session_map
+    from wichy.tools.context_editor import register as register_context_editor
+    from wichy.tools.data import register as register_data
+    from wichy.tools.graph import register as register_graph
+    from wichy.tools.notes import register as register_notes
     from wichy.wichy_server import register as register_server_api
 
     register_graph(app)
@@ -132,6 +133,7 @@ def register_blueprints(app: Flask) -> None:
     register_notes(app)
     register_data(app)
     register_session_map(app)
+    register_chat(app)
     register_server_api(app)
 
 
@@ -172,10 +174,13 @@ def start_server_in_background(port: int | None = None, host: str | None = None)
     # Find an available port
     actual_port = find_available_port(port, host)
 
+    # Set _server_port BEFORE create_app so blueprint registration
+    # (e.g. chat module starting its poller) sees the correct port.
+    _server_port = actual_port
+
     _server_app = create_app()
-    _server_app.logger.info(
-        f"Starting wichy server in background on {host}:{actual_port}"
-    )
+    msg = f"Starting wichy server in background on {host}:{actual_port}"
+    _server_app.logger.info(msg)
 
     def run_app():
         from werkzeug.serving import run_simple
@@ -191,7 +196,6 @@ def start_server_in_background(port: int | None = None, host: str | None = None)
 
     _server_thread = threading.Thread(target=run_app, daemon=True)
     _server_thread.start()
-    _server_port = actual_port
 
     return actual_port
 
@@ -215,9 +219,17 @@ def is_server_running() -> bool:
 
 def get_server_port() -> int | None:
     """Get the port number of the running server, or None if not running."""
+    if _server_port is not None:
+        return _server_port
     if _server_thread is not None and _server_thread.is_alive():
         return _server_port
     return None
+
+
+def set_server_port(port: int) -> None:
+    """Set the server port (used by run_server before create_app)."""
+    global _server_port
+    _server_port = port
 
 
 if __name__ == "__main__":
