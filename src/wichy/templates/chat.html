@@ -23,6 +23,10 @@
         .assistant h1, .assistant h2, .assistant h3, .assistant h4 { margin: 0.75rem 0 0.25rem; }
         .system { color: #888; font-size: 0.85em; text-align: center; background: transparent; font-family: monospace; }
         .timestamp { font-size: 0.7em; color: #999; margin-top: 0.25rem; }
+        .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #ccc; }
+        .empty-state { text-align: center; color: #aaa; padding: 3rem 1rem; font-family: sans-serif; }
+        .status-dot.connected { background: #4caf50; }
+        .status-dot.disconnected { background: #f44336; }
         .verification { border: 1px solid #f0ad4e; background: #fff8e1; padding: 1rem; margin: 0.5rem 0; border-radius: 6px; font-family: sans-serif; }
         .verification .ver-label { font-weight: bold; margin-bottom: 0.5rem; }
         .verification .ver-msg { color: #333; margin-bottom: 0.5rem; }
@@ -48,7 +52,7 @@
 <body>
     <div class="header">
         <h1>Wichy Chat</h1>
-        <span id="status">?</span>
+        <span id="status"><span class="status-dot"></span> <span id="status-text">?</span></span>
     </div>
     <div class="messages" id="messages"></div>
     <div class="input-bar">
@@ -318,9 +322,20 @@
             try {
                 const resp = await fetch('/chat/api/status');
                 const data = await resp.json();
-                status.textContent = data.connected ? 'connected' : 'disconnected';
+                const dot = status.querySelector('.status-dot');
+                const text = document.getElementById('status-text');
+                if (data.connected) {
+                    dot.className = 'status-dot connected';
+                    text.textContent = 'connected';
+                } else {
+                    dot.className = 'status-dot disconnected';
+                    text.textContent = 'disconnected';
+                }
             } catch (e) {
-                status.textContent = 'error';
+                const dot = status.querySelector('.status-dot');
+                const text = document.getElementById('status-text');
+                dot.className = 'status-dot';
+                text.textContent = 'error';
             }
         }
 
