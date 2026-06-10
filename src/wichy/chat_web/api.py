@@ -17,6 +17,11 @@ def register_routes(bp: Blueprint) -> None:
     def get_status():
         return jsonify({"connected": get_server_port() is not None})
 
+    @bp.route("/api/clear", methods=["POST"])
+    def clear_chat():
+        state.clear_history()
+        return jsonify({"status": "ok"})
+
     @bp.route("/api/send", methods=["POST"])
     def send_message():
         data = request.get_json(silent=True) or {}

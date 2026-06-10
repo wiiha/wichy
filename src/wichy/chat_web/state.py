@@ -102,6 +102,16 @@ def resolve_question(qid: str, answers: dict[str, str]) -> None:
         _rewrite(entries)
 
 
+def clear_history() -> None:
+    """Rename current history to a timestamped backup and start fresh."""
+    _ensure_dir()
+    with _file_lock:
+        if HISTORY_FILE.exists():
+            ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+            backup = HISTORY_DIR / f"history_{ts}.jsonl"
+            HISTORY_FILE.rename(backup)
+
+
 def create_entry(role: str, content: str, msg_type: str = "message", metadata: dict[str, Any] | None = None) -> dict[str, Any]:
     """Create a new history entry."""
     return {
