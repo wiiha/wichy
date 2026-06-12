@@ -143,7 +143,9 @@ _server_app: Flask | None = None
 _server_port: int | None = None
 
 
-def run_server(port: int | None = None, host: str | None = None, no_chat: bool = False) -> None:
+def run_server(
+    port: int | None = None, host: str | None = None, no_chat: bool = False
+) -> None:
     """Run the Flask development server in the current thread."""
     if port is None:
         port = settings.server_port

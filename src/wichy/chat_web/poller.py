@@ -163,8 +163,8 @@ def _poll_questions() -> bool:
 def _tick() -> bool:
     try:
         msg_ok = _poll_messages()
-        ver_ok = _poll_verifications()
-        q_ok = _poll_questions()
+        _poll_verifications()
+        _poll_questions()
         return msg_ok  # connection status tracks messages only
     except Exception:
         return False
