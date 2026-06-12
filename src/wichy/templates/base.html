@@ -3,9 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="light dark" />
+    {% block color_scheme %}<meta name="color-scheme" content="light dark" />{% endblock %}
     <title>{% block title %}Wichy{% endblock %}</title>
 
+    {% block theme_script %}
     <!-- FOUC prevention: set theme before any CSS loads -->
     <script>
       (function () {
@@ -17,6 +18,7 @@
         document.documentElement.setAttribute("data-theme", theme);
       })();
     </script>
+    {% endblock %}
 
     <!-- Pico CSS v2 conditional (scoped to .pico containers) -->
     <link
@@ -32,6 +34,9 @@
 
     <!-- Page-specific CSS -->
     {% block extra_css %}{% endblock %}
+
+    <!-- Head-level JS (e.g. vis-network) -->
+    {% block head_scripts %}{% endblock %}
   </head>
   <body>
     {% block body %}{% endblock %}

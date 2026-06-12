@@ -1,10 +1,14 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Wichy - Data Explorer</title>
-    <link rel="stylesheet" href="/shared/shared.css">
+{% extends "base.html" %}
+
+{% block title %}Wichy - Data Explorer{% endblock %}
+
+{% block color_scheme %}
+<meta name="color-scheme" content="light" />
+{% endblock %}
+
+{% block theme_script %}{% endblock %}
+
+{% block extra_css %}
     <style>
         /* Data Explorer specific styles */
         body {
@@ -800,8 +804,9 @@
 #sidebar.collapsed #table-count { display: none; }
 #sidebar-toggle { position: absolute; top: 8px; right: 4px; padding: 2px 6px; font-size: 12px; cursor: pointer; }
     </style>
-</head>
-<body>
+{% endblock %}
+
+{% block body %}
     <div class="page-container">
         <!-- Page Header -->
         <header class="page-header">
@@ -1931,5 +1936,4 @@ async function loadRecipe(slug) {
 
 
     </script>
-</body>
-</html>
+{% endblock %}

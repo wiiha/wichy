@@ -1,11 +1,14 @@
-<!doctype html>
-<html>
-  <head>
-    <title>Graph Editor</title>
-    <script
-      type="text/javascript"
-      src="/tools/graph/static/vis-network.min.js"
-    ></script>
+{% extends "base.html" %}
+
+{% block title %}Graph Editor{% endblock %}
+
+{% block color_scheme %}
+<meta name="color-scheme" content="light" />
+{% endblock %}
+
+{% block theme_script %}{% endblock %}
+
+{% block extra_css %}
     <link
       href="/tools/graph/static/vis-network.min.css"
       rel="stylesheet"
@@ -410,8 +413,16 @@
         margin-left: var(--space-sm);
       }
     </style>
-  </head>
-  <body>
+{% endblock %}
+
+{% block head_scripts %}
+    <script
+      type="text/javascript"
+      src="/tools/graph/static/vis-network.min.js"
+    ></script>
+{% endblock %}
+
+{% block body %}
     <div id="header">
       <div class="header-row">
         <h1>Graph Editor</h1>
@@ -1647,9 +1658,7 @@ Bob,Charlie,reports_to"></textarea>
       <div style="display:flex; justify-content:flex-end; margin-top:var(--space-md);">
         <button onclick="closeImportWizard()">Close &amp; View Graph</button>
       </div>
+      </div>
     </div>
   </div>
-</div>
-
-  </body>
-</html>
+{% endblock %}

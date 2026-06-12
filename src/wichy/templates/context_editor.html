@@ -1,13 +1,18 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Wichy - Context Editor</title>
-    <link rel="stylesheet" href="/shared/shared.css">
-    <link rel="stylesheet" href="{{ url_for('context_editor.static', filename='context_editor.css') }}">
-</head>
-<body>
+{% extends "base.html" %}
+
+{% block title %}Wichy - Context Editor{% endblock %}
+
+{% block color_scheme %}
+<meta name="color-scheme" content="light" />
+{% endblock %}
+
+{% block theme_script %}{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('context_editor.static', filename='context_editor.css') }}">
+{% endblock %}
+
+{% block body %}
     <div class="container">
         <header class="header-simple">
             <div>
@@ -146,7 +151,8 @@
             </div>
         </div>
     </div>
+{% endblock %}
 
-    <script src="{{ url_for('context_editor.static', filename='context_editor.js') }}"></script>
-</body>
-</html>
+{% block extra_js %}
+<script src="{{ url_for('context_editor.static', filename='context_editor.js') }}"></script>
+{% endblock %}

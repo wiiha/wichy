@@ -1,153 +1,158 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Wichy - Web Tools</title>
-    <link rel="stylesheet" href="/shared/shared.css">
-    <style>
-        /* Landing page specific styles */
-        .hero {
-            background: var(--gradient-primary);
-            color: white;
-            padding: var(--space-3xl);
-            text-align: center;
-        }
-        
+{% extends "base.html" %}
+
+{% block title %}Wichy - Web Tools{% endblock %}
+
+{% block color_scheme %}
+<meta name="color-scheme" content="light" />
+{% endblock %}
+
+{% block theme_script %}{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* Landing page specific styles */
+    .hero {
+        background: var(--gradient-primary);
+        color: white;
+        padding: var(--space-3xl);
+        text-align: center;
+    }
+    
+    .hero-title {
+        font-size: 2.5rem;
+        margin-bottom: var(--space-sm);
+        font-weight: 700;
+    }
+    
+    .hero-subtitle {
+        font-size: 1.1rem;
+        opacity: 0.9;
+        margin-bottom: var(--space-xl);
+    }
+    
+    .hero-status {
+        background: rgba(255, 255, 255, 0.2);
+        padding: var(--space-sm) var(--space-xl);
+        border-radius: var(--radius-full);
+        display: inline-block;
+        font-size: var(--font-size-sm);
+    }
+    
+    .tools-section {
+        padding: var(--space-3xl);
+    }
+    
+    .section-title {
+        font-size: 1.8rem;
+        color: var(--text);
+        margin-bottom: var(--space-xl);
+        font-weight: 600;
+    }
+    
+    .tools-grid {
+        display: grid;
+        gap: var(--space-xl);
+    }
+    
+    .tool-card {
+        background: var(--background);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        padding: var(--space-xl);
+        transition: all var(--transition-normal);
+        cursor: pointer;
+        text-decoration: none;
+        color: inherit;
+        display: block;
+    }
+    
+    .tool-card:hover {
+        background: var(--background-alt);
+        border-color: var(--border-hover);
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-lg);
+    }
+    
+    .tool-header {
+        display: flex;
+        align-items: center;
+        margin-bottom: var(--space-md);
+    }
+    
+    .tool-icon {
+        width: 50px;
+        height: 50px;
+        background: var(--gradient-header);
+        border-radius: var(--radius-lg);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-right: var(--space-md);
+        color: white;
+        font-size: 1.5rem;
+        font-weight: bold;
+    }
+    
+    .tool-title {
+        font-size: 1.3rem;
+        font-weight: 600;
+        color: var(--text);
+    }
+    
+    .tool-description {
+        color: var(--text-muted);
+        line-height: 1.6;
+        margin-bottom: var(--space-md);
+    }
+    
+    .tool-link {
+        color: var(--primary-500);
+        font-weight: 500;
+        display: inline-flex;
+        align-items: center;
+        text-decoration: none;
+        transition: color var(--transition-normal);
+    }
+    
+    .tool-link:hover {
+        color: var(--primary-700);
+    }
+    
+    .arrow {
+        margin-left: var(--space-xs);
+        transition: transform var(--transition-normal);
+    }
+    
+    .tool-card:hover .arrow {
+        transform: translateX(5px);
+    }
+    
+
+    .footer {
+        background: var(--background);
+        padding: var(--space-xl) var(--space-3xl);
+        text-align: center;
+        border-top: 1px solid var(--border);
+        color: var(--text-muted);
+    }
+    
+    @media (max-width: 768px) {
         .hero-title {
-            font-size: 2.5rem;
-            margin-bottom: var(--space-sm);
-            font-weight: 700;
+            font-size: 2rem;
         }
         
-        .hero-subtitle {
-            font-size: 1.1rem;
-            opacity: 0.9;
-            margin-bottom: var(--space-xl);
-        }
-        
-        .hero-status {
-            background: rgba(255, 255, 255, 0.2);
-            padding: var(--space-sm) var(--space-xl);
-            border-radius: var(--radius-full);
-            display: inline-block;
-            font-size: var(--font-size-sm);
+        .hero {
+            padding: var(--space-xl);
         }
         
         .tools-section {
-            padding: var(--space-3xl);
-        }
-        
-        .section-title {
-            font-size: 1.8rem;
-            color: var(--text);
-            margin-bottom: var(--space-xl);
-            font-weight: 600;
-        }
-        
-        .tools-grid {
-            display: grid;
-            gap: var(--space-xl);
-        }
-        
-        .tool-card {
-            background: var(--background);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-lg);
             padding: var(--space-xl);
-            transition: all var(--transition-normal);
-            cursor: pointer;
-            text-decoration: none;
-            color: inherit;
-            display: block;
         }
-        
-        .tool-card:hover {
-            background: var(--background-alt);
-            border-color: var(--border-hover);
-            transform: translateY(-2px);
-            box-shadow: var(--shadow-lg);
-        }
-        
-        .tool-header {
-            display: flex;
-            align-items: center;
-            margin-bottom: var(--space-md);
-        }
-        
-        .tool-icon {
-            width: 50px;
-            height: 50px;
-            background: var(--gradient-header);
-            border-radius: var(--radius-lg);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin-right: var(--space-md);
-            color: white;
-            font-size: 1.5rem;
-            font-weight: bold;
-        }
-        
-        .tool-title {
-            font-size: 1.3rem;
-            font-weight: 600;
-            color: var(--text);
-        }
-        
-        .tool-description {
-            color: var(--text-muted);
-            line-height: 1.6;
-            margin-bottom: var(--space-md);
-        }
-        
-        .tool-link {
-            color: var(--primary-500);
-            font-weight: 500;
-            display: inline-flex;
-            align-items: center;
-            text-decoration: none;
-            transition: color var(--transition-normal);
-        }
-        
-        .tool-link:hover {
-            color: var(--primary-700);
-        }
-        
-        .arrow {
-            margin-left: var(--space-xs);
-            transition: transform var(--transition-normal);
-        }
-        
-        .tool-card:hover .arrow {
-            transform: translateX(5px);
-        }
-        
+    }
+</style>
+{% endblock %}
 
-        .footer {
-            background: var(--background);
-            padding: var(--space-xl) var(--space-3xl);
-            text-align: center;
-            border-top: 1px solid var(--border);
-            color: var(--text-muted);
-        }
-        
-        @media (max-width: 768px) {
-            .hero-title {
-                font-size: 2rem;
-            }
-            
-            .hero {
-                padding: var(--space-xl);
-            }
-            
-            .tools-section {
-                padding: var(--space-xl);
-            }
-        }
-    </style>
-</head>
-<body>
+{% block body %}
     <div class="container">
         <div class="hero">
             <h1 class="hero-title">Wichy Web Tools</h1>
@@ -158,6 +163,18 @@
         <div class="tools-section">
             <h2 class="section-title">Available Tools</h2>
             <div class="tools-grid">
+                <a href="/chat/" class="tool-card">
+                    <div class="tool-header">
+                        <div class="tool-icon">💬</div>
+                        <div class="tool-title">Chat</div>
+                    </div>
+                    <div class="tool-description">
+                        Chat interface for wichy server mode.
+                    </div>
+                    <div class="tool-link">
+                        Open Chat <span class="arrow">→</span>
+                    </div>
+                </a>
                 <a href="/tools/graph/" class="tool-card">
                     <div class="tool-header">
                         <div class="tool-icon">📊</div>
@@ -210,18 +227,6 @@
                             Open Data Explorer <span class="arrow">→</span>
                         </div>
                     </a>
-                    <a href="/chat/" class="tool-card">
-                        <div class="tool-header">
-                            <div class="tool-icon">💬</div>
-                            <div class="tool-title">Chat</div>
-                        </div>
-                        <div class="tool-description">
-                            Chat interface for wichy server mode.
-                        </div>
-                        <div class="tool-link">
-                            Open Chat <span class="arrow">→</span>
-                        </div>
-                    </a>
                 </div>
 
             <!-- /tools removed from landing page -->
@@ -231,5 +236,4 @@
             <p>Powered by Wichy - Local-first Agentic LLM Framework</p>
         </div>
     </div>
-</body>
-</html>
+{% endblock %}

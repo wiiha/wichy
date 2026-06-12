@@ -1,15 +1,20 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Wichy - Notes</title>
-    <link rel="stylesheet" href="/shared/shared.css">
-    <link rel="stylesheet" href="/shared/notes.css">
-    <!-- EasyMDE from local static -->
-    <link rel="stylesheet" href="/tools/notes/easymde/easymde.min.css">
-</head>
-<body>
+{% extends "base.html" %}
+
+{% block title %}Wichy - Notes{% endblock %}
+
+{% block color_scheme %}
+<meta name="color-scheme" content="light" />
+{% endblock %}
+
+{% block theme_script %}{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="/shared/notes.css">
+<!-- EasyMDE from local static -->
+<link rel="stylesheet" href="/tools/notes/easymde/easymde.min.css">
+{% endblock %}
+
+{% block body %}
     <div class="container">
         <header class="header-simple">
             <div>
@@ -63,9 +68,10 @@
             </main>
         </div>
     </div>
+{% endblock %}
 
+{% block extra_js %}
     <!-- EasyMDE from local static -->
     <script src="/tools/notes/easymde/easymde.min.js"></script>
     <script src="/shared/notes.js"></script>
-</body>
-</html>
+{% endblock %}
