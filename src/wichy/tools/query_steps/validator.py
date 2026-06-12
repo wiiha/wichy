@@ -74,8 +74,13 @@ def validate_recipe(steps: list[dict], get_columns: Callable[[str], set[str]]) -
                 available_cols = available_cols | other_cols
 
 
-
-def _validate_step(stype: str, step: dict, available_cols: set[str], idx: int, strict_validation: bool = True) -> None:
+def _validate_step(
+    stype: str,
+    step: dict,
+    available_cols: set[str],
+    idx: int,
+    strict_validation: bool = True,
+) -> None:
     prefix = f"Step {idx + 1} ({stype}): "
     if stype == "source":
         if not step.get("table"):

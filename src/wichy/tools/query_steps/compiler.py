@@ -145,7 +145,9 @@ def _compile_group(step: dict, prev: str) -> str:
             raise CompileError(f"Invalid aggregate function: {fn}")
         safe_col = _escape_id(col)
         if fn == "count_distinct":
-            agg_parts.append(f'COUNT(DISTINCT "{safe_col}") AS "{safe_col}_count_distinct"')
+            agg_parts.append(
+                f'COUNT(DISTINCT "{safe_col}") AS "{safe_col}_count_distinct"'
+            )
         elif fn == "count":
             agg_parts.append(f'COUNT(*) AS "{safe_col}_count"')
         else:

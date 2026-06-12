@@ -7,7 +7,6 @@ import time
 
 import requests
 
-from wichy.config import settings
 
 from . import state
 

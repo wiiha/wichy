@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from wichy.config import settings
 
 # ---------------------------------------------------------------------------
 # Persistent history — JSONL in .wichy/chat/history.jsonl
@@ -112,7 +111,12 @@ def clear_history() -> None:
             HISTORY_FILE.rename(backup)
 
 
-def create_entry(role: str, content: str, msg_type: str = "message", metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+def create_entry(
+    role: str,
+    content: str,
+    msg_type: str = "message",
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Create a new history entry."""
     return {
         "id": str(uuid.uuid4()),
