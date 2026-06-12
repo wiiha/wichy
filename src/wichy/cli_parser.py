@@ -63,6 +63,7 @@ class CliConfig:
 
     # Subcommand: server
     server_mode: bool = False
+    no_chat: bool = False
 
 
 class CliParser:
@@ -287,9 +288,14 @@ class CliParser:
         )
 
         # server mode command
-        _ = subparsers.add_parser(
+        server_parser = subparsers.add_parser(
             "server",
             help="Run Wichy in server mode, no repl, exposing a REST API instead.",
+        )
+        server_parser.add_argument(
+            "--no-chat",
+            action="store_true",
+            help="Skip initializing the chat GUI and its poller",
         )
 
     def parse(self, args=None) -> CliConfig:
@@ -339,6 +345,7 @@ class CliParser:
 
         if parsed.command == "server":
             config.server_mode = True
+            config.no_chat = getattr(parsed, "no_chat", False)
 
         return config
 

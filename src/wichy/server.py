@@ -83,7 +83,7 @@ def setup_logging() -> None:
     werkzeug_internal.propagate = False
 
 
-def create_app() -> Flask:
+def create_app(no_chat: bool = False) -> Flask:
     """Create and configure the Flask application."""
     # Setup logging (to file only, not stderr)
     setup_logging()
@@ -111,14 +111,14 @@ def create_app() -> Flask:
         return jsonify({"status": "ok"})
 
     # Register tool blueprints
-    register_blueprints(app)
+    register_blueprints(app, no_chat=no_chat)
 
     app.logger.info("Wichy server initialized")
 
     return app
 
 
-def register_blueprints(app: Flask) -> None:
+def register_blueprints(app: Flask, no_chat: bool = False) -> None:
     """Register all tool blueprints with the Flask app."""
     from wichy.chat_web import register as register_chat
     from wichy.session_map import register as register_session_map
@@ -133,7 +133,8 @@ def register_blueprints(app: Flask) -> None:
     register_notes(app)
     register_data(app)
     register_session_map(app)
-    register_chat(app)
+    if not no_chat:
+        register_chat(app)
     register_server_api(app)
 
 
@@ -142,13 +143,13 @@ _server_app: Flask | None = None
 _server_port: int | None = None
 
 
-def run_server(port: int | None = None, host: str | None = None) -> None:
+def run_server(port: int | None = None, host: str | None = None, no_chat: bool = False) -> None:
     """Run the Flask development server in the current thread."""
     if port is None:
         port = settings.server_port
     if host is None:
         host = settings.server_host
-    app = create_app()
+    app = create_app(no_chat=no_chat)
     app.logger.info(f"Starting wichy server on {host}:{port}")
     app.run(host=host, port=port, debug=False, use_reloader=False, threaded=True)
 
