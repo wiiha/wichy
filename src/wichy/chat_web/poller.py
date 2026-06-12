@@ -8,6 +8,7 @@ import time
 import requests
 
 from wichy.config import settings
+
 from . import state
 
 logger = logging.getLogger(__name__)
@@ -21,12 +22,14 @@ _seen_verification_ids: set[str] = set()
 _seen_question_ids: set[str] = set()
 
 _RICH_TAG_RE = re.compile(
-    r'\[(\w+(?:\s+\w+)*)\](.*?)\[/\1\]',
+    r"\[(\w+(?:\s+\w+)*)\](.*?)\[/\1\]",
     re.DOTALL,
 )
 
 # Unwrap messages like "---\n\n### Heading\n...content...\n---"
-_WRAPPER_RE = re.compile(r'^(?:---\s*\n\s*)?###\s+\w+\s*\n\s*(.*?)\n\s*---\s*$', re.DOTALL)
+_WRAPPER_RE = re.compile(
+    r"^(?:---\s*\n\s*)?###\s+\w+\s*\n\s*(.*?)\n\s*---\s*$", re.DOTALL
+)
 
 
 def get_server_port() -> int | None:
@@ -34,7 +37,7 @@ def get_server_port() -> int | None:
 
 
 def _base_url() -> str:
-    return f"http://{settings.server_host}:{_server_port}"
+    return f"http://127.0.0.1:{_server_port}"
 
 
 def start_poller(port: int) -> None:
@@ -191,7 +194,7 @@ def _poll_messages() -> bool:
             if unwrapped is not None:
                 text = unwrapped
             # Drop wrapper-only messages like "---\n\n### Assistant" with no body content
-            if re.match(r'^(?:---\s*\n\s*)?###\s+\w+\s*$', text):
+            if re.match(r"^(?:---\s*\n\s*)?###\s+\w+\s*$", text):
                 continue
             # Strip Rich tags for system messages (tool calls, LLM metadata, etc.)
             if _has_rich_tags(text):
