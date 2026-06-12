@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <title>{% block title %}Wichy{% endblock %}</title>
+
+    <!-- FOUC prevention: set theme before any CSS loads -->
+    <script>
+      (function () {
+        const saved = localStorage.getItem("wichy-theme");
+        const prefersDark = window.matchMedia(
+          "(prefers-color-scheme: dark)"
+        ).matches;
+        const theme = saved || (prefersDark ? "dark" : "light");
+        document.documentElement.setAttribute("data-theme", theme);
+      })();
+    </script>
+
+    <!-- Pico CSS v2 conditional (scoped to .pico containers) -->
+    <link
+      rel="stylesheet"
+      href="{{ url_for('shared.static', filename='pico/pico.conditional.min.css') }}"
+    />
+
+    <!-- Legacy shared styles -- permanent coexistence -->
+    <link
+      rel="stylesheet"
+      href="{{ url_for('shared.static', filename='shared.css') }}"
+    />
+
+    <!-- Page-specific CSS -->
+    {% block extra_css %}{% endblock %}
+  </head>
+  <body>
+    {% block body %}{% endblock %}
+
+    <!-- Theme toggle script -->
+    <script src="{{ url_for('shared.static', filename='theme-toggle.js') }}"></script>
+
+    <!-- Page-specific JS -->
+    {% block extra_js %}{% endblock %}
+  </body>
+</html>

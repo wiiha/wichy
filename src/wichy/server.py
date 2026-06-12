@@ -121,7 +121,6 @@ def create_app(no_chat: bool = False) -> Flask:
 def register_blueprints(app: Flask, no_chat: bool = False) -> None:
     """Register all tool blueprints with the Flask app."""
     from wichy.chat_web import register as register_chat
-    from wichy.session_map import register as register_session_map
     from wichy.tools.context_editor import register as register_context_editor
     from wichy.tools.data import register as register_data
     from wichy.tools.graph import register as register_graph
@@ -132,7 +131,6 @@ def register_blueprints(app: Flask, no_chat: bool = False) -> None:
     register_context_editor(app)
     register_notes(app)
     register_data(app)
-    register_session_map(app)
     if not no_chat:
         register_chat(app)
     register_server_api(app)

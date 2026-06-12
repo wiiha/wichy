@@ -1,782 +1,451 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Wichy Chat</title>
-    <link rel="stylesheet" href="/shared/shared.css" />
-    <script src="/shared/marked.min.js"></script>
-    <style>
-      body {
-        display: flex;
-        height: 100vh;
-        margin: 0;
-      }
-      .header {
-        padding: 1rem;
-        border-bottom: 1px solid #ccc;
-        display: flex;
-        justify-content: space-between;
-      }
-      .messages-wrapper {
-        flex: 1;
-        position: relative;
-        overflow: hidden;
-      }
-      .messages {
-        overflow-y: auto;
-        padding: 1rem;
-        height: 100%;
-        position: relative;
-      }
-      .message {
-        padding: 0.5rem;
-        margin: 0.25rem 0;
-        border-radius: 4px;
-      }
-      .user {
-        background: #bbdefb;
-        margin-left: auto;
-        width: fit-content;
-        max-width: 80%;
-      }
-      .steer {
-        background: #fff3e0;
-        margin-left: auto;
-        width: fit-content;
-        max-width: 80%;
-        border: 1px solid #ff9800;
-      }
-      .steer-badge {
-        font-size: 0.7em;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        color: #e65100;
-        margin-bottom: 0.25rem;
-      }
-      .assistant {
-        background: #f5f5f5;
-        margin-right: auto;
-        width: fit-content;
-        max-width: 80%;
-      }
-      .assistant code {
-        background: #e0e0e0;
-        padding: 0.1em 0.3em;
-        border-radius: 3px;
-        font-family: monospace;
-      }
-      .assistant pre {
-        background: #e8e8e8;
-        padding: 0.75rem;
-        border-radius: 4px;
-        overflow-x: auto;
-      }
-      .assistant pre code {
-        background: none;
-        padding: 0;
-      }
-      .assistant blockquote {
-        border-left: 3px solid #ccc;
-        margin: 0.5rem 0;
-        padding-left: 0.75rem;
-        color: #555;
-      }
-      .assistant ul,
-      .assistant ol {
-        margin: 0.5rem 0;
-        padding-left: 1.5rem;
-      }
-      .assistant h1,
-      .assistant h2,
-      .assistant h3,
-      .assistant h4 {
-        margin: 0.75rem 0 0.25rem;
-      }
-      .user ul,
-      .user ol {
-        margin: 0.5rem 0;
-        padding-left: 1.5rem;
-      }
-      .user code {
-        background: #90caf9;
-        padding: 0.1em 0.3em;
-        border-radius: 3px;
-        font-family: monospace;
-      }
-      .user pre {
-        background: #e3f2fd;
-        padding: 0.75rem;
-        border-radius: 4px;
-        overflow-x: auto;
-      }
-      .user pre code {
-        background: none;
-        padding: 0;
-      }
-      .user blockquote {
-        border-left: 3px solid #64b5f6;
-        margin: 0.5rem 0;
-        padding-left: 0.75rem;
-        color: #1565c0;
-      }
-      .user h1,
-      .user h2,
-      .user h3,
-      .user h4 {
-        margin: 0.75rem 0 0.25rem;
-      }
-      .messages.hide-system .message.system {
-        display: none;
-      }
-      .input-bar button {
-        align-self: flex-end;
-      }
-      .sidebar {
-        width: 48px;
-        border-right: 1px solid #ccc;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        padding-top: 0.5rem;
-        gap: 0.5rem;
-        background: #fafafa;
-        flex-shrink: 0;
-      }
-      .sidebar a {
-        text-decoration: none;
-        font-size: 1.4rem;
-        padding: 0.4rem;
-        border-radius: 4px;
-      }
-      .sidebar a:hover {
-        background: #e0e0e0;
-      }
-      .main {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        min-width: 0;
-      }
-      .scroll-to-bottom {
-        position: absolute;
-        bottom: 1rem;
-        right: 1.5rem;
-        background: #673ab7;
-        color: white;
-        width: 36px;
-        height: 36px;
-        border-radius: 50%;
-        display: none;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        z-index: 50;
-        font-size: 1.2rem;
-        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
-      }
-      .scroll-to-bottom:hover {
-        background: #512da8;
-      }
-      .scroll-to-bottom.visible {
-        display: flex;
-      }
-      .system {
-        color: #888;
-        font-size: 0.85em;
-        text-align: center;
-        background: transparent;
-        font-family: monospace;
-      }
-      .timestamp {
-        font-size: 0.7em;
-        color: #999;
-        margin-top: 0.25rem;
-      }
-      .status-dot {
-        display: inline-block;
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background: #ccc;
-      }
-      .empty-state {
-        text-align: center;
-        color: #aaa;
-        padding: 3rem 1rem;
-        font-family: sans-serif;
-      }
-      .status-dot.connected {
-        background: #4caf50;
-      }
-      .status-dot.disconnected {
-        background: #f44336;
-      }
-      .verification {
-        border: 1px solid #f0ad4e;
-        background: #fff8e1;
-        padding: 1rem;
-        margin: 0.5rem 0;
-        border-radius: 6px;
-        font-family: sans-serif;
-      }
-      .verification .ver-label {
-        font-weight: bold;
-        margin-bottom: 0.5rem;
-      }
-      .verification .ver-msg {
-        color: #333;
-        margin-bottom: 0.5rem;
-      }
-      .verification .ver-buttons {
-        display: flex;
-        gap: 0.5rem;
-      }
-      .verification button {
-        cursor: pointer;
-      }
-      .verification .approved {
-        border: 1px solid #4caf50;
-        background: #e8f5e9;
-      }
-      .verification .denied {
-        border: 1px solid #f44336;
-        background: #ffebee;
-      }
-      .question {
-        border: 1px solid #2196f3;
-        background: #e3f2fd;
-        padding: 1rem;
-        margin: 0.5rem 0;
-        border-radius: 6px;
-        font-family: sans-serif;
-      }
-      .question .q-header {
-        font-weight: bold;
-        margin-bottom: 0.5rem;
-      }
-      .question .q-text {
-        color: #333;
-        margin-bottom: 0.5rem;
-      }
-      .question .q-options {
-        display: flex;
-        flex-direction: column;
-        gap: 0.25rem;
-        margin-bottom: 0.5rem;
-      }
-      .question .q-options label {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        cursor: pointer;
-      }
-      .question button {
-        cursor: pointer;
-      }
-      .question .answered {
-        border: 1px solid #4caf50;
-        background: #e8f5e9;
-      }
-      .input-bar {
-        padding: 1rem;
-        border-top: 1px solid #ccc;
-        display: flex;
-        gap: 0.5rem;
-      }
-      textarea {
-        flex: 1;
-        padding: 0.5rem;
-        font-family: monospace;
-      }
-      button {
-        padding: 0.5rem 1rem;
-        cursor: pointer;
-        border: 1px solid #ccc;
-        border-radius: 4px;
-        background: #f5f5f5;
-      }
-      button#send {
-        background: #c8e6c9;
-        color: #2e7d32;
-        border-color: #a5d6a7;
-      }
-      button#steer {
-        background: #ffe0b2;
-        color: #e65100;
-        border-color: #ffcc80;
-      }
-      button#clear {
-        background: #f5f5f5;
-        color: #666;
-        border-color: #ddd;
-      }
-      .drop-overlay {
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: rgba(33, 150, 243, 0.12);
-        border: 3px dashed #2196f3;
-        display: none;
-        align-items: center;
-        justify-content: center;
-        z-index: 10;
-        font-size: 1.2em;
-        color: #1976d2;
-        pointer-events: none;
-      }
-      .drop-overlay.active {
-        display: flex;
-      }
-    </style>
-  </head>
-  <body>
-    <div class="sidebar">
-      <a href="/" title="Home">🏠</a>
-      <a href="/tools/graph/" title="Graph">📊</a>
-      <a href="/tools/context/" title="Context">📝</a>
-      <a href="/tools/notes/" title="Notes">📓</a>
-      <a href="/tools/data/" title="Data">🔍</a>
+{% extends "base.html" %}
+
+{% block title %}Wichy Chat{% endblock %}
+
+{% block extra_css %}
+  <link rel="stylesheet" href="/shared/chat.css" />
+{% endblock %}
+
+{% block body %}
+  <div class="sidebar">
+    <a href="/" title="Home">🏠</a>
+    <a href="/tools/graph/" title="Graph">📊</a>
+    <a href="/tools/context/" title="Context">📝</a>
+    <a href="/tools/notes/" title="Notes">📓</a>
+    <a href="/tools/data/" title="Data">🔍</a>
+  </div>
+  <div class="main">
+    <div class="header">
+      <div style="display: flex; align-items: center; gap: 0.75rem">
+        <h1 style="margin: 0">Wichy Chat</h1>
+        <label class="hide-system-label">
+          <input type="checkbox" id="hideSystem" /> Hide system
+        </label>
+        <button data-theme-toggle aria-label="Toggle dark mode" title="Toggle light/dark mode">
+          <span data-theme-icon></span>
+        </button>
+      </div>
+      <span id="status"
+        ><span class="status-dot"></span>
+        <span id="status-text">?</span></span
+      >
     </div>
-    <div class="main">
-      <div class="header">
-        <div style="display: flex; align-items: center; gap: 0.75rem">
-          <h1 style="margin: 0">Wichy Chat</h1>
-          <label
-            style="
-              font-size: 0.85em;
-              color: rgba(255, 255, 255, 0.85);
-              cursor: pointer;
-              display: flex;
-              align-items: center;
-              gap: 0.25rem;
-            "
-          >
-            <input type="checkbox" id="hideSystem" /> Hide system
-          </label>
-        </div>
-        <span id="status"
-          ><span class="status-dot"></span>
-          <span id="status-text">?</span></span
-        >
+    <div class="messages-wrapper">
+      <div class="messages" id="messages"></div>
+      <div
+        class="scroll-to-bottom"
+        id="scrollToBottom"
+        onclick="messages.scrollTop = messages.scrollHeight"
+      >
+        ↓
       </div>
-      <div class="messages-wrapper">
-        <div class="messages" id="messages"></div>
-        <div
-          class="scroll-to-bottom"
-          id="scrollToBottom"
-          onclick="messages.scrollTop = messages.scrollHeight"
-        >
-          ↓
-        </div>
-        <div class="drop-overlay" id="dropOverlay">Drop file here</div>
-      </div>
-      <div class="input-bar">
-        <textarea id="input" rows="2" placeholder="Type message..."></textarea>
-        <button id="send">Send</button>
-        <button id="steer">Steer</button>
-        <button id="clear">Clear</button>
-      </div>
+      <div class="drop-overlay" id="dropOverlay">Drop file here</div>
     </div>
-    <script>
-      const messages = document.getElementById("messages");
-      const input = document.getElementById("input");
-      const sendBtn = document.getElementById("send");
-      const status = document.getElementById("status");
-      let renderedIds = new Set();
-      function scrollToBottomIfNear() {
-        const threshold = 100;
-        const nearBottom =
-          messages.scrollHeight - messages.scrollTop - messages.clientHeight <
-          threshold;
-        if (nearBottom) {
-          messages.scrollTop = messages.scrollHeight;
-          scrollToBottomBtn.classList.remove("visible");
-        }
-      }
-      async function load() {
-        const resp = await fetch("/chat/api/history");
-        const data = await resp.json();
-        let changed = false;
-        for (const e of data) {
-          if (renderedIds.has(e.id)) continue;
-          renderedIds.add(e.id);
-          changed = true;
-          const div = renderEntry(e);
-          messages.appendChild(div);
-        }
-        scrollToBottomIfNear();
-      }
+    <div class="input-bar pico">
+      <textarea id="input" rows="2" placeholder="Type message..."></textarea>
+      <button id="send">Send</button>
+      <button id="steer">Steer</button>
+      <button id="clear">Clear</button>
+    </div>
+  </div>
+{% endblock %}
 
-      function formatTimestamp(ts) {
-        if (!ts) return "";
-        const d = new Date(ts);
-        const now = new Date();
-        const sameDay =
-          d.getFullYear() === now.getFullYear() &&
-          d.getMonth() === now.getMonth() &&
-          d.getDate() === now.getDate();
-        const time = d.toLocaleTimeString(undefined, {
-          hour: "2-digit",
-          minute: "2-digit",
-          hour12: false,
-        });
-        if (sameDay) return time;
-        const date = d.toLocaleDateString(undefined, {
-          month: "short",
-          day: "numeric",
-        });
-        return date + " " + time;
-      }
+{% block extra_js %}
+  <script src="/shared/marked.min.js"></script>
+  <script>
+    const messages = document.getElementById("messages");
+    const input = document.getElementById("input");
+    const sendBtn = document.getElementById("send");
+    const status = document.getElementById("status");
+    let renderedIds = new Set();
+    function wasNearBottom() {
+      return (
+        messages.scrollHeight - messages.scrollTop - messages.clientHeight < 100
+      );
+    }
 
-      function renderEntry(e) {
-        if (e.type === "verification") {
-          return renderVerification(e);
-        }
-        if (e.type === "question") {
-          return renderQuestion(e);
-        }
-        const div = document.createElement("div");
-        div.className = "message " + (e.role || "assistant");
-        if (
-          (e.role === "assistant" || e.role === "user" || e.role === "steer") &&
-          window.marked
-        ) {
-          div.innerHTML = window.marked.parse(e.content || "", {
-            breaks: true,
-            sanitize: false,
-          });
-        } else {
-          div.textContent = e.content || "";
-        }
-        if (e.role === "steer") {
-          const badge = document.createElement("div");
-          badge.className = "steer-badge";
-          badge.textContent = "Steer";
-          div.insertBefore(badge, div.firstChild);
-        }
-        const ts = document.createElement("div");
-        ts.className = "timestamp";
-        ts.textContent = formatTimestamp(e.timestamp);
-        div.appendChild(ts);
-        return div;
-      }
-
-      function renderVerification(e) {
-        const v = e.metadata?.verification || {};
-        const container = document.createElement("div");
-        container.className = "message verification";
-        container.dataset.vid = v.id || "";
-
-        if (v.resolved) {
-          container.classList.add(v.approved ? "approved" : "denied");
-          container.textContent = v.approved ? "Approved" : "Denied";
-          return container;
-        }
-
-        const label = document.createElement("div");
-        label.className = "ver-label";
-        label.textContent = v.label || "Action requested";
-        container.appendChild(label);
-
-        if (v.message) {
-          const msg = document.createElement("div");
-          msg.className = "ver-msg";
-          msg.textContent = v.message;
-          container.appendChild(msg);
-        }
-
-        if (v.args) {
-          const args = document.createElement("pre");
-          args.textContent = v.args;
-          container.appendChild(args);
-        }
-
-        const btns = document.createElement("div");
-        btns.className = "ver-buttons";
-
-        const approve = document.createElement("button");
-        approve.textContent = "Approve";
-        approve.onclick = () => resolveVerification(v.id, true, container);
-        btns.appendChild(approve);
-
-        const deny = document.createElement("button");
-        deny.textContent = "Deny";
-        deny.onclick = () => resolveVerification(v.id, false, container);
-        btns.appendChild(deny);
-
-        container.appendChild(btns);
-        return container;
-      }
-
-      async function resolveVerification(vid, approved, container) {
-        await fetch(`/chat/api/verifications/${vid}/resolve`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ approved: approved }),
-        });
-        container.classList.add(approved ? "approved" : "denied");
-        container.innerHTML = "";
-        container.textContent = approved ? "Approved" : "Denied";
-      }
-
-      function renderQuestion(e) {
-        const g = e.metadata?.group || {};
-        const qid = g.id || "";
-        const questions = g.questions || [];
-        const container = document.createElement("div");
-        container.className = "message question";
-        container.dataset.qid = qid;
-
-        if (g.answered) {
-          container.classList.add("answered");
-          container.textContent = "Answered";
-          return container;
-        }
-
-        for (const q of questions) {
-          const header = document.createElement("div");
-          header.className = "q-header";
-          header.textContent = q.header || "";
-          container.appendChild(header);
-
-          if (q.question) {
-            const text = document.createElement("div");
-            text.className = "q-text";
-            text.textContent = q.question;
-            container.appendChild(text);
-          }
-
-          const opts = document.createElement("div");
-          opts.className = "q-options";
-          const inputType = q.multiSelect ? "checkbox" : "radio";
-          const groupName = `q_${qid}_${q.header || "q"}`;
-
-          // Auto-add "Other (please specify)" if not already present
-          const otherLabel = "Other (please specify)";
-          let hasOther = false;
-          for (const opt of q.options || []) {
-            if ((opt.label || "").toLowerCase().trim() === "other") {
-              hasOther = true;
-            }
-          }
-
-          for (const opt of q.options || []) {
-            const label = document.createElement("label");
-            const input = document.createElement("input");
-            input.type = inputType;
-            input.name = groupName;
-            input.value = opt.label || "";
-            label.appendChild(input);
-            const span = document.createElement("span");
-            span.textContent = opt.description || opt.label || "";
-            label.appendChild(span);
-            opts.appendChild(label);
-          }
-
-          if (!hasOther) {
-            const label = document.createElement("label");
-            const input = document.createElement("input");
-            input.type = inputType;
-            input.name = groupName;
-            input.value = otherLabel;
-            label.appendChild(input);
-            const span = document.createElement("span");
-            span.textContent = otherLabel;
-            label.appendChild(span);
-            opts.appendChild(label);
-          }
-          container.appendChild(opts);
-        }
-
-        const submit = document.createElement("button");
-        submit.textContent = "Submit";
-        submit.onclick = () => submitAnswer(qid, questions, container);
-        container.appendChild(submit);
-
-        return container;
-      }
-
-      async function submitAnswer(qid, questions, container) {
-        const answers = {};
-        for (const q of questions) {
-          const groupName = `q_${qid}_${q.header || "q"}`;
-          const inputs = container.querySelectorAll(
-            `input[name="${groupName}"]:checked`,
-          );
-          let vals = Array.from(inputs).map((i) => i.value);
-          const otherIdx = vals.indexOf("Other (please specify)");
-
-          if (otherIdx !== -1) {
-            if (q.multiSelect) {
-              // Strip 'Other' from multi-select (REPL behavior)
-              vals.splice(otherIdx, 1);
-              answers[q.header || "answer"] = vals.join(", ") || "No selection";
-            } else {
-              // Single-select: prompt for custom text
-              const custom = window.prompt(
-                `You selected 'Other' for '${q.question}'. Please specify:`,
-              );
-              answers[q.header || "answer"] = custom || "No selection";
-            }
-          } else {
-            if (q.multiSelect) {
-              answers[q.header || "answer"] = vals.join(", ") || "No selection";
-            } else {
-              answers[q.header || "answer"] = vals[0] || "No selection";
-            }
-          }
-        }
-
-        await fetch(`/chat/api/questions/${qid}/answer`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ answers: answers }),
-        });
-        container.classList.add("answered");
-        container.innerHTML = "";
-        container.textContent = "Answered";
-      }
-
-      const steerBtn = document.getElementById("steer");
-      const clearBtn = document.getElementById("clear");
-
-      async function send(type) {
-        const text = input.value.trim();
-        if (!text) return;
-        input.value = "";
-        await fetch("/chat/api/send", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ content: text, type: type || "message" }),
-        });
-        await load();
-        messages.scrollTop = messages.scrollHeight;
-      }
-
-      sendBtn.onclick = () => send("message");
-      steerBtn.onclick = () => send("steer");
-      clearBtn.onclick = async () => {
-        if (!confirm("Clear chat history?")) return;
-        await fetch("/chat/api/clear", { method: "POST" });
-        messages.innerHTML = "";
-        renderedIds = new Set();
-        await load();
-      };
-      input.onkeydown = (e) => {
-        if (e.key === "Enter" && !e.shiftKey) {
-          e.preventDefault();
-          send("message");
-        }
-      };
-
-      async function pollStatus() {
-        try {
-          const resp = await fetch("/chat/api/status");
-          const data = await resp.json();
-          const dot = status.querySelector(".status-dot");
-          const text = document.getElementById("status-text");
-          if (data.connected) {
-            dot.className = "status-dot connected";
-            text.textContent = "connected";
-          } else {
-            dot.className = "status-dot disconnected";
-            text.textContent = "disconnected";
-          }
-        } catch (e) {
-          const dot = status.querySelector(".status-dot");
-          const text = document.getElementById("status-text");
-          dot.className = "status-dot";
-          text.textContent = "error";
-        }
-      }
-
-      // Drag-and-drop file upload
-      const dropOverlay = document.getElementById("dropOverlay");
-      let dragCounter = 0;
-
-      messages.addEventListener("dragenter", (e) => {
-        e.preventDefault();
-        dragCounter++;
-        dropOverlay.classList.add("active");
-      });
-      messages.addEventListener("dragleave", (e) => {
-        e.preventDefault();
-        dragCounter--;
-        if (dragCounter === 0) dropOverlay.classList.remove("active");
-      });
-      messages.addEventListener("dragover", (e) => {
-        e.preventDefault();
-      });
-      messages.addEventListener("drop", async (e) => {
-        e.preventDefault();
-        dragCounter = 0;
-        dropOverlay.classList.remove("active");
-        const files = e.dataTransfer.files;
-        if (files.length === 0) return;
-        const file = files[0];
-        await uploadFile(file);
-      });
-
-      async function uploadFile(file) {
-        const MAX_SIZE = 25 * 1024 * 1024;
-        if (file.size > MAX_SIZE) {
-          showSystemMsg("File too large (>25MB): " + file.name);
-          return;
-        }
-        showSystemMsg("Uploading: " + file.name + "...");
-        const form = new FormData();
-        form.append("file", file);
-        try {
-          const resp = await fetch("/server/api/files", {
-            method: "POST",
-            body: form,
-          });
-          if (!resp.ok) {
-            showSystemMsg(
-              "Upload failed: " + file.name + " (" + resp.status + ")",
-            );
-          }
-        } catch (err) {
-          showSystemMsg("Upload failed: " + file.name);
-        }
-      }
-
-      function showSystemMsg(text) {
-        const div = document.createElement("div");
-        div.className = "message system";
-        div.textContent = text;
+    async function load() {
+      const resp = await fetch("/chat/api/history");
+      const data = await resp.json();
+      let changed = false;
+      const shouldScroll = wasNearBottom();
+      for (const e of data) {
+        if (renderedIds.has(e.id)) continue;
+        renderedIds.add(e.id);
+        changed = true;
+        const div = renderEntry(e);
         messages.appendChild(div);
-        scrollToBottomIfNear();
+      }
+      if (changed && shouldScroll) messages.scrollTop = messages.scrollHeight;
+    }
+
+    function formatTimestamp(ts) {
+      if (!ts) return "";
+      const d = new Date(ts);
+      const now = new Date();
+      const sameDay =
+        d.getFullYear() === now.getFullYear() &&
+        d.getMonth() === now.getMonth() &&
+        d.getDate() === now.getDate();
+      const time = d.toLocaleTimeString(undefined, {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      });
+      if (sameDay) return time;
+      const date = d.toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+      });
+      return date + " " + time;
+    }
+
+    function renderEntry(e) {
+      if (e.type === "verification") {
+        return renderVerification(e);
+      }
+      if (e.type === "question") {
+        return renderQuestion(e);
+      }
+      const div = document.createElement("div");
+      div.className = "message " + (e.role || "assistant");
+      if (
+        (e.role === "assistant" || e.role === "user" || e.role === "steer") &&
+        window.marked
+      ) {
+        div.innerHTML = window.marked.parse(e.content || "", {
+          breaks: true,
+          sanitize: false,
+        });
+      } else {
+        div.textContent = e.content || "";
+      }
+      if (e.role === "steer") {
+        const badge = document.createElement("div");
+        badge.className = "steer-badge";
+        badge.textContent = "Steer";
+        div.insertBefore(badge, div.firstChild);
+      }
+      const ts = document.createElement("div");
+      ts.className = "timestamp";
+      ts.textContent = formatTimestamp(e.timestamp);
+      div.appendChild(ts);
+      return div;
+    }
+
+    function renderVerification(e) {
+      const v = e.metadata?.verification || {};
+      const container = document.createElement("div");
+      container.className = "message verification";
+      container.dataset.vid = v.id || "";
+
+      if (v.resolved) {
+        container.classList.add(v.approved ? "approved" : "denied");
+        container.textContent = v.approved ? "Approved" : "Denied";
+        return container;
       }
 
-      // Hide system toggle + localStorage
-      const hideSystemCb = document.getElementById("hideSystem");
-      hideSystemCb.addEventListener("change", (e) => {
-        messages.classList.toggle("hide-system", e.target.checked);
-        localStorage.setItem("hideSystem", e.target.checked);
-      });
-      if (localStorage.getItem("hideSystem") === "true") {
-        hideSystemCb.checked = true;
-        messages.classList.add("hide-system");
+      const label = document.createElement("div");
+      label.className = "ver-label";
+      label.textContent = v.label || "Action requested";
+      container.appendChild(label);
+
+      if (v.message) {
+        const msg = document.createElement("div");
+        msg.className = "ver-msg";
+        msg.textContent = v.message;
+        container.appendChild(msg);
       }
-      const scrollToBottomBtn = document.getElementById("scrollToBottom");
-      function updateScrollButton() {
-        const threshold = 200;
-        const farFromBottom =
-          messages.scrollHeight - messages.scrollTop - messages.clientHeight >
-          threshold;
-        scrollToBottomBtn.classList.toggle("visible", farFromBottom);
+
+      if (v.args) {
+        const args = document.createElement("pre");
+        args.textContent = v.args;
+        container.appendChild(args);
       }
-      messages.addEventListener("scroll", updateScrollButton);
-      updateScrollButton();
-      load().then(() => {
-        messages.scrollTop = messages.scrollHeight;
+
+      const btns = document.createElement("div");
+      btns.className = "ver-buttons";
+
+      const approve = document.createElement("button");
+      approve.textContent = "Approve";
+      approve.onclick = () => resolveVerification(v.id, true, container);
+      btns.appendChild(approve);
+
+      const deny = document.createElement("button");
+      deny.textContent = "Deny";
+      deny.onclick = () => resolveVerification(v.id, false, container);
+      btns.appendChild(deny);
+
+      container.appendChild(btns);
+      return container;
+    }
+
+    async function resolveVerification(vid, approved, container) {
+      await fetch(`/chat/api/verifications/${vid}/resolve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ approved: approved }),
       });
-      setInterval(load, 500);
-      setInterval(pollStatus, 2000);
-    </script>
-  </body>
-</html>
+      container.classList.add(approved ? "approved" : "denied");
+      container.innerHTML = "";
+      container.textContent = approved ? "Approved" : "Denied";
+    }
+
+    function renderQuestion(e) {
+      const g = e.metadata?.group || {};
+      const qid = g.id || "";
+      const questions = g.questions || [];
+      const container = document.createElement("div");
+      container.className = "message question";
+      container.dataset.qid = qid;
+
+      if (g.answered) {
+        container.classList.add("answered");
+        container.textContent = "Answered";
+        return container;
+      }
+
+      for (const q of questions) {
+        const header = document.createElement("div");
+        header.className = "q-header";
+        header.textContent = q.header || "";
+        container.appendChild(header);
+
+        if (q.question) {
+          const text = document.createElement("div");
+          text.className = "q-text";
+          text.textContent = q.question;
+          container.appendChild(text);
+        }
+
+        const opts = document.createElement("div");
+        opts.className = "q-options";
+        const inputType = q.multiSelect ? "checkbox" : "radio";
+        const groupName = `q_${qid}_${q.header || "q"}`;
+
+        // Auto-add "Other (please specify)" if not already present
+        const otherLabel = "Other (please specify)";
+        let hasOther = false;
+        for (const opt of q.options || []) {
+          if ((opt.label || "").toLowerCase().trim() === "other") {
+            hasOther = true;
+          }
+        }
+
+        for (const opt of q.options || []) {
+          const label = document.createElement("label");
+          const input = document.createElement("input");
+          input.type = inputType;
+          input.name = groupName;
+          input.value = opt.label || "";
+          label.appendChild(input);
+          const span = document.createElement("span");
+          span.textContent = opt.description || opt.label || "";
+          label.appendChild(span);
+          opts.appendChild(label);
+        }
+
+        if (!hasOther) {
+          const label = document.createElement("label");
+          const input = document.createElement("input");
+          input.type = inputType;
+          input.name = groupName;
+          input.value = otherLabel;
+          label.appendChild(input);
+          const span = document.createElement("span");
+          span.textContent = otherLabel;
+          label.appendChild(span);
+          opts.appendChild(label);
+        }
+        container.appendChild(opts);
+      }
+
+      const submit = document.createElement("button");
+      submit.textContent = "Submit";
+      submit.onclick = () => submitAnswer(qid, questions, container);
+      container.appendChild(submit);
+
+      return container;
+    }
+
+    async function submitAnswer(qid, questions, container) {
+      const answers = {};
+      for (const q of questions) {
+        const groupName = `q_${qid}_${q.header || "q"}`;
+        const inputs = container.querySelectorAll(
+          `input[name="${groupName}"]:checked`
+        );
+        let vals = Array.from(inputs).map((i) => i.value);
+        const otherIdx = vals.indexOf("Other (please specify)");
+
+        if (otherIdx !== -1) {
+          if (q.multiSelect) {
+            // Strip 'Other' from multi-select (REPL behavior)
+            vals.splice(otherIdx, 1);
+            answers[q.header || "answer"] = vals.join(", ") || "No selection";
+          } else {
+            // Single-select: prompt for custom text
+            const custom = window.prompt(
+              `You selected 'Other' for '${q.question}'. Please specify:`
+            );
+            answers[q.header || "answer"] = custom || "No selection";
+          }
+        } else {
+          if (q.multiSelect) {
+            answers[q.header || "answer"] = vals.join(", ") || "No selection";
+          } else {
+            answers[q.header || "answer"] = vals[0] || "No selection";
+          }
+        }
+      }
+
+      await fetch(`/chat/api/questions/${qid}/answer`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ answers: answers }),
+      });
+      container.classList.add("answered");
+      container.innerHTML = "";
+      container.textContent = "Answered";
+    }
+
+    const steerBtn = document.getElementById("steer");
+    const clearBtn = document.getElementById("clear");
+
+    async function send(type) {
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = "";
+      await fetch("/chat/api/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: text, type: type || "message" }),
+      });
+      await load();
+      messages.scrollTop = messages.scrollHeight;
+    }
+
+    sendBtn.onclick = () => send("message");
+    steerBtn.onclick = () => send("steer");
+    clearBtn.onclick = async () => {
+      if (!confirm("Clear chat history?")) return;
+      await fetch("/chat/api/clear", { method: "POST" });
+      messages.innerHTML = "";
+      renderedIds = new Set();
+      await load();
+    };
+    input.onkeydown = (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        send("message");
+      }
+    };
+
+    async function pollStatus() {
+      try {
+        const resp = await fetch("/chat/api/status");
+        const data = await resp.json();
+        const dot = status.querySelector(".status-dot");
+        const text = document.getElementById("status-text");
+        if (data.connected) {
+          dot.className = "status-dot connected";
+          text.textContent = "connected";
+        } else {
+          dot.className = "status-dot disconnected";
+          text.textContent = "disconnected";
+        }
+      } catch (e) {
+        const dot = status.querySelector(".status-dot");
+        const text = document.getElementById("status-text");
+        dot.className = "status-dot";
+        text.textContent = "error";
+      }
+    }
+
+    // Drag-and-drop file upload
+    const dropOverlay = document.getElementById("dropOverlay");
+    let dragCounter = 0;
+
+    messages.addEventListener("dragenter", (e) => {
+      e.preventDefault();
+      dragCounter++;
+      dropOverlay.classList.add("active");
+    });
+    messages.addEventListener("dragleave", (e) => {
+      e.preventDefault();
+      dragCounter--;
+      if (dragCounter === 0) dropOverlay.classList.remove("active");
+    });
+    messages.addEventListener("dragover", (e) => {
+      e.preventDefault();
+    });
+    messages.addEventListener("drop", async (e) => {
+      e.preventDefault();
+      dragCounter = 0;
+      dropOverlay.classList.remove("active");
+      const files = e.dataTransfer.files;
+      if (files.length === 0) return;
+      const file = files[0];
+      await uploadFile(file);
+    });
+
+    async function uploadFile(file) {
+      const MAX_SIZE = 25 * 1024 * 1024;
+      if (file.size > MAX_SIZE) {
+        showSystemMsg("File too large (>25MB): " + file.name);
+        return;
+      }
+      showSystemMsg("Uploading: " + file.name + "...");
+      const form = new FormData();
+      form.append("file", file);
+      try {
+        const resp = await fetch("/server/api/files", {
+          method: "POST",
+          body: form,
+        });
+        if (!resp.ok) {
+          showSystemMsg("Upload failed: " + file.name + " (" + resp.status + ")");
+        }
+      } catch (err) {
+        showSystemMsg("Upload failed: " + file.name);
+      }
+    }
+
+    function showSystemMsg(text) {
+      const shouldScroll = wasNearBottom();
+      const div = document.createElement("div");
+      div.className = "message system";
+      div.textContent = text;
+      messages.appendChild(div);
+      if (shouldScroll) messages.scrollTop = messages.scrollHeight;
+    }
+
+    // Hide system toggle + localStorage
+    const hideSystemCb = document.getElementById("hideSystem");
+    hideSystemCb.addEventListener("change", (e) => {
+      messages.classList.toggle("hide-system", e.target.checked);
+      localStorage.setItem("hideSystem", e.target.checked);
+    });
+    if (localStorage.getItem("hideSystem") === "true") {
+      hideSystemCb.checked = true;
+      messages.classList.add("hide-system");
+    }
+
+    const scrollToBottomBtn = document.getElementById("scrollToBottom");
+    function updateScrollButton() {
+      const threshold = 200;
+      const farFromBottom =
+        messages.scrollHeight - messages.scrollTop - messages.clientHeight >
+        threshold;
+      scrollToBottomBtn.classList.toggle("visible", farFromBottom);
+    }
+    messages.addEventListener("scroll", updateScrollButton);
+    updateScrollButton();
+
+    load().then(() => {
+      messages.scrollTop = messages.scrollHeight;
+    });
+    setInterval(load, 500);
+    setInterval(pollStatus, 2000);
+  </script>
+{% endblock %}
