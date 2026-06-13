@@ -7,14 +7,7 @@
 {% endblock %}
 
 {% block body %}
-  <div class="sidebar">
-    <a href="/" title="Home">🏠</a>
-    <a href="/tools/graph/" title="Graph">📊</a>
-    <a href="/tools/context/" title="Context">📝</a>
-    <a href="/tools/notes/" title="Notes">📓</a>
-    <a href="/tools/data/" title="Data">🔍</a>
-  </div>
-  <div class="main">
+  <div class="chat-wrapper">
     <div class="header">
       <div style="display: flex; align-items: center; gap: 0.75rem">
         <h1 style="margin: 0">Wichy Chat</h1>
@@ -30,16 +23,27 @@
         <span id="status-text">?</span></span
       >
     </div>
-    <div class="messages-wrapper">
-      <div class="messages" id="messages"></div>
-      <div
-        class="scroll-to-bottom"
-        id="scrollToBottom"
-        onclick="messages.scrollTop = messages.scrollHeight"
-      >
-        ↓
+    <div class="chat-body">
+      <div class="sidebar">
+        <a href="/" title="Home">🏠</a>
+        <a href="/tools/graph/" title="Graph">📊</a>
+        <a href="/tools/context/" title="Context">📝</a>
+        <a href="/tools/notes/" title="Notes">📓</a>
+        <a href="/tools/data/" title="Data">🔍</a>
       </div>
-      <div class="drop-overlay" id="dropOverlay">Drop file here</div>
+      <div class="chat-main">
+        <div class="messages-wrapper">
+          <div class="messages" id="messages"></div>
+          <div
+            class="scroll-to-bottom"
+            id="scrollToBottom"
+            onclick="messages.scrollTop = messages.scrollHeight"
+          >
+            ↓
+          </div>
+          <div class="drop-overlay" id="dropOverlay">Drop file here</div>
+        </div>
+      </div>
     </div>
     <div class="input-bar pico">
       <textarea id="input" rows="2" placeholder="Type message..."></textarea>

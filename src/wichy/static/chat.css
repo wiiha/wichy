@@ -188,16 +188,43 @@ body {
   color: var(--chat-text);
 }
 
+.chat-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--chat-bg);
+}
+
+.chat-body {
+  flex: 1;
+  display: flex;
+  flex-direction: row;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.chat-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--chat-bg);
+}
+
 .sidebar {
   width: 48px;
   border: 1px solid var(--chat-border);
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding-top: 0.5rem;
+  padding: 0.5rem 0;
   gap: 0.5rem;
   background: var(--sidebar-bg);
   flex-shrink: 0;
+  align-self: center;
+  border-radius: 8px;
+  margin: 0 0.5rem;
 }
 .sidebar a {
   text-decoration: none;
@@ -208,14 +235,6 @@ body {
 }
 .sidebar a:hover {
   background: var(--sidebar-hover);
-}
-
-.main {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  background: var(--chat-bg);
 }
 
 .header {
@@ -423,6 +442,9 @@ button[data-theme-toggle] {
   margin: 0.5rem 0;
   border-radius: 6px;
   font-family: sans-serif;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  min-width: 0;
 }
 .verification .ver-label {
   font-weight: bold;
@@ -439,6 +461,18 @@ button[data-theme-toggle] {
 .verification button {
   cursor: pointer;
 }
+
+.verification pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  max-width: 100%;
+  background: rgba(0,0,0,0.2);
+  padding: 0.5rem;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+
 .verification .approved {
   border: 1px solid var(--verification-approved-border);
   background: var(--verification-approved-bg);
