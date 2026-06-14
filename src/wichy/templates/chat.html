@@ -34,6 +34,7 @@
       <div class="chat-main">
         <div class="messages-wrapper">
           <div class="messages" id="messages"></div>
+          <div id="chatStatus" class="chat-status"></div>
           <div
             class="scroll-to-bottom"
             id="scrollToBottom"
@@ -62,7 +63,54 @@
     const sendBtn = document.getElementById("send");
     const status = document.getElementById("status");
     let renderedIds = new Set();
-    function wasNearBottom() {
+      // Cooldown state machine
+      let _statusState = "IDLE";
+      let _cooldownTimer = null;
+      let _lastAssistantIndex = -1;
+      const _COOLDOWN_MS = 2000;
+
+      function _clearCooldown() {
+        if (_cooldownTimer) {
+          clearTimeout(_cooldownTimer);
+          _cooldownTimer = null;
+        }
+      }
+
+      function _setCooldown(data) {
+        _clearCooldown();
+        _statusState = "COOLDOWN";
+        _cooldownTimer = setTimeout(() => {
+          _statusState = "READY";
+          updateChatStatus(data, true);
+        }, _COOLDOWN_MS);
+      }
+
+      function _hasSystemAfterAssistant(data, assistantIdx) {
+        for (let i = assistantIdx + 1; i < data.length; i++) {
+          if (data[i].role === "system") return true;
+        }
+        return false;
+      }
+
+      function _hasUnresolvedAction(data) {
+        for (const e of data) {
+          const v = (e.metadata || {}).verification;
+          if (v && !v.resolved) return true;
+          const g = (e.metadata || {}).group;
+          if (g && !g.answered) return true;
+        }
+        return false;
+      }
+
+      function _findLastSignificant(data) {
+        for (let i = data.length - 1; i >= 0; i--) {
+          const e = data[i];
+          if (e.type === "verification" || e.type === "question") return e;
+          if (e.role === "system" && e.type === "message") continue;
+          return e;
+        }
+        return null;
+      }    function wasNearBottom() {
       return (
         messages.scrollHeight - messages.scrollTop - messages.clientHeight < 100
       );
@@ -81,7 +129,8 @@
         messages.appendChild(div);
       }
       if (changed && shouldScroll) messages.scrollTop = messages.scrollHeight;
-    }
+        updateChatStatus(data);
+      }
 
     function formatTimestamp(ts) {
       if (!ts) return "";
@@ -245,6 +294,7 @@
           label.appendChild(input);
           const span = document.createElement("span");
           span.textContent = opt.description || opt.label || "";
+          lab| opt.label || "";
           label.appendChild(span);
           opts.appendChild(label);
         }
@@ -336,6 +386,9 @@
       await fetch("/chat/api/clear", { method: "POST" });
       messages.innerHTML = "";
       renderedIds = new Set();
+      _lastAssistantIndex = -1;
+      _clearCooldown();
+      _statusState = "IDLE";
       await load();
     };
     input.onkeydown = (e) => {
@@ -424,7 +477,76 @@
       if (shouldScroll) messages.scrollTop = messages.scrollHeight;
     }
 
-    // Hide system toggle + localStorage
+      function updateChatStatus(data, fromTimer) {
+        const statusEl = document.getElementById("chatStatus");
+        if (!statusEl) return;
+
+        if (_hasUnresolvedAction(data)) {
+          statusEl.className = "chat-status action-required";
+          statusEl.textContent = "⚠️ Action required";
+          return;
+        }
+
+        const last = _findLastSignificant(data);
+        if (!last) {
+          if (_statusState === "COOLDOWN") {
+            _clearCooldown();
+            _statusState = "READY";
+          }
+          statusEl.className = "chat-status";
+          statusEl.textContent = "";
+          return;
+        }
+
+        if (last.role === "user" || last.role === "steer") {
+          _clearCooldown();
+          _statusState = "WORKING";
+          statusEl.className = "chat-status working";
+          statusEl.textContent = "🤖 Working…";
+          return;
+        }
+
+        const lastAssistantIdx = data.findLastIndex((e) => e.role === "assistant");
+        const hadNewAssistant = lastAssistantIdx > _lastAssistantIndex;
+        if (hadNewAssistant) _lastAssistantIndex = lastAssistantIdx;
+
+        if (last.role === "assistant") {
+          if (_hasSystemAfterAssistant(data, lastAssistantIdx)) {
+            _clearCooldown();
+            _statusState = "WORKING";
+            statusEl.className = "chat-status working";
+            statusEl.textContent = "🤖 Working…";
+            return;
+          }
+          if (hadNewAssistant) {
+            _setCooldown(data);
+            statusEl.className = "chat-status working";
+            statusEl.textContent = "🤖 Working…";
+            return;
+          }
+          if (_statusState === "COOLDOWN" && !fromTimer) {
+            statusEl.className = "chat-status working";
+            statusEl.textContent = "🤖 Working…";
+            return;
+          }
+          if (_statusState === "READY" || fromTimer) {
+            _statusState = "READY";
+            statusEl.className = "chat-status user-turn";
+            statusEl.textContent = "💬 Your turn";
+            return;
+          }
+          statusEl.className = "chat-status working";
+          statusEl.textContent = "🤖 Working…";
+          return;
+        }
+
+        // Last is verification/question that is resolved
+        _clearCooldown();
+        _statusState = "WORKING";
+        statusEl.className = "chat-status working";
+        statusEl.textContent = "🤖 Working…";
+      }
+      // Hide system toggle + localStorage
     const hideSystemCb = document.getElementById("hideSystem");
     hideSystemCb.addEventListener("change", (e) => {
       messages.classList.toggle("hide-system", e.target.checked);
