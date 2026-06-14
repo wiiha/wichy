@@ -215,20 +215,6 @@ def test_exact_limit_no_warning(tool, tmpdir):
 
 
 # ---------------------------------------------------------------------------
-# Legacy passthrough
-# ---------------------------------------------------------------------------
-
-
-def test_run_search_passthrough(tool, tmpdir):
-    """_run_search should be a passthrough to execute()."""
-    f = os.path.join(tmpdir, "a.txt")
-    with open(f, "w") as fh:
-        fh.write("hello world\n")
-
-    result = tool._run_search(tmpdir, "hello", OutputMode.CONTENT)
-    assert "hello world" in result
-
-
 # ---------------------------------------------------------------------------
 # Grep fallback (when ripgrep not available)
 # ---------------------------------------------------------------------------

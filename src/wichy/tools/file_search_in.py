@@ -261,8 +261,3 @@ class SearchInFilesTool(BaseTool):
             return format_error("search timed out after 30 seconds")
         except Exception as e:
             return format_error(str(e))
-
-    # Legacy — kept so callers that reference _run_search still work
-    def _run_search(self, path: str, pattern: str, output_mode: OutputMode) -> str:
-        """Run ripgrep (or grep fallback) with the given output mode."""
-        return self.execute(path, pattern, output_mode)

@@ -44,10 +44,11 @@ class WriteScratchpadTool(BaseTool):
                     raw = f.read()
                 metadata, _ = parse_markdown_frontmatter(raw)
                 created = metadata.get(
-                    "created", datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S.%f")
+                    "created",
+                    datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f"),
                 )
             except Exception:
-                created = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S.%f")
+                created = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")
         else:
             created = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")
 

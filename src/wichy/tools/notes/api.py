@@ -1,7 +1,7 @@
 """API endpoints for the notes and scratchpad tool."""
 
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from flask import Blueprint, jsonify, request
@@ -121,7 +121,7 @@ def register_routes(bp: Blueprint):
             if slug == base_slug and _slug_exists(slug):
                 return jsonify({"error": "A note with this title already exists"}), 409
 
-            created = datetime.utcnow().isoformat()
+            created = datetime.now(timezone.utc).isoformat()
             updated = _write_note(slug, title, content, created)
 
             return (

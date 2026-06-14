@@ -329,6 +329,20 @@ class RootAgent(AgentCore):
 
         self.context.drop()
 
+    def _notify_context_editor(self, old_context: Any) -> None:
+        """Stop watching old context and notify the web editor of the change."""
+        try:
+            old_context.stop_watching()
+        except Exception:
+            pass
+        try:
+            from wichy.tools.context_editor import api as context_editor_api
+
+            context_editor_api.set_active_context(self.context)
+            hooks_set_active_context(self.context)
+        except Exception:
+            pass
+
     def reset_context(self, strategy: ContextResetStrategies):
         if strategy == ContextResetStrategies.SUMMARY:
             return self.compact_context()
@@ -349,19 +363,7 @@ class RootAgent(AgentCore):
         self.context = ctx
         # Start watching new context
         self.context.start_watching(interval=2.0)
-        # Stop watching old context
-        try:
-            old_context.stop_watching()
-        except Exception:
-            pass
-        # Notify web editor of context change
-        try:
-            from wichy.tools.context_editor import api as context_editor_api
-
-            context_editor_api.set_active_context(self.context)
-            hooks_set_active_context(self.context)
-        except Exception:
-            pass
+        self._notify_context_editor(old_context)
 
         # Fire CONTEXT_RESET_POST hook after new context is created
         HookExecutor.run_context_hooks(
@@ -430,19 +432,7 @@ class RootAgent(AgentCore):
         n_ctx.add(role="user", content=summary_msg)
         self.context = n_ctx
         self.context.start_watching(interval=2.0)
-        # Stop watching old context
-        try:
-            old_context.stop_watching()
-        except Exception:
-            pass
-        # Notify web editor of context change
-        try:
-            from wichy.tools.context_editor import api as context_editor_api
-
-            context_editor_api.set_active_context(self.context)
-            hooks_set_active_context(self.context)
-        except Exception:
-            pass
+        self._notify_context_editor(old_context)
 
         # Fire CONTEXT_COMPACT_POST hook after context is replaced with summary
         HookExecutor.run_context_hooks(

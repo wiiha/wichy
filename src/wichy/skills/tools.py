@@ -229,7 +229,6 @@ class SkillScriptTool(BaseTool):
                 text=True,
                 capture_output=True,
                 timeout=params.timeout,
-                # cwd=Path.home(),  # Run from home directory
             )
             output = f"Exit code: {result.returncode}\n"
             if result.stdout:

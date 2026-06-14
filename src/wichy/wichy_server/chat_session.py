@@ -61,7 +61,6 @@ class ChatSession:
         while not self._stop_event.is_set():
             try:
                 line = self.input_queue.get(timeout=1.0)
-                # user_console.print(line)
                 possible_cmd = self.cmd_checker.check_command(line)
                 if possible_cmd is not None:
                     user_console.print(possible_cmd)
@@ -117,7 +116,6 @@ class ChatSession:
 
     def start(self) -> threading.Thread:
         if self._thread is not None and self._thread.is_alive():
-            # raise RuntimeError("ChatSession already started")
             return self._thread
         self._thread = threading.Thread(target=self.run, daemon=True)
         self._thread.start()
