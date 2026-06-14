@@ -70,8 +70,6 @@ dependencies = [
     "tqdm==4.67.1",
     "typing-inspection==0.4.2",
     "typing_extensions==4.15.0",
-    "chromadb>=0.4.0",
-    "rank_bm25>=0.2.2",
     "pyyaml>=6.0",
     "duckdb>=1.0.0",
     "pytz>=2024.1",
@@ -81,9 +79,6 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0.0",
-]
-chromadb = [
-    "sentence-transformers>=2.2.0",
 ]
 
 [project.scripts]
@@ -98,17 +93,9 @@ wichy = ["templates/**/*", "**/static/**/*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
-addopts = "--ignore=tests/document_store"
 
 [tool.mypy]
 python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = false
-
-[[tool.mypy.overrides]]
-module = [
-    "rank_bm25",
-    "wichy.memory.tool_analyze_content_answer",
-]
-ignore_missing_imports = true
