@@ -33,7 +33,6 @@ from wichy.result_offload import QueryResultTool
 from wichy.tools.list_files import ListFilesTool
 from wichy.tools.read_file import ReadFileTool
 from wichy.tools.read_scratchpad import ReadScratchpadTool
-from wichy.tools.session_map_tools import ReadSessionMapTool
 from wichy.tools.registry import (
     clear_registry,
     get_all_tools,
@@ -91,7 +90,6 @@ __all__ = [
     "ListFilesTool",
     "ReadFileTool",
     "ReadScratchpadTool",
-    "ReadSessionMapTool",
     "ReplaceTextTool",
     "WebSearchTool",
     "TaskAgentTool",

@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-
 # ---------------------------------------------------------------------------
 # Persistent history — JSONL in .wichy/chat/history.jsonl
 # ---------------------------------------------------------------------------

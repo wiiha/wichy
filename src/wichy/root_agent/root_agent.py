@@ -1,11 +1,9 @@
-import logging
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
 from rich.markdown import Markdown
 
 from wichy.agent.core import AgentCore
-from wichy.config import settings
 from wichy.console import user_console
 from wichy.constants import ROLE_ASSISTANT, ROLE_USER
 from wichy.context.handler import new_context
@@ -20,8 +18,6 @@ from wichy.llm_backend import (
     call,
     called_tool,
 )
-from wichy.session_map.extractor import SessionMapExtractor
-from wichy.session_map.store import SessionMapStore
 from wichy.tools import get_tool_definitions
 from wichy.tools.base import BaseTool
 
@@ -43,7 +39,6 @@ class RootAgent(AgentCore):
         agent_has_first_initiative: bool = True,
         auto_compact_threshold: Optional[int] = None,
         print_info_lines: bool = True,
-        session_map_model: Optional[str] = None,
     ):
         super().__init__()
         if context is not None:
@@ -90,12 +85,6 @@ class RootAgent(AgentCore):
         self.auto_compact_threshold = auto_compact_threshold
         self.current_prompt_tokens = 0
 
-        # Session map components (lazy initialization)
-        # session_map_model: None=disabled, ""=use root agent's model, "model"=specific model
-        self._session_map_model = session_map_model
-        self._session_map_store: SessionMapStore | None = None
-        self._session_map_extractor: SessionMapExtractor | None = None
-
     # -------------------------------------------------------------------------
     # AgentCore abstract property implementation
     # -------------------------------------------------------------------------
@@ -119,8 +108,6 @@ class RootAgent(AgentCore):
     def model_str(self, value: str) -> None:
         """Set a new model string for subsequent LLM calls."""
         self._model_str = value
-        # Reset session map model so it re-initializes with new model on next extraction
-        self._session_map_model = None
 
     # -------------------------------------------------------------------------
     # AgentCore logging overrides - use RootAgent's console
@@ -225,103 +212,6 @@ class RootAgent(AgentCore):
             guideline_from_user_on_what_to_keep=msg, is_auto_compact=True
         )
 
-    def _init_session_map(self):
-        """Initialize session map components."""
-        # session_map_model: None=disabled, ""=use root agent's model, "model"=specific model
-        if self._session_map_model is None:
-            return
-
-        if self._session_map_store is None:
-            self._session_map_store = SessionMapStore()
-
-        if self._session_map_extractor is None:
-            # If session_map_model is empty string, use root agent's model
-            model_str = (
-                self._session_map_model if self._session_map_model else self.model_str
-            )
-            self._session_map_extractor = SessionMapExtractor(model_str=model_str)
-
-    def _get_user_turn_count(self) -> int:
-        """Count number of user turns in conversation."""
-        # Context is likely a list-like object with messages
-        # Each message has a 'role' key
-        return len([m for m in self.context.context if m.get("role") == "user"])
-
-    def _get_messages_since_turn(self, last_turn: int) -> list[dict]:
-        """Get messages since the last extracted turn."""
-        messages = []
-        user_turn_count = 0
-
-        for msg in self.context.context:
-            if msg.get("role") == "user":
-                user_turn_count += 1
-
-            if user_turn_count > last_turn:
-                messages.append(msg)
-
-        return messages
-
-    def _maybe_extract_session_map(self):
-        """Check if session map extraction is due and run it."""
-        # session_map_model: None=disabled, ""=use root agent's model, "model"=specific model
-        if self._session_map_model is None:
-            return
-
-        self._init_session_map()
-
-        # Ensure context handler is current (in case of reset/compaction)
-        from wichy.session_map.api import set_context_handler
-        from wichy.tools.session_map_tools import set_session_map_globals
-
-        set_context_handler(self.context)
-        set_session_map_globals(self._session_map_store, self.context)
-
-        current_turn = self._get_user_turn_count()
-        context_id = str(self.context.path)
-        last_extracted = self._session_map_store.get_last_turn(context_id)
-
-        if current_turn - last_extracted < settings.session_map_interval:
-            return  # Not time yet
-
-        # Get messages since last extraction
-        messages_since_last = self._get_messages_since_turn(last_extracted)
-
-        if not messages_since_last:
-            return
-
-        # Get existing map
-        existing_map = self._session_map_store.get(context_id)
-
-        # Extract with validation
-        try:
-            is_valid, nodes, edges, feedback = (
-                self._session_map_extractor.extract_with_validation(
-                    messages=messages_since_last,
-                    existing_map=existing_map,
-                    start_turn=last_extracted,
-                )
-            )
-
-            # Log extraction feedback at DEBUG level
-            logging.debug(
-                f"Session map extraction: valid={is_valid}, nodes={len(nodes)}, feedback={feedback}"
-            )
-
-            if is_valid and nodes:
-                self._session_map_store.merge_nodes(
-                    context_id=context_id,
-                    new_nodes=nodes,
-                    new_edges=edges,
-                    turn=current_turn,
-                )
-        except Exception as e:
-            # Surface to user but don't crash the main loop
-            from wichy.console import user_console
-
-            user_console.print(
-                f"[yellow]Warning: Session map extraction failed: {e}[/yellow]"
-            )
-
     def process(self, line):
         self.context.append({"role": ROLE_USER, "content": line})
         tool_defs = get_tool_definitions(self.tools)
@@ -403,7 +293,6 @@ class RootAgent(AgentCore):
         if response.message.reasoning:
             entry["reasoning"] = response.message.reasoning
         self.context.append(entry)
-        self._maybe_extract_session_map()
         # Final token update after processing complete
         self._update_token_counts(response.usage)
         if self.check_token_threshold():

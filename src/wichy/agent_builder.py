@@ -125,7 +125,6 @@ class AgentBuilder:
             skills=self.skills,
             agent_has_first_initiative=agent_goes_first,
             auto_compact_threshold=self.cli_config.auto_compact_threshold,
-            session_map_model=self.cli_config.session_map_model,
         )
 
         # 5. Add system prompt if fresh conversation (no context provided)
