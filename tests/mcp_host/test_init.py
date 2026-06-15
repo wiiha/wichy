@@ -7,6 +7,7 @@ mocks provide both the input and the asserted output.
 """
 
 import json
+import os
 from unittest.mock import MagicMock
 
 from wichy.mcp_host import discover_mcp_tools, shutdown_mcp
@@ -24,8 +25,13 @@ class TestDiscoverMcpTools:
         monkeypatch.delenv("WICHY_MCP_SERVERS", raising=False)
         _reset_manager()
 
-        result = discover_mcp_tools(set())
-        assert result == []
+        orig_cwd = os.getcwd()
+        os.chdir(str(tmp_path))
+        try:
+            result = discover_mcp_tools(set())
+            assert result == []
+        finally:
+            os.chdir(orig_cwd)
 
     def test_returns_empty_on_invalid_config(self, monkeypatch, tmp_path):
         """Should return empty list when config is invalid (graceful degradation)."""
@@ -36,8 +42,13 @@ class TestDiscoverMcpTools:
         monkeypatch.delenv("WICHY_MCP_SERVERS", raising=False)
         _reset_manager()
 
-        result = discover_mcp_tools(set())
-        assert result == []
+        orig_cwd = os.getcwd()
+        os.chdir(str(tmp_path))
+        try:
+            result = discover_mcp_tools(set())
+            assert result == []
+        finally:
+            os.chdir(orig_cwd)
 
     def test_returns_empty_for_disabled_servers(self, monkeypatch, tmp_path):
         """Should return empty list when all servers are disabled."""
@@ -57,8 +68,13 @@ class TestDiscoverMcpTools:
         monkeypatch.delenv("WICHY_MCP_SERVERS", raising=False)
         _reset_manager()
 
-        result = discover_mcp_tools(set())
-        assert result == []
+        orig_cwd = os.getcwd()
+        os.chdir(str(tmp_path))
+        try:
+            result = discover_mcp_tools(set())
+            assert result == []
+        finally:
+            os.chdir(orig_cwd)
 
     def test_returns_empty_when_server_unreachable(self, monkeypatch, tmp_path):
         """Should return empty list when server exists but can't connect (graceful degradation)."""
@@ -77,10 +93,13 @@ class TestDiscoverMcpTools:
         monkeypatch.delenv("WICHY_MCP_SERVERS", raising=False)
         _reset_manager()
 
-        # The real connect_all() will fail and log an error,
-        # then discover_all_tools() returns [] because no clients connected
-        result = discover_mcp_tools(set())
-        assert result == []
+        orig_cwd = os.getcwd()
+        os.chdir(str(tmp_path))
+        try:
+            result = discover_mcp_tools(set())
+            assert result == []
+        finally:
+            os.chdir(orig_cwd)
 
     def test_collision_detection_via_manager(self):
         """discover_mcp_tools should skip tools that collide with native names."""

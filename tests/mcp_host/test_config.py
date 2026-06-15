@@ -244,3 +244,199 @@ class TestLoadMcpConfig:
 
         config = load_mcp_config()
         assert config.mcpServers == {}
+
+    def test_load_local_only(self, monkeypatch, tmp_path):
+        """Test loading from local file when no global config exists."""
+        monkeypatch.setattr("wichy.config.settings.wichy_home", tmp_path)
+        monkeypatch.delenv("WICHY_MCP_SERVERS", raising=False)
+
+        local_dir = tmp_path / ".wichy"
+        local_dir.mkdir()
+        local_file = local_dir / "mcp_servers.json"
+        local_file.write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "local_server": {
+                            "transport": "stdio",
+                            "command": "local_cmd",
+                        }
+                    }
+                }
+            )
+        )
+
+        import os
+
+        orig_cwd = os.getcwd()
+        os.chdir(str(tmp_path))
+        try:
+            config = load_mcp_config()
+            assert "local_server" in config.mcpServers
+            assert config.mcpServers["local_server"].command == "local_cmd"
+        finally:
+            os.chdir(orig_cwd)
+
+    def test_load_local_overrides_global(self, monkeypatch, tmp_path):
+        """Local server config replaces global server with same key entirely."""
+        global_file = tmp_path / "mcp_servers.json"
+        global_file.write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "shared_server": {
+                            "transport": "stdio",
+                            "command": "global_cmd",
+                            "args": ["global_arg"],
+                        }
+                    }
+                }
+            )
+        )
+        monkeypatch.setattr("wichy.config.settings.wichy_home", tmp_path)
+        monkeypatch.delenv("WICHY_MCP_SERVERS", raising=False)
+
+        local_dir = tmp_path / ".wichy"
+        local_dir.mkdir()
+        local_file = local_dir / "mcp_servers.json"
+        local_file.write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "shared_server": {
+                            "transport": "http",
+                            "url": "http://local.local",
+                        }
+                    }
+                }
+            )
+        )
+
+        import os
+
+        orig_cwd = os.getcwd()
+        os.chdir(str(tmp_path))
+        try:
+            config = load_mcp_config()
+            assert "shared_server" in config.mcpServers
+            # Local replaced the global entry entirely
+            assert config.mcpServers["shared_server"].transport == "http"
+            assert config.mcpServers["shared_server"].url == "http://local.local"
+            # Old global fields must NOT survive
+            assert not hasattr(config.mcpServers["shared_server"], "command")
+        finally:
+            os.chdir(orig_cwd)
+
+    def test_load_global_and_local_merge(self, monkeypatch, tmp_path):
+        """Different keys in global and local coexist."""
+        global_file = tmp_path / "mcp_servers.json"
+        global_file.write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "global_server": {
+                            "transport": "stdio",
+                            "command": "global_cmd",
+                        }
+                    }
+                }
+            )
+        )
+        monkeypatch.setattr("wichy.config.settings.wichy_home", tmp_path)
+        monkeypatch.delenv("WICHY_MCP_SERVERS", raising=False)
+
+        local_dir = tmp_path / ".wichy"
+        local_dir.mkdir()
+        local_file = local_dir / "mcp_servers.json"
+        local_file.write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "local_server": {
+                            "transport": "http",
+                            "url": "http://local.local",
+                        }
+                    }
+                }
+            )
+        )
+
+        import os
+
+        orig_cwd = os.getcwd()
+        os.chdir(str(tmp_path))
+        try:
+            config = load_mcp_config()
+            assert "global_server" in config.mcpServers
+            assert "local_server" in config.mcpServers
+        finally:
+            os.chdir(orig_cwd)
+
+    def test_invalid_global_valid_local(self, monkeypatch, tmp_path):
+        """INV-001: invalid global → skip global, still load local."""
+        global_file = tmp_path / "mcp_servers.json"
+        global_file.write_text("{bad json")
+
+        monkeypatch.setattr("wichy.config.settings.wichy_home", tmp_path)
+        monkeypatch.delenv("WICHY_MCP_SERVERS", raising=False)
+
+        local_dir = tmp_path / ".wichy"
+        local_dir.mkdir()
+        local_file = local_dir / "mcp_servers.json"
+        local_file.write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "local_server": {
+                            "transport": "stdio",
+                            "command": "local_cmd",
+                        }
+                    }
+                }
+            )
+        )
+
+        import os
+
+        orig_cwd = os.getcwd()
+        os.chdir(str(tmp_path))
+        try:
+            config = load_mcp_config()
+            assert "local_server" in config.mcpServers
+            assert config.mcpServers["local_server"].command == "local_cmd"
+        finally:
+            os.chdir(orig_cwd)
+
+    def test_valid_global_invalid_local(self, monkeypatch, tmp_path):
+        """INV-002: valid global + invalid local → fall back to global only."""
+        global_file = tmp_path / "mcp_servers.json"
+        global_file.write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "global_server": {
+                            "transport": "stdio",
+                            "command": "global_cmd",
+                        }
+                    }
+                }
+            )
+        )
+        monkeypatch.setattr("wichy.config.settings.wichy_home", tmp_path)
+        monkeypatch.delenv("WICHY_MCP_SERVERS", raising=False)
+
+        local_dir = tmp_path / ".wichy"
+        local_dir.mkdir()
+        local_file = local_dir / "mcp_servers.json"
+        local_file.write_text("{bad json")
+
+        import os
+
+        orig_cwd = os.getcwd()
+        os.chdir(str(tmp_path))
+        try:
+            config = load_mcp_config()
+            assert "global_server" in config.mcpServers
+            assert "local_server" not in config.mcpServers
+        finally:
+            os.chdir(orig_cwd)
