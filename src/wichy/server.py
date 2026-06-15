@@ -179,7 +179,7 @@ def start_server_in_background(port: int | None = None, host: str | None = None)
     # (e.g. chat module starting its poller) sees the correct port.
     _server_port = actual_port
 
-    _server_app = create_app()
+    _server_app = create_app(no_chat=True)
     msg = f"Starting wichy server in background on {host}:{actual_port}"
     _server_app.logger.info(msg)
 
