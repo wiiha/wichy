@@ -169,8 +169,13 @@ class TestLoadMcpConfig:
         monkeypatch.setattr("wichy.config.settings.wichy_home", tmp_path)
         monkeypatch.delenv("WICHY_MCP_SERVERS", raising=False)
 
-        config = load_mcp_config()
-        assert config.mcpServers == {}
+        orig_cwd = os.getcwd()
+        os.chdir(str(tmp_path))
+        try:
+            config = load_mcp_config()
+            assert config.mcpServers == {}
+        finally:
+            os.chdir(orig_cwd)
 
     def test_load_invalid_json_file(self, monkeypatch, tmp_path):
         """Test graceful handling of invalid JSON in config file."""
@@ -180,16 +185,26 @@ class TestLoadMcpConfig:
         monkeypatch.setattr("wichy.config.settings.wichy_home", tmp_path)
         monkeypatch.delenv("WICHY_MCP_SERVERS", raising=False)
 
-        config = load_mcp_config()
-        assert config.mcpServers == {}
+        orig_cwd = os.getcwd()
+        os.chdir(str(tmp_path))
+        try:
+            config = load_mcp_config()
+            assert config.mcpServers == {}
+        finally:
+            os.chdir(orig_cwd)
 
     def test_load_invalid_env_var(self, monkeypatch, tmp_path):
         """Test graceful handling of invalid JSON in env var."""
         monkeypatch.setattr("wichy.config.settings.wichy_home", tmp_path)
         monkeypatch.setenv("WICHY_MCP_SERVERS", "{invalid}")
 
-        config = load_mcp_config()
-        assert config.mcpServers == {}
+        orig_cwd = os.getcwd()
+        os.chdir(str(tmp_path))
+        try:
+            config = load_mcp_config()
+            assert config.mcpServers == {}
+        finally:
+            os.chdir(orig_cwd)
 
     def test_file_takes_priority_over_env(self, monkeypatch, tmp_path):
         """Test that the config file takes priority over env var."""
@@ -242,8 +257,13 @@ class TestLoadMcpConfig:
         monkeypatch.setattr("wichy.config.settings.wichy_home", tmp_path)
         monkeypatch.delenv("WICHY_MCP_SERVERS", raising=False)
 
-        config = load_mcp_config()
-        assert config.mcpServers == {}
+        orig_cwd = os.getcwd()
+        os.chdir(str(tmp_path))
+        try:
+            config = load_mcp_config()
+            assert config.mcpServers == {}
+        finally:
+            os.chdir(orig_cwd)
 
     def test_load_local_only(self, monkeypatch, tmp_path):
         """Test loading from local file when no global config exists."""
