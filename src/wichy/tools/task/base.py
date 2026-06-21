@@ -25,6 +25,11 @@ from wichy.tools.base import BaseTool
 console_task_agents = Console(quiet=True)
 
 # ---------------------------------------------------------------------------
+# Turn-count warning threshold
+# ---------------------------------------------------------------------------
+_TURNS_WARNING_THRESHOLD = 5
+
+# ---------------------------------------------------------------------------
 # Global in-memory registry of running task agents
 # ---------------------------------------------------------------------------
 _TASK_AGENT_REGISTRY: dict[str, "TaskAgent"] = {}
@@ -115,7 +120,6 @@ class TaskAgent(AgentCore):
         context = ContextHandler(
             custom_suffix=f"{self._name}-{gen_id()}", sub_dir="task_agents"
         )
-        self._original_system_prompt = system_prompt
         if self._max_turns is not None:
             system_prompt += (
                 f"\n\nYou have {self._max_turns} turns available for this task."
@@ -258,16 +262,17 @@ class TaskAgent(AgentCore):
                     )
                     self.context.add(role=ROLE_USER, content=warning)
 
-                # Update turns-remaining in system prompt
-                if self._turns_remaining is not None:
+                # Accumulating late reminders (cache-friendly)
+                if self._max_turns is not None:
                     remaining = self._max_turns - self._turns_used
-                    updated_content = (
-                        self._original_system_prompt
-                        + f"\n\nYou have {remaining} turns remaining for this task."
+                    effective_threshold = min(
+                        _TURNS_WARNING_THRESHOLD, max(2, self._max_turns - 1)
                     )
-                    self.context.update_message(
-                        0, {"role": ROLE_SYSTEM, "content": updated_content}
-                    )
+                    if remaining <= effective_threshold:
+                        self.context.add(
+                            role=ROLE_USER,
+                            content=f"You have {remaining} turns remaining for this task.",
+                        )
 
                 # --- stop / steer hook at bottom of loop ---
                 if self._stop_event.is_set():
