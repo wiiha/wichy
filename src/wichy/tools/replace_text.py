@@ -5,6 +5,7 @@ Simplified alternative to patch tool that uses before/after strings instead of
 unified diff format. Much easier for agents to use correctly.
 """
 
+import difflib
 import os
 from typing import Any
 
@@ -117,6 +118,14 @@ class ReplaceTextTool(BaseTool):
                 + new_file_content[idx + len(old_content) :]
             )
 
+        # create diff that will be part of result message
+        diff = difflib.unified_diff(
+            original_content.splitlines(keepends=True),
+            new_file_content.splitlines(keepends=True),
+            fromfile="old",
+            tofile="new",
+        )
+        txt_diff = "".join(diff)
         # Write back to file
         try:
             with open(file_path, "w", encoding=encoding) as f:
@@ -128,4 +137,5 @@ class ReplaceTextTool(BaseTool):
         result_msg = f"Replaced {num_replacements} occurrence(s) in {file_path}"
         if num_replacements < total_occurrences and count > 0:
             result_msg += f" (left {total_occurrences - num_replacements} unchanged)"
+        result_msg += "\n\n" + txt_diff
         return result_msg
