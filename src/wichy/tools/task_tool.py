@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Dict, Optional
 
 from pydantic import Field
@@ -6,6 +7,7 @@ from wichy.config import settings
 from wichy.console import user_console
 from wichy.constants import HIDE_FROM_LLM_PREFIX
 from wichy.helpers.string import strip_thinking_content
+from wichy.hooks.context_access import get_active_context
 from wichy.tools.base import BaseTool, ParametersModel
 from wichy.tools.errors import format_error
 from wichy.tools.registry import get_all_tools
@@ -184,6 +186,19 @@ assistant: "I'm going to use the Task tool to launch the greeting-responder agen
             all_tools_not_instantiated=tools,
             max_turns=max_turns,
         )
+
+        root_context = get_active_context()
+        if root_context is not None:
+            root_context.add_log(
+                {
+                    "event": "task_agent_started",
+                    "root_context_file": str(root_context.path),
+                    "task_context_file": str(sa.context.path),
+                    "task_agent_type": subagent_type,
+                    "description": kwargs.get("description", ""),
+                    "timestamp": datetime.now().isoformat(),
+                }
+            )
 
         result: str = sa.run()
         old_result = result

@@ -11,6 +11,11 @@ def set_active_context(ctx):
     _active_context = ctx
 
 
+def get_active_context():
+    """Return the currently active context handler, or None."""
+    return _active_context
+
+
 def context_add(role: str, content: str) -> bool:
     """Add a message to the active conversation context.
 
