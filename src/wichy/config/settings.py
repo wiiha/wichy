@@ -3,16 +3,27 @@ Centralized configuration for wichy.
 
 Uses pydantic-settings to load from environment variables with sane defaults.
 Environment variables can be prefixed with WICHY_ (e.g., WICHY_OLLAMA_BASE_URL).
+
+Also loads optional YAML settings files from ``~/.wichy/settings.yaml`` and
+``./.wichy/settings.yaml``. Project-local values override user-home values.
 """
 
+from __future__ import annotations
+
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from wichy.config._yaml_settings import SettingsNamespace, load_yaml_settings
 
 
 class Settings(BaseSettings):
     """Centralized configuration for wichy."""
+
+    if TYPE_CHECKING:
+        # Type-only declaration so mypy knows the attribute type without creating a Pydantic field.
+        _yaml_namespaces: dict[str, SettingsNamespace]
 
     model_config = SettingsConfigDict(
         env_prefix="WICHY_",
@@ -66,9 +77,7 @@ class Settings(BaseSettings):
     server_port: int = 7891
 
     # Pipeline / REPL settings
-    wake_up_message: str = (
-        "You just woke up. Perform any tasks you deem necessary before interacting further with the user."
-    )
+    wake_up_message: str = "You just woke up. Perform any tasks you deem necessary before interacting further with the user."
 
     # Skills settings
 
@@ -192,6 +201,32 @@ class Settings(BaseSettings):
         if "openrouter_api_key" not in kwargs and os.environ.get("OPEN_ROUTER_API_KEY"):
             kwargs["openrouter_api_key"] = os.environ.get("OPEN_ROUTER_API_KEY")
         super().__init__(**kwargs)
+        # Load optional YAML settings after pydantic-settings has resolved env/defaults.
+        self._yaml_namespaces = load_yaml_settings(
+            self.wichy_home / "settings.yaml",
+            Path(".wichy/settings.yaml"),
+        )
+
+    def __getattr__(self, name: str) -> Any:
+        """Resolve unknown attribute names as YAML namespaces."""
+        try:
+            namespaces = self._yaml_namespaces
+        except AttributeError:
+            # _yaml_namespaces may not be set yet during pydantic init
+            raise AttributeError(name) from None
+        try:
+            return namespaces[name]
+        except KeyError as exc:
+            raise AttributeError(name) from exc
+
+    def get_namespace(self, name: str) -> SettingsNamespace:
+        """Return a YAML settings namespace by name.
+
+        Raises ``AttributeError`` if the namespace is not defined.
+        """
+        if name not in self._yaml_namespaces:
+            raise AttributeError(name)
+        return self._yaml_namespaces[name]
 
 
 # Global singleton instance

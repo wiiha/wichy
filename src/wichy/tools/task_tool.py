@@ -2,6 +2,8 @@ from typing import Any, Dict, Optional
 
 from pydantic import Field
 
+from wichy.config import settings
+from wichy.console import user_console
 from wichy.constants import HIDE_FROM_LLM_PREFIX
 from wichy.helpers.string import strip_thinking_content
 from wichy.tools.base import BaseTool, ParametersModel
@@ -13,6 +15,35 @@ from wichy.tools.task import (
     TaskAgentDefinitionBase,
     generate_list_from_task_agent_defs,
 )
+
+
+def _read_agent_max_turns_setting(
+    settings_obj: Any = None,
+) -> Optional[int]:
+    """Read ``agent.max_turns`` from YAML settings if present.
+
+    If the value is set but not a positive integer, a warning is printed and
+    ``None`` is returned so the task agent falls back to its default behavior.
+    """
+    if settings_obj is None:
+        settings_obj = settings
+
+    try:
+        namespace = settings_obj.get_namespace("agent")
+    except AttributeError:
+        return None
+
+    if "max_turns" not in namespace:
+        return None
+
+    value = namespace.max_turns
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        user_console.print(
+            f"[yellow]Warning: found settings.agent.max_turns but got {value!r} "
+            f"({type(value).__name__}), expected a positive integer. Ignoring it.[/yellow]"
+        )
+        return None
+    return value
 
 
 class TaskAgentParameters(ParametersModel):
@@ -130,6 +161,8 @@ assistant: "I'm going to use the Task tool to launch the greeting-responder agen
         prompt: str = kwargs["prompt"]
         subagent_type: str = kwargs["subagent_type"]
         max_turns: Optional[int] = kwargs.get("max_turns")
+        if max_turns is None:
+            max_turns = _read_agent_max_turns_setting()
         model_str: str = kwargs["model_str"]
         all_task_agent_defs: Dict[str, TaskAgentDefinitionBase] = {}
         # "alias" each def by generating the lower case version
