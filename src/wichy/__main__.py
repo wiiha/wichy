@@ -39,7 +39,7 @@ from wichy.root_agent.helpers import parse_root_agent_markdown_desc
 from wichy.server import run_server, set_server_port, start_server_in_background
 from wichy.skills import SkillLoader
 from wichy.slash_commands import SlashCommandChecker, slash_completer
-from wichy.tool_manager import ToolManager
+from wichy.tool_manager import ToolManager, _matches_tool_patterns
 from wichy.tools import human_verification
 from wichy.tools.base import console_tool_result
 from wichy.tools.notes import set_scratchpad_slug
@@ -258,16 +258,22 @@ def main():
                     f"Discovered {len(mcp_tools)} MCP tool(s)",
                 )
 
-            # Apply same filtering as native tools
+            # Apply same glob filtering as native tools
             if args.tools:
-                allowed = set(args.tools.split(",")) if args.tools else None
-                if allowed:
-                    mcp_tools = [t for t in mcp_tools if t.name in allowed]
+                patterns = [p.strip() for p in args.tools.split(",") if p.strip()]
+                if patterns:
+                    mcp_tools = [
+                        t for t in mcp_tools if _matches_tool_patterns(t.name, patterns)
+                    ]
 
             if args.not_tools:
-                excluded = set(args.not_tools.split(",")) if args.not_tools else None
-                if excluded:
-                    mcp_tools = [t for t in mcp_tools if t.name not in excluded]
+                patterns = [p.strip() for p in args.not_tools.split(",") if p.strip()]
+                if patterns:
+                    mcp_tools = [
+                        t
+                        for t in mcp_tools
+                        if not _matches_tool_patterns(t.name, patterns)
+                    ]
 
             # Merge with native tools
             in_tools = in_tools + mcp_tools

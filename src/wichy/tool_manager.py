@@ -1,9 +1,18 @@
 """Tool manager - handles tool instantiation and filtering."""
 
-from typing import List, Optional
+import fnmatch
+from typing import Iterable, List, Optional
 
 from wichy.tools.base import BaseTool
 from wichy.tools.registry import get_all_tools
+
+
+def _matches_tool_patterns(name: str, patterns: Iterable[str]) -> bool:
+    """Check if a tool name matches any of the given glob patterns (case-insensitive)."""
+    lowered = name.lower()
+    return any(
+        fnmatch.fnmatch(lowered, pat.strip().lower()) for pat in patterns if pat.strip()
+    )
 
 
 class ToolManager:
@@ -41,8 +50,9 @@ class ToolManager:
 
         Args:
             tools: List of instantiated tools to filter
-            allowed: Comma-separated list of tool names to include (empty means all)
-            excluded: Comma-separated list of tool names to exclude
+            allowed: Comma-separated list of glob patterns for tool names to include
+                     (empty means all)
+            excluded: Comma-separated list of glob patterns for tool names to exclude
 
         Returns:
             Filtered list of tools
@@ -52,20 +62,20 @@ class ToolManager:
 
         # Start with all tools or filter by allowed
         if allowed:
-            allowed_names = {
-                name.strip().lower() for name in allowed.split(",") if name.strip()
-            }
-            filtered = [tool for tool in tools if tool.name.lower() in allowed_names]
+            patterns = [p for p in allowed.split(",")]
+            filtered = [
+                tool for tool in tools if _matches_tool_patterns(tool.name, patterns)
+            ]
         else:
             filtered = tools.copy()
 
         # Apply exclusions
         if excluded:
-            excluded_names = {
-                name.strip().lower() for name in excluded.split(",") if name.strip()
-            }
+            patterns = [p for p in excluded.split(",")]
             filtered = [
-                tool for tool in filtered if tool.name.lower() not in excluded_names
+                tool
+                for tool in filtered
+                if not _matches_tool_patterns(tool.name, patterns)
             ]
 
         return filtered
@@ -75,8 +85,9 @@ class ToolManager:
         Convenience method to instantiate and filter tools in one call.
 
         Args:
-            allowed: Comma-separated list of tool names to include (empty means all)
-            excluded: Comma-separated list of tool names to exclude
+            allowed: Comma-separated list of glob patterns for tool names to include
+                     (empty means all)
+            excluded: Comma-separated list of glob patterns for tool names to exclude
 
         Returns:
             Final list of tools ready for use.

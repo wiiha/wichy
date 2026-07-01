@@ -109,7 +109,8 @@ class CliParser:
             "--tools",
             default="",
             help=(
-                "Specify which tools the root agent should have available. Comma separated list of tool names. "
+                "Specify which tools the root agent should have available. Comma separated list of tool names "
+                + "or glob patterns (e.g. read_file,bash or browser* or *search*). "
                 + "See --list-tools for all tools. Omitting this flag will give the agent access to all tools. Unless --not-tools is specified."
             ),
         )
@@ -117,8 +118,9 @@ class CliParser:
             "--not-tools",
             default="",
             help=(
-                "Specify which tools the root agent should not have available. Comma separated list of tool names."
-                + " This filtering happens after --tools, i.e. --tools read_file, bash --not-tools bash -> tools = [read_file]. "
+                "Specify which tools the root agent should not have available. Comma separated list of tool names "
+                + "or glob patterns (e.g. browser* or *search*)."
+                + " This filtering happens after --tools, i.e. --tools read_file,bash --not-tools bash -> tools = [read_file]. "
                 + "See --list-tools for all tools. Omitting this flag will give the agent access to all tools. Unless --tools is specified."
             ),
         )

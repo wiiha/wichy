@@ -162,3 +162,167 @@ class TestToolManager:
         manager = ToolManager()
         expected = get_all_tools()
         assert manager.all_tools == expected
+
+    def test_filter_tools_allowed_glob_prefix(self):
+        """Test allowed filter with prefix glob pattern."""
+
+        class BrowserFoo(BaseTool):
+            name = "browser_foo"
+            description = "Browser foo"
+            parameters_model = None
+
+            def execute(self):
+                return "foo"
+
+        class BrowserBar(BaseTool):
+            name = "browser_bar"
+            description = "Browser bar"
+            parameters_model = None
+
+            def execute(self):
+                return "bar"
+
+        class OtherTool(BaseTool):
+            name = "other_tool"
+            description = "Other tool"
+            parameters_model = None
+
+            def execute(self):
+                return "other"
+
+        manager = ToolManager([BrowserFoo, BrowserBar, OtherTool])
+        tools = manager.instantiate_all()
+        filtered = manager.filter_tools(tools, allowed="browser*", excluded="")
+
+        assert len(filtered) == 2
+        filtered_names = {t.name for t in filtered}
+        assert filtered_names == {"browser_foo", "browser_bar"}
+
+    def test_filter_tools_excluded_glob_prefix(self):
+        """Test excluded filter with prefix glob pattern."""
+
+        class BrowserFoo(BaseTool):
+            name = "browser_foo"
+            description = "Browser foo"
+            parameters_model = None
+
+            def execute(self):
+                return "foo"
+
+        class BrowserBar(BaseTool):
+            name = "browser_bar"
+            description = "Browser bar"
+            parameters_model = None
+
+            def execute(self):
+                return "bar"
+
+        class OtherTool(BaseTool):
+            name = "other_tool"
+            description = "Other tool"
+            parameters_model = None
+
+            def execute(self):
+                return "other"
+
+        manager = ToolManager([BrowserFoo, BrowserBar, OtherTool])
+        tools = manager.instantiate_all()
+        filtered = manager.filter_tools(tools, allowed="", excluded="browser*")
+
+        assert len(filtered) == 1
+        assert filtered[0].name == "other_tool"
+
+    def test_filter_tools_glob_contains(self):
+        """Test glob filter matching substring with wildcards on both sides."""
+
+        class SearchWeb(BaseTool):
+            name = "search_web"
+            description = "Web search"
+            parameters_model = None
+
+            def execute(self):
+                return "web"
+
+        class FileSearchIn(BaseTool):
+            name = "file_search_in"
+            description = "File search"
+            parameters_model = None
+
+            def execute(self):
+                return "files"
+
+        class ReadFile(BaseTool):
+            name = "read_file"
+            description = "Read file"
+            parameters_model = None
+
+            def execute(self):
+                return "read"
+
+        manager = ToolManager([SearchWeb, FileSearchIn, ReadFile])
+        tools = manager.instantiate_all()
+        filtered = manager.filter_tools(tools, allowed="", excluded="*search*")
+
+        assert len(filtered) == 1
+        assert filtered[0].name == "read_file"
+
+    def test_filter_tools_exact_still_works(self):
+        """Test that exact names still match after glob support added."""
+
+        class ToolA(BaseTool):
+            name = "tool_a"
+            description = "Tool A"
+            parameters_model = None
+
+            def execute(self):
+                return "a"
+
+        class ToolB(BaseTool):
+            name = "tool_b"
+            description = "Tool B"
+            parameters_model = None
+
+            def execute(self):
+                return "b"
+
+        manager = ToolManager([ToolA, ToolB])
+        tools = manager.instantiate_all()
+        filtered = manager.filter_tools(tools, allowed="tool_a", excluded="")
+
+        assert len(filtered) == 1
+        assert filtered[0].name == "tool_a"
+
+    def test_filter_tools_comma_separated_globs(self):
+        """Test multiple comma-separated glob patterns."""
+
+        class BrowserA(BaseTool):
+            name = "browser_a"
+            description = "Browser A"
+            parameters_model = None
+
+            def execute(self):
+                return "a"
+
+        class SearchB(BaseTool):
+            name = "search_b"
+            description = "Search B"
+            parameters_model = None
+
+            def execute(self):
+                return "b"
+
+        class ReadFile(BaseTool):
+            name = "read_file"
+            description = "Read file"
+            parameters_model = None
+
+            def execute(self):
+                return "read"
+
+        manager = ToolManager([BrowserA, SearchB, ReadFile])
+        tools = manager.instantiate_all()
+        filtered = manager.filter_tools(tools, allowed="browser*,search_*", excluded="")
+
+        assert len(filtered) == 2
+        filtered_names = {t.name for t in filtered}
+        assert filtered_names == {"browser_a", "search_b"}
