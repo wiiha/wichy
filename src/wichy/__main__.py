@@ -8,6 +8,7 @@ import threading
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.history import FileHistory
+from prompt_toolkit.key_binding import KeyBindings
 
 from wichy.agent_builder import AgentBuilderError, build_agent_from_config
 from wichy.cli.handlers import (
@@ -188,10 +189,17 @@ def main():
 
     cmd_checker = None  # will be set after root_agent is created
 
+    kb = KeyBindings()
+
+    @kb.add("c-o")
+    def _(event):
+        event.current_buffer.insert_text("\n")
+
     prompt_session = PromptSession(
         history=FileHistory(settings.history_file),
         auto_suggest=AutoSuggestFromHistory(),
         completer=slash_completer,
+        key_bindings=kb,
     )
 
     # Tools will be determined after root agent selection
