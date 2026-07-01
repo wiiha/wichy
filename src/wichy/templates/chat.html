@@ -1,47 +1,53 @@
 {% extends "base.html" %}
-
 {% block title %}Wichy Chat{% endblock %}
-
 {% block extra_css %}
   <link rel="stylesheet" href="/shared/chat.css" />
 {% endblock %}
-
 {% block body %}
   <div class="chat-wrapper">
     <div class="header">
       <div style="display: flex; align-items: center; gap: 0.75rem">
         <h1 style="margin: 0">Wichy Chat</h1>
         <label class="hide-system-label">
-          <input type="checkbox" id="hideSystem" /> Hide system
+          <input type="checkbox" id="hideSystem" />
+          Hide system
         </label>
-        <button data-theme-toggle aria-label="Toggle dark mode" title="Toggle light/dark mode">
+        <button data-theme-toggle
+                aria-label="Toggle dark mode"
+                title="Toggle light/dark mode">
           <span data-theme-icon></span>
         </button>
       </div>
-      <span id="status"
-        ><span class="status-dot"></span>
-        <span id="status-text">?</span></span
-      >
+      <span id="status"><span class="status-dot"></span>
+      <span id="status-text">?</span></span>
     </div>
     <div class="chat-body">
       <div class="sidebar">
-        <a href="/" title="Home">🏠</a>
-        <a href="/tools/graph/" title="Graph">📊</a>
-        <a href="/tools/context/" title="Context">📝</a>
-        <a href="/tools/notes/" title="Notes">📓</a>
-        <a href="/tools/data/" title="Data">🔍</a>
+        <a href="/" title="Home" target="_blank" rel="noopener noreferrer">🏠</a>
+        <a href="/tools/graph/"
+           title="Graph"
+           target="_blank"
+           rel="noopener noreferrer">📊</a>
+        <a href="/tools/context/"
+           title="Context"
+           target="_blank"
+           rel="noopener noreferrer">📝</a>
+        <a href="/tools/notes/"
+           title="Notes"
+           target="_blank"
+           rel="noopener noreferrer">📓</a>
+        <a href="/tools/data/"
+           title="Data"
+           target="_blank"
+           rel="noopener noreferrer">🔍</a>
       </div>
       <div class="chat-main">
         <div class="messages-wrapper">
           <div class="messages" id="messages"></div>
           <div id="chatStatus" class="chat-status"></div>
-          <div
-            class="scroll-to-bottom"
-            id="scrollToBottom"
-            onclick="messages.scrollTop = messages.scrollHeight"
-          >
-            ↓
-          </div>
+          <div class="scroll-to-bottom"
+               id="scrollToBottom"
+               onclick="messages.scrollTop = messages.scrollHeight">↓</div>
           <div class="drop-overlay" id="dropOverlay">Drop file here</div>
         </div>
       </div>
@@ -50,11 +56,12 @@
       <textarea id="input" rows="2" placeholder="Type message..."></textarea>
       <button id="send">Send</button>
       <button id="steer">Steer</button>
+      <button id="reset">Reset</button>
+      <button id="compact">Compact</button>
       <button id="clear">Clear</button>
     </div>
   </div>
 {% endblock %}
-
 {% block extra_js %}
   <script src="/shared/marked.min.js"></script>
   <script>
@@ -110,11 +117,33 @@
           return e;
         }
         return null;
-      }    function wasNearBottom() {
-      return (
-        messages.scrollHeight - messages.scrollTop - messages.clientHeight < 100
-      );
-    }
+      }
+
+      function _checkLatestSystemError(data) {
+        if (!data || !Array.isArray(data)) return;
+        const lastSystem = data.slice().reverse().find(e => e && e.role === "system");
+        if (lastSystem && lastSystem.content && lastSystem.content.startsWith("Error:")) {
+          const hideSystemCb = document.getElementById("hideSystem");
+          const messages = document.getElementById("messages");
+          if (hideSystemCb) {
+            hideSystemCb.checked = false;
+          }
+          if (messages) {
+            messages.classList.remove("hide-system");
+          }
+          localStorage.setItem("hideSystem", "false");
+          const statusText = document.getElementById("status-text");
+          const statusDot = document.querySelector("#status .status-dot");
+          if (statusText) statusText.textContent = "ERROR: see latest system message";
+          if (statusDot) statusDot.className = "status-dot disconnected";
+        }
+      }
+
+      function wasNearBottom() {
+        return (
+          messages.scrollHeight - messages.scrollTop - messages.clientHeight < 100
+        );
+      }
 
     async function load() {
       const resp = await fetch("/chat/api/history");
@@ -129,6 +158,7 @@
         messages.appendChild(div);
       }
       if (changed && shouldScroll) messages.scrollTop = messages.scrollHeight;
+        _checkLatestSystemError(data);
         updateChatStatus(data);
       }
 
@@ -294,7 +324,6 @@
           label.appendChild(input);
           const span = document.createElement("span");
           span.textContent = opt.description || opt.label || "";
-          lab| opt.label || "";
           label.appendChild(span);
           opts.appendChild(label);
         }
@@ -364,23 +393,39 @@
     }
 
     const steerBtn = document.getElementById("steer");
+    const resetBtn = document.getElementById("reset");
+    const compactBtn = document.getElementById("compact");
     const clearBtn = document.getElementById("clear");
 
-    async function send(type) {
-      const text = input.value.trim();
-      if (!text) return;
-      input.value = "";
+    async function postMessage(text, type) {
       await fetch("/chat/api/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content: text, type: type || "message" }),
       });
+    }
+
+    async function send(type) {
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = "";
+      await postMessage(text, type || "message");
+      await load();
+      messages.scrollTop = messages.scrollHeight;
+    }
+
+    async function runSessionSequence(command) {
+      await postMessage("prepare for session " + command.slice(1), "message");
+      await postMessage(command, "message");
+      await postMessage("perform session startup", "message");
       await load();
       messages.scrollTop = messages.scrollHeight;
     }
 
     sendBtn.onclick = () => send("message");
     steerBtn.onclick = () => send("steer");
+    resetBtn.onclick = () => runSessionSequence("/reset");
+    compactBtn.onclick = () => runSessionSequence("/compact");
     clearBtn.onclick = async () => {
       if (!confirm("Clear chat history?")) return;
       await fetch("/chat/api/clear", { method: "POST" });
@@ -402,6 +447,7 @@
       try {
         const resp = await fetch("/chat/api/status");
         const data = await resp.json();
+        _checkLatestSystemError(data);
         const dot = status.querySelector(".status-dot");
         const text = document.getElementById("status-text");
         if (data.connected) {
@@ -480,6 +526,7 @@
       function updateChatStatus(data, fromTimer) {
         const statusEl = document.getElementById("chatStatus");
         if (!statusEl) return;
+        _checkLatestSystemError(data);
 
         if (_hasUnresolvedAction(data)) {
           statusEl.className = "chat-status action-required";
