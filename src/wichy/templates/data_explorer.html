@@ -1,12 +1,12 @@
 {% extends "base.html" %}
 
-{% block title %}Wichy - Data Explorer{% endblock %}
+{% block title %}Wichy - Data Explorer{% endblock title %}
 
 {% block color_scheme %}
 <meta name="color-scheme" content="light" />
-{% endblock %}
+{% endblock color_scheme %}
 
-{% block theme_script %}{% endblock %}
+{% block theme_script %}{% endblock theme_script %}
 
 {% block extra_css %}
     <style>
@@ -804,7 +804,7 @@
 #sidebar.collapsed #table-count { display: none; }
 #sidebar-toggle { position: absolute; top: 8px; right: 4px; padding: 2px 6px; font-size: 12px; cursor: pointer; }
     </style>
-{% endblock %}
+{% endblock extra_css %}
 
 {% block body %}
     <div class="page-container">
@@ -1936,4 +1936,4 @@ async function loadRecipe(slug) {
 
 
     </script>
-{% endblock %}
+{% endblock body %}

@@ -1,18 +1,18 @@
 {% extends "base.html" %}
 
-{% block title %}Wichy - Notes{% endblock %}
+{% block title %}Wichy - Notes{% endblock title %}
 
 {% block color_scheme %}
 <meta name="color-scheme" content="light" />
-{% endblock %}
+{% endblock color_scheme %}
 
-{% block theme_script %}{% endblock %}
+{% block theme_script %}{% endblock theme_script %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="/shared/notes.css">
+<link rel="stylesheet" href="{{ url_for('shared.static', filename='notes.css') }}">
 <!-- EasyMDE from local static -->
-<link rel="stylesheet" href="/tools/notes/easymde/easymde.min.css">
-{% endblock %}
+<link rel="stylesheet" href="{{ url_for('notes.static', filename='easymde.min.css') }}">
+{% endblock extra_css %}
 
 {% block body %}
     <div class="container">
@@ -29,7 +29,7 @@
         <div class="main-layout">
             <aside class="sidebar">
                 <div class="sidebar-section">
-                    <button id="btn-new-note" class="btn btn-primary" style="width:100%">+ New Note</button>
+                    <button id="btn-new-note" class="btn btn-primary btn-block">+ New Note</button>
                 </div>
                 <div class="sidebar-section">
                     <input type="text" id="note-search" class="form-input" placeholder="Search notes...">
@@ -68,10 +68,10 @@
             </main>
         </div>
     </div>
-{% endblock %}
+{% endblock body %}
 
 {% block extra_js %}
     <!-- EasyMDE from local static -->
-    <script src="/tools/notes/easymde/easymde.min.js"></script>
-    <script src="/shared/notes.js"></script>
-{% endblock %}
+    <script src="{{ url_for('notes.static', filename='easymde.min.js') }}"></script>
+    <script src="{{ url_for('shared.static', filename='notes.js') }}"></script>
+{% endblock extra_js %}

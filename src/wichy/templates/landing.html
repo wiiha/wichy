@@ -1,12 +1,12 @@
 {% extends "base.html" %}
 
-{% block title %}Wichy - Web Tools{% endblock %}
+{% block title %}Wichy - Web Tools{% endblock title %}
 
 {% block color_scheme %}
 <meta name="color-scheme" content="light" />
-{% endblock %}
+{% endblock color_scheme %}
 
-{% block theme_script %}{% endblock %}
+{% block theme_script %}{% endblock theme_script %}
 
 {% block extra_css %}
 <style>
@@ -150,7 +150,7 @@
         }
     }
 </style>
-{% endblock %}
+{% endblock extra_css %}
 
 {% block body %}
     <div class="container">
@@ -162,6 +162,10 @@
 
         <div class="tools-section">
             <h2 class="section-title">Available Tools</h2>
+            <!-- djlint:off J018 -->
+
+            {# Cross-blueprint navigation links use raw paths because the chat blueprint may not be registered in all server modes, making url_for unreliable here. #}
+
             <div class="tools-grid">
                 <a href="/chat/" class="tool-card">
                     <div class="tool-header">
@@ -226,6 +230,8 @@
                         <div class="tool-link">
                             Open Data Explorer <span class="arrow">→</span>
                         </div>
+
+            <!-- djlint:on -->
                     </a>
                 </div>
 
@@ -236,4 +242,4 @@
             <p>Powered by Wichy - Local-first Agentic LLM Framework</p>
         </div>
     </div>
-{% endblock %}
+{% endblock body %}

@@ -1,16 +1,16 @@
 {% extends "base.html" %}
 
-{% block title %}Wichy - Context Editor{% endblock %}
+{% block title %}Wichy - Context Editor{% endblock title %}
 
 {% block color_scheme %}
 <meta name="color-scheme" content="light" />
-{% endblock %}
+{% endblock color_scheme %}
 
-{% block theme_script %}{% endblock %}
+{% block theme_script %}{% endblock theme_script %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="{{ url_for('context_editor.static', filename='context_editor.css') }}">
-{% endblock %}
+{% endblock extra_css %}
 
 {% block body %}
     <div class="container">
@@ -138,7 +138,7 @@
         <div class="modal-content ta-modal-content">
             <div class="modal-header">
                 <h3 id="ta-modal-title" class="modal-title">Agent Context</h3>
-                <button id="ta-modal-close" class="btn btn-secondary">&times;</button>
+                <button id="ta-modal-close" class="btn btn-secondary">×</button>
             </div>
             <div id="ta-context-body" class="ta-modal-body">
                 <!-- Messages rendered here -->
@@ -151,8 +151,8 @@
             </div>
         </div>
     </div>
-{% endblock %}
+{% endblock body %}
 
 {% block extra_js %}
 <script src="{{ url_for('context_editor.static', filename='context_editor.js') }}"></script>
-{% endblock %}
+{% endblock extra_js %}

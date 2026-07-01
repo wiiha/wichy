@@ -1,13 +1,13 @@
 {% extends "base.html" %}
-{% block title %}Wichy Chat{% endblock %}
+{% block title %}Wichy Chat{% endblock title %}
 {% block extra_css %}
-  <link rel="stylesheet" href="/shared/chat.css" />
-{% endblock %}
+  <link rel="stylesheet" href="{{ url_for('shared.static', filename='chat.css') }}" />
+{% endblock extra_css %}
 {% block body %}
   <div class="chat-wrapper">
     <div class="header">
-      <div style="display: flex; align-items: center; gap: 0.75rem">
-        <h1 style="margin: 0">Wichy Chat</h1>
+      <div class="header-flex">
+        <h1 class="header-title">Wichy Chat</h1>
         <label class="hide-system-label">
           <input type="checkbox" id="hideSystem" />
           Hide system
@@ -22,25 +22,16 @@
       <span id="status-text">?</span></span>
     </div>
     <div class="chat-body">
+      <!-- djlint:off J018 -->
+      {# Cross-blueprint navigation links use raw paths because the chat blueprint may not be registered in all server modes, making url_for unreliable here. #}
       <div class="sidebar">
         <a href="/" title="Home" target="_blank" rel="noopener noreferrer">🏠</a>
-        <a href="/tools/graph/"
-           title="Graph"
-           target="_blank"
-           rel="noopener noreferrer">📊</a>
-        <a href="/tools/context/"
-           title="Context"
-           target="_blank"
-           rel="noopener noreferrer">📝</a>
-        <a href="/tools/notes/"
-           title="Notes"
-           target="_blank"
-           rel="noopener noreferrer">📓</a>
-        <a href="/tools/data/"
-           title="Data"
-           target="_blank"
-           rel="noopener noreferrer">🔍</a>
+        <a href="/tools/graph/" title="Graph" target="_blank" rel="noopener noreferrer">📊</a>
+        <a href="/tools/context/" title="Context" target="_blank" rel="noopener noreferrer">📝</a>
+        <a href="/tools/notes/" title="Notes" target="_blank" rel="noopener noreferrer">📓</a>
+        <a href="/tools/data/" title="Data" target="_blank" rel="noopener noreferrer">🔍</a>
       </div>
+      <!-- djlint:on -->
       <div class="chat-main">
         <div class="messages-wrapper">
           <div class="messages" id="messages"></div>
@@ -61,7 +52,7 @@
       <button id="clear">Clear</button>
     </div>
   </div>
-{% endblock %}
+{% endblock body %}
 {% block extra_js %}
   <script src="/shared/marked.min.js"></script>
   <script>
@@ -621,4 +612,4 @@
     setInterval(load, 500);
     setInterval(pollStatus, 2000);
   </script>
-{% endblock %}
+{% endblock extra_js %}

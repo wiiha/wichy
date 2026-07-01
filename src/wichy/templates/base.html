@@ -3,8 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    {% block color_scheme %}<meta name="color-scheme" content="light dark" />{% endblock %}
-    <title>{% block title %}Wichy{% endblock %}</title>
+    <meta name="description" content="Wichy - agentic LLM interface">
+    <meta name="keywords" content="wichy, llm, agent, ai">
+
+    {% block color_scheme %}<meta name="color-scheme" content="light dark" />{% endblock color_scheme %}
+    <title>{% block title %}Wichy{% endblock title %}</title>
 
     {% block theme_script %}
     <!-- FOUC prevention: set theme before any CSS loads -->
@@ -18,7 +21,7 @@
         document.documentElement.setAttribute("data-theme", theme);
       })();
     </script>
-    {% endblock %}
+    {% endblock theme_script %}
 
     <!-- Pico CSS v2 conditional (scoped to .pico containers) -->
     <link
@@ -33,18 +36,18 @@
     />
 
     <!-- Page-specific CSS -->
-    {% block extra_css %}{% endblock %}
+    {% block extra_css %}{% endblock extra_css %}
 
     <!-- Head-level JS (e.g. vis-network) -->
-    {% block head_scripts %}{% endblock %}
+    {% block head_scripts %}{% endblock head_scripts %}
   </head>
   <body>
-    {% block body %}{% endblock %}
+    {% block body %}{% endblock body %}
 
     <!-- Theme toggle script -->
     <script src="{{ url_for('shared.static', filename='theme-toggle.js') }}"></script>
 
     <!-- Page-specific JS -->
-    {% block extra_js %}{% endblock %}
+    {% block extra_js %}{% endblock extra_js %}
   </body>
 </html>

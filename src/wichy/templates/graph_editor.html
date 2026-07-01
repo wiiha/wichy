@@ -1,12 +1,12 @@
 {% extends "base.html" %}
 
-{% block title %}Graph Editor{% endblock %}
+{% block title %}Graph Editor{% endblock title %}
 
 {% block color_scheme %}
 <meta name="color-scheme" content="light" />
-{% endblock %}
+{% endblock color_scheme %}
 
-{% block theme_script %}{% endblock %}
+{% block theme_script %}{% endblock theme_script %}
 
 {% block extra_css %}
     <link
@@ -412,15 +412,35 @@
         vertical-align: middle;
         margin-left: var(--space-sm);
       }
+
+      /* Added for djlint H021 */
+      .search-wrap { position:relative; display:inline-block; }
+      .search-clear-btn { position:absolute; right:4px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:14px; padding:0 6px; }
+      #show-hidden-btn { display:none; }
+      #sidebar-content { display:none; }
+      #csv-import-modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:9999; justify-content:center; align-items:center; }
+      .wizard-content { background:var(--surface); width:600px; max-width:90vw; max-height:80vh; overflow-y:auto; border:1px solid var(--border); border-radius:var(--radius-lg); padding:var(--space-xl); display:flex; flex-direction:column; gap:var(--space-md); }
+      .wizard-header { display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); padding-bottom:var(--space-md); }
+      .wizard-close-btn { background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:20px; }
+      .csv-textarea { width:100%; font-family:var(--font-mono); }
+      .csv-file-input { margin-top:var(--space-sm); }
+      .csv-step { display:none; }
+      .csv-step.active { display:block; }
+      .csv-error { color:var(--warning-text); font-size:var(--font-size-sm); }
+      .csv-table-wrap { overflow-x:auto; max-height:300px; }
+      .csv-table { width:100%; border-collapse:collapse; font-size:var(--font-size-sm); }
+      .csv-nav { display:flex; justify-content:space-between; margin-top:var(--space-md); }
+      .csv-nav-end { display:flex; justify-content:flex-end; margin-top:var(--space-md); }
+      .csv-mapping { display:flex; flex-direction:column; gap:var(--space-sm); }
     </style>
-{% endblock %}
+{% endblock extra_css %}
 
 {% block head_scripts %}
     <script
       type="text/javascript"
       src="/tools/graph/static/vis-network.min.js"
     ></script>
-{% endblock %}
+{% endblock head_scripts %}
 
 {% block body %}
     <div id="header">
@@ -444,7 +464,7 @@
         <button id="save-btn" onclick="saveGraph()">Save Graph</button>
         <button id="import-csv-btn" onclick="openImportWizard()">Import CSV</button>
         <button id="export-btn" onclick="exportPNG()">Export PNG</button>
-        <span id="search-wrap" style="position:relative; display:inline-block;">
+        <span id="search-wrap" class="search-wrap">
           <input
             type="text"
             id="search-input"
@@ -454,9 +474,9 @@
           />
           <button onclick="var el=document.getElementById('search-input'); el.value=''; debouncedSearch(''); el.focus();"
                   title="Clear search"
-                  style="position:absolute; right:4px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:14px; padding:0 6px;">×</button>
+                  class="search-clear-btn">×</button>
         </span>
-        <button id="show-hidden-btn" onclick="showAllHidden()" style="display:none;">Show Hidden</button>
+        <button id="show-hidden-btn" onclick="showAllHidden()">Show Hidden</button>
         <div class="control-group">
           <label
             for="repulsion"
@@ -490,11 +510,11 @@
     </div>
     <div id="sidebar">
       <div id="sidebar-empty">Click a node to inspect.</div>
-      <div id="sidebar-content" style="display:none">
+      <div id="sidebar-content">
         <div class="sb-header">
           <span class="sb-title" id="sb-label"></span>
           <span class="sb-subtitle" id="sb-id"></span>
-          <button class="sb-close" onclick="closeSidebar()" title="Close sidebar">&times;</button>
+          <button class="sb-close" onclick="closeSidebar()" title="Close sidebar">×</button>
         </div>
         <div class="sb-section">
           <h4>Properties</h4>
@@ -1588,41 +1608,41 @@ function csvDoImport() {
         }
       }
     </script>
-<div id="csv-import-modal" class="wizard-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:9999; justify-content:center; align-items:center;">
-  <div class="wizard-content" style="background:var(--surface); width:600px; max-width:90vw; max-height:80vh; overflow-y:auto; border:1px solid var(--border); border-radius:var(--radius-lg); padding:var(--space-xl); display:flex; flex-direction:column; gap:var(--space-md);">
-    <div class="wizard-header" style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); padding-bottom:var(--space-md);">
+<div id="csv-import-modal" class="wizard-overlay">
+  <div class="wizard-content">
+    <div class="wizard-header">
       <h2 id="csv-wizard-title">Import CSV - Step 1</h2>
-      <button onclick="closeImportWizard()" style="background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:20px;">×</button>
+      <button onclick="closeImportWizard()" class="wizard-close-btn">×</button>
     </div>
 
     <div id="csv-step-1" class="csv-step">
       <label>Paste CSV text below or use file upload:</label>
-      <textarea id="csv-text-input" rows="10" style="width:100%; font-family:var(--font-mono);" placeholder="source,target,relation
+      <textarea id="csv-text-input" rows="10" class="csv-textarea" placeholder="source,target,relation
 Alice,Bob,knows
 Bob,Charlie,reports_to"></textarea>
-      <input type="file" id="csv-file-input" accept=".csv" onchange="handleCSVFileUpload(this)" style="margin-top:var(--space-sm);" />
-      <div id="csv-step-1-error" style="color:var(--warning-text); font-size:var(--font-size-sm); display:none;"></div>
-      <div style="display:flex; justify-content:flex-end; margin-top:var(--space-md);">
+      <input type="file" id="csv-file-input" accept=".csv" onchange="handleCSVFileUpload(this)" class="csv-file-input" />
+      <div id="csv-step-1-error" class="csv-error hidden"></div>
+      <div class="csv-nav-end">
         <button id="csv-btn-next-1" onclick="csvStep1Next()" disabled>Next →</button>
       </div>
     </div>
 
-    <div id="csv-step-2" class="csv-step" style="display:none;">
+    <div id="csv-step-2" class="csv-step">
       <p id="csv-preview-summary"></p>
-      <div style="overflow-x:auto; max-height:300px;">
-        <table id="csv-preview-table" style="width:100%; border-collapse:collapse; font-size:var(--font-size-sm);">
-          <thead></thead><tbody></tbody>
+      <div class="csv-table-wrap">
+        <table id="csv-preview-table" class="csv-table">
+          <thead></thead><tbody><!-- rows populated by JS --></tbody>
         </table>
       </div>
-      <div id="csv-large-warning" style="color:var(--warning-text); font-size:var(--font-size-sm); display:none;">This is a large file. Consider importing a subset.</div>
-      <div style="display:flex; justify-content:space-between; margin-top:var(--space-md);">
+      <div id="csv-large-warning" class="csv-error hidden">This is a large file. Consider importing a subset.</div>
+      <div class="csv-nav">
         <button onclick="csvStepBack(1)">← Back</button>
         <button id="csv-btn-next-2" onclick="csvStep2Next()">Next →</button>
       </div>
     </div>
 
-    <div id="csv-step-3" class="csv-step" style="display:none;">
-      <div style="display:flex; flex-direction:column; gap:var(--space-sm);">
+    <div id="csv-step-3" class="csv-step">
+      <div class="csv-mapping">
         <label>Source Node Column *</label>
         <select id="csv-source-col"></select>
         <label>Target Node Column *</label>
@@ -1634,31 +1654,31 @@ Bob,Charlie,reports_to"></textarea>
         <label>Node Color Column</label>
         <select id="csv-color-col"><option value="">-- None --</option></select>
       </div>
-      <div id="csv-mapping-error" style="color:var(--warning-text); font-size:var(--font-size-sm); display:none;"></div>
-      <div style="display:flex; justify-content:space-between; margin-top:var(--space-md);">
+      <div id="csv-mapping-error" class="csv-error hidden"></div>
+      <div class="csv-nav">
         <button onclick="csvStepBack(2)">← Back</button>
         <button id="csv-btn-next-3" onclick="csvStep3Next()">Next →</button>
       </div>
     </div>
 
-    <div id="csv-step-4" class="csv-step" style="display:none;">
+    <div id="csv-step-4" class="csv-step">
       <div id="csv-step-4-summary">
         <p>This will create approximately <strong id="csv-est-nodes"></strong> nodes and <strong id="csv-est-edges"></strong> edges.</p>
       </div>
-      <div id="csv-import-error" style="color:var(--warning-text); display:none;"></div>
-      <div style="display:flex; justify-content:space-between; margin-top:var(--space-md);">
+      <div id="csv-import-error" class="csv-error hidden"></div>
+      <div class="csv-nav">
         <button onclick="csvStepBack(3)">← Back</button>
         <button id="csv-btn-import" onclick="csvDoImport()">Import</button>
       </div>
     </div>
 
-    <div id="csv-step-5" class="csv-step" style="display:none;">
+    <div id="csv-step-5" class="csv-step">
       <p>✅ Import complete!</p>
       <p>Created <strong id="csv-res-nodes"></strong> nodes and <strong id="csv-res-edges"></strong> edges.</p>
-      <div style="display:flex; justify-content:flex-end; margin-top:var(--space-md);">
+      <div class="csv-nav-end">
         <button onclick="closeImportWizard()">Close &amp; View Graph</button>
       </div>
       </div>
     </div>
   </div>
-{% endblock %}
+{% endblock body %}

@@ -253,3 +253,8 @@
     flex: 1;
   }
 }
+
+/* Added for djlint H021 */
+.btn-block {
+  width: 100%;
+}
