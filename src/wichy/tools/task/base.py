@@ -1,5 +1,6 @@
 from datetime import date
 from typing import Dict, List, Optional
+import fnmatch
 import threading
 
 from pydantic import BaseModel
@@ -21,6 +22,7 @@ from wichy.llm_backend import (
 )
 from wichy.tools import get_tool_definitions
 from wichy.tools.base import BaseTool
+from wichy.tool_manager import _matches_tool_patterns
 
 console_task_agents = Console(quiet=True)
 
@@ -80,12 +82,14 @@ class TaskAgent(AgentCore):
         if allowed_tools is not None and len(allowed_tools) > 0:
             new_tools = []
             for tool in tools:
-                if tool.name in allowed_tools:
+                if _matches_tool_patterns(tool.name, allowed_tools):
                     new_tools.append(tool)
 
-            all_tool_names = [t.name.lower() for t in tools]
             for tool_name in allowed_tools:
-                if tool_name not in all_tool_names:
+                if not any(
+                    fnmatch.fnmatch(t.name.lower(), tool_name.strip().lower())
+                    for t in tools
+                ):
                     console_task_agents.log(
                         f"[yellow]warning[/yellow] task agent definition {agent_definition.name} mentions tool {tool_name} which does not exist."
                     )
@@ -94,7 +98,7 @@ class TaskAgent(AgentCore):
         if agent_definition.not_tools and len(agent_definition.not_tools) > 0:
             new_tools = []
             for tool in tools:
-                if tool.name in agent_definition.not_tools:
+                if _matches_tool_patterns(tool.name, agent_definition.not_tools):
                     # listed as tool to skip
                     continue
                 new_tools.append(tool)
@@ -246,7 +250,21 @@ class TaskAgent(AgentCore):
 
             self._turns_used = 1  # Initial call counts as turn 1
 
-            while self._handle_tools(tools, response.message):
+            while True:
+                # Guard: if max turns reached and assistant emitted tools, do not execute them
+                if (
+                    self._max_turns is not None
+                    and self._turns_used >= self._max_turns
+                    and response.message.tool_calls
+                ):
+                    self.context.add(
+                        role=ROLE_USER,
+                        content="No more tool calls are allowed. Provide your final answer.",
+                    )
+                    break
+                elif not self._handle_tools(tools, response.message):
+                    break
+
                 self._turns_used += 1
 
                 # Max turns enforcement — exceeded limit, force summary
@@ -281,9 +299,18 @@ class TaskAgent(AgentCore):
                 self._drain_steer_queue()
                 # --- end ---
 
+                tool_defs_for_call = (
+                    None
+                    if self._max_turns is not None
+                    and self._turns_used == self._max_turns
+                    else tool_defs
+                )
+
                 try:
                     response = call(
-                        self.context(tick=True), tool_defs, model_str=self.model_str
+                        self.context(tick=True),
+                        tool_defs_for_call,
+                        model_str=self.model_str,
                     )
                 except LLMBackendMultimodalNotSupported as e:
                     console_task_agents.log(
@@ -299,7 +326,7 @@ class TaskAgent(AgentCore):
                         )
                         response = call(
                             context=self.context(),
-                            tool_defs=tool_defs,
+                            tool_defs=tool_defs_for_call,
                             model_str=self.model_str,
                         )
                     else:
