@@ -6,16 +6,17 @@ from queue import Queue
 from typing import TYPE_CHECKING, Optional
 
 from flask import Blueprint, jsonify, request
+
 from wichy.console import user_console
 
 if TYPE_CHECKING:
     from wichy.wichy_server.chat_session import ChatSession
 
-from wichy.helpers.verification_provider import get_verification_provider
-from wichy.wichy_server.verification_provider import ServerVerificationProvider
-
 from wichy.helpers.interaction_provider import get_interaction_provider
+from wichy.helpers.verification_provider import get_verification_provider
+from wichy.tools.task.base import get_task_agent, list_task_agents
 from wichy.wichy_server.interaction_provider import ServerInteractionProvider
+from wichy.wichy_server.verification_provider import ServerVerificationProvider
 
 _input_queue: Optional[Queue[str]] = None
 
@@ -176,3 +177,58 @@ def register_routes(bp: Blueprint):
 
         commands = session.cmd_checker.list_commands()
         return jsonify({"commands": commands})
+
+    @bp.route("/sub-agents", methods=["GET"])
+    def get_sub_agents():
+        agents = [agent.status() for agent in list_task_agents()]
+        return jsonify({"agents": agents})
+
+    @bp.route("/sub-agents/<agent_id>", methods=["GET"])
+    def get_sub_agent_status(agent_id: str):
+        agent = get_task_agent(agent_id)
+        if agent is None:
+            return jsonify({"error": "agent not found"}), 404
+        return jsonify(agent.status())
+
+    @bp.route("/sub-agents/<agent_id>/steer", methods=["POST"])
+    def steer_sub_agent(agent_id: str):
+        agent = get_task_agent(agent_id)
+        if agent is None:
+            return jsonify({"error": "agent not found"}), 404
+
+        data = request.get_json(silent=True) or {}
+        role = data.get("role", "user")
+        content = data.get("content", "")
+        if role != "user":
+            return (
+                jsonify({"error": "only the 'user' role is allowed for steering"}),
+                400,
+            )
+        if not isinstance(content, str) or content.strip() == "":
+            return jsonify({"error": "content cannot be empty"}), 400
+
+        agent.steer(role=role, content=content)
+        return jsonify({"status": "ok"})
+
+    @bp.route("/sub-agents/<agent_id>/stop", methods=["POST"])
+    def stop_sub_agent(agent_id: str):
+        agent = get_task_agent(agent_id)
+        if agent is None:
+            return jsonify({"error": "agent not found"}), 404
+
+        agent.request_stop()
+        return jsonify({"status": "ok"})
+
+    @bp.route("/sub-agents/<agent_id>/context", methods=["GET"])
+    def get_sub_agent_context(agent_id: str):
+        agent = get_task_agent(agent_id)
+        if agent is None:
+            return jsonify({"error": "agent not found"}), 404
+
+        ctx = agent.context
+        return jsonify(
+            {
+                "filename": ctx.path.name,
+                "entries": ctx.get_entries(),
+            }
+        )

@@ -387,13 +387,16 @@ def main():
     if args.server_mode:
         session = ChatSession(root_agent=root_agent, cmd_checker=cmd_checker)
         setup_server(root_agent=root_agent)
-        set_server_port(settings.server_port)
+        server_port = (
+            args.server_port if args.server_port is not None else settings.server_port
+        )
+        set_server_port(server_port)
         set_server_input_queue(session.input_queue)
         set_server_active_session(session)
         set_interaction_provider(ServerInteractionProvider())
         set_verification_provider(ServerVerificationProvider())
         flask_thread = threading.Thread(
-            target=lambda: run_server(no_chat=args.no_chat), daemon=True
+            target=lambda: run_server(port=server_port, no_chat=args.no_chat), daemon=True
         )
 
         session.start()

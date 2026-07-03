@@ -38,6 +38,18 @@ _TASK_AGENT_REGISTRY: dict[str, "TaskAgent"] = {}
 _TASK_AGENT_REGISTRY_LOCK = threading.Lock()
 
 
+def get_task_agent(agent_id: str) -> Optional["TaskAgent"]:
+    """Return a running task agent by id, or None if not found."""
+    with _TASK_AGENT_REGISTRY_LOCK:
+        return _TASK_AGENT_REGISTRY.get(agent_id)
+
+
+def list_task_agents() -> list["TaskAgent"]:
+    """Return a snapshot of currently running task agents."""
+    with _TASK_AGENT_REGISTRY_LOCK:
+        return list(_TASK_AGENT_REGISTRY.values())
+
+
 class TaskAgentDefinitionBase(BaseModel):
     name: str
     description: str

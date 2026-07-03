@@ -39,7 +39,7 @@ class CliConfig:
     max_backend_connections: Optional[int] = None
     prompt: Optional[str] = None
     auto_compact_threshold: Optional[int] = None
-
+    server_port: Optional[int] = None
     # Subcommands
     command: Optional[str] = None
 
@@ -287,6 +287,12 @@ class CliParser:
             action="store_true",
             help="Skip initializing the chat GUI and its poller",
         )
+        server_parser.add_argument(
+            "--port",
+            type=int,
+            default=None,
+            help="Port to run the server on (default: WICHY_SERVER_PORT or 7891)",
+        )
 
     def parse(self, args=None) -> CliConfig:
         """
@@ -335,6 +341,7 @@ class CliParser:
         if parsed.command == "server":
             config.server_mode = True
             config.no_chat = getattr(parsed, "no_chat", False)
+            config.server_port = getattr(parsed, "port", None)
 
         return config
 
