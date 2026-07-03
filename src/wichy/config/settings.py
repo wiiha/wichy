@@ -77,7 +77,9 @@ class Settings(BaseSettings):
     server_port: int = 7891
 
     # Pipeline / REPL settings
-    wake_up_message: str = "You just woke up. Perform any tasks you deem necessary before interacting further with the user."
+    wake_up_message: str = (
+        "You just woke up. Perform any tasks you deem necessary before interacting further with the user."
+    )
 
     # Skills settings
 

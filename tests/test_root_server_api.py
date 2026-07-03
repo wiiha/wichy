@@ -98,11 +98,27 @@ class TestRootContextEndpoint:
 
         # Write a JSONL file directly with interleaved messages and logs
         ctx_path.write_text(
-            json.dumps({"role": "user", "content": "hello", "type": "message", "timestamp": "t1", "_tick": 0})
+            json.dumps(
+                {
+                    "role": "user",
+                    "content": "hello",
+                    "type": "message",
+                    "timestamp": "t1",
+                    "_tick": 0,
+                }
+            )
             + "\n"
             + json.dumps({"type": "log", "event": "test", "timestamp": "t2"})
             + "\n"
-            + json.dumps({"role": "assistant", "content": "hi", "type": "message", "timestamp": "t3", "_tick": 1})
+            + json.dumps(
+                {
+                    "role": "assistant",
+                    "content": "hi",
+                    "type": "message",
+                    "timestamp": "t3",
+                    "_tick": 1,
+                }
+            )
             + "\n"
         )
 

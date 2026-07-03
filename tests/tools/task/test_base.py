@@ -2,7 +2,11 @@
 
 import pytest
 
-from wichy.tools.task.base import TaskAgent, TaskAgentDefinitionBase, _TURNS_WARNING_THRESHOLD
+from wichy.tools.task.base import (
+    TaskAgent,
+    TaskAgentDefinitionBase,
+    _TURNS_WARNING_THRESHOLD,
+)
 
 
 class FakeTool:
@@ -53,9 +57,7 @@ def test_system_prompt_is_never_updated_by_agent(monkeypatch):
     # invoking the same logic the agent uses to add reminders.
     agent._turns_used = 2
     remaining = agent._max_turns - agent._turns_used
-    effective_threshold = min(
-        _TURNS_WARNING_THRESHOLD, max(2, agent._max_turns - 1)
-    )
+    effective_threshold = min(_TURNS_WARNING_THRESHOLD, max(2, agent._max_turns - 1))
     if remaining <= effective_threshold:
         agent.context.add(
             role="user",
@@ -69,18 +71,14 @@ def test_effective_threshold_for_large_max_turns():
     """For large max_turns the effective threshold equals the constant."""
     agent = _make_agent(max_turns=20)
     assert agent._max_turns is not None
-    effective_threshold = min(
-        _TURNS_WARNING_THRESHOLD, max(2, agent._max_turns - 1)
-    )
+    effective_threshold = min(_TURNS_WARNING_THRESHOLD, max(2, agent._max_turns - 1))
     assert effective_threshold == _TURNS_WARNING_THRESHOLD
 
 
 def test_effective_threshold_for_small_max_turns():
     """For short tasks the threshold is capped to max_turns - 1, at least 2."""
     agent = _make_agent(max_turns=4)
-    effective_threshold = min(
-        _TURNS_WARNING_THRESHOLD, max(2, agent._max_turns - 1)
-    )
+    effective_threshold = min(_TURNS_WARNING_THRESHOLD, max(2, agent._max_turns - 1))
     assert effective_threshold == 3
 
 
@@ -140,9 +138,7 @@ def test_no_reminders_before_threshold():
     # First tool round: remaining 9, threshold 5 -> no reminder
     agent._turns_used = 1
     remaining = agent._max_turns - agent._turns_used
-    effective_threshold = min(
-        _TURNS_WARNING_THRESHOLD, max(2, agent._max_turns - 1)
-    )
+    effective_threshold = min(_TURNS_WARNING_THRESHOLD, max(2, agent._max_turns - 1))
     if remaining <= effective_threshold:
         agent.context.add(
             role="user",

@@ -860,7 +860,9 @@ class TestContextHandlerGetEntries:
         assert entries[2]["role"] == "assistant"
         assert entries[2]["content"] == "msg2"
 
-    def test_get_entries_reconstructs_metadata_in_memory_fallback(self, temp_contexts_dir):
+    def test_get_entries_reconstructs_metadata_in_memory_fallback(
+        self, temp_contexts_dir
+    ):
         """When file is not written, fallback entries have consistent metadata."""
         ctx = ContextHandler()
         # Mock _write_line to no-op so file is never created

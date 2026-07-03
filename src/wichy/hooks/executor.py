@@ -281,7 +281,10 @@ class HookExecutor:
 
                 # PRE_RESPONSE_TO_USER hooks may modify the response content.
                 # All other lifecycle hooks are informational; their returns are ignored.
-                if hook_type == HookType.PRE_RESPONSE_TO_USER and hook_result is not None:
+                if (
+                    hook_type == HookType.PRE_RESPONSE_TO_USER
+                    and hook_result is not None
+                ):
                     if hook_result.action == HookAction.MODIFY_OUTPUT:
                         result.modified_output = hook_result.modified_output
                         hook_ctx.output = hook_result.modified_output

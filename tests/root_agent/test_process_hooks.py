@@ -74,7 +74,9 @@ def _make_response_with_none_content(reasoning=None, usage=None):
 def _fresh_context(tmp_path, filename="2026-07-03_12345.json"):
     """Create a minimal context file and load it."""
     ctx_path = tmp_path / filename
-    ctx_path.write_text(json.dumps({"role": "system", "content": "test context"}) + "\n")
+    ctx_path.write_text(
+        json.dumps({"role": "system", "content": "test context"}) + "\n"
+    )
     return context_from_file(str(ctx_path))
 
 
@@ -101,7 +103,9 @@ class TestPreUserMessageInProcess:
             mock_call.return_value = _make_response("hi")
             agent.process("hello")
 
-        assert lengths_seen == [1]  # fresh context has 1 system message before user append
+        assert lengths_seen == [
+            1
+        ]  # fresh context has 1 system message before user append
         # After process, the user message + assistant response are in context
         assert len(agent.context) == 3
         last_message = agent.context()[-2]
@@ -161,7 +165,9 @@ class TestPreResponseToUserInProcess:
 
         @pre_response_to_user
         def append_prefix(ctx: HookContext) -> HookResult:
-            return HookResult.modify_output(f"[prefix] {ctx.event_data['response_content']}")
+            return HookResult.modify_output(
+                f"[prefix] {ctx.event_data['response_content']}"
+            )
 
         agent = RootAgent(
             model_str="test-model",
@@ -184,7 +190,9 @@ class TestPreResponseToUserInProcess:
 
         @pre_response_to_user
         def append_prefix(ctx: HookContext) -> HookResult:
-            return HookResult.modify_output(f"[disk] {ctx.event_data['response_content']}")
+            return HookResult.modify_output(
+                f"[disk] {ctx.event_data['response_content']}"
+            )
 
         agent = RootAgent(
             model_str="test-model",
@@ -200,7 +208,9 @@ class TestPreResponseToUserInProcess:
         # Read the file directly
         ctx_path = agent.context.path
         lines = ctx_path.read_text(encoding="utf-8").strip().split("\n")
-        messages = [json.loads(line) for line in lines if json.loads(line).get("type") != "log"]
+        messages = [
+            json.loads(line) for line in lines if json.loads(line).get("type") != "log"
+        ]
         assert messages[-1]["role"] == ROLE_ASSISTANT
         assert messages[-1]["content"] == "[disk] assistant reply"
 
@@ -266,13 +276,17 @@ class TestPreResponseToUserInProcess:
         )
 
         with patch("wichy.root_agent.root_agent.call") as mock_call:
-            mock_call.return_value = _make_response("assistant reply", reasoning="because")
+            mock_call.return_value = _make_response(
+                "assistant reply", reasoning="because"
+            )
             agent.process("hello")
 
         # __call__() strips reasoning, so read from disk to verify persistence
         ctx_path = agent.context.path
         lines = ctx_path.read_text(encoding="utf-8").strip().split("\n")
-        messages = [json.loads(line) for line in lines if json.loads(line).get("type") != "log"]
+        messages = [
+            json.loads(line) for line in lines if json.loads(line).get("type") != "log"
+        ]
         last_message = messages[-1]
         assert last_message["content"] == "modified"
         assert last_message.get("reasoning") == "because"
@@ -301,7 +315,9 @@ class TestPreResponseToUserInProcess:
 class TestHookFailureSurvival:
     """Hook failures do not break process()."""
 
-    def test_pre_user_message_exception_does_not_break_process(self, no_tools, tmp_path):
+    def test_pre_user_message_exception_does_not_break_process(
+        self, no_tools, tmp_path
+    ):
         """PRE_USER_MESSAGE hook exception is logged; process continues."""
 
         @pre_user_message
