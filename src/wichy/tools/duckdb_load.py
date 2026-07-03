@@ -32,6 +32,7 @@ class DuckDBLoadParameters(ParametersModel):
 
 
 class DuckDBLoadTool(BaseTool):
+    needs_verification_in_api: bool = False
     name = "duckdb_load"
     description = "Load data files (CSV, Parquet, JSON) into DuckDB tables for analysis"
     description_long = """

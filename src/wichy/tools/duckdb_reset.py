@@ -13,6 +13,7 @@ class DuckDBResetParameters(ParametersModel):
 
 
 class DuckDBResetTool(BaseTool):
+    needs_verification_in_api: bool = False
     name = "duckdb_reset"
     description = "Reset DuckDB session - clear all tables and close connection"
     description_long = """

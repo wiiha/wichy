@@ -113,10 +113,8 @@ def require_human_verification(func: Callable) -> Callable:
             raise PermissionError(msg)
 
         with _user_interaction_lock:
-
             # Pause for the prompt - buffers output from other threads
             with user_console.paused():
-
                 special_console.print(f"\n[bold yellow]ACTION:[/bold yellow] {label}")
                 if message:
                     special_console.print(message)
@@ -210,7 +208,9 @@ def delete_file(path: str):
 
 # Set human-friendly label & message for the decorator to display
 delete_file._action_label = "Delete file"  # type: ignore[attr-defined]
-delete_file._action_message = "This will permanently remove the file from disk. Make sure you have backups."  # type: ignore[attr-defined]
+delete_file._action_message = (
+    "This will permanently remove the file from disk. Make sure you have backups."  # type: ignore[attr-defined]
+)
 
 # Usage
 if __name__ == "__main__":

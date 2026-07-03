@@ -48,6 +48,7 @@ class QueryResultParameters(ParametersModel):
 
 
 class QueryResultTool(BaseTool):
+    needs_verification_in_api: bool = False
     """Query stored tool results using natural language."""
 
     name = "query_result"

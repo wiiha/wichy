@@ -107,7 +107,6 @@ def preprocess_prompt(prompt: str, verify_against: Dict[str, List[str]]) -> str:
         modified_prompt = modified_prompt[:six] + cid + modified_prompt[eix:]
 
     for cid in conditionals:
-
         conditional = conditionals[cid]
 
         result = _process_conditional(

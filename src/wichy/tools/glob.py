@@ -48,6 +48,7 @@ class GlobTool(BaseTool):
 """
 
     parameters_model = GlobParameters
+    needs_verification_in_api: bool = False
 
     def execute(self, *args: Any, **kwargs: Any) -> str:
         """Execute glob search and return matching files sorted by modification time."""

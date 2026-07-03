@@ -80,6 +80,7 @@ Multimodal Support (images):
 - Use this when the user wants to show an image to a vision-capable LLM"""
     enable_result_offload = True
     parameters_model = ReadFileParameters
+    needs_verification_in_api: bool = False
 
     MAX_LINE_LENGTH = 2000
 

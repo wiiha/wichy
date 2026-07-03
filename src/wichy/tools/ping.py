@@ -19,6 +19,7 @@ class PingTool(BaseTool):
     name = "ping"
     description = "Ping a host on the internet to check connectivity"
     parameters_model = PingParameters
+    needs_verification_in_api: bool = False
 
     def execute(self, *args: Any, **kwargs: Any) -> str:
         """Execute ping command."""

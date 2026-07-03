@@ -36,6 +36,7 @@ class CreateGraphParameters(ParametersModel):
 
 
 class CreateGraphTool(BaseTool):
+    needs_verification_in_api: bool = False
     name = "create_graph"
     description = "Create a new graph from text definition"
     description_long = """Create a graph from a simple text format and save it to .wichy/graphs/.
@@ -187,6 +188,7 @@ class ReadGraphParameters(ParametersModel):
 
 
 class ReadGraphTool(BaseTool):
+    needs_verification_in_api: bool = False
     name = "read_graph"
     description = "Read a saved graph JSON file"
     description_long = "Read a graph from .wichy/graphs/ and return its contents as a concise edge list format. Useful for agent to analyze graph structure."
@@ -288,6 +290,7 @@ class ListGraphsParameters(ParametersModel):
 
 
 class ListGraphsTool(BaseTool):
+    needs_verification_in_api: bool = False
     name = "list_graphs"
     description = "List all saved graph files"
     description_long = (

@@ -28,6 +28,7 @@ class DuckDBQueryParameters(ParametersModel):
 
 
 class DuckDBQueryTool(BaseTool):
+    needs_verification_in_api: bool = False
     name = "duckdb_query"
     description = "Execute SQL queries on loaded data tables for analysis"
     description_long = """

@@ -21,6 +21,7 @@ class DuckDBSchemaParameters(ParametersModel):
 
 
 class DuckDBSchemaTool(BaseTool):
+    needs_verification_in_api: bool = False
     name = "duckdb_schema"
     description = "Inspect schema of loaded DuckDB tables (columns, types, row counts)"
     description_long = """

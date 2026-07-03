@@ -27,6 +27,7 @@ class TreeTool(BaseTool):
     description = "Display directory tree structure, respecting .gitignore files"
     enable_result_offload = True
     parameters_model = TreeParameters
+    needs_verification_in_api: bool = False
 
     def _load_gitignore(self, root_path: str) -> pathspec.PathSpec:
         """Load .gitignore patterns."""

@@ -27,6 +27,7 @@ class WriteScratchpadTool(BaseTool):
         "which is different from the user's scratch pad."
     )
     parameters_model = WriteScratchpadParameters
+    needs_verification_in_api: bool = False
 
     def execute(self, *args: Any, **kwargs: Any) -> str:
         """Write the scratchpad note and pin it."""

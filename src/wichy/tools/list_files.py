@@ -24,6 +24,7 @@ class ListFilesTool(BaseTool):
     name = "list_files"
     description = "List files in a directory"
     parameters_model = ListFilesParameters
+    needs_verification_in_api: bool = False
 
     def execute(self, *args: Any, **kwargs: Any) -> str:
         """Execute file listing"""

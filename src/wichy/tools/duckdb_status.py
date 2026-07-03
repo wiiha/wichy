@@ -13,6 +13,7 @@ class DuckDBStatusParameters(ParametersModel):
 
 
 class DuckDBStatusTool(BaseTool):
+    needs_verification_in_api: bool = False
     name = "duckdb_status"
     description = (
         "Check current DuckDB session status (loaded tables, database location)"

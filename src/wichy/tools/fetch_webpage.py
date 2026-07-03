@@ -88,6 +88,7 @@ class FetchWebPageTool(BaseTool):
     description = "Fetch a webpage and return its text content as markdown."
     enable_result_offload = True
     parameters_model = FetchWebPageParameters
+    needs_verification_in_api: bool = False
 
     async def _fetch_webpage(
         self, url: str, wait_until: WaitUntilType = "networkidle"
@@ -215,6 +216,7 @@ class BrowserStatusTool(BaseTool):
     name = "browser_status"
     description = "Get the current status of the browser, including the current URL and page title."
     parameters_model = BrowserStatusParameters
+    needs_verification_in_api: bool = False
 
     def execute(self, *args: Any, **kwargs: Any) -> str:
         """
@@ -252,6 +254,7 @@ class BrowserPageInfoTool(BaseTool):
     name = "browser_page_info"
     description = "Get information about the current page. Use detail='quick' for URL/title only, or detail='full' for structured page insight including headings, links, buttons, inputs, and tables. Use this to understand what's on the page before taking actions."
     parameters_model = BrowserPageInfoParameters
+    needs_verification_in_api: bool = False
 
     def execute(self, *args: Any, **kwargs: Any) -> str:
         """
@@ -305,6 +308,7 @@ class ScreenshotTool(BaseTool):
     name = "browser_screenshot"
     description = "Take a screenshot of the current browser page and save it to a file."
     parameters_model = ScreenshotParameters
+    needs_verification_in_api: bool = False
 
     def execute(self, *args: Any, **kwargs: Any) -> str:
         """

@@ -19,6 +19,7 @@ class ReadScratchpadTool(BaseTool):
         "Returns the note's markdown content so you can reference it in your response."
     )
     parameters_model = ScratchpadParams
+    needs_verification_in_api: bool = False
 
     def execute(self, **kwargs) -> str:
         """Execute the tool by reading the pinned scratchpad note."""

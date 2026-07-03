@@ -19,6 +19,7 @@ class DuckDBPersistParameters(ParametersModel):
 
 
 class DuckDBPersistTool(BaseTool):
+    needs_verification_in_api: bool = False
     name = "duckdb_persist"
     description = "Save current DuckDB session to a database file for persistence"
     description_long = """
@@ -49,6 +50,7 @@ class DuckDBLoadDBParameters(ParametersModel):
 
 
 class DuckDBLoadDBTool(BaseTool):
+    needs_verification_in_api: bool = False
     name = "duckdb_load_db"
     description = "Load a persisted DuckDB database file to restore a previous session"
     description_long = """

@@ -26,6 +26,8 @@ class ListSkillsParameters(ParametersModel):
 class SkillDiscoveryTool(BaseTool):
     """List all available skills with brief descriptions."""
 
+    needs_verification_in_api: bool = False
+
     name = "list_skills"
     description = "List all available skills and their descriptions"
     description_long = "Lists all skills available with brief descriptions, tags, and number of scripts."
@@ -68,6 +70,8 @@ class SearchSkillsParameters(ParametersModel):
 class SkillSearchTool(BaseTool):
     """Search skills by keyword."""
 
+    needs_verification_in_api: bool = False
+
     name = "search_skills"
     description = "Search skills by keyword in name, description, tags, or content"
     description_long = "Searches through all skills for a given keyword. Matches in skill names, descriptions, tags, or markdown content."
@@ -109,6 +113,8 @@ class GetSkillInfoParameters(ParametersModel):
 
 class SkillInfoTool(BaseTool):
     """Get full details about a skill including its markdown content and scripts."""
+
+    needs_verification_in_api: bool = False
 
     name = "activate_skill"
     description = "Get detailed information about a specific skill including its markdown content and available scripts"
@@ -265,6 +271,8 @@ class ReadSkillFileParameters(ParametersModel):
 
 class SkillFileTool(BaseTool):
     """Read a file from a skill's references/ or assets/ directory."""
+
+    needs_verification_in_api: bool = False
 
     name = "read_skill_file"
     description = "Read a file from a skill's references/ or assets/ directory. Use this to access detailed documentation, examples, or templates bundled with a skill."

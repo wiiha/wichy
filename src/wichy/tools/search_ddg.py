@@ -46,6 +46,7 @@ IMPORTANT - Use the correct year in search queries:
 - Example: If the user asks for "latest React docs", search for "React documentation 2026", NOT "React documentation 2025"
 """
     parameters_model = WebSearchParameters
+    needs_verification_in_api: bool = False
 
     def execute(self, *args: Any, **kwargs: Any) -> str:
         """Execute DDG search with given parameters."""

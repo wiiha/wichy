@@ -153,7 +153,7 @@ if __name__ == "__main__":
     agents = [bash_agent, general_purpose_agent, explore_agent, web_research_agent]
 
     for agent in agents:
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"Agent: {agent.name}")
         print(f"Description: {agent.description}")
         if agent.tools:
@@ -162,4 +162,4 @@ if __name__ == "__main__":
             print(f"Tools: All except {', '.join(agent.not_tools)}")
         else:
             print("Tools: All available")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")

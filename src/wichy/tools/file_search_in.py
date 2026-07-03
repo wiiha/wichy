@@ -72,6 +72,7 @@ class SearchInFilesTool(BaseTool):
   """
     enable_result_offload = True
     parameters_model = SearchRecursiveParameters
+    needs_verification_in_api: bool = False
 
     # Directories to exclude from search
     EXCLUDED_DIRS = [
