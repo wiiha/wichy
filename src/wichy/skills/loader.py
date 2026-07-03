@@ -68,11 +68,12 @@ class SkillLoader:
 
         In merged mode, default skills go into the user-home directory so
         they are shared across projects. In legacy single-dir mode, use the
-        given directory.
+        given directory, falling back to the user-home default if none was
+        provided.
         """
         if self._single_dir_mode:
             return self._project_skills_dir or settings.skills_dir_home
-        return self._home_skills_dir
+        return self._home_skills_dir or settings.skills_dir_home
 
     @property
     def install_new_skills_dir(self) -> Path:
@@ -80,11 +81,12 @@ class SkillLoader:
 
         In merged mode, user-created skills go into the project-local
         directory so they are tracked with the project. In legacy single-dir
-        mode, use the given directory.
+        mode, use the given directory, falling back to the project-local
+        default if none was provided.
         """
         if self._single_dir_mode:
             return self._project_skills_dir or settings.skills_dir_local
-        return self._project_skills_dir
+        return self._project_skills_dir or settings.skills_dir_local
 
     def _all_source_dirs(self) -> List[Path]:
         """Return all active source directories in precedence order.
