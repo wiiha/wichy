@@ -18,11 +18,7 @@ class TestMergedSkillLoading:
             skill_dir = directory / "shared-skill"
             skill_dir.mkdir()
             (skill_dir / "skill.md").write_text(
-                f"---\n"
-                f"name: shared-skill\n"
-                f"description: {desc}\n"
-                "---\n"
-                "Body\n"
+                f"---\nname: shared-skill\ndescription: {desc}\n---\nBody\n"
             )
 
         loader = SkillLoader(project_skills_dir=local_dir, home_skills_dir=home_dir)
@@ -40,11 +36,7 @@ class TestMergedSkillLoading:
         skill_dir = home_dir / "home-only"
         skill_dir.mkdir()
         (skill_dir / "skill.md").write_text(
-            "---\n"
-            "name: home-only\n"
-            "description: Home only skill\n"
-            "---\n"
-            "Body\n"
+            "---\nname: home-only\ndescription: Home only skill\n---\nBody\n"
         )
 
         loader = SkillLoader(project_skills_dir=local_dir, home_skills_dir=home_dir)
@@ -63,11 +55,7 @@ class TestMergedSkillLoading:
             skill_dir = directory / name
             skill_dir.mkdir()
             (skill_dir / "skill.md").write_text(
-                f"---\n"
-                f"name: {name}\n"
-                f"description: {name} skill\n"
-                "---\n"
-                "Body\n"
+                f"---\nname: {name}\ndescription: {name} skill\n---\nBody\n"
             )
 
         loader = SkillLoader(project_skills_dir=local_dir, home_skills_dir=home_dir)
@@ -98,11 +86,7 @@ class TestMergedSkillLoading:
         skill_dir = skills_dir / "legacy-skill"
         skill_dir.mkdir()
         (skill_dir / "skill.md").write_text(
-            "---\n"
-            "name: legacy-skill\n"
-            "description: Legacy skill\n"
-            "---\n"
-            "Body\n"
+            "---\nname: legacy-skill\ndescription: Legacy skill\n---\nBody\n"
         )
 
         loader = SkillLoader(skills_dir=skills_dir)
@@ -112,18 +96,32 @@ class TestMergedSkillLoading:
         assert loader.home_skills_dir is None
         assert loader.project_skills_dir == skills_dir
 
-    def test_install_skills_dir_prefers_project_local(self, tmp_path):
-        """install_skills_dir returns project-local when merging is enabled."""
+    def test_install_default_skills_dir_prefers_home(self, tmp_path):
+        """install_default_skills_dir returns user-home when merging is enabled."""
         local_dir = tmp_path / "local" / "skills"
         home_dir = tmp_path / "home" / "skills"
 
         loader = SkillLoader(project_skills_dir=local_dir, home_skills_dir=home_dir)
-        assert loader.install_skills_dir == local_dir
+        assert loader.install_default_skills_dir == home_dir
 
+    def test_install_new_skills_dir_prefers_local(self, tmp_path):
+        """install_new_skills_dir returns project-local when merging is enabled."""
+        local_dir = tmp_path / "local" / "skills"
+        home_dir = tmp_path / "home" / "skills"
 
-    def test_install_skills_dir_uses_legacy_single_dir(self, tmp_path):
-        """install_skills_dir returns the single directory in legacy mode."""
+        loader = SkillLoader(project_skills_dir=local_dir, home_skills_dir=home_dir)
+        assert loader.install_new_skills_dir == local_dir
+
+    def test_install_default_skills_dir_uses_legacy_single_dir(self, tmp_path):
+        """install_default_skills_dir returns the single directory in legacy mode."""
         skills_dir = tmp_path / "skills"
 
         loader = SkillLoader(skills_dir=skills_dir)
-        assert loader.install_skills_dir == skills_dir
+        assert loader.install_default_skills_dir == skills_dir
+
+    def test_install_new_skills_dir_uses_legacy_single_dir(self, tmp_path):
+        """install_new_skills_dir returns the single directory in legacy mode."""
+        skills_dir = tmp_path / "skills"
+
+        loader = SkillLoader(skills_dir=skills_dir)
+        assert loader.install_new_skills_dir == skills_dir

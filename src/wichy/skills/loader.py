@@ -63,12 +63,24 @@ class SkillLoader:
         return self._home_skills_dir
 
     @property
-    def install_skills_dir(self) -> Path:
-        """Target directory for installing new default or user-created skills.
+    def install_default_skills_dir(self) -> Path:
+        """Target directory for installing bundled default skills.
 
-        In merged mode, always prefer the project-local directory so new
-        projects are self-contained. In legacy single-dir mode, use that
-        directory.
+        In merged mode, default skills go into the user-home directory so
+        they are shared across projects. In legacy single-dir mode, use the
+        given directory.
+        """
+        if self._single_dir_mode:
+            return self._project_skills_dir or settings.skills_dir_home
+        return self._home_skills_dir
+
+    @property
+    def install_new_skills_dir(self) -> Path:
+        """Target directory for newly user-created skills.
+
+        In merged mode, user-created skills go into the project-local
+        directory so they are tracked with the project. In legacy single-dir
+        mode, use the given directory.
         """
         if self._single_dir_mode:
             return self._project_skills_dir or settings.skills_dir_local
@@ -102,7 +114,7 @@ class SkillLoader:
         if not DEFAULT_SKILLS_DIR.exists():
             return 0
 
-        target_dir = self.install_skills_dir
+        target_dir = self.install_default_skills_dir
         # Ensure target skills directory exists
         try:
             target_dir.mkdir(parents=True, exist_ok=True)

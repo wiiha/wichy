@@ -168,9 +168,11 @@ def handle_list_skills():
 def _resolve_new_skill_dir(skill_name: str) -> Path:
     """Pick the target directory for a newly created skill.
 
-    Prefer project-local ``.wichy/skills/``. If that is the same as the
-    user-home directory (legacy single-dir setups), fall back to the home
-    directory. Warn the user when a global shadow exists so they can decide.
+    User-created skills always go into the project-local ``.wichy/skills/``
+    directory so they are tracked with the project. If the user-home skills
+    directory is the same as the project-local one (legacy single-dir
+    setups), fall back to that directory. Warn the user when a global shadow
+    exists so they can decide.
     """
     local_dir = settings.skills_dir_local.resolve()
     home_dir = settings.skills_dir_home.resolve()
@@ -298,10 +300,10 @@ def handle_install_skills(args):
     from wichy.skills.loader import DEFAULT_SKILLS_DIR, SkillLoader
 
     skill_loader = SkillLoader()
-    target_dir = skill_loader.install_skills_dir
+    target_dir = skill_loader.install_default_skills_dir
 
-    # Install defaults into the project-local directory so new projects are
-    # self-contained and user-home stays clean unless explicitly configured.
+    # Install bundled default skills into the shared user-home directory so
+    # they are available across all projects.
     if args.install_force:  # --force flag provided
         # Delete default skills from both project-local and user-home so a
         # reinstall is complete regardless of where they were previously copied.
@@ -309,7 +311,10 @@ def handle_install_skills(args):
             d.name for d in DEFAULT_SKILLS_DIR.iterdir() if d.is_dir()
         ]
         for name in default_skill_names:
-            for source_dir in (skill_loader.project_skills_dir, skill_loader.home_skills_dir):
+            for source_dir in (
+                skill_loader.project_skills_dir,
+                skill_loader.home_skills_dir,
+            ):
                 if source_dir is not None:
                     target = source_dir / name
                     if target.exists():

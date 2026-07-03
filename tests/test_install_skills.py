@@ -118,7 +118,7 @@ class TestHandleInstallSkills:
         mock_loader = MagicMock()
         mock_loader_class.return_value = mock_loader
         skills_dir = tmp_path / "skills"
-        mock_loader.install_skills_dir = skills_dir
+        mock_loader.install_default_skills_dir = skills_dir
         mock_loader.project_skills_dir = skills_dir
         mock_loader.home_skills_dir = None
 
@@ -160,7 +160,7 @@ class TestHandleInstallSkills:
 
         mock_loader = MagicMock()
         mock_loader_class.return_value = mock_loader
-        mock_loader.install_skills_dir = project_dir
+        mock_loader.install_default_skills_dir = project_dir
         mock_loader.project_skills_dir = project_dir
         mock_loader.home_skills_dir = home_dir
 
@@ -220,7 +220,7 @@ class TestHandleInstallSkills:
         mock_loader = MagicMock()
         mock_loader_class.return_value = mock_loader
         skills_dir = tmp_path / "skills"
-        mock_loader.install_skills_dir = skills_dir
+        mock_loader.install_default_skills_dir = skills_dir
         mock_loader.project_skills_dir = skills_dir
         mock_loader.home_skills_dir = None
 
