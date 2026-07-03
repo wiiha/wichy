@@ -15,8 +15,6 @@ class TestInstallSkillsParser:
         """Test parsing 'wichy install skills'."""
         parser = CliParser()
         args = parser.parse(["install", "skills"])
-
-        assert args.command == "install"
         assert args.install_command == "skills"
         assert args.install_force is False
 
@@ -24,8 +22,6 @@ class TestInstallSkillsParser:
         """Test parsing 'wichy install skills --force'."""
         parser = CliParser()
         args = parser.parse(["install", "skills", "--force"])
-
-        assert args.command == "install"
         assert args.install_command == "skills"
         assert args.install_force is True
 
@@ -33,8 +29,6 @@ class TestInstallSkillsParser:
         """Test parsing 'wichy install skills -f'."""
         parser = CliParser()
         args = parser.parse(["install", "skills", "-f"])
-
-        assert args.command == "install"
         assert args.install_command == "skills"
         assert args.install_force is True
 
@@ -123,11 +117,14 @@ class TestHandleInstallSkills:
         # Setup mock user skills directory with the default skills installed
         mock_loader = MagicMock()
         mock_loader_class.return_value = mock_loader
-        mock_loader.skills_dir = tmp_path / "skills"
+        skills_dir = tmp_path / "skills"
+        mock_loader.install_skills_dir = skills_dir
+        mock_loader.project_skills_dir = skills_dir
+        mock_loader.home_skills_dir = None
 
         # Create the skills directories
-        skill_dir_1 = mock_loader.skills_dir / "default-skill-1"
-        skill_dir_2 = mock_loader.skills_dir / "default-skill-2"
+        skill_dir_1 = skills_dir / "default-skill-1"
+        skill_dir_2 = skills_dir / "default-skill-2"
         skill_dir_1.mkdir(parents=True)
         skill_dir_2.mkdir(parents=True)
 
@@ -145,29 +142,34 @@ class TestHandleInstallSkills:
 
     @patch("wichy.skills.loader.SkillLoader")
     @patch("wichy.skills.loader.DEFAULT_SKILLS_DIR")
-    def test_install_skills_force_preserves_user_skills(
+    def test_install_skills_force_removes_default_skills_from_both_dirs(
         self, mock_default_dir, mock_loader_class, tmp_path
     ):
-        """Test that --force does NOT remove user skills (non-default)."""
+        """Test that --force removes default skills from project-local and user-home."""
         from wichy.cli.handlers import handle_install_skills
 
-        # Setup mock default skills directory with limited skills
         mock_default_skill = MagicMock(spec=Path)
         mock_default_skill.name = "default-skill"
         mock_default_skill.is_dir.return_value = True
         mock_default_dir.iterdir.return_value = [mock_default_skill]
 
-        # Setup mock user skills directory
+        project_dir = tmp_path / "project" / "skills"
+        home_dir = tmp_path / "home" / "skills"
+        project_dir.mkdir(parents=True)
+        home_dir.mkdir(parents=True)
+
         mock_loader = MagicMock()
         mock_loader_class.return_value = mock_loader
-        mock_loader.skills_dir = tmp_path / "skills"
+        mock_loader.install_skills_dir = project_dir
+        mock_loader.project_skills_dir = project_dir
+        mock_loader.home_skills_dir = home_dir
 
-        # Create a default skill directory (should be removed)
-        default_skill_dir = mock_loader.skills_dir / "default-skill"
-        default_skill_dir.mkdir(parents=True)
+        project_default = project_dir / "default-skill"
+        home_default = home_dir / "default-skill"
+        project_default.mkdir(parents=True)
+        home_default.mkdir(parents=True)
 
-        # Create a user skill directory (should be preserved)
-        user_skill_dir = mock_loader.skills_dir / "my-custom-skill"
+        user_skill_dir = project_dir / "my-custom-skill"
         user_skill_dir.mkdir(parents=True)
 
         mock_loader.install_default_skills.return_value = 1
@@ -178,10 +180,11 @@ class TestHandleInstallSkills:
         with pytest.raises(SystemExit):
             handle_install_skills(args)
 
-        # Verify user skill was preserved
-        assert user_skill_dir.exists(), "User skill should not have been removed"
-        # Verify default skill was removed (so reinstall would work)
-        assert not default_skill_dir.exists(), "Default skill should have been removed"
+        # Default skills removed from both locations
+        assert not project_default.exists()
+        assert not home_default.exists()
+        # Non-default user skill preserved
+        assert user_skill_dir.exists()
 
     @patch("wichy.skills.loader.SkillLoader")
     def test_install_skills_exits_zero(self, mock_loader_class):
@@ -216,7 +219,10 @@ class TestHandleInstallSkills:
 
         mock_loader = MagicMock()
         mock_loader_class.return_value = mock_loader
-        mock_loader.skills_dir = tmp_path / "skills"
+        skills_dir = tmp_path / "skills"
+        mock_loader.install_skills_dir = skills_dir
+        mock_loader.project_skills_dir = skills_dir
+        mock_loader.home_skills_dir = None
 
         # Return 1 to indicate skill was reinstalled
         mock_loader.install_default_skills.return_value = 1

@@ -1,7 +1,10 @@
 skill_template = """---
 name: {skill_name}
-description: <What it does + when to use it + key capabilities. Include trigger phrases. Example: "Analyzes Figma files and generates handoff docs. Use when user uploads .fig files, asks for 'design specs' or 'design-to-code handoff'.">
-safe_scripts: (optional) <comma-separated script names that can run without verification, or leave out if there is no safe scripts.>
+description: >
+  What it does + when to use it + key capabilities. Include trigger phrases.
+  Example: "Analyzes Figma files and generates handoff docs. Use when user
+  uploads .fig files, asks for 'design specs' or 'design-to-code handoff'."
+# safe_scripts: (optional) comma-separated script names that can run without verification
 metadata:
   tags: [<comma-separated tags for searching>]
 ---

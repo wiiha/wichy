@@ -90,6 +90,14 @@ def _cleanup():
     # Context instances are created fresh and context.watch may be called
     # but there's no global context_handler singleton to stop.
 
+    # Stop the skills directory watcher
+    try:
+        from wichy.skills.reloader import SkillReloader
+
+        SkillReloader.stop()
+    except Exception:
+        pass
+
 
 # Register cleanup before Python starts finalization
 atexit.register(_cleanup)
@@ -101,6 +109,12 @@ def initialize_skills():
     installed = skill_loader.install_default_skills()
     if installed > 0:
         user_console.print(f"[dim]Installed {installed} default skill(s)[/dim]")
+
+    # Start watching skills directories for changes. Safe to call multiple times.
+    from wichy.skills.reloader import SkillReloader
+
+    SkillReloader.start()
+
     return skill_loader.load_all_skills()
 
 
@@ -416,6 +430,12 @@ def main():
             f"[dim]Web server started on http://{settings.server_host}:{actual_port}[/dim]"
         )
         user_console.print("[dim]Use --no-server to disable.[/dim]")
+
+    # Start watching skills directories for changes. Already started in
+    # initialize_skills(), but calling again is a no-op if running.
+    from wichy.skills.reloader import SkillReloader
+
+    SkillReloader.start()
 
     # Start the REPL
     repl = Repl(

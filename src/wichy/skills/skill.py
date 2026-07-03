@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import yaml  # type: ignore[import-untyped]
+
 
 def parse_markdown_frontmatter(content: str) -> tuple[Dict[str, Any], str]:
     """Parse YAML frontmatter from markdown, return (metadata, body)."""
@@ -15,10 +17,8 @@ def parse_markdown_frontmatter(content: str) -> tuple[Dict[str, Any], str]:
         frontmatter = match.group(1)
         body = match.group(2)
         try:
-            import yaml  # type: ignore[import-untyped]
-
             metadata = yaml.safe_load(frontmatter) or {}
-        except ImportError:
+        except yaml.YAMLError:
             metadata = {}
         return metadata, body
     return {}, content

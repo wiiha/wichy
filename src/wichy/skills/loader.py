@@ -16,35 +16,117 @@ DEFAULT_SKILLS_DIR = Path(__file__).parent / "default"
 
 
 class SkillLoader:
-    """Discovers and loads skills from the skills directory."""
+    """Discovers and loads skills from the skills directories."""
 
-    def __init__(self, skills_dir: Path | None = None):
-        self.skills_dir = Path(skills_dir) if skills_dir else settings.skills_dir
+    def __init__(
+        self,
+        skills_dir: Path | None = None,
+        project_skills_dir: Path | None = None,
+        home_skills_dir: Path | None = None,
+    ):
+        """Initialize the loader.
+
+        Args:
+            skills_dir: Legacy single directory. If provided, it is used as the
+                only source (disables merging). Prefer project_skills_dir/home_skills_dir.
+            project_skills_dir: Project-local skills directory. Defaults to
+                ``settings.skills_dir_local`` (``.wichy/skills``).
+            home_skills_dir: User-home skills directory. Defaults to
+                ``settings.skills_dir_home`` (``~/.wichy/skills``).
+        """
+        if skills_dir is not None:
+            self._project_skills_dir: Path | None = Path(skills_dir)
+            self._home_skills_dir: Path | None = None
+            self._single_dir_mode = True
+        else:
+            self._project_skills_dir = Path(
+                project_skills_dir
+                if project_skills_dir is not None
+                else settings.skills_dir_local
+            )
+            self._home_skills_dir = Path(
+                home_skills_dir
+                if home_skills_dir is not None
+                else settings.skills_dir_home
+            )
+            self._single_dir_mode = False
         self.registry = SkillRegistry()
 
+    @property
+    def project_skills_dir(self) -> Path | None:
+        """Project-local skills directory, or None when legacy single-dir mode."""
+        return self._project_skills_dir
+
+    @property
+    def home_skills_dir(self) -> Path | None:
+        """User-home skills directory, or None when legacy single-dir mode."""
+        return self._home_skills_dir
+
+    @property
+    def install_skills_dir(self) -> Path:
+        """Target directory for installing new default or user-created skills.
+
+        In merged mode, always prefer the project-local directory so new
+        projects are self-contained. In legacy single-dir mode, use that
+        directory.
+        """
+        if self._single_dir_mode:
+            return self._project_skills_dir or settings.skills_dir_local
+        return self._project_skills_dir
+
+    def _all_source_dirs(self) -> List[Path]:
+        """Return all active source directories in precedence order.
+
+        Project-local takes precedence over user-home.
+        """
+        dirs: List[Path] = []
+        if self._project_skills_dir is not None and self._project_skills_dir.exists():
+            dirs.append(self._project_skills_dir)
+        if self._home_skills_dir is not None and self._home_skills_dir.exists():
+            dirs.append(self._home_skills_dir)
+        return dirs
+
     def discover_skill_dirs(self) -> List[Path]:
-        """Find all potential skill directories (subdirectories of skills_dir)."""
-        if not self.skills_dir.exists():
-            return []
-        return [d for d in self.skills_dir.iterdir() if d.is_dir()]
+        """Find all potential skill directories across all source dirs."""
+        found: List[Path] = []
+        seen: set[str] = set()
+        for source_dir in self._all_source_dirs():
+            for candidate in source_dir.iterdir():
+                if candidate.is_dir() and candidate.name not in seen:
+                    seen.add(candidate.name)
+                    found.append(candidate)
+        return found
 
     def install_default_skills(self) -> int:
         """Install default skills bundled with the package. Returns count of installed skills."""
         if not DEFAULT_SKILLS_DIR.exists():
             return 0
 
-        # Ensure skills directory exists
-        self.skills_dir.mkdir(parents=True, exist_ok=True)
+        target_dir = self.install_skills_dir
+        # Ensure target skills directory exists
+        try:
+            target_dir.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            print(
+                f"WARN: failed to create skill dir at {target_dir}: {e}\nWill skip to install default skills."
+            )
+            return 0
 
         installed_count = 0
         for default_skill_dir in DEFAULT_SKILLS_DIR.iterdir():
             if not default_skill_dir.is_dir():
                 continue
-            target_dir = self.skills_dir / default_skill_dir.name
+            target_skill_dir = target_dir / default_skill_dir.name
 
             # Only install if not already present
-            if not target_dir.exists():
-                shutil.copytree(default_skill_dir, target_dir)
+            if not target_skill_dir.exists():
+                try:
+                    shutil.copytree(default_skill_dir, target_skill_dir)
+                except Exception as e:
+                    print(
+                        f"WARN: failed to install default skill {target_skill_dir.name}: {e}"
+                    )
+                    continue
                 installed_count += 1
 
         return installed_count
@@ -189,7 +271,11 @@ class SkillLoader:
             return ""
 
     def load_all_skills(self) -> Dict[str, Skill]:
-        """Discover and load all skills into the registry."""
+        """Discover and load all skills into the registry.
+
+        Loads from project-local and user-home directories. Project-local skills
+        take precedence on name collisions.
+        """
         skill_dirs = self.discover_skill_dirs()
         for skill_dir in skill_dirs:
             skill = self.load_skill_from_dir(skill_dir)

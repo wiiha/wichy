@@ -77,9 +77,7 @@ class Settings(BaseSettings):
     server_port: int = 7891
 
     # Pipeline / REPL settings
-    wake_up_message: str = (
-        "You just woke up. Perform any tasks you deem necessary before interacting further with the user."
-    )
+    wake_up_message: str = "You just woke up. Perform any tasks you deem necessary before interacting further with the user."
 
     # Skills settings
 
@@ -105,6 +103,16 @@ class Settings(BaseSettings):
     )
 
     skills_dir_name: str = "skills"
+
+    @property
+    def skills_dir_local(self) -> Path:
+        """Project-local skills directory."""
+        return Path(".wichy") / self.skills_dir_name
+
+    @property
+    def skills_dir_home(self) -> Path:
+        """User-home skills directory."""
+        return self.wichy_home / self.skills_dir_name
 
     # -------------------------------------------------------------------------
     # Result Offload Configuration
@@ -139,11 +147,6 @@ class Settings(BaseSettings):
     mcp_enabled: bool = True
     mcp_connection_timeout: int = 10  # seconds
     mcp_tool_timeout: int = 60  # seconds
-
-    @property
-    def skills_dir(self) -> Path:
-        """Full path to skills directory."""
-        return self.wichy_home / self.skills_dir_name
 
     @property
     def root_agent_defs_home_dir(self) -> Path:

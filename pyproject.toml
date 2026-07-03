@@ -75,6 +75,7 @@ dependencies = [
     "duckdb>=1.0.0",
     "pytz>=2024.1",
     "fastmcp>=2.0.0",
+    "watchdog==6.0.0",
 ]
 
 [project.optional-dependencies]

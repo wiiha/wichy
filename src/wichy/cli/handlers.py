@@ -87,7 +87,6 @@ def handle_list_contexts():
         msg += f"Listing {file_max_lim} of {len(files)} contexts.\n\n"
     files = files[-file_max_lim:]
     for f in sorted(files):
-
         # Count messages in the file
         try:
             with open(context_dir / f, "r") as file:
@@ -144,7 +143,9 @@ def handle_list_skills():
     skills = skill_loader.load_all_skills()
 
     if not skills:
-        user_console.print("[yellow]No skills found in ~/.wichy/skills/[/yellow]")
+        user_console.print(
+            f"[yellow]No skills found in {settings.skills_dir_local} or {settings.skills_dir_home}[/yellow]"
+        )
         user_console.print(
             "[dim]Create a skill by adding a directory with a skill.md file[/dim]"
         )
@@ -164,11 +165,34 @@ def handle_list_skills():
     user_console.print(Markdown(msg))
 
 
+def _resolve_new_skill_dir(skill_name: str) -> Path:
+    """Pick the target directory for a newly created skill.
+
+    Prefer project-local ``.wichy/skills/``. If that is the same as the
+    user-home directory (legacy single-dir setups), fall back to the home
+    directory. Warn the user when a global shadow exists so they can decide.
+    """
+    local_dir = settings.skills_dir_local.resolve()
+    home_dir = settings.skills_dir_home.resolve()
+    skill_dir = local_dir / skill_name
+
+    if local_dir == home_dir:
+        return skill_dir
+
+    home_skill_dir = home_dir / skill_name
+    if home_skill_dir.exists():
+        user_console.print(
+            f"[yellow]warning:[/yellow] A skill named '{skill_name}' already exists at {home_skill_dir}.\n"
+            f"Creating a project-local copy at {skill_dir} will shadow it."
+        )
+
+    return skill_dir
+
+
 def handle_new_skill(args):
     """Handle 'new skill' command - create a new skill directory structure."""
     skill_name = args.new_skill_name
-    skills_dir = settings.skills_dir
-    skill_dir = skills_dir / skill_name
+    skill_dir = _resolve_new_skill_dir(skill_name)
 
     # Validate skill name (kebab-case: lowercase letters, numbers, and hyphens)
     if not re.match(r"^[a-z0-9]+(-[a-z0-9]+)*$", skill_name):
@@ -274,16 +298,22 @@ def handle_install_skills(args):
     from wichy.skills.loader import DEFAULT_SKILLS_DIR, SkillLoader
 
     skill_loader = SkillLoader()
+    target_dir = skill_loader.install_skills_dir
 
+    # Install defaults into the project-local directory so new projects are
+    # self-contained and user-home stays clean unless explicitly configured.
     if args.install_force:  # --force flag provided
-        # Delete only default skills (by name matching with bundled defaults)
+        # Delete default skills from both project-local and user-home so a
+        # reinstall is complete regardless of where they were previously copied.
         default_skill_names = [
             d.name for d in DEFAULT_SKILLS_DIR.iterdir() if d.is_dir()
         ]
         for name in default_skill_names:
-            target = skill_loader.skills_dir / name
-            if target.exists():
-                shutil.rmtree(target)
+            for source_dir in (skill_loader.project_skills_dir, skill_loader.home_skills_dir):
+                if source_dir is not None:
+                    target = source_dir / name
+                    if target.exists():
+                        shutil.rmtree(target)
 
         installed = skill_loader.install_default_skills()
         user_console.print(f"[green]Reinstalled {installed} default skill(s)[/green]")
@@ -295,6 +325,7 @@ def handle_install_skills(args):
         else:
             user_console.print(f"[green]Installed {installed} default skill(s)[/green]")
 
+    user_console.print(f"[dim]Location: {target_dir}[/dim]")
     user_console.flush()
     exit(0)
 
