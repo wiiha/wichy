@@ -688,9 +688,9 @@ class TestTaskAgentInheritance:
         # Tests that TaskAgent can call _handle_tools_base -> _tool_call
         agent._handle_tools([mock_tool_instance], mock_response)
 
-        # Verify tool was executed WITH model_str (TaskAgent behavior)
+        # Verify tool was executed WITH the agent's resolved model_str (TaskAgent behavior)
         mock_tool_instance.validate_and_execute.assert_called_once_with(
-            input="test", model_str="test-model", _can_query_results=False
+            input="test", model_str=agent.model_str, _can_query_results=False
         )
 
 
