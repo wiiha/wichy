@@ -1,4 +1,6 @@
-from datetime import date
+from datetime import date, datetime
+from pathlib import Path
+import sys
 from typing import Dict, List, Optional
 import fnmatch
 import threading
@@ -32,10 +34,43 @@ console_task_agents = Console(quiet=True)
 _TURNS_WARNING_THRESHOLD = 5
 
 # ---------------------------------------------------------------------------
-# Global in-memory registry of running task agents
+# Global in-memory registries of running and historical task agents
 # ---------------------------------------------------------------------------
 _TASK_AGENT_REGISTRY: dict[str, "TaskAgent"] = {}
+_TASK_AGENT_HISTORY: dict[str, "TaskAgentHistoryEntry"] = {}
 _TASK_AGENT_REGISTRY_LOCK = threading.Lock()
+
+
+class TaskAgentHistoryEntry(BaseModel):
+    """Lightweight metadata for a stopped task agent.
+
+    Does not hold the full ``TaskAgent`` instance or in-memory context entries.
+    Context data is read lazily from ``context_file`` on disk when requested.
+    """
+
+    id: str
+    name: str
+    description: str
+    model: str
+    status: str
+    started_at: str
+    stopped_at: str
+    context_file: Path
+    turns_used: Optional[int]
+    turns_limit: Optional[int]
+    final_result: Optional[str]
+
+    def status_dict(self) -> dict:
+        """Return a JSON-serializable status snapshot matching running agents."""
+        return {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "model": self.model,
+            "turns_used": self.turns_used,
+            "turns_limit": self.turns_limit,
+            "status": self.status,
+        }
 
 
 def get_task_agent(agent_id: str) -> Optional["TaskAgent"]:
@@ -44,10 +79,22 @@ def get_task_agent(agent_id: str) -> Optional["TaskAgent"]:
         return _TASK_AGENT_REGISTRY.get(agent_id)
 
 
+def get_task_agent_history_entry(agent_id: str) -> Optional["TaskAgentHistoryEntry"]:
+    """Return a historical task agent metadata entry by id, or None."""
+    with _TASK_AGENT_REGISTRY_LOCK:
+        return _TASK_AGENT_HISTORY.get(agent_id)
+
+
 def list_task_agents() -> list["TaskAgent"]:
     """Return a snapshot of currently running task agents."""
     with _TASK_AGENT_REGISTRY_LOCK:
         return list(_TASK_AGENT_REGISTRY.values())
+
+
+def list_task_agent_history_entries() -> list["TaskAgentHistoryEntry"]:
+    """Return a snapshot of stopped task agent metadata entries."""
+    with _TASK_AGENT_REGISTRY_LOCK:
+        return list(_TASK_AGENT_HISTORY.values())
 
 
 class TaskAgentDefinitionBase(BaseModel):
@@ -186,6 +233,7 @@ class TaskAgent(AgentCore):
     def run(self):
         # Register in global registry
         agent_id = self.context.custom_suffix  # format: <name>-<12-char-hex>
+        started_at = datetime.now().isoformat()
         with _TASK_AGENT_REGISTRY_LOCK:
             _TASK_AGENT_REGISTRY[agent_id] = self
 
@@ -217,8 +265,46 @@ class TaskAgent(AgentCore):
             )
             return res
         finally:
+            self._record_history_entry(agent_id, started_at)
             with _TASK_AGENT_REGISTRY_LOCK:
                 _TASK_AGENT_REGISTRY.pop(agent_id, None)
+
+    def _record_history_entry(self, agent_id: str, started_at: str) -> None:
+        """Capture lightweight metadata into the history registry on stop.
+
+        This runs before the agent is removed from the running registry so that
+        callers can still retrieve a stopped agent's context via the server API.
+        """
+        stopped_at = datetime.now().isoformat()
+        status = "completed"
+        if self._stop_event.is_set():
+            status = "stopped"
+
+        # Determine final status from exception context if the run ended with an error.
+        exc_type, _exc_value, _ = sys.exc_info()
+        if exc_type is not None:
+            status = "error"
+
+        # Build metadata snapshot while the agent object is still alive.
+        snapshot = self.status()
+        final_result = snapshot.get("final_result")
+
+        entry = TaskAgentHistoryEntry(
+            id=agent_id,
+            name=self._name,
+            description=self.description,
+            model=self.model_str,
+            status=status,
+            started_at=started_at,
+            stopped_at=stopped_at,
+            context_file=self.context.path,
+            turns_used=self._turns_used,
+            turns_limit=self._max_turns,
+            final_result=final_result,
+        )
+
+        with _TASK_AGENT_REGISTRY_LOCK:
+            _TASK_AGENT_HISTORY[agent_id] = entry
 
     def _process(self, line=""):
 

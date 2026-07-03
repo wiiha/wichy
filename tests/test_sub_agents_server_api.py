@@ -62,6 +62,7 @@ def client(monkeypatch):
     from wichy.tools.task import base as task_base
 
     monkeypatch.setattr(task_base, "_TASK_AGENT_REGISTRY", {})
+    monkeypatch.setattr(task_base, "_TASK_AGENT_HISTORY", {})
 
     app = Flask(__name__)
     app.config["TESTING"] = True
@@ -77,6 +78,12 @@ def _register_agent(agent: MockTaskAgent) -> None:
     from wichy.tools.task import base as task_base
 
     task_base._TASK_AGENT_REGISTRY[agent._id] = agent
+
+
+def _register_history_entry(entry) -> None:
+    from wichy.tools.task import base as task_base
+
+    task_base._TASK_AGENT_HISTORY[entry.id] = entry
 
 
 class TestListSubAgents:
@@ -97,6 +104,59 @@ class TestListSubAgents:
         assert len(data["agents"]) == 1
         assert data["agents"][0]["id"] == "researcher-abcd1234"
         assert data["agents"][0]["name"] == "test-agent"
+
+    def test_list_sub_agents_include_history(self, client):
+        from wichy.tools.task.base import TaskAgentHistoryEntry
+
+        running = MockTaskAgent("running-aaaa")
+        _register_agent(running)
+
+        history = TaskAgentHistoryEntry(
+            id="stopped-bbbb",
+            name="stopped-agent",
+            description="A stopped agent",
+            model="ollama/kimi-k2.6:cloud",
+            status="completed",
+            started_at="2026-07-03T10:00:00",
+            stopped_at="2026-07-03T10:01:00",
+            context_file=Path("/tmp/stopped-bbbb.jsonl"),
+            turns_used=3,
+            turns_limit=10,
+            final_result=None,
+        )
+        _register_history_entry(history)
+
+        response = client.get("/server/api/sub-agents?include_history=true")
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        ids = {a["id"] for a in data["agents"]}
+        assert ids == {"running-aaaa", "stopped-bbbb"}
+        stopped = next(a for a in data["agents"] if a["id"] == "stopped-bbbb")
+        assert stopped["status"] == "completed"
+        assert stopped["turns_used"] == 3
+
+    def test_list_sub_agents_excludes_history_by_default(self, client):
+        from wichy.tools.task.base import TaskAgentHistoryEntry
+
+        history = TaskAgentHistoryEntry(
+            id="stopped-cccc",
+            name="stopped-agent",
+            description="A stopped agent",
+            model="ollama/kimi-k2.6:cloud",
+            status="completed",
+            started_at="2026-07-03T10:00:00",
+            stopped_at="2026-07-03T10:01:00",
+            context_file=Path("/tmp/stopped-cccc.jsonl"),
+            turns_used=1,
+            turns_limit=None,
+            final_result=None,
+        )
+        _register_history_entry(history)
+
+        response = client.get("/server/api/sub-agents")
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert data["agents"] == []
 
 
 class TestSubAgentStatus:
@@ -246,3 +306,67 @@ class TestSubAgentContext:
         assert data["filename"] == "explorer-4444.json"
         assert len(data["entries"]) == 2
         assert data["entries"][0]["role"] == "system"
+
+    def test_sub_agent_context_history_not_found(self, client):
+        response = client.get("/server/api/sub-agents/old-id/context")
+        assert response.status_code == 404
+        data = json.loads(response.data)
+        assert data["error"] == "agent not found"
+
+    def test_sub_agent_context_reads_history_from_disk(self, client, tmp_path):
+        from wichy.tools.task.base import TaskAgentHistoryEntry
+
+        context_file = tmp_path / "old-agent.jsonl"
+        context_file.write_text(
+            json.dumps({"type": "message", "role": "user", "content": "hello"})
+            + "\n"
+            + json.dumps({"type": "message", "role": "assistant", "content": "hi"})
+            + "\n"
+        )
+
+        history = TaskAgentHistoryEntry(
+            id="old-agent",
+            name="old-agent",
+            description="An old agent",
+            model="ollama/kimi-k2.6:cloud",
+            status="completed",
+            started_at="2026-07-03T10:00:00",
+            stopped_at="2026-07-03T10:01:00",
+            context_file=context_file,
+            turns_used=2,
+            turns_limit=None,
+            final_result=None,
+        )
+        _register_history_entry(history)
+
+        response = client.get("/server/api/sub-agents/old-agent/context")
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert data["filename"] == "old-agent.jsonl"
+        assert len(data["entries"]) == 2
+        assert data["entries"][0]["content"] == "hello"
+
+    def test_sub_agent_context_history_missing_file(self, client, tmp_path):
+        from wichy.tools.task.base import TaskAgentHistoryEntry
+
+        context_file = tmp_path / "missing.jsonl"
+        history = TaskAgentHistoryEntry(
+            id="missing-agent",
+            name="missing-agent",
+            description="An agent whose file is gone",
+            model="ollama/kimi-k2.6:cloud",
+            status="completed",
+            started_at="2026-07-03T10:00:00",
+            stopped_at="2026-07-03T10:01:00",
+            context_file=context_file,
+            turns_used=0,
+            turns_limit=None,
+            final_result=None,
+        )
+        _register_history_entry(history)
+
+        response = client.get("/server/api/sub-agents/missing-agent/context")
+        assert response.status_code == 500
+        data = json.loads(response.data)
+        assert data["error"] == "agent context file not found"
+        assert data["filename"] == "missing.jsonl"

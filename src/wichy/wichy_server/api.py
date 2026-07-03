@@ -16,7 +16,13 @@ if TYPE_CHECKING:
 from wichy.helpers.interaction_provider import get_interaction_provider
 from wichy.helpers.verification_provider import get_verification_provider
 from wichy.tools.base import BaseTool
-from wichy.tools.task.base import get_task_agent, list_task_agents
+from wichy.tools.task.base import (
+    get_task_agent,
+    get_task_agent_history_entry,
+    list_task_agents,
+    list_task_agent_history_entries,
+)
+from wichy.context.handler import read_jsonl_entries
 from wichy.wichy_server.interaction_provider import ServerInteractionProvider
 from wichy.wichy_server.tool_results_store import get_tool_results_store
 from wichy.wichy_server.verification_provider import ServerVerificationProvider
@@ -184,6 +190,16 @@ def register_routes(bp: Blueprint):
     @bp.route("/sub-agents", methods=["GET"])
     def get_sub_agents():
         agents = [agent.status() for agent in list_task_agents()]
+        include_history = request.args.get("include_history", "false").lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+        if include_history:
+            agents.extend(
+                entry.status_dict()
+                for entry in list_task_agent_history_entries()
+            )
         return jsonify({"agents": agents})
 
     @bp.route("/sub-agents/<agent_id>", methods=["GET"])
@@ -225,14 +241,35 @@ def register_routes(bp: Blueprint):
     @bp.route("/sub-agents/<agent_id>/context", methods=["GET"])
     def get_sub_agent_context(agent_id: str):
         agent = get_task_agent(agent_id)
-        if agent is None:
+        if agent is not None:
+            ctx = agent.context
+            return jsonify(
+                {
+                    "filename": ctx.path.name,
+                    "entries": ctx.get_entries(),
+                }
+            )
+
+        # Fallback to historical agent metadata and read context from disk.
+        entry = get_task_agent_history_entry(agent_id)
+        if entry is None:
             return jsonify({"error": "agent not found"}), 404
 
-        ctx = agent.context
+        if not entry.context_file.exists():
+            return (
+                jsonify(
+                    {
+                        "error": "agent context file not found",
+                        "filename": entry.context_file.name,
+                    }
+                ),
+                500,
+            )
+
         return jsonify(
             {
-                "filename": ctx.path.name,
-                "entries": ctx.get_entries(),
+                "filename": entry.context_file.name,
+                "entries": read_jsonl_entries(entry.context_file),
             }
         )
 

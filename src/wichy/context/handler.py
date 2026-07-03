@@ -789,6 +789,39 @@ def context_from_file(path):
 
     return ch
 
+def read_jsonl_entries(path: str | Path) -> list[dict]:
+    """Read all JSON lines from a JSONL context file.
+
+    Skips blank lines and silently ignores malformed JSON lines, mirroring the
+    defensive behavior of ``ContextHandler.get_entries``.
+
+    Args:
+        path: Path to the JSONL file.
+
+    Returns:
+        List of parsed JSON objects in file order. Returns an empty list if the
+        file does not exist or cannot be read.
+    """
+    path = Path(path)
+    if not path.exists():
+        return []
+
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, FileNotFoundError):
+        return []
+
+    entries: list[dict] = []
+    for raw in lines:
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            entries.append(json.loads(raw))
+        except json.JSONDecodeError:
+            continue
+    return entries
+
 
 def previous_conversations():
     """
