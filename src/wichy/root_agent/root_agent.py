@@ -213,6 +213,12 @@ class RootAgent(AgentCore):
         )
 
     def process(self, line):
+        HookExecutor.run_context_hooks(
+            HookType.PRE_USER_MESSAGE,
+            root_agent=self,
+            context_handler=self.context,
+            message=line,
+        )
         self.context.append({"role": ROLE_USER, "content": line})
         tool_defs = get_tool_definitions(self.tools)
 
@@ -305,7 +311,33 @@ class RootAgent(AgentCore):
             if response.message.reasoning:
                 re_entry["reasoning"] = response.message.reasoning
             self.context.append(re_entry)
-        return response.message.content
+
+        hook_result = HookExecutor.run_context_hooks(
+            HookType.PRE_RESPONSE_TO_USER,
+            root_agent=self,
+            context_handler=self.context,
+            response_content=response.message.content,
+            response_reasoning=response.message.reasoning,
+            usage=response.usage,
+        )
+
+        final_content = response.message.content
+        if hook_result.modified_output is not None:
+            final_content = hook_result.modified_output
+            reasoning_kw = {}
+            if response.message.reasoning:
+                reasoning_kw["reasoning"] = response.message.reasoning
+            try:
+                self.context.update_message(
+                    len(self.context) - 1,
+                    {"role": ROLE_ASSISTANT, "content": final_content, **reasoning_kw},
+                )
+            except Exception as e:
+                console.log(
+                    f"[yellow]Warning: PRE_RESPONSE_TO_USER update_message failed: {e}[/yellow]"
+                )
+
+        return final_content
 
     def steer(self, role: str = ROLE_USER, content: str = "") -> None:
         """

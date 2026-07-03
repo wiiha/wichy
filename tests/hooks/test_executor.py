@@ -3,10 +3,11 @@
 import time
 
 
-from wichy.hooks.decorators import post_tool, pre_tool
+from wichy.hooks.decorators import post_tool, pre_tool, session_start
 from wichy.hooks.executor import HookExecutionResult, HookExecutor
 from wichy.hooks.registry import clear_hooks
 from wichy.hooks.result import HookResult
+from wichy.hooks.types import HookType
 
 # =============================================================================
 # HookExecutionResult tests
@@ -416,3 +417,80 @@ def test_post_hook_log_action():
     assert len(log_data) == 1
     assert log_data[0]["tool"] == "test"
     assert "logging_hook" in result.hooks_executed
+
+
+# =============================================================================
+# run_context_hooks baseline + regression tests
+# =============================================================================
+
+
+def test_run_context_hooks_no_hooks():
+    """When no hooks registered, returns quickly with empty result."""
+    clear_hooks()
+
+    class MockRootAgent:
+        pass
+
+    result = HookExecutor.run_context_hooks(
+        HookType.SESSION_START,
+        root_agent=MockRootAgent(),
+    )
+
+    assert result.approved is True
+    assert result.modified_output is None
+    assert result.hooks_executed == []
+    assert result.total_time_ms >= 0
+
+
+def test_run_context_hooks_session_start_ignores_return_values():
+    """Existing lifecycle hooks returning DENY or MODIFY_OUTPUT have no effect."""
+    clear_hooks()
+
+    class MockRootAgent:
+        pass
+
+    @session_start
+    def deny_session_start(ctx):
+        return HookResult.deny("should be ignored")
+
+    @session_start
+    def modify_session_start(ctx):
+        return HookResult.modify_output("should be ignored")
+
+    result = HookExecutor.run_context_hooks(
+        HookType.SESSION_START,
+        root_agent=MockRootAgent(),
+    )
+
+    assert result.approved is True
+    assert result.error_message is None
+    assert result.modified_output is None
+    assert len(result.hooks_executed) == 2
+
+
+def test_run_context_hooks_exception_continues():
+    """A failing lifecycle hook does not stop other hooks."""
+    clear_hooks()
+
+    class MockRootAgent:
+        pass
+
+    executed = []
+
+    @session_start
+    def failing_start_hook(ctx):
+        executed.append("failing")
+        raise RuntimeError("boom")
+
+    @session_start
+    def ok_start_hook(ctx):
+        executed.append("ok")
+        return HookResult.approve()
+
+    result = HookExecutor.run_context_hooks(
+        HookType.SESSION_START,
+        root_agent=MockRootAgent(),
+    )
+
+    assert executed == ["failing", "ok"]
+    assert len(result.hooks_executed) == 1  # only the ok hook tracked

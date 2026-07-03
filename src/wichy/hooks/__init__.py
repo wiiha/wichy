@@ -48,7 +48,9 @@ from wichy.hooks.decorators import (
     context_reset_post,
     context_reset_pre,
     post_tool,
+    pre_response_to_user,
     pre_tool,
+    pre_user_message,
     session_end,
     session_start,
 )
@@ -107,6 +109,8 @@ __all__ = [
     "context_reset_post",
     "context_compact_pre",
     "context_compact_post",
+    "pre_user_message",
+    "pre_response_to_user",
     # Data classes
     "HookAction",
     "HookResult",

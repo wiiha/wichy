@@ -173,25 +173,38 @@ class HookExecutor:
         summary: Optional[str] = None,
         is_auto_compact: bool = False,
         reset_strategy: Optional[str] = None,
+        message: Optional[Any] = None,
+        response_content: Optional[Any] = None,
+        response_reasoning: Optional[str] = None,
+        usage: Optional[Dict[str, Any]] = None,
     ) -> HookExecutionResult:
         """Run lifecycle hooks for session and context events.
 
         This method executes hooks for lifecycle events (session start/end,
-        context reset/compact pre/post). Unlike tool hooks, lifecycle hooks are
-        informational only - they cannot deny or modify the operation.
+        context reset/compact pre/post, pre-user-message, pre-response-to-user).
+        Most lifecycle hooks are informational only - they cannot deny or modify
+        the operation. PRE_RESPONSE_TO_USER is the exception: hooks of that type
+        may return HookResult.modify_output(new_content) to replace the response
+        sent to the user.
 
         Args:
             hook_type: The type of hook (SESSION_START, SESSION_END,
                         CONTEXT_RESET_PRE, CONTEXT_RESET_POST,
-                        CONTEXT_COMPACT_PRE, or CONTEXT_COMPACT_POST)
+                        CONTEXT_COMPACT_PRE, CONTEXT_COMPACT_POST,
+                        PRE_USER_MESSAGE, PRE_RESPONSE_TO_USER)
             root_agent: The root agent instance
             context_handler: The context handler instance (None for session hooks)
             summary: For CONTEXT_COMPACT_POST, the generated summary
             is_auto_compact: For compact hooks, whether this is auto-initiated
             reset_strategy: For reset hooks, the strategy being used ("nuke" or "summary")
+            message: For PRE_USER_MESSAGE, the raw user message
+            response_content: For PRE_RESPONSE_TO_USER, the assistant response content
+            response_reasoning: For PRE_RESPONSE_TO_USER, optional reasoning content
+            usage: For PRE_RESPONSE_TO_USER, LLM usage metadata
 
         Returns:
-            HookExecutionResult with execution details
+            HookExecutionResult with execution details. For PRE_RESPONSE_TO_USER,
+            modified_output may contain the final modified response content.
         """
         result = HookExecutionResult()
         start_time = time.perf_counter()
@@ -221,11 +234,25 @@ class HookExecutor:
             event_data["is_auto_compact"] = is_auto_compact
         elif hook_type in (HookType.CONTEXT_RESET_PRE, HookType.CONTEXT_RESET_POST):
             event_data["reset_strategy"] = reset_strategy
+        elif hook_type == HookType.PRE_USER_MESSAGE:
+            event_data["message"] = message
+        elif hook_type == HookType.PRE_RESPONSE_TO_USER:
+            event_data["response_content"] = response_content
+            event_data["response_reasoning"] = response_reasoning
+            event_data["usage"] = usage
 
         # Build context for lifecycle hook
         # - tool_name is None to indicate this is a lifecycle event, not a tool call
         # - tool_instance is None; lifecycle objects go in event_data
         # - input_args/raw_input_args are empty; lifecycle data goes in event_data
+        # - output is set to response_content for PRE_RESPONSE_TO_USER so hooks can
+        #   see and cumulatively modify it via ctx.output
+        initial_output = None
+        if hook_type == HookType.CONTEXT_COMPACT_POST:
+            initial_output = summary
+        elif hook_type == HookType.PRE_RESPONSE_TO_USER:
+            initial_output = response_content
+
         hook_ctx = HookContext(
             tool_name=None,
             tool_instance=None,
@@ -235,7 +262,7 @@ class HookExecutor:
             timestamp=datetime.now(),
             working_directory=Path(os.getcwd()),
             environment={},
-            output=summary if hook_type == HookType.CONTEXT_COMPACT_POST else None,
+            output=initial_output,
             hook_type=hook_type,
             event_data=event_data,
         )
@@ -246,11 +273,18 @@ class HookExecutor:
                 continue
 
             try:
-                # Execute the hook
-                hook.function(hook_ctx)
+                # Execute the hook and capture the result
+                hook_result = hook.function(hook_ctx)
 
                 # Track execution
                 result.hooks_executed.append(hook.name)
+
+                # PRE_RESPONSE_TO_USER hooks may modify the response content.
+                # All other lifecycle hooks are informational; their returns are ignored.
+                if hook_type == HookType.PRE_RESPONSE_TO_USER and hook_result is not None:
+                    if hook_result.action == HookAction.MODIFY_OUTPUT:
+                        result.modified_output = hook_result.modified_output
+                        hook_ctx.output = hook_result.modified_output
 
             except Exception as e:
                 # Log exception and continue

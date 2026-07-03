@@ -54,6 +54,8 @@ class HookType(Enum):
     CONTEXT_RESET_POST = "context_reset_post"
     CONTEXT_COMPACT_PRE = "context_compact_pre"
     CONTEXT_COMPACT_POST = "context_compact_post"
+    PRE_USER_MESSAGE = "pre_user_message"
+    PRE_RESPONSE_TO_USER = "pre_response_to_user"
 
 
 class HookPriority(Enum):

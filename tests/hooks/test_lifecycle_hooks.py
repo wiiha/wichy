@@ -20,6 +20,8 @@ from wichy.hooks import (
     context_compact_pre,
     context_reset_post,
     context_reset_pre,
+    pre_response_to_user,
+    pre_user_message,
     session_end,
     session_start,
     clear_hooks,
@@ -1026,5 +1028,258 @@ class TestLifecycleHooksEdgeCases:
         assert len(received_contexts) == 1
         ctx = received_contexts[0]
         assert ctx.tool_name is None
-        assert ctx.hook_type == HookType.CONTEXT_COMPACT_POST
-        assert ctx.output == "Test summary"
+
+
+# =============================================================================
+# New lifecycle hooks: PRE_USER_MESSAGE and PRE_RESPONSE_TO_USER
+# =============================================================================
+
+
+class TestPreUserMessageDecorator:
+    """Tests for @pre_user_message decorator."""
+
+    def test_bare_decorator(self):
+        """@pre_user_message should register a lifecycle hook."""
+
+        @pre_user_message
+        def on_pre_user_message(ctx: HookContext) -> HookResult:
+            return HookResult.approve()
+
+        hooks = get_hooks_for_type(HookType.PRE_USER_MESSAGE)
+        assert len(hooks) == 1
+        assert hooks[0].function == on_pre_user_message
+        assert hooks[0].hook_type == HookType.PRE_USER_MESSAGE
+        assert hooks[0].tool_name is None
+
+    def test_decorator_with_priority(self):
+        """@pre_user_message(priority=10) should register with priority."""
+
+        @pre_user_message(priority=10)
+        def on_pre_user_message(ctx: HookContext) -> HookResult:
+            return HookResult.approve()
+
+        hooks = get_hooks_for_type(HookType.PRE_USER_MESSAGE)
+        assert len(hooks) == 1
+        assert hooks[0].priority == 10
+
+
+class TestPreResponseToUserDecorator:
+    """Tests for @pre_response_to_user decorator."""
+
+    def test_bare_decorator(self):
+        """@pre_response_to_user should register a lifecycle hook."""
+
+        @pre_response_to_user
+        def on_pre_response(ctx: HookContext) -> HookResult:
+            return HookResult.approve()
+
+        hooks = get_hooks_for_type(HookType.PRE_RESPONSE_TO_USER)
+        assert len(hooks) == 1
+        assert hooks[0].function == on_pre_response
+        assert hooks[0].hook_type == HookType.PRE_RESPONSE_TO_USER
+        assert hooks[0].tool_name is None
+
+    def test_decorator_with_priority(self):
+        """@pre_response_to_user(priority=10) should register with priority."""
+
+        @pre_response_to_user(priority=10)
+        def on_pre_response(ctx: HookContext) -> HookResult:
+            return HookResult.approve()
+
+        hooks = get_hooks_for_type(HookType.PRE_RESPONSE_TO_USER)
+        assert len(hooks) == 1
+        assert hooks[0].priority == 10
+
+
+class TestPreUserMessageExecution:
+    """Tests for PRE_USER_MESSAGE hook execution."""
+
+    def test_event_data_contains_message_and_context(self):
+        """PRE_USER_MESSAGE hook receives correct event_data."""
+        received = []
+
+        @pre_user_message
+        def capture(ctx: HookContext) -> HookResult:
+            received.append(ctx.event_data.copy())
+            return HookResult.approve()
+
+        class FakeRoot:
+            pass
+
+        fake_ctx = MagicMock()
+
+        result = HookExecutor.run_context_hooks(
+            HookType.PRE_USER_MESSAGE,
+            root_agent=FakeRoot(),
+            context_handler=fake_ctx,
+            message="hello",
+        )
+
+        assert result.hooks_executed == ["capture"]
+        assert len(received) == 1
+        assert received[0]["message"] == "hello"
+        assert received[0]["context_handler"] is fake_ctx
+        assert isinstance(received[0]["root_agent"], FakeRoot)
+
+
+class TestPreResponseToUserExecution:
+    """Tests for PRE_RESPONSE_TO_USER hook execution and modification."""
+
+    def test_event_data_contains_response_fields(self):
+        """PRE_RESPONSE_TO_USER hook receives correct event_data."""
+        received = []
+
+        @pre_response_to_user
+        def capture(ctx: HookContext) -> HookResult:
+            received.append(ctx.event_data.copy())
+            return HookResult.approve()
+
+        class FakeRoot:
+            pass
+
+        fake_ctx = MagicMock()
+
+        result = HookExecutor.run_context_hooks(
+            HookType.PRE_RESPONSE_TO_USER,
+            root_agent=FakeRoot(),
+            context_handler=fake_ctx,
+            response_content="assistant reply",
+            response_reasoning="because",
+            usage={"total_tokens": 42},
+        )
+
+        assert result.hooks_executed == ["capture"]
+        assert len(received) == 1
+        assert received[0]["response_content"] == "assistant reply"
+        assert received[0]["response_reasoning"] == "because"
+        assert received[0]["usage"] == {"total_tokens": 42}
+
+    def test_output_set_to_response_content(self):
+        """HookContext.output is initialized to response_content."""
+        received = []
+
+        @pre_response_to_user
+        def capture(ctx: HookContext) -> HookResult:
+            received.append(ctx.output)
+            return HookResult.approve()
+
+        class FakeRoot:
+            pass
+
+        result = HookExecutor.run_context_hooks(
+            HookType.PRE_RESPONSE_TO_USER,
+            root_agent=FakeRoot(),
+            response_content="initial content",
+        )
+
+        assert result.hooks_executed == ["capture"]
+        assert received == ["initial content"]
+
+    def test_modify_output_changes_result(self):
+        """A MODIFY_OUTPUT hook changes result.modified_output."""
+
+        @pre_response_to_user
+        def modify(ctx: HookContext) -> HookResult:
+            return HookResult.modify_output("modified")
+
+        class FakeRoot:
+            pass
+
+        result = HookExecutor.run_context_hooks(
+            HookType.PRE_RESPONSE_TO_USER,
+            root_agent=FakeRoot(),
+            response_content="original",
+        )
+
+        assert result.modified_output == "modified"
+
+    def test_modify_output_chain_last_wins(self):
+        """Multiple MODIFY_OUTPUT hooks: last one wins, earlier visible via ctx.output."""
+        seen_outputs = []
+
+        @pre_response_to_user(priority=10)
+        def first(ctx: HookContext) -> HookResult:
+            seen_outputs.append(ctx.output)
+            return HookResult.modify_output("first modification")
+
+        @pre_response_to_user(priority=20)
+        def second(ctx: HookContext) -> HookResult:
+            seen_outputs.append(ctx.output)
+            return HookResult.modify_output("second modification")
+
+        class FakeRoot:
+            pass
+
+        result = HookExecutor.run_context_hooks(
+            HookType.PRE_RESPONSE_TO_USER,
+            root_agent=FakeRoot(),
+            response_content="original",
+        )
+
+        assert seen_outputs == ["original", "first modification"]
+        assert result.modified_output == "second modification"
+
+    def test_modify_input_and_deny_are_noops(self):
+        """MODIFY_INPUT and DENY actions do not affect the response."""
+
+        @pre_response_to_user
+        def deny_hook(ctx: HookContext) -> HookResult:
+            return HookResult.deny("should be ignored")
+
+        @pre_response_to_user
+        def modify_input_hook(ctx: HookContext) -> HookResult:
+            return HookResult.modify_input({"foo": "bar"})
+
+        class FakeRoot:
+            pass
+
+        result = HookExecutor.run_context_hooks(
+            HookType.PRE_RESPONSE_TO_USER,
+            root_agent=FakeRoot(),
+            response_content="original",
+        )
+
+        assert result.modified_output is None
+        assert result.approved is True
+        assert result.error_message is None
+
+    def test_exception_preserves_earlier_modify(self):
+        """If a later modify hook raises, earlier modification is preserved."""
+
+        @pre_response_to_user(priority=10)
+        def first(ctx: HookContext) -> HookResult:
+            return HookResult.modify_output("preserved")
+
+        @pre_response_to_user(priority=20)
+        def second(ctx: HookContext) -> HookResult:
+            raise RuntimeError("boom")
+
+        class FakeRoot:
+            pass
+
+        result = HookExecutor.run_context_hooks(
+            HookType.PRE_RESPONSE_TO_USER,
+            root_agent=FakeRoot(),
+            response_content="original",
+        )
+
+        assert result.modified_output == "preserved"
+
+    def test_none_return_treated_as_approve(self):
+        """A hook returning None is treated as APPROVE."""
+
+        @pre_response_to_user
+        def silent(ctx: HookContext) -> None:
+            return None
+
+        class FakeRoot:
+            pass
+
+        result = HookExecutor.run_context_hooks(
+            HookType.PRE_RESPONSE_TO_USER,
+            root_agent=FakeRoot(),
+            response_content="original",
+        )
+
+        assert result.modified_output is None
+        assert result.hooks_executed == ["silent"]

@@ -71,7 +71,7 @@ class HookResult:
 
     action: HookAction = HookAction.APPROVE
     modified_input: Optional[Dict[str, Any]] = None
-    modified_output: Optional[str] = None
+    modified_output: Optional[Any] = None
     error_message: Optional[str] = None
     log_data: Optional[Any] = None
     hook_name: str = ""

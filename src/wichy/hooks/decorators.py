@@ -429,3 +429,105 @@ def context_compact_post(
         # Used as bare decorator: @context_compact_post
         return decorator(func_or_priority)
     return decorator
+
+
+def pre_user_message(
+    func_or_priority: Optional[Callable] = None,
+    *,
+    priority: int = 50,
+    name: Optional[str] = None,
+) -> Callable:
+    """Decorator to register a pre-user-message hook.
+
+    Pre-user-message hooks run after a user message is submitted but before
+    it is appended to the root agent's context. They are informational only:
+    return values are ignored.
+
+    Can be used as a bare decorator or with arguments:
+        @pre_user_message
+        def my_hook(ctx): ...
+
+        @pre_user_message(priority=10)
+        def my_hook(ctx): ...
+
+    Args:
+        func_or_priority: Used internally for bare decorator support.
+        priority: Execution order (lower = earlier). Default 50.
+        name: Optional name for the hook (defaults to function name).
+
+    Returns:
+        Decorator function.
+
+    Example:
+        @pre_user_message
+        def on_pre_user_message(ctx: HookContext) -> HookResult:
+            print(f"User said: {ctx.event_data.get('message')}")
+            return HookResult.approve()
+    """
+
+    def decorator(func: Callable) -> Callable:
+        """Register the function as a pre-user-message hook."""
+        hook_registry.register(
+            hook_type=HookType.PRE_USER_MESSAGE,
+            tool_name=None,
+            function=func,
+            priority=priority,
+            name=name or "",
+        )
+        return func
+
+    if func_or_priority is not None:
+        # Used as bare decorator: @pre_user_message
+        return decorator(func_or_priority)
+    return decorator
+
+
+def pre_response_to_user(
+    func_or_priority: Optional[Callable] = None,
+    *,
+    priority: int = 50,
+    name: Optional[str] = None,
+) -> Callable:
+    """Decorator to register a pre-response-to-user hook.
+
+    Pre-response-to-user hooks run just before the root agent's final
+    assistant response is returned to the user. They may return
+    ``HookResult.modify_output(new_content)`` to replace the response content.
+
+    Can be used as a bare decorator or with arguments:
+        @pre_response_to_user
+        def my_hook(ctx): ...
+
+        @pre_response_to_user(priority=10)
+        def my_hook(ctx): ...
+
+    Args:
+        func_or_priority: Used internally for bare decorator support.
+        priority: Execution order (lower = earlier). Default 50.
+        name: Optional name for the hook (defaults to function name).
+
+    Returns:
+        Decorator function.
+
+    Example:
+        @pre_response_to_user
+        def on_pre_response(ctx: HookContext) -> HookResult:
+            content = ctx.event_data.get("response_content", "")
+            return HookResult.modify_output(f"[processed] {content}")
+    """
+
+    def decorator(func: Callable) -> Callable:
+        """Register the function as a pre-response-to-user hook."""
+        hook_registry.register(
+            hook_type=HookType.PRE_RESPONSE_TO_USER,
+            tool_name=None,
+            function=func,
+            priority=priority,
+            name=name or "",
+        )
+        return func
+
+    if func_or_priority is not None:
+        # Used as bare decorator: @pre_response_to_user
+        return decorator(func_or_priority)
+    return decorator
