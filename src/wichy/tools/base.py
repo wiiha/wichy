@@ -19,7 +19,6 @@ console_tool_result = Console(quiet=True)
 
 
 class ParametersModel(BaseModel):
-
     def info(self) -> str:
         """
         Generates a human readable string of the parameters
@@ -50,6 +49,14 @@ class BaseTool(ABC, metaclass=ToolMeta):
     # Set to True to opt in to result offloading for this tool
     # Default is False (offloading disabled)
     enable_result_offload: bool = False
+
+    # Safe-by-default: tools exposed via the external server API require an
+    # explicit caller verification flag before they can be executed. Each tool
+    # class must opt out by setting this to False if it is safe to run without
+    # additional confirmation (e.g. read-only tools). Tools that omit this
+    # attribute inherit True, so unknown / dynamically loaded tools (such as
+    # MCP tools) are treated as requiring verification.
+    needs_verification_in_api: bool = True
 
     @abstractmethod
     def execute(self, **kwargs) -> str:
