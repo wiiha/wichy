@@ -396,7 +396,8 @@ def main():
         set_interaction_provider(ServerInteractionProvider())
         set_verification_provider(ServerVerificationProvider())
         flask_thread = threading.Thread(
-            target=lambda: run_server(port=server_port, no_chat=args.no_chat), daemon=True
+            target=lambda: run_server(port=server_port, no_chat=args.no_chat),
+            daemon=True,
         )
 
         session.start()
