@@ -837,3 +837,98 @@ class TestDropLastNMessageLines:
         # Should have 3 non-empty lines (msg1, empty, msg2)
         assert len([line for line in remaining if line.strip()]) == 2
         assert any(line.strip() == "" for line in remaining)  # Empty line preserved
+
+
+class TestContextHandlerGetEntries:
+    """Tests for ContextHandler.get_entries()."""
+
+    def test_get_entries_reads_disk_order_including_logs(self, temp_contexts_dir):
+        """Disk entries are returned in file order, including logs."""
+        ctx = ContextHandler()
+        ctx.append({"role": "user", "content": "msg1"})
+        ctx.add_log({"event": "log1"})
+        ctx.append({"role": "assistant", "content": "msg2"})
+
+        entries = ctx.get_entries()
+        assert len(entries) == 3
+        assert entries[0]["role"] == "user"
+        assert entries[0]["content"] == "msg1"
+        assert entries[0]["type"] == "message"
+        assert entries[0]["_tick"] == 0
+        assert entries[1]["type"] == "log"
+        assert entries[1]["event"] == "log1"
+        assert entries[2]["role"] == "assistant"
+        assert entries[2]["content"] == "msg2"
+
+    def test_get_entries_reconstructs_metadata_in_memory_fallback(self, temp_contexts_dir):
+        """When file is not written, fallback entries have consistent metadata."""
+        ctx = ContextHandler()
+        # Mock _write_line to no-op so file is never created
+        with patch.object(ctx, "_write_line") as mock_write:
+            mock_write.return_value = None
+            ctx.append({"role": "user", "content": "msg1"})
+            ctx.add_log({"event": "log1"})
+            ctx.append({"role": "assistant", "content": "msg2", "reasoning": "because"})
+
+        assert not ctx.path.exists()
+        entries = ctx.get_entries()
+        assert len(entries) == 3
+        # Messages come first in fallback
+        assert entries[0]["role"] == "user"
+        assert entries[0]["type"] == "message"
+        assert "timestamp" in entries[0]
+        assert entries[0]["_tick"] == 0
+        assert entries[1]["role"] == "assistant"
+        assert entries[1]["type"] == "message"
+        assert entries[1]["reasoning"] == "because"
+        # Logs follow
+        assert entries[2]["type"] == "log"
+        assert entries[2]["event"] == "log1"
+
+    def test_get_entries_skips_malformed_lines(self, temp_contexts_dir):
+        """Malformed JSON lines in the file are skipped."""
+        ctx = ContextHandler()
+        ctx.append({"role": "user", "content": "msg1"})
+        # Corrupt the file by appending a malformed line
+        with open(ctx.path, "a") as f:
+            f.write("this is not json\n")
+        ctx.append({"role": "assistant", "content": "msg2"})
+
+        entries = ctx.get_entries()
+        assert len(entries) == 2
+        assert entries[0]["content"] == "msg1"
+        assert entries[1]["content"] == "msg2"
+
+    def test_get_entries_empty_context(self, temp_contexts_dir):
+        """Empty context returns empty list."""
+        ctx = ContextHandler()
+        assert ctx.get_entries() == []
+
+    def test_get_entries_does_not_mutate_self_context(self, temp_contexts_dir):
+        """Memory fallback must not inject metadata into self.context."""
+        ctx = ContextHandler()
+        with patch.object(ctx, "_write_line") as mock_write:
+            mock_write.return_value = None
+            ctx.append({"role": "user", "content": "msg1"})
+
+        entries = ctx.get_entries()
+        assert entries[0]["type"] == "message"
+        # Original in-memory message should remain untouched
+        assert "type" not in ctx.context[0]
+        assert "timestamp" not in ctx.context[0]
+
+
+class TestContextHandlerReplaceAllTick:
+    """Tests for replace_all() _tick consistency."""
+
+    def test_replace_all_writes_tick_zero(self, temp_contexts_dir):
+        """replace_all() should write _tick: 0 like _write_line does."""
+        ctx = ContextHandler()
+        ctx.append({"role": "user", "content": "original"})
+        ctx.replace_all([{"role": "user", "content": "replaced"}])
+
+        entries = ctx.get_entries()
+        assert len(entries) == 1
+        assert entries[0]["role"] == "user"
+        assert entries[0]["content"] == "replaced"
+        assert entries[0]["_tick"] == 0
