@@ -107,6 +107,51 @@ class ContextHandler:
                 result.append(clean_msg)
             return result
 
+    def get_entries(self) -> list[dict]:
+        """Return all entries (messages and logs) in disk order.
+
+        Reads the JSONL file if it exists and is readable. Falls back to
+        in-memory state (messages first, then logs) if the file has not been
+        written yet or cannot be read. Uses the existing RLock for thread
+        safety.
+
+        Warning: the in-memory fallback cannot preserve true append-order
+        interleaving of messages and logs; it returns all messages followed
+        by all logs. This fallback is mainly relevant for contexts that have
+        never been persisted to disk.
+
+        Returns:
+            List of raw entry dicts including ``type``, ``timestamp``,
+            ``_tick``, ``reasoning``, etc.
+        """
+        with self._lock:
+            if self._path.exists():
+                try:
+                    lines = self._path.read_text(encoding="utf-8").splitlines()
+                    entries = []
+                    for raw in lines:
+                        raw = raw.strip()
+                        if not raw:
+                            continue
+                        try:
+                            entries.append(json.loads(raw))
+                        except json.JSONDecodeError:
+                            continue
+                    return entries
+                except (OSError, FileNotFoundError):
+                    pass
+
+            # Memory fallback: messages first, then logs.
+            fallback_entries = []
+            for msg in self.context:
+                entry = dict(msg)
+                entry.setdefault("type", MESSAGE_TYPE)
+                entry.setdefault("timestamp", datetime.now().isoformat())
+                entry.setdefault("_tick", 0)
+                fallback_entries.append(entry)
+            fallback_entries.extend(self.logs)
+            return fallback_entries
+
     def tick(self):
         """Increment _tick on every entry by 1. Persists to disk."""
         with self._lock:
@@ -430,6 +475,7 @@ class ContextHandler:
                         entry = dict(msg)
                         entry.setdefault("type", MESSAGE_TYPE)
                         entry.setdefault("timestamp", datetime.now().isoformat())
+                        entry.setdefault("_tick", 0)
                         f.write(json.dumps(entry) + "\n")
                     # Append preserved logs
                     for log in logs:

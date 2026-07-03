@@ -269,6 +269,13 @@ class SlashCommandChecker:
             }
         )
 
+    def list_commands(self) -> list[dict[str, str]]:
+        """Return a list of slash commands with names and descriptions."""
+        return [
+            {"name": name, "description": description}
+            for name, description in self._descriptions.items()
+        ]
+
     def check_command(self, line: str):
         if line.startswith("/"):
             # Split command from args so the dict lookup hits the bare "/cmd".
