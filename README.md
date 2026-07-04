@@ -14,18 +14,63 @@ A local-first agentic LLM framework built on Simon Willison's definition:
 ## Quick Start
 
 ```bash
-# Install
+# Install in a virtual environment
+python -m venv venv
+source venv/bin/activate  # or venv\Scripts\activate on Windows
 pip install -e .
 
-# Run with default model
+# Start the REPL with the default root agent
 wichy
 
-# Or specify a model
+# Use a specific model
 wichy --model-str ollama/llama3.2
+wichy --model-str open_router/anthropic/claude-3.5-sonnet
 
 # Resume a previous conversation
 wichy --last-ctx
-wichy --load-ctx 2025-03-15_1234567890.jsonl
+wichy --load-ctx .wichy/contexts/2026-07-04_1234567890.jsonl
+```
+
+## What Wichy Includes
+
+- **37 Tools**: file operations, shell commands, web search, browser automation, DuckDB queries, graphs, notes, sub-agents, skills, MCP tool proxies, and more
+- **Root & Task Agents**: `RootAgent` runs the REPL; `TaskAgent` handles delegated multi-step work
+- **Skills System**: Markdown-based knowledge bundles with optional scripts; project-local `.wichy/skills/` and shared `~/.wichy/skills/`
+- **Hooks System**: Intercept and modify tool execution and lifecycle events
+- **Napkin Runbook**: Per-repo curated runbook at `.wichy/napkin.md`
+- **Agent Notebook**: SQLite memory at `.wichy/notebook.db` for cross-session learning
+- **Web Interface**: Chat, notes editor, context editor, graph editor, and data explorer at `http://127.0.0.1:7891`
+- **Server API**: HTTP API for messages, verifications, sub-agents, root context, and tool execution
+- **Multiple LLM Backends**: Ollama, llama.cpp, OpenRouter, or any OpenAI-compatible endpoint via `generic/`
+- **Context Persistence**: JSONL conversation storage in `.wichy/contexts/`
+
+## Modes
+
+| Mode | Command | Purpose |
+|------|---------|---------|
+| REPL (default) | `wichy` | Interactive loop with slash commands and web UI |
+| Pipeline | `wichy --prompt "..."` | Single-shot, non-interactive execution to stdout |
+| Server | `wichy server [--port N]` | HTTP server mode without REPL |
+
+## CLI Cheatsheet
+
+```bash
+wichy ls tools        # list available tools
+wichy ls ra           # list root agent descriptions
+wichy ls skills       # list installed skills
+wichy ls sa           # list available sub-agent types
+wichy ls ctx          # list saved contexts
+
+wichy new skill --name my-skill       # scaffold a project-local skill
+wichy install skills                  # install default bundled skills
+wichy ra --template                   # print root agent template
+
+wichy --tools read_file,write_file,bash   # allow-list tools
+wichy --not-tools bash                     # block specific tools
+wichy --no-server                          # disable the web UI/API
+wichy --first                              # user speaks first
+wichy --auto-compact 8000                  # summarize context at 8k tokens
+wichy --show-log --log-tools --log-agents  # verbose output
 ```
 
 ## Docker
@@ -86,15 +131,6 @@ docker run -it --rm \
 | `WICHY_SERVER_HOST` | `0.0.0.0` | Web server bind address (Docker needs `0.0.0.0`) |
 
 **Note:** `--add-host=host.docker.internal:host-gateway` is required on Linux. On macOS/Windows Docker Desktop, it's optional but recommended for consistency.
-
-## What's Included
-
-- **43+ Tools**: File operations, web browsing, DuckDB queries, graph editing, notes, sub-agents, skills, and more
-- **Skills System**: Markdown-based knowledge bundles with optional scripts, auto-discovered from `~/.wichy/skills/`
-- **Hooks System**: Intercept and modify tool execution with `@pre_tool` and `@post_tool` decorators
-- **Napkin Runbook**: Per-repo curated runbook that persists guidance across sessions
-- **Web Interface**: Notes editor, graph editor, and context editor at http://127.0.0.1:7891
-- **Multiple LLM Backends**: Ollama, llama.cpp, OpenRouter, or any OpenAI-compatible endpoint
 
 ## References
 
