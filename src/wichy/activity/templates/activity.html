@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+
+{% block title %}Activity Graph{% endblock title %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('activity.static', filename='activity-graph.css') }}">
+{% endblock extra_css %}
+
+{% block body %}
+<div id="activity-graph-host" class="ag-host"></div>
+<div id="activity-graph-error" class="ag-error-banner" hidden></div>
+{% endblock body %}
+
+{% block extra_js %}
+<script type="module">
+  import createActivityGraph from "{{ url_for('activity.static', filename='activityGraph.js') }}";
+  createActivityGraph(document.getElementById("activity-graph-host"));
+</script>
+{% endblock extra_js %}

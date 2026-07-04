@@ -125,12 +125,14 @@ def register_blueprints(app: Flask, no_chat: bool = False) -> None:
     from wichy.tools.data import register as register_data
     from wichy.tools.graph import register as register_graph
     from wichy.tools.notes import register as register_notes
+    from wichy.activity import register as register_activity
     from wichy.wichy_server import register as register_server_api
 
     register_graph(app)
     register_context_editor(app)
     register_notes(app)
     register_data(app)
+    register_activity(app)
     if not no_chat:
         register_chat(app)
     register_server_api(app)
