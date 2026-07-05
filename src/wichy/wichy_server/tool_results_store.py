@@ -57,8 +57,7 @@ class ToolResultsStore:
 
     def _init_db(self) -> None:
         with self._lock, self._connection() as conn:
-            conn.execute(
-                """
+            conn.execute("""
                 CREATE TABLE IF NOT EXISTS tool_results (
                     id TEXT PRIMARY KEY,
                     tool_name TEXT NOT NULL,
@@ -67,8 +66,7 @@ class ToolResultsStore:
                     verified INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL
                 )
-                """
-            )
+                """)
             conn.commit()
 
     def add(

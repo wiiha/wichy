@@ -197,8 +197,7 @@ def register_routes(bp: Blueprint):
         )
         if include_history:
             agents.extend(
-                entry.status_dict()
-                for entry in list_task_agent_history_entries()
+                entry.status_dict() for entry in list_task_agent_history_entries()
             )
         return jsonify({"agents": agents})
 

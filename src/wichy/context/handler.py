@@ -789,6 +789,7 @@ def context_from_file(path):
 
     return ch
 
+
 def read_jsonl_entries(path: str | Path) -> list[dict]:
     """Read all JSON lines from a JSONL context file.
 
