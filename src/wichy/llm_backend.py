@@ -1,5 +1,5 @@
-import time
 import threading
+import time
 from threading import Semaphore
 from typing import Any, Dict, List, Optional, Union
 
@@ -541,6 +541,34 @@ def _call_impl(
         )
 
     elapsed_time = time.time() - start_time
+
+    # Verify response.choices exists, default to empty list and len of it is > 0.
+    choices = getattr(response, "choices", list())
+    if len(choices) < 1:
+        # Nope, no elements, likely due to choices missing from response,
+        # but we handle that as missing either way. Lets do retries for this
+        # now, similar to when server indicates overload.
+        MAX_RETRIES = 3
+        if retry_count >= MAX_RETRIES:
+            raise LLMBackendUnhandledException(
+                message=f"LLM Backend error: {getattr(response, 'error', None) or str('API did not return choices')}: attempts made {retry_count+1}"
+            )
+        backoff = 5 * (2**retry_count)  # 5, 10, 20 seconds
+        console.log(
+            f"server returned no choices array, will retry in {backoff} seconds (attempt {retry_count + 1})"
+        )
+        user_console.print(
+            f"[dim][bold]→[/bold] LLM backend:[/dim] Server returned no choices array, retrying in {backoff}s (attempt {retry_count + 1})"
+        )
+        time.sleep(backoff)
+        return _call_impl(
+            context=context,
+            tool_defs=tool_defs,
+            model_str=model_str,
+            extra_args=extra_args,
+            retry_count=retry_count + 1,
+            **extra_kwargs,
+        )
 
     # Unwrap response
     m = Message.from_choice(response.choices[0])

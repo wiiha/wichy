@@ -7,6 +7,7 @@ from wichy.config import settings
 from wichy.console import user_console
 from wichy.constants import ROLE_SYSTEM
 from wichy.context.handler import new_context
+from wichy.helpers.interaction_provider import set_interaction_provider
 from wichy.helpers.needs_user_attention import needs_user_attention
 from wichy.helpers.string import strip_thinking_content
 from wichy.llm_backend import (
@@ -15,6 +16,7 @@ from wichy.llm_backend import (
     LLMBackendServerOverloaded,
     LLMBackendUnhandledException,
 )
+from wichy.repl_interaction_provider import REPLInteractionProvider
 from wichy.root_agent.root_agent import RootAgent
 from wichy.slash_commands import (
     BtwException,
@@ -22,9 +24,6 @@ from wichy.slash_commands import (
     ContextResetException,
     SlashCommandChecker,
 )
-
-from wichy.repl_interaction_provider import REPLInteractionProvider
-from wichy.helpers.interaction_provider import set_interaction_provider
 
 # How many messages (from the end of the main conversation) to include in a
 # /btw one-shot agent call.
@@ -59,11 +58,18 @@ class Repl:
     def run(self) -> None:
         """Run the interactive REPL loop."""
         if self.root_agent.agent_has_first_initiative:
-            # Execute the "wake up" message for the agent to go first
-            self._print_separator()
-            result = self.root_agent.process(settings.wake_up_message)
-            result = strip_thinking_content(result)
-            self._print_assistant_response(result)
+            try:
+                # Execute the "wake up" message for the agent to go first
+                self._print_separator()
+                result = self.root_agent.process(settings.wake_up_message)
+                result = strip_thinking_content(result)
+                self._print_assistant_response(result)
+            except Exception as e:
+                user_console.print(
+                    "[red bold]Error:[/red bold] during first agent run: "
+                    + str(e)
+                    + "\n[blue bold]Info:[/blue bold] Will continue to main agent loop."
+                )
 
         while True:
             try:

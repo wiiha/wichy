@@ -63,12 +63,11 @@
       "program": "${workspaceFolder}/src/wichy/__main__.py",
       "console": "integratedTerminal",
       "args": [
-        "--show-log",
-        "--log-tools",
-        "--log-agents",
         "--model-str",
         // "open_router/arcee-ai/trinity-large-preview:free"
-        "open_router/stepfun/step-3.5-flash:free"
+        // "open_router/stepfun/step-3.5-flash:free"
+        "open_router/nvidia/nemotron-3-ultra-550b-a55b:free",
+        "--first"
       ]
     },
     {
