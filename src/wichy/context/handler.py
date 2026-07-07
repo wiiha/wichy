@@ -9,6 +9,7 @@ import json
 import os
 import threading
 import time
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -16,6 +17,9 @@ from wichy.config import settings
 from wichy.console import user_console
 from wichy.constants import CONTEXT_FILE_EXT, LOG_TYPE, MESSAGE_TYPE
 from wichy.helpers.string import truncate_to_len
+
+
+SESSION_BOUND_EVENT = "session_bound"
 
 
 class ContextHandler:
@@ -60,10 +64,46 @@ class ContextHandler:
         # Thread safety
         self._lock = threading.RLock()
 
+        # Session identity is set on finalization (new_context or context_from_file)
+        # to avoid writing to the wrong path during context_from_file.
+        self._session_id: str | None = None
+
         # Background watching
         self._watch_thread = None
         self._watch_active = False
         self._watch_interval = 2.0
+
+    @property
+    def session_id(self) -> str:
+        """Return the stable logical session id for this context."""
+        if self._session_id is None:
+            self._session_id = str(uuid.uuid4())
+        return self._session_id
+
+    def finalize_session_id(
+        self, session_id: str | None = None, resumed_after: str | None = None
+    ) -> str:
+        """
+        Set the stable session id and write a ``session_bound`` log entry.
+
+        This must be called after ``self._path`` is finalized. For a fresh
+        context ``new_context()`` does this automatically. For a loaded context
+        ``context_from_file()`` does it only if the file does not already
+        contain a session_bound log.
+
+        Returns:
+            The session id that was set.
+        """
+        with self._lock:
+            self._session_id = session_id or self.session_id
+            data: dict[str, object] = {
+                "event": SESSION_BOUND_EVENT,
+                "session_id": self._session_id,
+            }
+            if resumed_after:
+                data["resumed_after"] = resumed_after
+            self.add_log(data)
+            return self._session_id
 
     @property
     def path(self) -> Path:
@@ -700,18 +740,28 @@ class ContextHandler:
 # ----------------------------------------------------------------------
 
 
-def new_context(custom_suffix: str = "", sub_dir: str = ""):
+def new_context(
+    custom_suffix: str = "",
+    sub_dir: str = "",
+    session_id: str | None = None,
+    resumed_after: str | None = None,
+):
     """
     Create and return a :class:`ContextHandler` instance.
 
     Args:
         custom_suffix: Appended to the context filename.
         sub_dir: Subdirectory under ``contexts_dir`` to store the file in.
+        session_id: Optional stable session id to reuse.
+        resumed_after: Optional boundary marker (e.g. "reset", "compact") for
+            the session_bound log.
 
     Returns:
-        ContextHandler: A freshly initialized context.
+        ContextHandler: A freshly initialized context with session id finalized.
     """
-    return ContextHandler(custom_suffix=custom_suffix, sub_dir=sub_dir)
+    ctx = ContextHandler(custom_suffix=custom_suffix, sub_dir=sub_dir)
+    ctx.finalize_session_id(session_id=session_id, resumed_after=resumed_after)
+    return ctx
 
 
 def context_from_file(path):
@@ -778,6 +828,13 @@ def context_from_file(path):
     except ValueError:
         ctx_sub_dir = ""
 
+    # Try to read the existing session_id from the latest session_bound log.
+    loaded_session_id: str | None = None
+    for entry in reversed(logs):
+        if entry.get("event") == SESSION_BOUND_EVENT:
+            loaded_session_id = entry.get("session_id")
+            break
+
     ch = ContextHandler(custom_suffix=ctx_suffix, sub_dir=ctx_sub_dir)
     ch._path = path
     ch._file_mtime = path.stat().st_mtime
@@ -786,6 +843,15 @@ def context_from_file(path):
     # Override start_date to reflect the date from the filename
     ch.start_date = ctx_date
     ch.id = ctx_id
+
+    if loaded_session_id is not None:
+        ch._session_id = loaded_session_id
+    else:
+        # Legacy file without a session_bound log: generate a fresh id in memory.
+        # We intentionally do not mutate a file we are loading; the session id
+        # will be persisted when the context is reset/compact or a new file is
+        # created from it.
+        ch._session_id = str(uuid.uuid4())
 
     return ch
 

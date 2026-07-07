@@ -390,7 +390,9 @@ class RootAgent(AgentCore):
         # nuke, default case
         first_prompt = self.context()[0]
         old_context = self.context
-        ctx = new_context()
+        ctx = new_context(
+            session_id=self.context.session_id, resumed_after="reset"
+        )
         ctx.append(first_prompt)
         self.context = ctx
         # Start watching new context
@@ -459,7 +461,9 @@ class RootAgent(AgentCore):
             user_console.print(Markdown(summary_msg))
 
         # Create new context with original system prompt and summary
-        n_ctx = new_context()
+        n_ctx = new_context(
+            session_id=self.context.session_id, resumed_after="compact"
+        )
         n_ctx.append(first_prompt)
         n_ctx.add(role="user", content=summary_msg)
         self.context = n_ctx
