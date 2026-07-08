@@ -236,22 +236,25 @@ class EventStore:
         except Exception as e:
             user_console.print(f"[red]Error checking event log rotation:[/red] {e}")
 
-    def _rotate(self) -> None:
+    def _rotate(self) -> Path | None:
         """Move the active log to a timestamped backup and reset id counter."""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         backup_name = f"{self._path.stem}_{timestamp}{self._path.suffix}"
         backup_path = self._path.with_name(backup_name)
         with self._file_lock:
+            if not self._path.exists():
+                return None
             try:
                 shutil.move(str(self._path), str(backup_path))
             except Exception as e:
                 user_console.print(
                     f"[red]Error rotating event log {self._path}:[/red] {e}"
                 )
-                return
+                return None
         with self._id_lock:
             self._next_id = 1
         self._cleanup_old_backups()
+        return backup_path
 
     def _cleanup_old_backups(self) -> None:
         """Delete rotated backups older than the retention period."""

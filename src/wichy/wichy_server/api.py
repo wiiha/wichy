@@ -23,6 +23,8 @@ from wichy.tools.task.base import (
     list_task_agent_history_entries,
 )
 from wichy.context.handler import read_jsonl_entries
+from wichy.event_log import get_agent_event_store, get_event_store
+from wichy.event_log.store import EventStore
 from wichy.wichy_server.interaction_provider import ServerInteractionProvider
 from wichy.wichy_server.tool_results_store import get_tool_results_store
 from wichy.wichy_server.verification_provider import ServerVerificationProvider
@@ -160,6 +162,37 @@ def register_routes(bp: Blueprint):
             }
         )
 
+    @bp.route("/events", methods=["GET"])
+    def get_events():
+        session = get_active_session()
+        if session is None or session.root_agent is None:
+            return jsonify({"error": "no active root agent"}), 503
+
+        session_id = session.root_agent.context.session_id
+        store = get_event_store(session_id)
+        since_id = int(request.args.get("since_id", 0))
+        limit = min(int(request.args.get("limit", 100)), 1000)
+        events, last_id, has_more = _read_store_events(store, since_id, limit)
+        return jsonify(
+            {
+                "session_id": session_id,
+                "events": events,
+                "last_id": last_id,
+                "has_more": has_more,
+            }
+        )
+
+    @bp.route("/events/clear", methods=["POST"])
+    def clear_events():
+        session = get_active_session()
+        if session is None or session.root_agent is None:
+            return jsonify({"error": "no active root agent"}), 503
+
+        session_id = session.root_agent.context.session_id
+        store = get_event_store(session_id)
+        backup = store._rotate()
+        return jsonify({"status": "ok", "backup": backup.name if backup else None})
+
     @bp.route("/root/status", methods=["GET"])
     def get_root_status():
         session = get_active_session()
@@ -207,6 +240,44 @@ def register_routes(bp: Blueprint):
         if agent is None:
             return jsonify({"error": "agent not found"}), 404
         return jsonify(agent.status())
+
+    @bp.route("/sub-agents/<agent_id>/events", methods=["GET"])
+    def get_sub_agent_events(agent_id: str):
+        session = get_active_session()
+        if session is None or session.root_agent is None:
+            return jsonify({"error": "no active root agent"}), 503
+
+        agent = get_task_agent(agent_id)
+        if agent is not None:
+            session_id = agent.context.session_id
+        else:
+            # Fall back to the current root session; custom frontends may poll
+            # agents that are no longer in the in-memory registries.
+            session_id = session.root_agent.context.session_id
+
+        store = get_agent_event_store(session_id, agent_id)
+        since_id = int(request.args.get("since_id", 0))
+        limit = min(int(request.args.get("limit", 100)), 1000)
+        events, last_id, has_more = _read_store_events(store, since_id, limit)
+        return jsonify(
+            {
+                "agent_id": agent_id,
+                "session_id": session_id,
+                "events": events,
+                "last_id": last_id,
+                "has_more": has_more,
+            }
+        )
+
+    @bp.route("/sub-agents/<agent_id>/events/clear", methods=["POST"])
+    def clear_sub_agent_events(agent_id: str):
+        session = get_active_session()
+        if session is None or session.root_agent is None:
+            return jsonify({"error": "no active root agent"}), 503
+
+        store = get_agent_event_store(session.root_agent.context.session_id, agent_id)
+        backup = store._rotate()
+        return jsonify({"status": "ok", "backup": backup.name if backup else None})
 
     @bp.route("/sub-agents/<agent_id>/steer", methods=["POST"])
     def steer_sub_agent(agent_id: str):
@@ -446,3 +517,40 @@ def register_routes(bp: Blueprint):
         MCP servers).
         """
         return bool(getattr(tool, "needs_verification_in_api", True))
+
+
+def _read_store_events(store: EventStore, since_id: int, limit: int):
+    """Read events from a store with pagination.
+
+    Returns:
+        Tuple of (events, last_id, has_more).
+    """
+    events: list[dict] = []
+    last_id = 0
+    has_more = False
+    if not store.path.exists():
+        return events, last_id, has_more
+
+    try:
+        lines = store.path.read_text(encoding="utf-8").splitlines()
+    except Exception:
+        return events, last_id, has_more
+
+    for raw in lines:
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            entry = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        entry_id = entry.get("id", 0)
+        if entry_id <= since_id:
+            continue
+        if len(events) >= limit:
+            has_more = True
+            break
+        events.append(entry)
+        last_id = max(last_id, entry_id)
+
+    return events, last_id, has_more
