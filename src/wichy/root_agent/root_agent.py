@@ -7,6 +7,8 @@ from wichy.agent.core import AgentCore
 from wichy.console import user_console
 from wichy.constants import ROLE_ASSISTANT, ROLE_USER
 from wichy.context.handler import new_context
+from wichy.event_log import log_event
+from wichy.event_log.schema import preview_args, preview_content
 from wichy.helpers.console import console
 from wichy.helpers.string import strip_thinking_content
 from wichy.hooks.context_access import set_active_context as hooks_set_active_context
@@ -108,6 +110,17 @@ class RootAgent(AgentCore):
     def model_str(self, value: str) -> None:
         """Set a new model string for subsequent LLM calls."""
         self._model_str = value
+
+    def _emit_event(self, event_type: str, payload: dict) -> None:
+        """Emit an event to the root session event log if a context exists."""
+        try:
+            session_id = self.context.session_id
+        except Exception:
+            return
+        try:
+            log_event(event_type, payload, session_id=session_id)
+        except Exception as e:
+            console.log(f"[yellow]Event emission failed: {e}[/yellow]")
 
     # -------------------------------------------------------------------------
     # AgentCore logging overrides - use RootAgent's console
@@ -219,9 +232,21 @@ class RootAgent(AgentCore):
             context_handler=self.context,
             message=line,
         )
+        self._emit_event(
+            "user_message_received",
+            {"content_preview": preview_content(line), "source": "repl"},
+        )
         self.context.append({"role": ROLE_USER, "content": line})
         tool_defs = get_tool_definitions(self.tools)
 
+        self._emit_event(
+            "llm_call_started",
+            {
+                "model_str": self.model_str,
+                "message_count": len(self.context.context),
+                "tool_count": len(tool_defs),
+            },
+        )
         try:
             response = call(
                 context=self.context(tick=True),
@@ -247,6 +272,16 @@ class RootAgent(AgentCore):
 
         # Update token counts
         self._update_token_counts(response.usage)
+        self._emit_event(
+            "llm_call_completed",
+            {
+                "model_str": self.model_str,
+                "finish_reason": response.message.finish_reason,
+                "has_tool_calls": bool(getattr(response.message, "tool_calls", None)),
+                "has_reasoning": bool(getattr(response.message, "reasoning", None)),
+                "usage": response.usage,
+            },
+        )
         # Log token usage after first LLM call
         if response.usage:
             self.context.add_log(
@@ -262,6 +297,14 @@ class RootAgent(AgentCore):
         if self.check_token_threshold():
             self._auto_compact_context()
         while self.handle_tools(self.tools, response.message):
+            self._emit_event(
+                "llm_call_started",
+                {
+                    "model_str": self.model_str,
+                    "message_count": len(self.context.context),
+                    "tool_count": len(tool_defs),
+                },
+            )
             try:
                 response = call(
                     context=self.context(tick=True),
@@ -282,6 +325,17 @@ class RootAgent(AgentCore):
                     )
                 else:
                     raise
+            self._update_token_counts(response.usage)
+            self._emit_event(
+                "llm_call_completed",
+                {
+                    "model_str": self.model_str,
+                    "finish_reason": response.message.finish_reason,
+                    "has_tool_calls": bool(getattr(response.message, "tool_calls", None)),
+                    "has_reasoning": bool(getattr(response.message, "reasoning", None)),
+                    "usage": response.usage,
+                },
+            )
 
         # Log token usage before final assistant response
         if response.usage:
@@ -311,6 +365,15 @@ class RootAgent(AgentCore):
             if response.message.reasoning:
                 re_entry["reasoning"] = response.message.reasoning
             self.context.append(re_entry)
+
+        self._emit_event(
+            "root_agent_response_ready",
+            {
+                "content_preview": preview_content(response.message.content),
+                "has_reasoning": bool(getattr(response.message, "reasoning", None)),
+                "usage": response.usage,
+            },
+        )
 
         hook_result = HookExecutor.run_context_hooks(
             HookType.PRE_RESPONSE_TO_USER,
@@ -352,6 +415,10 @@ class RootAgent(AgentCore):
             role (str): Message role. Defaults to ``"user"``.
             content (str): Message content.
         """
+        self._emit_event(
+            "steer_injected",
+            {"role": role, "content_preview": preview_content(content)},
+        )
         self.context.steer(role=role, content=content)
 
     def drop_last_context_entry(self):
@@ -360,6 +427,7 @@ class RootAgent(AgentCore):
             return
 
         self.context.drop()
+        self._emit_event("context_dropped", {"dropped_count": 1, "context_file": str(self.context.path)})
 
     def _notify_context_editor(self, old_context: Any) -> None:
         """Stop watching old context and notify the web editor of the change."""
@@ -398,6 +466,14 @@ class RootAgent(AgentCore):
         # Start watching new context
         self.context.start_watching(interval=2.0)
         self._notify_context_editor(old_context)
+        self._emit_event(
+            "context_reset",
+            {
+                "strategy": strategy.value,
+                "previous_context_file": str(old_context.path),
+                "context_file": str(self.context.path),
+            },
+        )
 
         # Fire CONTEXT_RESET_POST hook after new context is created
         HookExecutor.run_context_hooks(
@@ -469,6 +545,15 @@ class RootAgent(AgentCore):
         self.context = n_ctx
         self.context.start_watching(interval=2.0)
         self._notify_context_editor(old_context)
+        self._emit_event(
+            "context_compacted",
+            {
+                "is_auto_compact": is_auto_compact,
+                "previous_context_file": str(old_context.path),
+                "context_file": str(self.context.path),
+                "summary_preview": preview_content(summary_msg),
+            },
+        )
 
         # Fire CONTEXT_COMPACT_POST hook after context is replaced with summary
         HookExecutor.run_context_hooks(

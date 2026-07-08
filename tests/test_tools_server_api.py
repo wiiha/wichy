@@ -73,6 +73,9 @@ class MockRootAgent:
         self.current_prompt_tokens = 0
         self.auto_compact_threshold = None
 
+    def steer(self, role: str, content: str) -> None:
+        self.context.steer(role=role, content=content)
+
     @property
     def name(self):
         return self._name

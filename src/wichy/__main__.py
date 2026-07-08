@@ -27,6 +27,7 @@ from wichy.config import settings
 from wichy.console import set_user_output_quiet, user_console, ServerConsole
 from wichy.constants import ROLE_USER
 from wichy.context.handler import context_from_file, latest_context_file
+from wichy.event_log import get_event_store
 from wichy.helpers.console import console
 from wichy.helpers.string import strip_thinking_content
 from wichy.hooks import initialize_hooks
@@ -46,9 +47,15 @@ from wichy.tools.notes import set_scratchpad_slug
 from wichy.tools.task import console_task_agents
 from wichy.helpers.shutdown import shutdown_requested
 from wichy.helpers.verification_provider import set_verification_provider
-from wichy.wichy_server.verification_provider import ServerVerificationProvider
+from wichy.wichy_server.verification_provider import (
+    ServerVerificationProvider,
+    set_session_id_callback as set_verification_session_id_callback,
+)
 from wichy.helpers.interaction_provider import set_interaction_provider
-from wichy.wichy_server.interaction_provider import ServerInteractionProvider
+from wichy.wichy_server.interaction_provider import (
+    ServerInteractionProvider,
+    set_session_id_callback as set_interaction_session_id_callback,
+)
 
 # Module-level reference to root_agent for SESSION_END cleanup hook
 _root_agent_for_cleanup: Any | None = None
@@ -60,8 +67,15 @@ def _cleanup():
     This atexit handler ensures daemon threads are properly shut down
     before Python finalization, preventing deadlocks on exit.
     """
-    # Fire SESSION_END hook before stopping threads
+    # Emit session_end event before stopping threads
     if _root_agent_for_cleanup is not None:
+        try:
+            from wichy.event_log import get_event_store
+
+            store = get_event_store(_root_agent_for_cleanup.context.session_id)
+            store.emit("session_end", {"process_id": os.getpid(), "reason": "atexit"})
+        except Exception:
+            pass
         try:
             HookExecutor.run_context_hooks(
                 HookType.SESSION_END,
@@ -349,9 +363,33 @@ def main():
     # Set active context for hooks (works in all modes: REPL, pipeline, with/without server)
     hooks_set_active_context(root_agent.context)
 
-    # Fire SESSION_START hook after root agent is built
+    # Initialize root event store and emit session_start.
     global _root_agent_for_cleanup
     _root_agent_for_cleanup = root_agent
+
+    def _get_root_session_id() -> str | None:
+        return (
+            root_agent.context.session_id
+            if root_agent is not None and root_agent.context is not None
+            else None
+        )
+
+    set_verification_session_id_callback(_get_root_session_id)
+    set_interaction_session_id_callback(_get_root_session_id)
+
+    try:
+        store = get_event_store(root_agent.context.session_id)
+        store.emit(
+            "session_start",
+            {
+                "process_id": os.getpid(),
+                "model_str": root_agent.model_str,
+                "agent_name": root_agent.name,
+            },
+        )
+    except Exception as e:
+        console.log(f"[yellow]Event store init failed: {e}[/yellow]")
+
     HookExecutor.run_context_hooks(
         HookType.SESSION_START,
         root_agent=root_agent,

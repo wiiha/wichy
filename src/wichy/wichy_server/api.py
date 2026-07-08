@@ -409,10 +409,7 @@ def register_routes(bp: Blueprint):
             f"Arguments: {json.dumps(record.arguments)}\n"
             f"Result:\n{record.result}"
         )
-        root_agent.context.steer(
-            role="user",
-            content=content,
-        )
+        root_agent.steer(role="user", content=content)
         return jsonify({"status": "ok"})
 
     @bp.route("/tools/results", methods=["GET"])

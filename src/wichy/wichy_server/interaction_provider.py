@@ -3,10 +3,21 @@ import time
 import uuid
 from concurrent.futures import Future
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 from wichy.console import user_console
+from wichy.event_log import log_event
 from wichy.helpers.interaction_provider import InteractionProvider
+
+
+# Module-level callback to retrieve the current root session id for events.
+_get_root_session_id: Optional[Callable[[], Optional[str]]] = None
+
+
+def set_session_id_callback(callback: Optional[Callable[[], Optional[str]]]) -> None:
+    """Set a callback that returns the current root session id."""
+    global _get_root_session_id
+    _get_root_session_id = callback
 
 
 @dataclass
@@ -40,6 +51,14 @@ class ServerInteractionProvider(InteractionProvider):
             msg += "\n" + f"- {q.question}"
 
         user_console.print(msg)
+        self._emit(
+            "question_asked",
+            {
+                "qid": qid,
+                "question_count": len(questions),
+                "headers": [q.header for q in questions],
+            },
+        )
 
         try:
             result = future.result(timeout=self._default_timeout)
@@ -49,6 +68,10 @@ class ServerInteractionProvider(InteractionProvider):
             result = {"answers": answers}
             if metadata:
                 result["metadata"] = metadata
+            self._emit(
+                "question_answered",
+                {"qid": qid, "answers_count": len(answers), "timed_out": True},
+            )
         finally:
             with self._lock:
                 self._pending.pop(qid, None)
@@ -80,4 +103,19 @@ class ServerInteractionProvider(InteractionProvider):
             result["metadata"] = pending.metadata
 
         future.set_result(result)
+        self._emit(
+            "question_answered",
+            {"qid": qid, "answers_count": len(merged), "timed_out": False},
+        )
         return True
+
+    def _emit(self, event_type: str, payload: dict) -> None:
+        """Emit a root session event if a session id callback is available."""
+        if _get_root_session_id is None:
+            return
+        try:
+            session_id = _get_root_session_id()
+            if session_id:
+                log_event(event_type, payload, session_id=session_id)
+        except Exception:
+            pass

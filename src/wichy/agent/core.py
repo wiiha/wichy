@@ -6,12 +6,14 @@ shared functionality between RootAgent and TaskAgent.
 """
 
 import json
+import time
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 
 from wichy.config import settings
 from wichy.constants import ROLE_ASSISTANT, ROLE_TOOL
+from wichy.event_log.schema import preview_args
 from wichy.helpers.multimodal import (
     build_multimodal_user_message,
     extract_multimodal_content,
@@ -40,6 +42,10 @@ class AgentCore(ABC):
 
         # Set by subclasses via context handler
         self.context = None
+
+    def _emit_event(self, event_type: str, payload: Dict[str, Any]) -> None:
+        """Hook for subclasses to emit events. Default does nothing."""
+        pass
 
     @property
     @abstractmethod
@@ -99,27 +105,60 @@ class AgentCore(ABC):
         if inject_model_str:
             args["model_str"] = self.model_str
 
+        self._emit_event(
+            "tool_call_started",
+            {
+                "tool_name": name,
+                "tool_call_id": item.id,
+                "args_preview": preview_args(args),
+            },
+        )
+
         # Check if query_result is available to this agent
         can_query_results = any(t.name == "query_result" for t in tools)
         args["_can_query_results"] = can_query_results
 
-        for tool in tools:
-            if name == tool.name:
-                result = tool.validate_and_execute(**args)
-                break
+        start_time = time.monotonic()
+        try:
+            for tool in tools:
+                if name == tool.name:
+                    result = tool.validate_and_execute(**args)
+                    break
 
-        if result is None:
-            result = "There is no tool called " + item.function.name + "."
+            if result is None:
+                result = "There is no tool called " + item.function.name + "."
 
-        # Check for multimodal content in tool result
-        display_content, multimodal_parts = extract_multimodal_content(result)
+            # Check for multimodal content in tool result
+            display_content, multimodal_parts = extract_multimodal_content(result)
+            duration_ms = int((time.monotonic() - start_time) * 1000)
 
-        tool_message = {
-            "role": ROLE_TOOL,
-            "tool_call_id": item.id,
-            "content": display_content,
-        }
-        return tool_message, multimodal_parts
+            self._emit_event(
+                "tool_call_completed",
+                {
+                    "tool_name": name,
+                    "tool_call_id": item.id,
+                    "execution_time_ms": duration_ms,
+                    "result_char_count": len(str(display_content)),
+                },
+            )
+
+            tool_message = {
+                "role": ROLE_TOOL,
+                "tool_call_id": item.id,
+                "content": display_content,
+            }
+            return tool_message, multimodal_parts
+        except Exception as e:
+            self._emit_event(
+                "tool_call_failed",
+                {
+                    "tool_name": name,
+                    "tool_call_id": item.id,
+                    "error_type": type(e).__name__,
+                    "error_message": str(e)[:500],
+                },
+            )
+            raise
 
     # -------------------------------------------------------------------------
     # Shared tool handling logic
@@ -167,6 +206,14 @@ class AgentCore(ABC):
             entry["reasoning"] = response.reasoning
 
         self.context.append(entry)
+
+        self._emit_event(
+            "tool_call_batch_started",
+            {
+                "tool_call_count": len(response.tool_calls),
+                "parallel_enabled": len(response.tool_calls) > 1 and settings.parallel_exec,
+            },
+        )
 
         self._log(
             "[italic]got " + str(len(response.tool_calls)) + " tool calls[/italic]"
