@@ -1,6 +1,5 @@
 """Tests for /server/api/events and /server/api/sub-agents/{id}/events endpoints."""
 
-import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 

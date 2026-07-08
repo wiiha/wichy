@@ -2,13 +2,11 @@
 
 import json
 import tempfile
-import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from wichy.context.handler import new_context
 from wichy.tools.task import TaskAgent
 from wichy.tools.task.base import TaskAgentDefinitionBase
 

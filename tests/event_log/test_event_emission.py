@@ -1,6 +1,5 @@
 """Tests that root-level v1 events are emitted from the expected code paths."""
 
-import tempfile
 import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch

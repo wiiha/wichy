@@ -1,12 +1,10 @@
 """Tests for the EventStore class."""
 
 import json
-import os
 import tempfile
 import threading
 import time
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -70,7 +68,7 @@ class TestEventStoreRotation:
         store.close()
 
         # Active log should contain only the post-rotation event.
-        lines = [l for l in tmp_log.read_text().splitlines() if l.strip()]
+        lines = [line for line in tmp_log.read_text().splitlines() if line.strip()]
         assert len(lines) == 1
         assert json.loads(lines[0])["id"] == 1
 
@@ -120,7 +118,7 @@ class TestEventStoreFallback:
         # After close, the thread is gone; emit should fall back to direct append.
         store.emit("fallback", {"k": "v"})
 
-        lines = [l for l in tmp_log.read_text().splitlines() if l.strip()]
+        lines = [line for line in tmp_log.read_text().splitlines() if line.strip()]
         assert len(lines) == 1
         assert json.loads(lines[0])["event_type"] == "fallback"
 

@@ -413,26 +413,75 @@
       messages.scrollTop = messages.scrollHeight;
     }
 
-    sendBtn.onclick = () => send("message");
-    steerBtn.onclick = () => send("steer");
-    resetBtn.onclick = () => runSessionSequence("/reset");
-    compactBtn.onclick = () => runSessionSequence("/compact");
-    clearBtn.onclick = async () => {
-      if (!confirm("Clear chat history?")) return;
-      await fetch("/chat/api/clear", { method: "POST" });
-      messages.innerHTML = "";
-      renderedIds = new Set();
-      _lastAssistantIndex = -1;
-      _clearCooldown();
-      _statusState = "IDLE";
-      await load();
-    };
-    input.onkeydown = (e) => {
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        send("message");
+    // Event-stream status derived from /server/api/events
+    let _eventsLastId = 0;
+    let _eventsConnected = false;
+
+    function _eventStatusText(events) {
+      if (!events || events.length === 0) return "";
+      const e = events[events.length - 1];
+      const type = e.event_type;
+      const payload = e.payload || {};
+      const toolName = payload.tool_name || "tool";
+      const agentName = payload.agent_name || "task agent";
+      switch (type) {
+        case "llm_call_started":
+          return "🤖 Thinking…";
+        case "tool_call_batch_started":
+          return "🔧 Using tools…";
+        case "tool_call_started":
+          return `🔧 Calling \`${toolName}\`…`;
+        case "task_agent_started":
+          return `🚀 Task agent \`${agentName}\` running…`;
+        case "task_agent_completed":
+          return `✅ Task agent \`${agentName}\` finished`;
+        case "verification_requested":
+          return "⏳ Waiting for approval…";
+        case "question_asked":
+          return "❓ Asking a question…";
+        case "steer_injected":
+          return "🛠️ Steer applied";
+        case "user_message_received":
+          return "🤖 Working…";
+        case "root_agent_response_ready":
+          return "";
+        default:
+          return "";
       }
-    };
+    }
+
+    async function pollEvents() {
+      if (!_eventsConnected) return;
+      try {
+        const resp = await fetch(`/server/api/events?since_id=${_eventsLastId}&limit=100`);
+        if (!resp.ok) return;
+        const data = await resp.json();
+        const events = data.events || [];
+        if (events.length > 0) {
+          _eventsLastId = data.last_id;
+          const text = _eventStatusText(events);
+          const statusEl = document.getElementById("chatStatus");
+          if (text) {
+            statusEl.className = "chat-status working";
+            statusEl.textContent = text;
+          } else if (events.some((e) => e.event_type === "root_agent_response_ready")) {
+            statusEl.className = "chat-status";
+            statusEl.textContent = "";
+          }
+        }
+      } catch (e) {
+        // Ignore polling errors.
+      }
+    }
+
+    function startEventPolling() {
+      _eventsConnected = true;
+      setInterval(pollEvents, 1000);
+    }
+
+    function stopEventPolling() {
+      _eventsConnected = false;
+    }
 
     async function pollStatus() {
       try {
@@ -454,6 +503,31 @@
         dot.className = "status-dot";
         text.textContent = "error";
       }
+
+      sendBtn.onclick = () => {
+        _eventsLastId = 0;
+        const statusEl = document.getElementById("chatStatus");
+        statusEl.className = "chat-status working";
+        statusEl.textContent = "🤖 Working…";
+        send("message");
+      };
+      steerBtn.onclick = () => {
+        _eventsLastId = 0;
+        send("steer");
+      };
+      resetBtn.onclick = () => runSessionSequence("/reset");
+      compactBtn.onclick = () => runSessionSequence("/compact");
+      clearBtn.onclick = async () => {
+        if (!confirm("Clear chat history?")) return;
+        await fetch("/chat/api/clear", { method: "POST" });
+        messages.innerHTML = "";
+        renderedIds = new Set();
+        _lastAssistantIndex = -1;
+        _clearCooldown();
+        _statusState = "IDLE";
+        _eventsLastId = 0;
+        await load();
+      };
     }
 
     // Drag-and-drop file upload
@@ -611,5 +685,6 @@
     });
     setInterval(load, 500);
     setInterval(pollStatus, 2000);
+    startEventPolling();
   </script>
 {% endblock extra_js %}
