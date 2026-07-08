@@ -6,6 +6,9 @@ from pydantic import Field
 from wichy.config import settings
 from wichy.console import user_console
 from wichy.constants import HIDE_FROM_LLM_PREFIX
+from wichy.event_log import log_event
+from wichy.event_log.paths import agent_events_path
+from wichy.event_log.schema import preview_content
 from wichy.helpers.string import strip_thinking_content
 from wichy.hooks.context_access import get_active_context
 from wichy.tools.base import BaseTool, ParametersModel
@@ -188,6 +191,19 @@ assistant: "I'm going to use the Task tool to launch the greeting-responder agen
         )
 
         root_context = get_active_context()
+        session_id = root_context.session_id if root_context is not None else None
+        if session_id:
+            log_event(
+                "task_agent_started",
+                {
+                    "agent_id": sa.context.custom_suffix,
+                    "agent_name": subagent_type,
+                    "description": preview_content(kwargs.get("description", "")),
+                    "task_context_file": str(sa.context.path),
+                    "task_events_file": str(agent_events_path(session_id, sa.context.custom_suffix)),
+                },
+                session_id=session_id,
+            )
         if root_context is not None:
             root_context.add_log(
                 {

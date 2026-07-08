@@ -13,6 +13,8 @@ from wichy.agent.core import AgentCore
 from wichy.config import settings
 from wichy.constants import ROLE_ASSISTANT, ROLE_SYSTEM, ROLE_USER
 from wichy.context.handler import ContextHandler
+from wichy.event_log import get_agent_event_store
+from wichy.event_log.schema import preview_args, preview_content
 from wichy.helpers.environment_info import environment_information
 from wichy.helpers.gen_id import gen_id
 from wichy.helpers.prompt import preprocess_prompt
@@ -215,6 +217,21 @@ class TaskAgent(AgentCore):
         """Log a dictionary using TaskAgent's console."""
         console_task_agents.log(data)
 
+    def _emit_event(self, event_type: str, payload: Dict) -> None:
+        """Emit an event to this task agent's own event log."""
+        try:
+            session_id = self.context.session_id
+        except Exception:
+            return
+        try:
+            store = get_agent_event_store(session_id, self.context.custom_suffix)
+            store.emit(
+                event_type,
+                {"agent_id": self.context.custom_suffix, "agent_name": self._name, **payload},
+            )
+        except Exception as e:
+            console_task_agents.log(f"[yellow]Task agent event emission failed: {e}[/yellow]")
+
     # -------------------------------------------------------------------------
     # Tool handling - uses base class method
     # -------------------------------------------------------------------------
@@ -236,6 +253,15 @@ class TaskAgent(AgentCore):
         started_at = datetime.now().isoformat()
         with _TASK_AGENT_REGISTRY_LOCK:
             _TASK_AGENT_REGISTRY[agent_id] = self
+
+        self._emit_event(
+            "task_agent_registered",
+            {
+                "model": self.model_str,
+                "parent_session_id": self.context.session_id,
+                "turns_limit": self._max_turns,
+            },
+        )
 
         try:
             console_task_agents.log(
@@ -263,7 +289,21 @@ class TaskAgent(AgentCore):
                     + res
                 )
             )
+            self._emit_event(
+                "task_agent_completed",
+                {
+                    "status": "completed",
+                    "turns_used": self._turns_used,
+                    "result_preview": preview_content(res),
+                },
+            )
             return res
+        except Exception as e:
+            self._emit_event(
+                "task_agent_error",
+                {"error_type": type(e).__name__, "error_message": str(e)[:500]},
+            )
+            raise
         finally:
             self._record_history_entry(agent_id, started_at)
             with _TASK_AGENT_REGISTRY_LOCK:
@@ -321,6 +361,10 @@ class TaskAgent(AgentCore):
             self._drain_steer_queue()
             # --- end ---
 
+            self._emit_event(
+                "task_agent_llm_call_started",
+                {"turn": self._turns_used + 1, "model_str": self.model_str},
+            )
             try:
                 response = call(
                     context=self.context(tick=True),
@@ -347,6 +391,14 @@ class TaskAgent(AgentCore):
                     raise
 
             self._turns_used = 1  # Initial call counts as turn 1
+            self._emit_event(
+                "task_agent_llm_call_completed",
+                {
+                    "turn": self._turns_used,
+                    "finish_reason": response.message.finish_reason,
+                    "has_tool_calls": bool(getattr(response.message, "tool_calls", None)),
+                },
+            )
 
             while True:
                 # Guard: if max turns reached and assistant emitted tools, do not execute them
@@ -404,6 +456,10 @@ class TaskAgent(AgentCore):
                     else tool_defs
                 )
 
+                self._emit_event(
+                    "task_agent_llm_call_started",
+                    {"turn": self._turns_used + 1, "model_str": self.model_str},
+                )
                 try:
                     response = call(
                         self.context(tick=True),
@@ -429,6 +485,15 @@ class TaskAgent(AgentCore):
                         )
                     else:
                         raise
+
+                self._emit_event(
+                    "task_agent_llm_call_completed",
+                    {
+                        "turn": self._turns_used,
+                        "finish_reason": response.message.finish_reason,
+                        "has_tool_calls": bool(getattr(response.message, "tool_calls", None)),
+                    },
+                )
 
             # Append assistant message with reasoning if present
             entry = {"role": ROLE_ASSISTANT, "content": response.message.content}
