@@ -130,7 +130,7 @@ class SlashCommandChecker:
             table.add_column("Enabled", style="magenta")
 
             # Sort hook types for consistent output
-            for hook_type in [HookType.PRE_TOOL, HookType.POST_TOOL]:
+            for hook_type in sorted(HookType, key=lambda ht: ht.value):
                 if hook_type not in all_hooks:
                     continue
 
@@ -140,10 +140,15 @@ class SlashCommandChecker:
                     tool_hooks.keys(), key=lambda x: (x is not None, x or "")
                 )
 
+                is_lifecycle = hook_type not in (HookType.PRE_TOOL, HookType.POST_TOOL)
+
                 for tool_name in sorted_tools:
                     hooks_list = tool_hooks[tool_name]
                     for hook in hooks_list:
-                        tool_display = "all" if tool_name is None else tool_name
+                        if is_lifecycle:
+                            tool_display = "-"
+                        else:
+                            tool_display = "all" if tool_name is None else tool_name
                         enabled_display = "✓" if hook.enabled else "✗"
                         table.add_row(
                             hook_type.value,
