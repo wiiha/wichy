@@ -528,6 +528,17 @@
         _eventsLastId = 0;
         await load();
       };
+
+      input.onkeydown = (e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          _eventsLastId = 0;
+          const statusEl = document.getElementById("chatStatus");
+          statusEl.className = "chat-status working";
+          statusEl.textContent = "🤖 Working…";
+          send("message");
+        }
+      };
     }
 
     // Drag-and-drop file upload
