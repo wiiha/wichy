@@ -464,7 +464,7 @@ Links to all available tool GUIs.
 
 ### Chat — `/chat/`
 
-A web chat UI with history, verification/question handling, and send/steer endpoints. The chat web module proxies requests to the main server API.
+A web chat UI with history, verification/question handling, and send/steer endpoints. The chat web module proxies requests to the main server API. A status line above the message list polls the server event stream (`/server/api/events`) to show what the agent is doing in real time — thinking, calling tools, running task agents, awaiting approval, etc.
 
 ### Notes Editor — `/tools/notes/`
 
@@ -539,6 +539,10 @@ In addition to the web UIs, Wichy exposes a programmatic HTTP API (prefix `/serv
 | `POST` | `/server/api/tools/execute`           | Execute a tool; `verified=true` required for state-mutating tools |
 | `POST` | `/server/api/tools/inject`            | Inject a stored manual tool result into root context              |
 | `GET`  | `/server/api/tools/results`           | List stored manual tool results                                   |
+| `GET`  | `/server/api/events`                  | Session event stream; `?since_id=N&limit=M` for polling         |
+| `POST` | `/server/api/events/clear`            | Clear the root session event log                                  |
+| `GET`  | `/server/api/sub-agents/<id>/events`  | Per-agent event stream                                            |
+| `POST` | `/server/api/sub-agents/<id>/events/clear` | Clear that agent's event log                                 |
 
 **Authentication:** Wichy currently has no built-in API authentication. The server binds to `127.0.0.1` by default and relies on local-host isolation.
 
