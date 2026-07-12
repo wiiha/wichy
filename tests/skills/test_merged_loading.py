@@ -96,13 +96,13 @@ class TestMergedSkillLoading:
         assert loader.home_skills_dir is None
         assert loader.project_skills_dir == skills_dir
 
-    def test_install_default_skills_dir_prefers_home(self, tmp_path):
-        """install_default_skills_dir returns user-home when merging is enabled."""
+    def test_install_default_skills_dir_prefers_local(self, tmp_path):
+        """install_default_skills_dir returns project-local when merging is enabled."""
         local_dir = tmp_path / "local" / "skills"
         home_dir = tmp_path / "home" / "skills"
 
         loader = SkillLoader(project_skills_dir=local_dir, home_skills_dir=home_dir)
-        assert loader.install_default_skills_dir == home_dir
+        assert loader.install_default_skills_dir == local_dir
 
     def test_install_new_skills_dir_prefers_local(self, tmp_path):
         """install_new_skills_dir returns project-local when merging is enabled."""

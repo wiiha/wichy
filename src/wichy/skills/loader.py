@@ -66,14 +66,14 @@ class SkillLoader:
     def install_default_skills_dir(self) -> Path:
         """Target directory for installing bundled default skills.
 
-        In merged mode, default skills go into the user-home directory so
-        they are shared across projects. In legacy single-dir mode, use the
-        given directory, falling back to the user-home default if none was
-        provided.
+        In merged mode, default skills go into the project-local directory so
+        they are isolated per project and tracked with the working directory.
+        In legacy single-dir mode, use the given directory, falling back to
+        the project-local default if none was provided.
         """
         if self._single_dir_mode:
-            return self._project_skills_dir or settings.skills_dir_home
-        return self._home_skills_dir or settings.skills_dir_home
+            return self._project_skills_dir or settings.skills_dir_local
+        return self._project_skills_dir or settings.skills_dir_local
 
     @property
     def install_new_skills_dir(self) -> Path:
