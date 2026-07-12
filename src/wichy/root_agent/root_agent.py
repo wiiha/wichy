@@ -8,7 +8,7 @@ from wichy.console import user_console
 from wichy.constants import ROLE_ASSISTANT, ROLE_USER
 from wichy.context.handler import new_context
 from wichy.event_log import log_event
-from wichy.event_log.schema import preview_args, preview_content
+from wichy.event_log.schema import preview_content
 from wichy.helpers.console import console
 from wichy.helpers.string import strip_thinking_content
 from wichy.hooks.context_access import set_active_context as hooks_set_active_context
@@ -331,7 +331,9 @@ class RootAgent(AgentCore):
                 {
                     "model_str": self.model_str,
                     "finish_reason": response.message.finish_reason,
-                    "has_tool_calls": bool(getattr(response.message, "tool_calls", None)),
+                    "has_tool_calls": bool(
+                        getattr(response.message, "tool_calls", None)
+                    ),
                     "has_reasoning": bool(getattr(response.message, "reasoning", None)),
                     "usage": response.usage,
                 },
@@ -427,7 +429,10 @@ class RootAgent(AgentCore):
             return
 
         self.context.drop()
-        self._emit_event("context_dropped", {"dropped_count": 1, "context_file": str(self.context.path)})
+        self._emit_event(
+            "context_dropped",
+            {"dropped_count": 1, "context_file": str(self.context.path)},
+        )
 
     def _notify_context_editor(self, old_context: Any) -> None:
         """Stop watching old context and notify the web editor of the change."""
@@ -458,9 +463,7 @@ class RootAgent(AgentCore):
         # nuke, default case
         first_prompt = self.context()[0]
         old_context = self.context
-        ctx = new_context(
-            session_id=self.context.session_id, resumed_after="reset"
-        )
+        ctx = new_context(session_id=self.context.session_id, resumed_after="reset")
         ctx.append(first_prompt)
         self.context = ctx
         # Start watching new context
@@ -537,9 +540,7 @@ class RootAgent(AgentCore):
             user_console.print(Markdown(summary_msg))
 
         # Create new context with original system prompt and summary
-        n_ctx = new_context(
-            session_id=self.context.session_id, resumed_after="compact"
-        )
+        n_ctx = new_context(session_id=self.context.session_id, resumed_after="compact")
         n_ctx.append(first_prompt)
         n_ctx.add(role="user", content=summary_msg)
         self.context = n_ctx

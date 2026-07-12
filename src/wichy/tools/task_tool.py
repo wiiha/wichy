@@ -200,7 +200,9 @@ assistant: "I'm going to use the Task tool to launch the greeting-responder agen
                     "agent_name": subagent_type,
                     "description": preview_content(kwargs.get("description", "")),
                     "task_context_file": str(sa.context.path),
-                    "task_events_file": str(agent_events_path(session_id, sa.context.custom_suffix)),
+                    "task_events_file": str(
+                        agent_events_path(session_id, sa.context.custom_suffix)
+                    ),
                 },
                 session_id=session_id,
             )

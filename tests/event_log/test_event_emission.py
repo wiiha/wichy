@@ -43,6 +43,7 @@ def _root_agent_with_context(context: ContextHandler) -> RootAgent:
 def temp_contexts_dir():
     """Create a temporary directory for contexts and patch settings."""
     import tempfile as _tempfile
+
     with _tempfile.TemporaryDirectory() as tmpdir:
         tmp_path = Path(tmpdir)
         with patch("wichy.context.handler.settings") as mock_settings:
@@ -99,11 +100,16 @@ class TestRootAgentProcessEvents:
                 first_response.message.tool_calls = [
                     MagicMock(
                         id="call_1",
-                        function=MagicMock(name="mock_tool", arguments='{"value": "x"}'),
+                        function=MagicMock(
+                            name="mock_tool", arguments='{"value": "x"}'
+                        ),
                         model_dump=lambda: {
                             "id": "call_1",
                             "type": "function",
-                            "function": {"name": "mock_tool", "arguments": '{"value": "x"}'},
+                            "function": {
+                                "name": "mock_tool",
+                                "arguments": '{"value": "x"}',
+                            },
                         },
                     )
                 ]

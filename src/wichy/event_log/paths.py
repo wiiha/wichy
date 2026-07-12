@@ -1,4 +1,5 @@
 """Path helpers for event log storage."""
+
 from pathlib import Path
 
 from wichy.config import settings

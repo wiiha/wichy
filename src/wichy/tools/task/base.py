@@ -14,7 +14,7 @@ from wichy.config import settings
 from wichy.constants import ROLE_ASSISTANT, ROLE_SYSTEM, ROLE_USER
 from wichy.context.handler import ContextHandler
 from wichy.event_log import get_agent_event_store
-from wichy.event_log.schema import preview_args, preview_content
+from wichy.event_log.schema import preview_content
 from wichy.helpers.environment_info import environment_information
 from wichy.helpers.gen_id import gen_id
 from wichy.helpers.prompt import preprocess_prompt
@@ -227,10 +227,16 @@ class TaskAgent(AgentCore):
             store = get_agent_event_store(session_id, self.context.custom_suffix)
             store.emit(
                 event_type,
-                {"agent_id": self.context.custom_suffix, "agent_name": self._name, **payload},
+                {
+                    "agent_id": self.context.custom_suffix,
+                    "agent_name": self._name,
+                    **payload,
+                },
             )
         except Exception as e:
-            console_task_agents.log(f"[yellow]Task agent event emission failed: {e}[/yellow]")
+            console_task_agents.log(
+                f"[yellow]Task agent event emission failed: {e}[/yellow]"
+            )
 
     # -------------------------------------------------------------------------
     # Tool handling - uses base class method
@@ -396,7 +402,9 @@ class TaskAgent(AgentCore):
                 {
                     "turn": self._turns_used,
                     "finish_reason": response.message.finish_reason,
-                    "has_tool_calls": bool(getattr(response.message, "tool_calls", None)),
+                    "has_tool_calls": bool(
+                        getattr(response.message, "tool_calls", None)
+                    ),
                 },
             )
 
@@ -491,7 +499,9 @@ class TaskAgent(AgentCore):
                     {
                         "turn": self._turns_used,
                         "finish_reason": response.message.finish_reason,
-                        "has_tool_calls": bool(getattr(response.message, "tool_calls", None)),
+                        "has_tool_calls": bool(
+                            getattr(response.message, "tool_calls", None)
+                        ),
                     },
                 )
 

@@ -1,6 +1,7 @@
 """Skill loader - discovers and loads skills from disk."""
 
 import json
+import logging
 import os
 import shutil
 import stat
@@ -10,6 +11,8 @@ from typing import Dict, List
 from wichy.config import settings
 from wichy.skills.registry import SkillRegistry
 from wichy.skills.skill import ScriptInfo, Skill, parse_markdown_frontmatter
+
+logger = logging.getLogger(__name__)
 
 # Default skills bundled with the package
 DEFAULT_SKILLS_DIR = Path(__file__).parent / "default"
@@ -112,37 +115,73 @@ class SkillLoader:
         return found
 
     def install_default_skills(self) -> int:
-        """Install default skills bundled with the package. Returns count of installed skills."""
-        if not DEFAULT_SKILLS_DIR.exists():
-            return 0
+        """Install default skills bundled with the package.
 
-        target_dir = self.install_default_skills_dir
-        # Ensure target skills directory exists
-        try:
-            target_dir.mkdir(parents=True, exist_ok=True)
-        except Exception as e:
-            print(
-                f"WARN: failed to create skill dir at {target_dir}: {e}\nWill skip to install default skills."
+        Returns the number of newly installed skills. Directories that already
+        exist in the target are skipped so that user modifications are preserved.
+        """
+        logger.info(
+            "Installing default skills from %s to %s",
+            DEFAULT_SKILLS_DIR,
+            self.install_default_skills_dir,
+        )
+
+        if not DEFAULT_SKILLS_DIR.exists():
+            logger.warning(
+                "Default skills directory does not exist: %s", DEFAULT_SKILLS_DIR
             )
             return 0
 
+        target_dir = self.install_default_skills_dir
+        try:
+            target_dir.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            logger.error(
+                "Failed to create target skills directory %s: %s", target_dir, e
+            )
+            return 0
+
+        source_dirs = [d for d in DEFAULT_SKILLS_DIR.iterdir() if d.is_dir()]
+        logger.info("Found %d default skill source directory/ies", len(source_dirs))
+
         installed_count = 0
-        for default_skill_dir in DEFAULT_SKILLS_DIR.iterdir():
-            if not default_skill_dir.is_dir():
-                continue
+        for default_skill_dir in source_dirs:
             target_skill_dir = target_dir / default_skill_dir.name
+            logger.debug(
+                "Checking default skill %s -> %s",
+                default_skill_dir.name,
+                target_skill_dir,
+            )
 
-            # Only install if not already present
-            if not target_skill_dir.exists():
-                try:
-                    shutil.copytree(default_skill_dir, target_skill_dir)
-                except Exception as e:
-                    print(
-                        f"WARN: failed to install default skill {target_skill_dir.name}: {e}"
-                    )
-                    continue
-                installed_count += 1
+            if target_skill_dir.exists():
+                logger.debug(
+                    "Default skill %s already exists, skipping", default_skill_dir.name
+                )
+                continue
 
+            try:
+                shutil.copytree(default_skill_dir, target_skill_dir, dirs_exist_ok=True)
+            except Exception as e:
+                logger.error(
+                    "Failed to install default skill %s: %s",
+                    default_skill_dir.name,
+                    e,
+                    exc_info=True,
+                )
+                continue
+
+            # Verify the skill is usable after copy.
+            if not (target_skill_dir / "skill.md").exists():
+                logger.error(
+                    "Installed default skill %s is missing skill.md",
+                    default_skill_dir.name,
+                )
+                continue
+
+            logger.info("Installed default skill %s", default_skill_dir.name)
+            installed_count += 1
+
+        logger.info("Installed %d default skill(s)", installed_count)
         return installed_count
 
     def load_skill_from_dir(self, skill_dir: Path) -> Skill | None:

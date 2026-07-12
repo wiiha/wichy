@@ -13,7 +13,6 @@ from wichy.helpers.verification_provider import (
     VerificationResponse,
 )
 
-
 # Module-level callback to retrieve the current root session id for events.
 # Set during server bootstrap to avoid circular imports.
 _get_root_session_id: Optional[Callable[[], Optional[str]]] = None
@@ -61,23 +60,29 @@ class ServerVerificationProvider(VerificationProvider):
             msg += "\n" + all_args
         user_console.print(msg)
 
-        self._emit("verification_requested", {
-            "vid": vid,
-            "label": label,
-            "message_preview": preview_text(message or ""),
-            "args_preview": all_args[:200],
-        })
+        self._emit(
+            "verification_requested",
+            {
+                "vid": vid,
+                "label": label,
+                "message_preview": preview_text(message or ""),
+                "args_preview": all_args[:200],
+            },
+        )
 
         try:
             result = future.result(timeout=self._default_timeout)
         except Exception:  # TimeoutError, CancelledError, etc.
             # Auto-deny on timeout so the tool thread unblocks
             result = VerificationResponse(ok=False, reason="Verification timed out")
-            self._emit("verification_resolved", {
-                "vid": vid,
-                "approved": False,
-                "reason": "timed out",
-            })
+            self._emit(
+                "verification_resolved",
+                {
+                    "vid": vid,
+                    "approved": False,
+                    "reason": "timed out",
+                },
+            )
         finally:
             with self._lock:
                 self._pending.pop(vid, None)
@@ -95,7 +100,10 @@ class ServerVerificationProvider(VerificationProvider):
             if future is None:
                 return False
             future.set_result(VerificationResponse(ok=approved, reason=reason))
-        self._emit("verification_resolved", {"vid": vid, "approved": approved, "reason": reason})
+        self._emit(
+            "verification_resolved",
+            {"vid": vid, "approved": approved, "reason": reason},
+        )
         return True
 
     def _emit(self, event_type: str, payload: dict) -> None:

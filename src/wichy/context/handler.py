@@ -18,7 +18,6 @@ from wichy.console import user_console
 from wichy.constants import CONTEXT_FILE_EXT, LOG_TYPE, MESSAGE_TYPE
 from wichy.helpers.string import truncate_to_len
 
-
 SESSION_BOUND_EVENT = "session_bound"
 
 

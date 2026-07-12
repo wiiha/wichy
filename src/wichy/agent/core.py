@@ -211,7 +211,8 @@ class AgentCore(ABC):
             "tool_call_batch_started",
             {
                 "tool_call_count": len(response.tool_calls),
-                "parallel_enabled": len(response.tool_calls) > 1 and settings.parallel_exec,
+                "parallel_enabled": len(response.tool_calls) > 1
+                and settings.parallel_exec,
             },
         )
 

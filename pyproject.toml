@@ -90,7 +90,11 @@ wichy = "wichy.__main__:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-wichy = ["templates/**/*", "**/static/**/*"]
+wichy = [
+    "templates/**/*",
+    "**/static/**/*",
+    "skills/default/**/*",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

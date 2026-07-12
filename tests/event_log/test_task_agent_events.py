@@ -25,6 +25,7 @@ def temp_contexts_dir():
         tmp_path = Path(tmpdir)
         with patch("wichy.context.handler.settings") as mock_settings:
             mock_settings.contexts_dir = tmp_path
+
             # Build a real settings-like object so EventStore defaults work.
             class FakeSettings:
                 events_dir = tmp_path / "events"
@@ -62,15 +63,25 @@ class TestTaskAgentEvents:
         # Flush and close the agent's event store so queued events hit disk.
         from wichy.event_log import get_agent_event_store
 
-        store = get_agent_event_store(agent.context.session_id, agent.context.custom_suffix)
+        store = get_agent_event_store(
+            agent.context.session_id, agent.context.custom_suffix
+        )
         store.flush(timeout=2.0)
         store.close(timeout=2.0)
 
-        events_dir = temp_contexts_dir / "events" / "sessions" / agent.context.session_id / "agents"
+        events_dir = (
+            temp_contexts_dir
+            / "events"
+            / "sessions"
+            / agent.context.session_id
+            / "agents"
+        )
         log_file = events_dir / f"{agent.context.custom_suffix}.events.jsonl"
         assert log_file.exists()
 
-        entries = [json.loads(line) for line in log_file.read_text().strip().splitlines()]
+        entries = [
+            json.loads(line) for line in log_file.read_text().strip().splitlines()
+        ]
         types = [e["event_type"] for e in entries]
         assert "task_agent_registered" in types
         assert "task_agent_llm_call_started" in types

@@ -9,7 +9,6 @@ from wichy.console import user_console
 from wichy.event_log import log_event
 from wichy.helpers.interaction_provider import InteractionProvider
 
-
 # Module-level callback to retrieve the current root session id for events.
 _get_root_session_id: Optional[Callable[[], Optional[str]]] = None
 

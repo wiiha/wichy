@@ -47,10 +47,7 @@ class TestEventStoreBasics:
         store.flush(timeout=2.0)
         store.close()
 
-        entries = [
-            json.loads(line)
-            for line in tmp_log.read_text().strip().split("\n")
-        ]
+        entries = [json.loads(line) for line in tmp_log.read_text().strip().split("\n")]
         assert [e["id"] for e in entries] == [1, 2, 3, 4, 5]
         assert [e["payload"]["n"] for e in entries] == [0, 1, 2, 3, 4]
 
@@ -89,8 +86,7 @@ class TestEventStoreRotation:
         backups = list(tmp_log.parent.glob("events_*.jsonl"))
         assert len(backups) == 1
         backup_entries = [
-            json.loads(line)
-            for line in backups[0].read_text().strip().splitlines()
+            json.loads(line) for line in backups[0].read_text().strip().splitlines()
         ]
         assert [e["id"] for e in backup_entries] == [1, 2]
 
@@ -140,10 +136,7 @@ class TestEventStoreConcurrency:
         store.flush(timeout=2.0)
         store.close()
 
-        entries = [
-            json.loads(line)
-            for line in tmp_log.read_text().strip().split("\n")
-        ]
+        entries = [json.loads(line) for line in tmp_log.read_text().strip().split("\n")]
         # 40 events, ids 1..40.
         assert len(entries) == 40
         assert [e["id"] for e in entries] == list(range(1, 41))
