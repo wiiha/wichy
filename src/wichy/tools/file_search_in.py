@@ -227,9 +227,6 @@ class SearchInFilesTool(BaseTool):
         if not pattern or pattern.strip() == "":
             return format_error("pattern is required")
 
-        if isinstance(output_mode, str):
-            output_mode = OutputMode(output_mode)
-
         try:
             # For content mode: count first.  If the result set is small, fetch
             # content directly.  If it's large, return a warning + sample so the

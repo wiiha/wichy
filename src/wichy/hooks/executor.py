@@ -148,7 +148,7 @@ class HookExecutor:
                     result.hooks_denied.append(hook.name)
                     break
                 elif hook_result.action == HookAction.MODIFY_INPUT:
-                    if hook_result.modified_input:
+                    if hook_result.modified_input is not None:
                         modified_input.update(hook_result.modified_input)
                         result.modified_input = modified_input.copy()
                 elif hook_result.action == HookAction.LOG:

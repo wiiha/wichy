@@ -15,7 +15,7 @@ HISTORY_DIR = Path(".wichy") / "chat"
 HISTORY_FILE = HISTORY_DIR / "history.jsonl"
 MAX_HISTORY = 10_000
 
-_file_lock = threading.Lock()
+_file_lock = threading.RLock()
 _append_count = 0
 
 
@@ -29,15 +29,16 @@ def load_history() -> list[dict[str, Any]]:
     if not HISTORY_FILE.exists():
         return []
     entries = []
-    with HISTORY_FILE.open("r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                entries.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue
+    with _file_lock:
+        with HISTORY_FILE.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entries.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
     if len(entries) > MAX_HISTORY:
         entries = entries[-MAX_HISTORY:]
         _rewrite(entries)

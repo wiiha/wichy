@@ -98,7 +98,7 @@ class EventStore:
                     max_id = max(max_id, entry.get("id", 0))
                 except json.JSONDecodeError:
                     continue
-        except Exception as e:
+        except OSError as e:
             user_console.print(f"[red]Error reading event log {self._path}:[/red] {e}")
         return max_id + 1
 
