@@ -317,16 +317,35 @@ button[data-theme-toggle] {
   background: var(--status-bg);
   backdrop-filter: blur(4px);
   opacity: 0.85;
-  transition: opacity 0.2s ease;
   pointer-events: none;
   user-select: none;
   z-index: 5;
 }
 
+/*
+  The pulse animation lives on a ::before pseudo-element that is always
+  present. Toggling the .working class only pauses/resumes the animation
+  via animation-play-state, so it never restarts from frame 0 when the
+  class is removed and re-added by competing writers.
+*/
+.chat-status::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: inherit;
+  pointer-events: none;
+  animation: pulse-dot 2s ease-in-out infinite;
+  animation-play-state: paused;
+}
+
 .chat-status.working {
   color: var(--status-working-text);
   background: var(--status-working-bg);
-  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+.chat-status.working::before {
+  animation-play-state: running;
 }
 
 .chat-status.user-turn {
@@ -335,10 +354,18 @@ button[data-theme-toggle] {
   opacity: 0.6;
 }
 
+.chat-status.user-turn::before {
+  animation-play-state: paused;
+}
+
 .chat-status.action-required {
   color: var(--status-action-text);
   background: var(--status-action-bg);
   opacity: 1;
+}
+
+.chat-status.action-required::before {
+  animation-play-state: paused;
 }
 
 @keyframes pulse-dot {

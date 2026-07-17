@@ -67,6 +67,10 @@
       let _lastAssistantIndex = -1;
       const _COOLDOWN_MS = 2000;
 
+      // Coordination flag: when pollEvents shows a specific event-driven
+      // status, updateChatStatus defers to it and does not overwrite.
+      let _eventPillActive = false;
+
       function _clearCooldown() {
         if (_cooldownTimer) {
           clearTimeout(_cooldownTimer);
@@ -136,22 +140,39 @@
         );
       }
 
+    let _loadInFlight = false;
+    let _loadTimer = null;
+    const _LOAD_INTERVAL = 500;
+
     async function load() {
-      const resp = await fetch("/chat/api/history");
-      const data = await resp.json();
-      let changed = false;
-      const shouldScroll = wasNearBottom();
-      for (const e of data) {
-        if (renderedIds.has(e.id)) continue;
-        renderedIds.add(e.id);
-        changed = true;
-        const div = renderEntry(e);
-        messages.appendChild(div);
-      }
-      if (changed && shouldScroll) messages.scrollTop = messages.scrollHeight;
+      if (_loadInFlight) return;
+      _loadInFlight = true;
+      try {
+        const resp = await fetch("/chat/api/history");
+        const data = await resp.json();
+        let changed = false;
+        const shouldScroll = wasNearBottom();
+        for (const e of data) {
+          if (renderedIds.has(e.id)) continue;
+          renderedIds.add(e.id);
+          changed = true;
+          const div = renderEntry(e);
+          messages.appendChild(div);
+        }
+        if (changed && shouldScroll) messages.scrollTop = messages.scrollHeight;
         _checkLatestSystemError(data);
         updateChatStatus(data);
+      } finally {
+        _loadInFlight = false;
       }
+    }
+
+    function _scheduleLoad() {
+      _loadTimer = setTimeout(async () => {
+        await load();
+        _scheduleLoad();
+      }, _LOAD_INTERVAL);
+    }
 
     function formatTimestamp(ts) {
       if (!ts) return "";
@@ -416,6 +437,7 @@
     // Event-stream status derived from /server/api/events
     let _eventsLastId = 0;
     let _eventsConnected = false;
+    let _eventsInFlight = false;
 
     function _eventStatusText(events) {
       if (!events || events.length === 0) return "";
@@ -451,7 +473,8 @@
     }
 
     async function pollEvents() {
-      if (!_eventsConnected) return;
+      if (!_eventsConnected || _eventsInFlight) return;
+      _eventsInFlight = true;
       try {
         const resp = await fetch(`/server/api/events?since_id=${_eventsLastId}&limit=100`);
         if (!resp.ok) return;
@@ -462,28 +485,53 @@
           const text = _eventStatusText(events);
           const statusEl = document.getElementById("chatStatus");
           if (text) {
+            _eventPillActive = true;
             statusEl.className = "chat-status working";
             statusEl.textContent = text;
           } else if (events.some((e) => e.event_type === "root_agent_response_ready")) {
+            _eventPillActive = false;
             statusEl.className = "chat-status";
             statusEl.textContent = "";
           }
         }
       } catch (e) {
         // Ignore polling errors.
+      } finally {
+        _eventsInFlight = false;
       }
+    }
+
+    // Recursive setTimeout so requests never overlap.
+    let _eventsTimer = null;
+    const _EVENTS_INTERVAL = 1000;
+
+    function _scheduleEventsPoll() {
+      _eventsTimer = setTimeout(async () => {
+        await pollEvents();
+        if (_eventsConnected) _scheduleEventsPoll();
+      }, _EVENTS_INTERVAL);
     }
 
     function startEventPolling() {
       _eventsConnected = true;
-      setInterval(pollEvents, 1000);
+      _scheduleEventsPoll();
     }
 
     function stopEventPolling() {
       _eventsConnected = false;
+      if (_eventsTimer) {
+        clearTimeout(_eventsTimer);
+        _eventsTimer = null;
+      }
     }
 
+    let _statusInFlight = false;
+    let _statusTimer = null;
+    const _STATUS_INTERVAL = 2000;
+
     async function pollStatus() {
+      if (_statusInFlight) return;
+      _statusInFlight = true;
       try {
         const resp = await fetch("/chat/api/status");
         const data = await resp.json();
@@ -502,44 +550,53 @@
         const text = document.getElementById("status-text");
         dot.className = "status-dot";
         text.textContent = "error";
+      } finally {
+        _statusInFlight = false;
       }
+    }
 
-      sendBtn.onclick = () => {
-        _eventsLastId = 0;
+    function _scheduleStatusPoll() {
+      _statusTimer = setTimeout(async () => {
+        await pollStatus();
+        _scheduleStatusPoll();
+      }, _STATUS_INTERVAL);
+    }
+
+    sendBtn.onclick = () => {
+      _eventPillActive = false;
+      const statusEl = document.getElementById("chatStatus");
+      statusEl.className = "chat-status working";
+      statusEl.textContent = "🤖 Working…";
+      send("message");
+    };
+    steerBtn.onclick = () => {
+      _eventPillActive = false;
+      send("steer");
+    };
+    resetBtn.onclick = () => runSessionSequence("/reset");
+    compactBtn.onclick = () => runSessionSequence("/compact");
+    clearBtn.onclick = async () => {
+      if (!confirm("Clear chat history?")) return;
+      await fetch("/chat/api/clear", { method: "POST" });
+      messages.innerHTML = "";
+      renderedIds = new Set();
+      _lastAssistantIndex = -1;
+      _clearCooldown();
+      _statusState = "IDLE";
+      _eventPillActive = false;
+      await load();
+    };
+
+    input.onkeydown = (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        _eventPillActive = false;
         const statusEl = document.getElementById("chatStatus");
         statusEl.className = "chat-status working";
         statusEl.textContent = "🤖 Working…";
         send("message");
-      };
-      steerBtn.onclick = () => {
-        _eventsLastId = 0;
-        send("steer");
-      };
-      resetBtn.onclick = () => runSessionSequence("/reset");
-      compactBtn.onclick = () => runSessionSequence("/compact");
-      clearBtn.onclick = async () => {
-        if (!confirm("Clear chat history?")) return;
-        await fetch("/chat/api/clear", { method: "POST" });
-        messages.innerHTML = "";
-        renderedIds = new Set();
-        _lastAssistantIndex = -1;
-        _clearCooldown();
-        _statusState = "IDLE";
-        _eventsLastId = 0;
-        await load();
-      };
-
-      input.onkeydown = (e) => {
-        if (e.key === "Enter" && !e.shiftKey) {
-          e.preventDefault();
-          _eventsLastId = 0;
-          const statusEl = document.getElementById("chatStatus");
-          statusEl.className = "chat-status working";
-          statusEl.textContent = "🤖 Working…";
-          send("message");
-        }
-      };
-    }
+      }
+    };
 
     // Drag-and-drop file upload
     const dropOverlay = document.getElementById("dropOverlay");
@@ -604,11 +661,19 @@
         if (!statusEl) return;
         _checkLatestSystemError(data);
 
+        // Action required always wins — override event-driven pill.
         if (_hasUnresolvedAction(data)) {
+          _eventPillActive = false;
           statusEl.className = "chat-status action-required";
           statusEl.textContent = "⚠️ Action required";
           return;
         }
+
+        // "Your turn" / idle transitions are owned by updateChatStatus.
+        // The event stream (pollEvents) only drives the pill during active
+        // work with specific text. When _eventPillActive is true and we would
+        // set a generic "Working…", defer — let pollEvents keep its specific
+        // status (e.g. "🔧 Calling bash…") instead of overwriting it.
 
         const last = _findLastSignificant(data);
         if (!last) {
@@ -616,6 +681,7 @@
             _clearCooldown();
             _statusState = "READY";
           }
+          _eventPillActive = false;
           statusEl.className = "chat-status";
           statusEl.textContent = "";
           return;
@@ -624,8 +690,11 @@
         if (last.role === "user" || last.role === "steer") {
           _clearCooldown();
           _statusState = "WORKING";
-          statusEl.className = "chat-status working";
-          statusEl.textContent = "🤖 Working…";
+          // Don't overwrite if pollEvents already has a specific status.
+          if (!_eventPillActive) {
+            statusEl.className = "chat-status working";
+            statusEl.textContent = "🤖 Working…";
+          }
           return;
         }
 
@@ -637,37 +706,48 @@
           if (_hasSystemAfterAssistant(data, lastAssistantIdx)) {
             _clearCooldown();
             _statusState = "WORKING";
-            statusEl.className = "chat-status working";
-            statusEl.textContent = "🤖 Working…";
+            if (!_eventPillActive) {
+              statusEl.className = "chat-status working";
+              statusEl.textContent = "🤖 Working…";
+            }
             return;
           }
           if (hadNewAssistant) {
             _setCooldown(data);
-            statusEl.className = "chat-status working";
-            statusEl.textContent = "🤖 Working…";
+            if (!_eventPillActive) {
+              statusEl.className = "chat-status working";
+              statusEl.textContent = "🤖 Working…";
+            }
             return;
           }
           if (_statusState === "COOLDOWN" && !fromTimer) {
-            statusEl.className = "chat-status working";
-            statusEl.textContent = "🤖 Working…";
+            if (!_eventPillActive) {
+              statusEl.className = "chat-status working";
+              statusEl.textContent = "🤖 Working…";
+            }
             return;
           }
           if (_statusState === "READY" || fromTimer) {
             _statusState = "READY";
+            _eventPillActive = false;
             statusEl.className = "chat-status user-turn";
             statusEl.textContent = "💬 Your turn";
             return;
           }
-          statusEl.className = "chat-status working";
-          statusEl.textContent = "🤖 Working…";
+          if (!_eventPillActive) {
+            statusEl.className = "chat-status working";
+            statusEl.textContent = "🤖 Working…";
+          }
           return;
         }
 
         // Last is verification/question that is resolved
         _clearCooldown();
         _statusState = "WORKING";
-        statusEl.className = "chat-status working";
-        statusEl.textContent = "🤖 Working…";
+        if (!_eventPillActive) {
+          statusEl.className = "chat-status working";
+          statusEl.textContent = "🤖 Working…";
+        }
       }
       // Hide system toggle + localStorage
     const hideSystemCb = document.getElementById("hideSystem");
@@ -691,11 +771,38 @@
     messages.addEventListener("scroll", updateScrollButton);
     updateScrollButton();
 
+    // Seek to the latest event on page load so we don't replay history.
+    // This sets _eventsLastId to the most recent event ID, so pollEvents
+    // only receives genuinely new events going forward.
+    async function _seekToLatestEvent() {
+      try {
+        // Fetch with a huge since_id so we get only the latest events.
+        // Using since_id=0 + limit=1 would return the OLDEST event.
+        // Instead, fetch all and take the last ID. The backend caps at
+        // limit=1000, so we loop until has_more is false.
+        let sinceId = 0;
+        let lastId = 0;
+        while (true) {
+          const resp = await fetch(`/server/api/events?since_id=${sinceId}&limit=1000`);
+          if (!resp.ok) break;
+          const data = await resp.json();
+          if (data.last_id) lastId = data.last_id;
+          if (!data.has_more) break;
+          sinceId = lastId;
+        }
+        _eventsLastId = lastId;
+      } catch (e) {
+        // If this fails, pollEvents will just start from 0 — acceptable.
+      }
+    }
+
     load().then(() => {
       messages.scrollTop = messages.scrollHeight;
     });
-    setInterval(load, 500);
-    setInterval(pollStatus, 2000);
-    startEventPolling();
+    _seekToLatestEvent().then(() => {
+      startEventPolling();
+    });
+    _scheduleLoad();
+    _scheduleStatusPoll();
   </script>
 {% endblock extra_js %}
