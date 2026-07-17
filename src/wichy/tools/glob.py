@@ -23,7 +23,7 @@ class GlobParameters(ParametersModel):
         True, description="Exclude common virtual environment directories from search"
     )
 
-    def info(self):
+    def info(self) -> str:
         pattern = self.pattern
         path = self.path
         limit = self.limit
@@ -110,11 +110,11 @@ class GlobTool(BaseTool):
             "bin",  # Common Python package directories
         }
 
-        excluded_files = []
+        filtered_files = []
         for file_path in files:
             path_obj = Path(file_path)
             # Check if any parent directory is a venv directory
             if not any(part in excluded_dirs for part in path_obj.parts):
-                excluded_files.append(file_path)
+                filtered_files.append(file_path)
 
-        return excluded_files
+        return filtered_files

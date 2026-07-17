@@ -29,7 +29,7 @@ class SearchRecursiveParameters(ParametersModel):
         description="output format: 'content' shows matching lines, 'files_with_matches' shows only file paths (default), 'count' shows match counts per file",
     )
 
-    def info(self):
+    def info(self) -> str:
         pattern = self.pattern
         path = self.path
         mode = self.output_mode.value

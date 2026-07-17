@@ -18,7 +18,7 @@ class TreeParameters(ParametersModel):
         description="maximum depth to traverse, default=unlimited",
     )
 
-    def info(self):
+    def info(self) -> str:
         return f'path="{self.path}"'
 
 

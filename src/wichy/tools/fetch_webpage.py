@@ -79,7 +79,7 @@ class FetchWebPageParameters(ParametersModel):
             raise ValueError("limit must be positive")
         return v
 
-    def info(self):
+    def info(self) -> str:
         return f'url="{self.url}", limit={self.limit}, wait_until="{self.wait_until}"'
 
 
@@ -170,7 +170,7 @@ class NavigateParameters(ParametersModel):
             raise ValueError("URL cannot be empty")
         return v
 
-    def info(self):
+    def info(self) -> str:
         return f'url="{self.url}"'
 
 
@@ -208,7 +208,7 @@ class NavigateTool(BaseTool):
 
 
 class BrowserStatusParameters(ParametersModel):
-    def info(self):
+    def info(self) -> str:
         return ""
 
 
@@ -246,7 +246,7 @@ class BrowserPageInfoParameters(ParametersModel):
         description="Detail level: 'quick' returns URL and title only; 'full' returns structured page info including headings, links, buttons, inputs, tables.",
     )
 
-    def info(self):
+    def info(self) -> str:
         return f'detail="{self.detail}"'
 
 
@@ -267,7 +267,6 @@ class BrowserPageInfoTool(BaseTool):
             JSON string with page information.
         """
         detail: DetailType = kwargs.get("detail", "quick")
-        import json
 
         async def _operation():
             return await browser_manager._get_page_info(detail)
@@ -300,7 +299,7 @@ class ScreenshotParameters(ParametersModel):
             raise ValueError("filename cannot be empty")
         return v
 
-    def info(self):
+    def info(self) -> str:
         return f'filename="{self.filename}", fullpage={self.fullpage}'
 
 
@@ -392,7 +391,7 @@ class BrowserRawParameters(ParametersModel):
             raise ValueError("limit must be positive")
         return v
 
-    def info(self):
+    def info(self) -> str:
         msg = f'code="{self.code}"'
         if self.limit:
             msg += f' limit="{self.limit}"'
@@ -495,7 +494,7 @@ class BrowserActParameters(ParametersModel):
             raise ValueError("timeout must be non-negative")
         return v
 
-    def info(self):
+    def info(self) -> str:
         info_str = f'action="{self.action}", target="{self.target}"'
         if self.value is not None:
             info_str += f', value="{self.value}"'

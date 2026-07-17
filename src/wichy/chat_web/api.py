@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import logging
+
 from flask import Blueprint, jsonify, request
 
 from . import state
 from .poller import get_server_port
+
+logger = logging.getLogger(__name__)
 
 
 def register_routes(bp: Blueprint) -> None:
@@ -59,6 +63,7 @@ def register_routes(bp: Blueprint) -> None:
             state.append(entry)
             return jsonify({"status": "ok"})
         except Exception as e:
+            logger.exception("Proxy send_message failed")
             return jsonify({"error": str(e)}), 502
 
     @bp.route("/api/verifications/<vid>/resolve", methods=["POST"])
@@ -89,6 +94,7 @@ def register_routes(bp: Blueprint) -> None:
             state.resolve_verification(vid, approved)
             return jsonify({"status": "ok"})
         except Exception as e:
+            logger.exception("Proxy resolve_verification failed")
             return jsonify({"error": str(e)}), 502
 
     @bp.route("/api/questions/<qid>/answer", methods=["POST"])
@@ -120,4 +126,5 @@ def register_routes(bp: Blueprint) -> None:
             state.resolve_question(qid, answers)
             return jsonify({"status": "ok"})
         except Exception as e:
+            logger.exception("Proxy answer_question failed")
             return jsonify({"error": str(e)}), 502

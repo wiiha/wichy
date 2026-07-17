@@ -29,6 +29,9 @@ from wichy.tools.errors import format_error
 
 WaitUntilType = Literal["load", "domcontentloaded", "networkidle"]
 
+# Maximum DOM elements to extract per category when scraping page info
+MAX_EXTRACTED_ELEMENTS = 20
+
 # Error patterns that indicate the browser process has crashed/disconnected
 BROWSER_CRASH_ERRORS = [
     "pipe closed by peer",
@@ -381,7 +384,7 @@ class BrowserManager:
             button_elements = await page.query_selector_all(
                 "button, input[type='submit'], input[type='button']"
             )
-            for el in button_elements[:20]:  # Limit to 20
+            for el in button_elements[:MAX_EXTRACTED_ELEMENTS]:  # Limit per category
                 if await el.is_visible():
                     text = await el.text_content()
                     tag = await el.evaluate("e => e.tagName.toLowerCase()")

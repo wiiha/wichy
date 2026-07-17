@@ -10,7 +10,6 @@ This module provides:
 from wichy.result_offload.store import ResultStore, StoredResult, get_result_store
 from wichy.result_offload.hijack import (
     result_or_ref,
-    _format_offload_response,
     format_stored_results,
     format_results_for_summarizer,
 )
@@ -25,7 +24,6 @@ __all__ = [
     "StoredResult",
     "get_result_store",
     "result_or_ref",
-    "_format_offload_response",
     "format_stored_results",
     "format_results_for_summarizer",
     "QueryResultTool",

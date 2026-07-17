@@ -76,7 +76,7 @@ class TaskAgentParameters(ParametersModel):
         + " What model to use. Should be a reference to a valid backend and model.",
     )
 
-    def info(self):
+    def info(self) -> str:
 
         info_parts = []
 

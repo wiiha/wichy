@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from queue import Queue
 from typing import TYPE_CHECKING, Optional
 
@@ -28,6 +29,8 @@ from wichy.event_log.store import EventStore
 from wichy.wichy_server.interaction_provider import ServerInteractionProvider
 from wichy.wichy_server.tool_results_store import get_tool_results_store
 from wichy.wichy_server.verification_provider import ServerVerificationProvider
+
+logger = logging.getLogger(__name__)
 
 _input_queue: Optional[Queue[str]] = None
 
@@ -439,6 +442,7 @@ def register_routes(bp: Blueprint):
             else:
                 result = tool.validate_and_execute(**arguments)
         except Exception:
+            logger.exception("Tool execution failed")
             return jsonify({"error": "tool execution failed"}), 500
 
         store = get_tool_results_store()

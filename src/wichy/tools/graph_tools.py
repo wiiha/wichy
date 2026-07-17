@@ -30,7 +30,7 @@ class CreateGraphParameters(ParametersModel):
         description="Graph definition in simple text format. Use '## Nodes:' section with 'Label [#color]' per line, and '## Edges:' section with 'From -> To [label]' per line. Colors are optional hex codes like #FF0000.",
     )
 
-    def info(self):
+    def info(self) -> str:
         lines = self.content.strip().split("\n")
         return f"{len(lines)} lines"
 
@@ -183,7 +183,7 @@ class ReadGraphParameters(ParametersModel):
         description="graph filename to read (default: latest.json). Can also use a specific name like graph_20260311_184900.json",
     )
 
-    def info(self):
+    def info(self) -> str:
         return f'filename="{self.filename}"'
 
 
@@ -285,7 +285,7 @@ class ReadGraphTool(BaseTool):
 class ListGraphsParameters(ParametersModel):
     pass
 
-    def info(self):
+    def info(self) -> str:
         return ""
 
 
@@ -321,7 +321,6 @@ class ListGraphsTool(BaseTool):
                 filepath = os.path.join(graphs_dir, f)
                 stat = os.stat(filepath)
                 size_kb = stat.st_size / 1024
-                from datetime import datetime
 
                 mtime = datetime.fromtimestamp(stat.st_mtime).strftime(
                     "%Y-%m-%d %H:%M:%S"

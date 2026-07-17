@@ -39,7 +39,7 @@ class ReadFileParameters(ParametersModel):
         description="For binary/image files: request the file be returned as base64-encoded data. Set to 'auto' to auto-detect based on file extension, or specify a MIME type like 'image/png'. When set, returns a JSON object with 'multimodal_content' containing base64 data suitable for vision-capable LLMs.",
     )
 
-    def info(self):
+    def info(self) -> str:
         if (
             self.offset == 1
             and self.limit == 2000

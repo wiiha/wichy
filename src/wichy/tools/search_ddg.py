@@ -13,7 +13,7 @@ class WebSearchParameters(ParametersModel):
         5, description="Maximum number of results to return (default: 5)"
     )
 
-    def info(self):
+    def info(self) -> str:
         return f'query="{self.query}" max_results={self.max_results}'
 
 

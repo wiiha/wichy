@@ -50,7 +50,7 @@ class TodoParameters(ParametersModel):
         None, description="ID of the task to perform action on"
     )
 
-    def info(self):
+    def info(self) -> str:
         out = f"{self.action}"
         if self.task_name:
             out += " " + self.task_name

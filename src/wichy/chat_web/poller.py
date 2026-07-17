@@ -111,7 +111,6 @@ def _poll_verifications() -> bool:
         items = resp.json()
         if not isinstance(items, list):
             return False
-        global _seen_verification_ids
         for v in items:
             vid = v.get("id")
             if vid in _seen_verification_ids:
@@ -126,6 +125,7 @@ def _poll_verifications() -> bool:
             state.append(entry)
         return True
     except Exception:
+        logger.debug("Poll verifications failed", exc_info=True)
         return False
 
 
@@ -140,7 +140,6 @@ def _poll_questions() -> bool:
         groups = resp.json()
         if not isinstance(groups, list):
             return False
-        global _seen_question_ids
         for g in groups:
             qid = g.get("id")
             if qid in _seen_question_ids:
@@ -157,6 +156,7 @@ def _poll_questions() -> bool:
             state.append(entry)
         return True
     except Exception:
+        logger.debug("Poll questions failed", exc_info=True)
         return False
 
 
@@ -206,4 +206,5 @@ def _poll_messages() -> bool:
             state.append(entry)
         return True
     except Exception:
+        logger.debug("Poll messages failed", exc_info=True)
         return False

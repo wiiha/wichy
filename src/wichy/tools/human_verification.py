@@ -182,38 +182,3 @@ def block_on(decision_func: Callable) -> Callable:
         return wrapper
 
     return decorator
-
-
-@require_human_verification
-def reboot_server(hostname: str):
-    """Reboot remote server"""
-    user_console.print(f"Rebooting {hostname}...")
-    return f"Reboot command issued to {hostname}"
-
-
-# Usage
-if __name__ == "__main__":
-    try:
-        user_console.print(reboot_server("db-01.example.com"))
-    except PermissionError as e:
-        user_console.print("Denied:", e)
-
-
-@require_human_verification
-def delete_file(path: str):
-    """Delete a file permanently"""
-    user_console.print(f"Deleting: {path}")
-    return f"Deleted {path}"
-
-
-# Set human-friendly label & message for the decorator to display
-delete_file._action_label = "Delete file"  # type: ignore[attr-defined]
-delete_file._action_message = "This will permanently remove the file from disk. Make sure you have backups."  # type: ignore[attr-defined]
-
-# Usage
-if __name__ == "__main__":
-    try:
-        result = delete_file("/tmp/test.txt")
-        user_console.print("Result:", result)
-    except PermissionError as e:
-        user_console.print("Denied:", e)

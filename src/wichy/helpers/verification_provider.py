@@ -11,7 +11,9 @@ class VerificationResponse(BaseModel):
 
 class VerificationProvider(ABC):
     @abstractmethod
-    def verify(self, label: str, message: str, all_args: str) -> VerificationResponse:
+    def verify(
+        self, label: str, message: Optional[str], all_args: str
+    ) -> VerificationResponse:
         """Method that provider has to be implemented for every provider."""
         pass
 

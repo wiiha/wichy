@@ -83,7 +83,7 @@ def _get_remaining_rows(csv_text, preview_data):
     try:
         raw = csv_text[:1000] if len(csv_text) > 1000 else csv_text
         dialect = csv.Sniffer().sniff(raw, delimiters=",;\t")
-    except (csv.Error, Exception):
+    except Exception:
         dialect = csv.excel
     reader = csv.DictReader(io.StringIO(csv_text), dialect=dialect)
     rows = list(reader)

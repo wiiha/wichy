@@ -37,7 +37,7 @@ class ReplaceTextParameters(ParametersModel):
         description="File encoding to use when reading/writing. Default is 'utf-8'.",
     )
 
-    def info(self):
+    def info(self) -> str:
         summary = f'replace in "{self.file_path}"'
         if self.count == 0 or self.count < 0:
             summary += " (all occurrences)"

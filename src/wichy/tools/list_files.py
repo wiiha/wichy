@@ -13,7 +13,7 @@ class ListFilesParameters(ParametersModel):
         description="directory of which to list files for, default=current directory",
     )
 
-    def info(self):
+    def info(self) -> str:
         path = "."
         if self.path:
             path = self.path

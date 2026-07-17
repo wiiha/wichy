@@ -174,13 +174,6 @@ class HookLoader:
             self._loaded_paths.append(path)
             return True
 
-        except SyntaxError as e:
-            self._errors[path] = e
-            user_console.print(
-                f"[yellow]Warning: Failed to load hooks from {path}: {e}[/yellow]"
-            )
-            return False
-
         except Exception as e:
             self._errors[path] = e
             user_console.print(

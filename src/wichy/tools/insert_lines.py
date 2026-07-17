@@ -32,7 +32,7 @@ class InsertLinesParameters(ParametersModel):
         description="File encoding to use when reading/writing. Default is 'utf-8'.",
     )
 
-    def info(self):
+    def info(self) -> str:
         return (
             f'insert after line {self.offset} in "{self.file_path}"'
             if self.offset > 0

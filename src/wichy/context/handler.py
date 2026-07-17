@@ -50,7 +50,7 @@ class ContextHandler:
         """
         self.context = []
         self.logs = []
-        self.id = str(time.time()).split(".")[0]
+        self.id = str(int(time.time()))
         self.start_date = datetime.now().strftime("%Y-%m-%d")
         self.custom_suffix = custom_suffix
         self.sub_dir = sub_dir
@@ -763,7 +763,7 @@ def new_context(
     return ctx
 
 
-def context_from_file(path):
+def context_from_file(path: str | Path) -> ContextHandler:
     """
     Load a :class:`ContextHandler` from an existing JSONL file.
 
@@ -889,7 +889,7 @@ def read_jsonl_entries(path: str | Path) -> list[dict]:
     return entries
 
 
-def previous_conversations():
+def previous_conversations() -> list[str]:
     """
     Return the file names of all saved conversation files in ``contexts_dir``.
 
@@ -901,7 +901,7 @@ def previous_conversations():
     return [f.name for f in contexts_dir.iterdir() if f.is_file()]
 
 
-def latest_context_file():
+def latest_context_file() -> Path:
     """
     Return the path to the most recently modified context file.
 

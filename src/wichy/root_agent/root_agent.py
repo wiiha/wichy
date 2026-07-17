@@ -23,6 +23,8 @@ from wichy.llm_backend import (
 from wichy.tools import get_tool_definitions
 from wichy.tools.base import BaseTool
 
+_DEFAULT_WATCH_INTERVAL = 2.0
+
 
 class ContextResetStrategies(str, Enum):
     NUKE = "nuke"
@@ -81,7 +83,7 @@ class RootAgent(AgentCore):
             user_console.print(Markdown("\n".join(info_lines)))
 
         # Start file watching for live sync with web editor
-        self.context.start_watching(interval=2.0)
+        self.context.start_watching(interval=_DEFAULT_WATCH_INTERVAL)
 
         self.agent_has_first_initiative = agent_has_first_initiative
         self.auto_compact_threshold = auto_compact_threshold
@@ -181,7 +183,7 @@ class RootAgent(AgentCore):
     # RootAgent-specific methods
     # -------------------------------------------------------------------------
 
-    def _update_token_counts(self, usage):
+    def _update_token_counts(self, usage: dict[str, Any] | None) -> None:
         """
         Update token counts from usage information.
 
@@ -225,7 +227,7 @@ class RootAgent(AgentCore):
             guideline_from_user_on_what_to_keep=msg, is_auto_compact=True
         )
 
-    def process(self, line):
+    def process(self, line: str) -> str:
         HookExecutor.run_context_hooks(
             HookType.PRE_USER_MESSAGE,
             root_agent=self,
@@ -467,7 +469,7 @@ class RootAgent(AgentCore):
         ctx.append(first_prompt)
         self.context = ctx
         # Start watching new context
-        self.context.start_watching(interval=2.0)
+        self.context.start_watching(interval=_DEFAULT_WATCH_INTERVAL)
         self._notify_context_editor(old_context)
         self._emit_event(
             "context_reset",
@@ -544,7 +546,7 @@ class RootAgent(AgentCore):
         n_ctx.append(first_prompt)
         n_ctx.add(role="user", content=summary_msg)
         self.context = n_ctx
-        self.context.start_watching(interval=2.0)
+        self.context.start_watching(interval=_DEFAULT_WATCH_INTERVAL)
         self._notify_context_editor(old_context)
         self._emit_event(
             "context_compacted",

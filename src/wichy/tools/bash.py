@@ -257,7 +257,7 @@ class BashParameters(ParametersModel):
         None, description="Shortly describe purpose of execution"
     )
 
-    def info(self):
+    def info(self) -> str:
         s = ""
 
         if self.description:
