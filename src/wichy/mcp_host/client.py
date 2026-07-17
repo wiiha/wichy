@@ -1,6 +1,8 @@
 import json
 from typing import Any
 
+from wichy.config import settings
+
 from .async_bridge import mcp_async_bridge
 from .errors import MCPConnectionError, MCPToolExecutionError
 from .config import MCPServerConfigStdio, MCPServerConfigHttp
@@ -106,7 +108,7 @@ class MCPClient:
         try:
             result = self._bridge.run_sync(
                 self._client.call_tool(tool_name, arguments),
-                timeout=60.0,
+                timeout=float(settings.mcp_tool_timeout),
             )
             return self._format_result(result)
         except Exception as e:

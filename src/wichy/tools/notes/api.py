@@ -42,7 +42,7 @@ def register_routes(bp: Blueprint):
     def _write_note(slug: str, title: str, content: str, created: str) -> str:
         """Write a note file and return the updated timestamp."""
         notes_dir = Path(get_notes_dir())
-        updated = datetime.utcnow().isoformat()
+        updated = datetime.now(timezone.utc).isoformat()
         file_path = notes_dir / f"{slug}.md"
         file_content = f"---\ntitle: {title}\ncreated: {created}\nupdated: {updated}\n---\n{content}"
         with open(file_path, "w") as f:
@@ -177,7 +177,7 @@ def register_routes(bp: Blueprint):
                 old_path = Path(get_notes_dir()) / f"{slug}.md"
                 if old_path.exists():
                     old_path.unlink()
-                created = datetime.utcnow().isoformat()
+                created = datetime.now(timezone.utc).isoformat()
                 updated = _write_note(new_slug, new_title, new_content, created)
             else:
                 # Same slug — rewrite with updated timestamp

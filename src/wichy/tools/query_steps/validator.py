@@ -2,23 +2,14 @@
 
 from typing import Callable
 
-FILTER_OPS = {
-    "==",
-    "!=",
-    ">",
-    ">=",
-    "<",
-    "<=",
-    "contains",
-    "starts_with",
-    "is_null",
-    "is_not_null",
-}
-AGG_FUNCS = {"count", "sum", "avg", "min", "max", "count_distinct"}
-SORT_ORDERS = {"asc", "desc"}
-JOIN_TYPES = {"inner", "left", "right", "cross"}
-MAX_STEPS = 20
-MAX_LIMIT = 10000
+from .constants import (
+    AGG_FUNCS,
+    FILTER_OPS,
+    JOIN_TYPES,
+    MAX_LIMIT,
+    MAX_STEPS,
+    SORT_ORDERS,
+)
 
 
 class ValidationError(ValueError):

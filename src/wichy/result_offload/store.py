@@ -167,7 +167,7 @@ class ResultStore:
         import json
 
         ref_id = self._generate_ref_id()
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         expires_at = now + timedelta(hours=self._get_ttl_hours())
 
         conn: sqlite3.Connection
@@ -218,7 +218,7 @@ class ResultStore:
 
             # Check expiration
             expires_at = datetime.fromisoformat(row["expires_at"])
-            if datetime.utcnow() > expires_at:
+            if datetime.now(timezone.utc) > expires_at:
                 self.delete(ref_id)
                 return None
 

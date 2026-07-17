@@ -1,17 +1,24 @@
 """Allow hooks to read/modify the active conversation context."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from wichy.console import user_console
 
-_active_context = None  # Will be ContextHandler
+if TYPE_CHECKING:
+    from wichy.context.handler import ContextHandler
+
+_active_context: ContextHandler | None = None
 
 
-def set_active_context(ctx):
+def set_active_context(ctx: ContextHandler) -> None:
     """Set the currently active context handler (called after RootAgent construction)."""
     global _active_context
     _active_context = ctx
 
 
-def get_active_context():
+def get_active_context() -> ContextHandler | None:
     """Return the currently active context handler, or None."""
     return _active_context
 

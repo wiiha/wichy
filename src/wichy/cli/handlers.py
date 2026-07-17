@@ -468,7 +468,9 @@ def handle_install_sub_agents(args):
 
     if template_file.exists():
         if args.install_force:
-            pass  # fall through to overwrite
+            template_file.write_text(DEFAULT_SUB_AGENT_TEMPLATE)
+            user_console.print(f"[green]Overwritten:[/green] {template_file}")
+            return True
         else:
             user_console.print(
                 f"[yellow]Sub agent template already exists at {template_file}[/yellow]"

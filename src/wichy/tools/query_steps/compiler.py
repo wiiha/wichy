@@ -3,20 +3,7 @@
 import re
 from typing import Any
 
-MAX_STEPS = 20
-FILTER_OPS = {
-    "==",
-    "!=",
-    ">",
-    ">=",
-    "<",
-    "<=",
-    "contains",
-    "starts_with",
-    "is_null",
-    "is_not_null",
-}
-AGG_FUNCS = {"count", "sum", "avg", "min", "max", "count_distinct"}
+from .constants import AGG_FUNCS, FILTER_OPS, MAX_STEPS
 
 
 class CompileError(ValueError):
