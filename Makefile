@@ -1,7 +1,7 @@
 .PHONY: help install test test-verbose build build-wheel build-sdist clean clean-all run-server server check-manifest lint format pipx-install pipx-reinstall pipx-uninstall docker-build docker-run docker-clean
 
 # Virtual environment
-VENV_PATH ?= venv
+VENV_PATH ?= host_venv
 VENV_ACTIVATE = . $(VENV_PATH)/bin/activate &&
 
 # Default target
