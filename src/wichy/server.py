@@ -83,8 +83,20 @@ def setup_logging() -> None:
     werkzeug_internal.propagate = False
 
 
-def create_app(no_chat: bool = False) -> Flask:
-    """Create and configure the Flask application."""
+def create_app(no_chat: bool = False, mode: str = "repl") -> Flask:
+    """Create and configure the Flask application.
+
+    Args:
+        no_chat: When True, the chat blueprint is not registered and the
+            landing-page chat card is hidden.
+        mode: The run mode this app was created for -- ``"server"`` (created
+            by :func:`run_server`, a ChatSession is expected) or ``"repl"``
+            (created by :func:`start_server_in_background` as a background
+            companion to an interactive terminal REPL; there is no
+            ChatSession but wichy is actively running). Surfaced via the
+            ``/health`` endpoint so the admin UI can distinguish a live REPL
+            from a dead server.
+    """
     # Setup logging (to file only, not stderr)
     setup_logging()
 
@@ -103,12 +115,35 @@ def create_app(no_chat: bool = False) -> Flask:
     @app.route("/")
     def landing():
         """Serve the landing page with links to available tool GUIs."""
-        return render_template("landing.html")
+        return render_template("landing.html", chat_available=not no_chat)
 
-    # Health check endpoint
+    # Health check endpoint.
+    # Reports server liveness plus the minimal always-available signals the
+    # admin UI needs: the run mode, whether chat is registered, and whether a
+    # ChatSession (the root-agent processing thread) is active and alive.
+    # Reads the wichy_server.api module globals directly (a Python import, not
+    # an HTTP call to /server/api/*), so it works in every mode where the
+    # Flask server runs. In REPL mode no ChatSession is registered, so
+    # session is "none" and thread_alive is null -- but ``mode`` is "repl"
+    # so the admin UI can show "REPL active" rather than "No session".
     @app.route("/health")
     def health():
-        return jsonify({"status": "ok"})
+        from wichy.wichy_server import api as server_api
+
+        session = server_api.get_active_session()
+        thread_alive: bool | None = None
+        if session is not None:
+            thread = getattr(session, "_thread", None)
+            thread_alive = bool(thread.is_alive()) if thread is not None else False
+        return jsonify(
+            {
+                "status": "ok",
+                "mode": mode,
+                "chat_available": not no_chat,
+                "session": "active" if session is not None else "none",
+                "thread_alive": thread_alive,
+            }
+        )
 
     # Register tool blueprints
     register_blueprints(app, no_chat=no_chat)
@@ -149,7 +184,7 @@ def run_server(
         port = settings.server_port
     if host is None:
         host = settings.server_host
-    app = create_app(no_chat=no_chat)
+    app = create_app(no_chat=no_chat, mode="server")
     app.logger.info(f"Starting wichy server on {host}:{port}")
     app.run(host=host, port=port, debug=False, use_reloader=False, threaded=True)
 

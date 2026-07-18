@@ -2,245 +2,282 @@
 
 {% block title %}Wichy - Web Tools{% endblock title %}
 
-{% block color_scheme %}
-<meta name="color-scheme" content="light" />
-{% endblock color_scheme %}
-
-{% block theme_script %}{% endblock theme_script %}
-
 {% block extra_css %}
 <style>
-    /* Landing page specific styles */
-    .hero {
-        background: var(--gradient-primary);
-        color: white;
-        padding: var(--space-3xl);
+    /* Landing page specific styles.
+       Layout uses Pico (.pico container) for cards and typography; this block
+       only adds a few layout primitives Pico does not provide. Colors, spacing
+       tokens and radius tokens come from shared.css. shared.css only defines a
+       light palette, so a dark palette for the tokens this page uses is
+       scoped here (same pattern chat.css uses for its --chat-* tokens). Pico
+       ships its own dark theme, so the <article> cards dark-mode themselves. */
+    :root[data-theme="dark"] {
+        --background: #0f1117;
+        --background-alt: #161922;
+        --border: #272b38;
+        --border-hover: #3a3f50;
+        --text: #e2e4e9;
+        --text-muted: #9ca3af;
+        /* shared.css's --primary-500 (#4f46e5) is indigo-on-near-black in dark
+           mode -- low contrast. Use a lighter indigo for links and an even
+           lighter shade for hover (hover brightens on dark bg, opposite of
+           light mode's darken). */
+        --primary-500: #818cf8;
+        --primary-700: #a5b4fc;
+    }
+
+    .landing-header {
+        padding: var(--space-3xl) var(--space-3xl) var(--space-xl);
         text-align: center;
     }
-    
-    .hero-title {
-        font-size: 2.5rem;
+
+    .landing-title {
         margin-bottom: var(--space-sm);
-        font-weight: 700;
     }
-    
-    .hero-subtitle {
-        font-size: 1.1rem;
-        opacity: 0.9;
-        margin-bottom: var(--space-xl);
+
+    .landing-subtitle {
+        color: var(--text-muted);
+        margin-bottom: var(--space-md);
     }
-    
-    .hero-status {
-        background: rgba(255, 255, 255, 0.2);
-        padding: var(--space-sm) var(--space-xl);
+
+    /* Header actions row: status pill + theme toggle button. */
+    .header-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-sm);
+    }
+
+    .theme-toggle {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 2rem;
+        height: 2rem;
+        padding: 0;
+        border: 1px solid var(--border);
         border-radius: var(--radius-full);
-        display: inline-block;
-        font-size: var(--font-size-sm);
-    }
-    
-    .tools-section {
-        padding: var(--space-3xl);
-    }
-    
-    .section-title {
-        font-size: 1.8rem;
+        background: var(--background-alt);
         color: var(--text);
-        margin-bottom: var(--space-xl);
-        font-weight: 600;
+        cursor: pointer;
+        font-size: 1rem;
+        line-height: 1;
+        transition: border-color var(--transition-normal),
+                    background var(--transition-normal);
     }
-    
+
+    .theme-toggle:hover {
+        border-color: var(--border-hover);
+    }
+
+    /* Live status pill. Polls /health every 2s and reflects real server +
+       root-agent thread state. States are toggled via data-state and styled
+       here so the JS only touches one attribute. */
+    .status-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-xs);
+        padding: var(--space-xs) var(--space-md);
+        border-radius: var(--radius-full);
+        font-size: var(--font-size-sm);
+        background: var(--background-alt);
+        border: 1px solid var(--border);
+        color: var(--text);
+    }
+
+    .status-pill .dot {
+        width: 0.6em;
+        height: 0.6em;
+        border-radius: var(--radius-full);
+        background: var(--text-muted);
+    }
+
+    .status-pill[data-state="running"] .dot { background: #22c55e; }
+    .status-pill[data-state="stopped"] { color: #ef4444; }
+    .status-pill[data-state="stopped"] .dot { background: #ef4444; }
+    .status-pill[data-state="repl"] .dot { background: var(--text-muted); }
+    .status-pill[data-state="none"] .dot { background: var(--text-muted); }
+
     .tools-grid {
         display: grid;
         gap: var(--space-xl);
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
     }
-    
+
     .tool-card {
-        background: var(--background);
-        border: 1px solid var(--border);
-        border-radius: var(--radius-lg);
-        padding: var(--space-xl);
-        transition: all var(--transition-normal);
-        cursor: pointer;
         text-decoration: none;
         color: inherit;
-        display: block;
     }
-    
-    .tool-card:hover {
-        background: var(--background-alt);
-        border-color: var(--border-hover);
+
+    .tool-card article {
+        height: 100%;
+        margin: 0;
+        transition: transform var(--transition-normal),
+                    box-shadow var(--transition-normal);
+    }
+
+    .tool-card:hover article {
         transform: translateY(-2px);
         box-shadow: var(--shadow-lg);
     }
-    
-    .tool-header {
-        display: flex;
-        align-items: center;
-        margin-bottom: var(--space-md);
-    }
-    
+
     .tool-icon {
-        width: 50px;
-        height: 50px;
-        background: var(--gradient-header);
-        border-radius: var(--radius-lg);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        margin-right: var(--space-md);
-        color: white;
         font-size: 1.5rem;
-        font-weight: bold;
     }
-    
-    .tool-title {
-        font-size: 1.3rem;
-        font-weight: 600;
-        color: var(--text);
-    }
-    
-    .tool-description {
-        color: var(--text-muted);
-        line-height: 1.6;
-        margin-bottom: var(--space-md);
-    }
-    
+
     .tool-link {
         color: var(--primary-500);
         font-weight: 500;
-        display: inline-flex;
-        align-items: center;
-        text-decoration: none;
-        transition: color var(--transition-normal);
     }
-    
-    .tool-link:hover {
-        color: var(--primary-700);
-    }
-    
+
     .arrow {
         margin-left: var(--space-xs);
         transition: transform var(--transition-normal);
     }
-    
+
     .tool-card:hover .arrow {
         transform: translateX(5px);
-    }
-    
-
-    .footer {
-        background: var(--background);
-        padding: var(--space-xl) var(--space-3xl);
-        text-align: center;
-        border-top: 1px solid var(--border);
-        color: var(--text-muted);
-    }
-    
-    @media (max-width: 768px) {
-        .hero-title {
-            font-size: 2rem;
-        }
-        
-        .hero {
-            padding: var(--space-xl);
-        }
-        
-        .tools-section {
-            padding: var(--space-xl);
-        }
     }
 </style>
 {% endblock extra_css %}
 
 {% block body %}
-    <div class="container">
-        <div class="hero">
-            <h1 class="hero-title">Wichy Web Tools</h1>
-            <p class="hero-subtitle">Interactive web interfaces for your agentic LLM toolkit</p>
-            <div class="hero-status">🟢 Server Running</div>
-        </div>
+    {# Pico container scopes Pico styling to the landing content. Dark mode,
+       design tokens and theme toggle are all inherited from base.html. #}
+    <div class="pico">
+        <header class="landing-header">
+            <h1 class="landing-title">Wichy Web Tools</h1>
+            <p class="landing-subtitle">Interactive web interfaces for your agentic LLM toolkit</p>
+            <div class="header-actions">
+                <span class="status-pill"
+                      id="statusPill"
+                      data-state="unknown"
+                      title="Live status (polled from /health)">
+                    <span class="dot"></span>
+                    <span id="statusText">Checking…</span>
+                </span>
+                <button data-theme-toggle
+                        class="theme-toggle"
+                        aria-label="Toggle dark mode"
+                        title="Toggle light/dark mode">
+                    <span data-theme-icon></span>
+                </button>
+            </div>
+        </header>
 
-        <div class="tools-section">
-            <h2 class="section-title">Available Tools</h2>
+        <main class="container">
+            <h2>Available Tools</h2>
             <!-- djlint:off J018 -->
 
-            {# Cross-blueprint navigation links use raw paths because the chat blueprint may not be registered in all server modes, making url_for unreliable here. #}
+            {# Cross-blueprint navigation links use raw paths because the chat
+               blueprint may not be registered in all server modes, making
+               url_for unreliable here. #}
 
             <div class="tools-grid">
+                {% if chat_available %}
                 <a href="/chat/" class="tool-card">
-                    <div class="tool-header">
-                        <div class="tool-icon">💬</div>
-                        <div class="tool-title">Chat</div>
-                    </div>
-                    <div class="tool-description">
-                        Chat interface for wichy server mode.
-                    </div>
-                    <div class="tool-link">
-                        Open Chat <span class="arrow">→</span>
-                    </div>
+                    <article>
+                        <h3 class="tool-icon">💬 Chat</h3>
+                        <p>Chat interface for wichy server mode.</p>
+                        <span class="tool-link">Open Chat <span class="arrow">→</span></span>
+                    </article>
                 </a>
+                {% endif %}
                 <a href="/tools/graph/" class="tool-card">
-                    <div class="tool-header">
-                        <div class="tool-icon">📊</div>
-                        <div class="tool-title">Graph Editor</div>
-                    </div>
-                    <div class="tool-description">
-                        Create, edit, and visualize graphs with an interactive interface. 
-                        Build network diagrams, mind maps, and relationship graphs using a simple text-based format.
-                    </div>
-                    <div class="tool-link">
-                        Open Graph Editor <span class="arrow">→</span>
-                    </div>
+                    <article>
+                        <h3 class="tool-icon">📊 Graph Editor</h3>
+                        <p>Create, edit, and visualize graphs with an interactive interface. Build network diagrams, mind maps, and relationship graphs using a simple text-based format.</p>
+                        <span class="tool-link">Open Graph Editor <span class="arrow">→</span></span>
+                    </article>
                 </a>
                 <a href="/tools/context/" class="tool-card">
-                    <div class="tool-header">
-                        <div class="tool-icon">📝</div>
-                        <div class="tool-title">Context Editor</div>
-                    </div>
-                    <div class="tool-description">
-                        View and edit the active conversation context in real-time. 
-                        Make changes to messages, add new ones, or drop old entries directly from your browser.
-                    </div>
-                    <div class="tool-link">
-                        Open Context Editor <span class="arrow">→</span>
-                    </div>
+                    <article>
+                        <h3 class="tool-icon">📝 Context Editor</h3>
+                        <p>View and edit the active conversation context in real-time. Make changes to messages, add new ones, or drop old entries directly from your browser.</p>
+                        <span class="tool-link">Open Context Editor <span class="arrow">→</span></span>
+                    </article>
                 </a>
-                  <a href="/tools/notes/" class="tool-card">
-                      <div class="tool-header">
-                          <div class="tool-icon">📓</div>
-                          <div class="tool-title">Notes</div>
-                      </div>
-                      <div class="tool-description">
-                          Your personal scratchpad and notes. Create notes, pin one as the scratchpad,
-                          and the agent can read it via the read_scratchpad tool.
-                      </div>
-                      <div class="tool-link">
-                          Open Notes <span class="arrow">→</span>
-                      </div>
-                  </a>
-                    <a href="/tools/data/" class="tool-card">
-                        <div class="tool-header">
-                            <div class="tool-icon">📊</div>
-                            <div class="tool-title">Data Explorer</div>
-                        </div>
-                        <div class="tool-description">
-                            Explore DuckDB tables loaded by the agent. View table schemas, column profiles,
-                            sample data, and correlations with a click-to-explore interface.
-                        </div>
-                        <div class="tool-link">
-                            Open Data Explorer <span class="arrow">→</span>
-                        </div>
+                <a href="/tools/notes/" class="tool-card">
+                    <article>
+                        <h3 class="tool-icon">📓 Notes</h3>
+                        <p>Your personal scratchpad and notes. Create notes, pin one as the scratchpad, and the agent can read it via the read_scratchpad tool.</p>
+                        <span class="tool-link">Open Notes <span class="arrow">→</span></span>
+                    </article>
+                </a>
+                <a href="/tools/data/" class="tool-card">
+                    <article>
+                        <h3 class="tool-icon">🔍 Data Explorer</h3>
+                        <p>Explore DuckDB tables loaded by the agent. View table schemas, column profiles, sample data, and correlations with a click-to-explore interface.</p>
+                        <span class="tool-link">Open Data Explorer <span class="arrow">→</span></span>
+                    </article>
+                </a>
 
             <!-- djlint:on -->
-                    </a>
-
-                </div>
-
-            <!-- /tools removed from landing page -->
-        </div>
-
-        <div class="footer">
-            <p>Powered by Wichy - Local-first Agentic LLM Framework</p>
-        </div>
+            </div>
+        </main>
     </div>
 {% endblock body %}
+
+{% block extra_js %}
+<script>
+    (function () {
+        const pill = document.getElementById("statusPill");
+        const text = document.getElementById("statusText");
+        const POLL_MS = 2000;
+        let inFlight = false;
+        let timer = null;
+
+        function render(data) {
+            // Status precedence: thread dead > thread alive > REPL active > no session.
+            // thread_alive is null only when session is "none". The `mode` field
+            // ("server" or "repl") distinguishes a live REPL (no ChatSession but
+            // wichy is running in the terminal) from a genuinely idle server.
+            if (data.session === "active" && data.thread_alive === true) {
+                pill.dataset.state = "running";
+                text.textContent = "Running";
+            } else if (data.session === "active" && data.thread_alive === false) {
+                pill.dataset.state = "stopped";
+                text.textContent = "Stopped";
+            } else if (data.mode === "repl") {
+                // REPL mode: no ChatSession, but the terminal REPL is active.
+                pill.dataset.state = "repl";
+                text.textContent = "REPL active";
+            } else {
+                pill.dataset.state = "none";
+                text.textContent = "No session";
+            }
+        }
+
+        // Recursive setTimeout with an in-flight guard so a slow /health
+        // response never overlaps the next poll. Mirrors the pattern used by
+        // the chat page's pollers.
+        function poll() {
+            if (inFlight) {
+                timer = setTimeout(poll, POLL_MS);
+                return;
+            }
+            inFlight = true;
+            fetch("/health", { cache: "no-store" })
+                .then((r) => r.json())
+                .then(render)
+                .catch(() => {
+                    pill.dataset.state = "stopped";
+                    text.textContent = "Unreachable";
+                })
+                .finally(() => {
+                    inFlight = false;
+                    timer = setTimeout(poll, POLL_MS);
+                });
+        }
+
+        poll();
+        // Pause polling when the tab is hidden to avoid pointless wakeups.
+        document.addEventListener("visibilitychange", () => {
+            if (document.hidden) {
+                if (timer) { clearTimeout(timer); timer = null; }
+            } else if (!timer) {
+                poll();
+            }
+        });
+    })();
+</script>
+{% endblock extra_js %}
