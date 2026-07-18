@@ -236,8 +236,6 @@ class ContextHandler:
             temp_path.replace(self._path)
             self._file_mtime = self._path.stat().st_mtime
 
-        self._file_mtime = self._path.stat().st_mtime
-
     def append(self, new_object):
         """
         Append a message dict to the in-memory context and persist it.
@@ -803,7 +801,12 @@ def context_from_file(path: str | Path) -> ContextHandler:
         raw = raw.strip()
         if not raw:
             continue
-        entry = json.loads(raw)
+        try:
+            entry = json.loads(raw)
+        except json.JSONDecodeError:
+            # Skip corrupted lines instead of aborting the entire load.
+            # Matches the defensive pattern used in get_entries().
+            continue
         if entry.get("type", MESSAGE_TYPE) == LOG_TYPE:
             logs.append(entry)
         else:
@@ -815,10 +818,18 @@ def context_from_file(path: str | Path) -> ContextHandler:
         raise ValueError(f"No message entries found in context file: {path}")
 
     # Parse id, date, and optional suffix from the filename.
+    # Guard against filenames with fewer than two underscore-separated parts
+    # (e.g., "context.jsonl", "_.jsonl") which would IndexError on [0]/[1].
     stem_parts = [p for p in path.stem.split("_") if p]
-    ctx_date = stem_parts[0]
-    ctx_id = stem_parts[1]
-    ctx_suffix = "_".join(stem_parts[2:]) if len(stem_parts) > 2 else ""
+    if len(stem_parts) >= 2:
+        ctx_date = stem_parts[0]
+        ctx_id = stem_parts[1]
+        ctx_suffix = "_".join(stem_parts[2:]) if len(stem_parts) > 2 else ""
+    else:
+        # Fall back to the full stem and today's date for non-standard names.
+        ctx_date = datetime.now().strftime("%Y%m%d")
+        ctx_id = path.stem
+        ctx_suffix = ""
 
     # Detect whether the file lives in a named subdirectory of contexts_dir.
     try:
@@ -943,11 +954,18 @@ def _drop_last_n_message_lines(filename: Path, n: int):
     """
     lines = Path(filename).read_text(encoding="utf-8").splitlines(keepends=True)
 
-    message_indices = [
-        i
-        for i, line in enumerate(lines)
-        if line.strip() and json.loads(line).get("type", MESSAGE_TYPE) == MESSAGE_TYPE
-    ]
+    # Identify message-line indices, skipping any lines that fail to parse
+    # (corrupted JSONL) instead of crashing the whole drop operation.
+    message_indices = []
+    for i, line in enumerate(lines):
+        if not line.strip():
+            continue
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if entry.get("type", MESSAGE_TYPE) == MESSAGE_TYPE:
+            message_indices.append(i)
 
     if len(message_indices) < n:
         raise ValueError(

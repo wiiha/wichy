@@ -264,7 +264,7 @@ class RootAgent(AgentCore):
                 console.log("[yellow]Fixed context, retrying...[/yellow]")
                 # Retry with fixed context
                 response = call(
-                    context=self.context(),
+                    context=self.context(tick=True),
                     tool_defs=tool_defs,
                     model_str=self.model_str,
                 )
@@ -321,7 +321,7 @@ class RootAgent(AgentCore):
                 if self._fix_multimodal_context():
                     console.log("[yellow]Fixed context, retrying...[/yellow]")
                     response = call(
-                        context=self.context(),
+                        context=self.context(tick=True),
                         tool_defs=tool_defs,
                         model_str=self.model_str,
                     )

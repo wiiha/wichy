@@ -34,10 +34,12 @@ class FileLock:
         self._lockfile: io.TextIOWrapper | None = None
         self._pid = os.getpid()
 
-    @contextmanager
-    def acquire(self, timeout: float = 10.0) -> Iterator[None]:
+    def _acquire_blocking(self, timeout: float = 10.0) -> None:
         """
-        Acquire exclusive lock. Blocks until available or timeout expires.
+        Block until the lock is acquired or timeout expires.
+
+        Performs the actual lock-file creation and fcntl locking. Does not
+        release on exit — callers are responsible for calling :meth:`release`.
 
         Args:
             timeout: Maximum seconds to wait for lock (0 = no wait)
@@ -63,7 +65,7 @@ class FileLock:
                     pass
 
                 # Successfully acquired lock
-                break
+                return
 
             except FileExistsError:
                 # Lock file exists - check if stale
@@ -88,6 +90,18 @@ class FileLock:
                 # Wait briefly before retrying
                 time.sleep(0.1)
 
+    @contextmanager
+    def acquire(self, timeout: float = 10.0) -> Iterator[None]:
+        """
+        Acquire exclusive lock. Blocks until available or timeout expires.
+
+        Args:
+            timeout: Maximum seconds to wait for lock (0 = no wait)
+
+        Raises:
+            FileLockError: If lock cannot be acquired within timeout
+        """
+        self._acquire_blocking(timeout)
         try:
             yield
         finally:
@@ -114,7 +128,7 @@ class FileLock:
             pass
 
     def __enter__(self):
-        self.acquire()
+        self._acquire_blocking()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):

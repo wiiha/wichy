@@ -96,7 +96,11 @@ class AgentCore(ABC):
         Returns:
             Tuple of (tool_result_message, multimodal_content_parts or None)
         """
-        result = None
+        # Sentinel: distinguishes "no matching tool found" from a tool that
+        # legitimately returns None. A tool returning None is a valid result
+        # and must not be overwritten with a "not found" error message.
+        _NOT_FOUND = object()
+        result = _NOT_FOUND
         name = item.function.name
         args = json.loads(item.function.arguments)
 
@@ -125,8 +129,13 @@ class AgentCore(ABC):
                     result = tool.validate_and_execute(**args)
                     break
 
-            if result is None:
+            if result is _NOT_FOUND:
                 result = "There is no tool called " + item.function.name + "."
+
+            # A tool may legitimately return None; coerce to empty string so
+            # the downstream LLM API (which requires string content) is happy.
+            if result is None:
+                result = ""
 
             # Check for multimodal content in tool result
             display_content, multimodal_parts = extract_multimodal_content(result)

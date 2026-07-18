@@ -1,5 +1,6 @@
 """Skill representation and data structures."""
 
+import logging
 import os
 import re
 from dataclasses import dataclass, field
@@ -7,6 +8,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import yaml  # type: ignore[import-untyped]
+
+logger = logging.getLogger(__name__)
 
 
 def parse_markdown_frontmatter(content: str) -> tuple[Dict[str, Any], str]:
@@ -17,9 +20,13 @@ def parse_markdown_frontmatter(content: str) -> tuple[Dict[str, Any], str]:
         frontmatter = match.group(1)
         body = match.group(2)
         try:
-            metadata = yaml.safe_load(frontmatter) or {}
-        except yaml.YAMLError:
-            metadata = {}
+            parsed = yaml.safe_load(frontmatter)
+        except yaml.YAMLError as exc:
+            logger.warning("Invalid YAML frontmatter: %s", exc)
+            parsed = None
+        # Coerce None and non-dict (e.g., YAML sequence) to empty dict so
+        # downstream .pop() calls don't raise AttributeError.
+        metadata = parsed if isinstance(parsed, dict) else {}
         return metadata, body
     return {}, content
 

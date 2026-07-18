@@ -219,15 +219,18 @@ class DuckDBManager:
                 with cls.get_connection() as conn:
                     if data_path.endswith(".csv"):
                         conn.execute(
-                            f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM read_csv_auto('{data_path}')"
+                            f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM read_csv_auto(?)",
+                            [data_path],
                         )
                     elif data_path.endswith(".parquet"):
                         conn.execute(
-                            f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM read_parquet('{data_path}')"
+                            f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM read_parquet(?)",
+                            [data_path],
                         )
                     elif data_path.endswith(".json") or data_path.endswith(".jsonl"):
                         conn.execute(
-                            f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM read_json_auto('{data_path}')"
+                            f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM read_json_auto(?)",
+                            [data_path],
                         )
                     else:
                         return format_error(
@@ -313,6 +316,12 @@ class DuckDBManager:
         try:
             with cls.get_connection() as conn:
                 result = conn.execute(query)
+
+                # DDL/DML statements (CREATE, INSERT, DROP, etc.) have no
+                # result set — description is None. Report success instead of
+                # crashing on NoneType iteration.
+                if result.description is None:
+                    return "Query executed successfully."
 
                 # Get column names
                 columns = [desc[0] for desc in result.description]

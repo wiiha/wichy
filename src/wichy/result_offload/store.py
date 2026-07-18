@@ -98,12 +98,15 @@ class ResultStore:
             # Acquire write lock to serialize writes
             self._write_lock.acquire()
 
+        conn: sqlite3.Connection | None = None
         try:
             conn = sqlite3.connect(str(self.db_path))
             conn.execute("PRAGMA journal_mode=WAL")
             conn.row_factory = sqlite3.Row
             yield conn
         finally:
+            if conn is not None:
+                conn.close()
             if for_write:
                 self._write_lock.release()
 

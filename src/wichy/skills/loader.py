@@ -213,35 +213,53 @@ class SkillLoader:
         else:
             safe_scripts = []
 
-        # Extract metadata dict if present, everything else goes into metadata too
-        metadata = frontmatter.pop("metadata", {})
+        # Extract metadata dict if present, everything else goes into metadata too.
+        # `or {}` coerces a `metadata: null` value (None) to an empty dict so the
+        # {**metadata, **frontmatter} merge below doesn't raise TypeError.
+        metadata = frontmatter.pop("metadata", {}) or {}
         # Merge any remaining top-level fields into metadata
         metadata = {**metadata, **frontmatter}
 
         # Optional JSON config (merge with frontmatter, frontmatter takes precedence)
         json_config_path = skill_dir / "skill.json"
         if json_config_path.exists():
-            with open(json_config_path, "r", encoding="utf-8") as f:
-                json_config = json.load(f)
-                # Extract known fields from JSON
-                json_name = json_config.pop("name", None)
-                json_desc = json_config.pop("description", None)
-                json_safe = json_config.pop("safe_scripts", [])
-                json_meta = json_config.pop("metadata", {})
-                # JSON metadata and remaining fields
-                json_meta = {**json_meta, **json_config}
-                # Merge: JSON is base, frontmatter overwrites
-                if not name and json_name:
-                    name = json_name
-                if not description and json_desc:
-                    description = json_desc
-                if not safe_scripts and json_safe:
-                    safe_scripts = (
-                        json_safe
-                        if isinstance(json_safe, list)
-                        else [s.strip() for s in json_safe.split(",")]
-                    )
-                metadata = {**json_meta, **metadata}
+            try:
+                with open(json_config_path, "r", encoding="utf-8") as f:
+                    json_config = json.load(f)
+            except (json.JSONDecodeError, OSError) as exc:
+                logger.warning(
+                    "Failed to read skill config %s: %s", json_config_path, exc
+                )
+                json_config = {}
+
+            # Guard against non-dict JSON (e.g., a JSON array or scalar).
+            if not isinstance(json_config, dict):
+                logger.warning(
+                    "Skill config %s is not a JSON object; ignoring.",
+                    json_config_path,
+                )
+                json_config = {}
+
+            # Extract known fields from JSON
+            json_name = json_config.pop("name", None)
+            json_desc = json_config.pop("description", None)
+            json_safe = json_config.pop("safe_scripts", [])
+            # `or {}` coerces `metadata: null` in JSON to empty dict.
+            json_meta = json_config.pop("metadata", {}) or {}
+            # JSON metadata and remaining fields
+            json_meta = {**json_meta, **json_config}
+            # Merge: JSON is base, frontmatter overwrites
+            if not name and json_name:
+                name = json_name
+            if not description and json_desc:
+                description = json_desc
+            if not safe_scripts and json_safe:
+                safe_scripts = (
+                    json_safe
+                    if isinstance(json_safe, list)
+                    else [s.strip() for s in json_safe.split(",")]
+                )
+            metadata = {**json_meta, **metadata}
 
         # Discover scripts
         scripts = self._discover_scripts(skill_dir, metadata)
@@ -295,7 +313,16 @@ class SkillLoader:
                     continue
                 if not os.access(script_path, os.X_OK):
                     mode = os.stat(script_path).st_mode | stat.S_IXUSR
-                    os.chmod(script_path, mode)
+                    try:
+                        os.chmod(script_path, mode)
+                    except (PermissionError, OSError) as exc:
+                        # Read-only filesystem or restricted permissions:
+                        # skip making this script executable but keep
+                        # discovering the rest of the skill's scripts.
+                        logger.warning(
+                            "Could not make %s executable: %s", script_path, exc
+                        )
+                        continue
                 if os.access(script_path, os.X_OK):
                     script_name = script_path.name
                     # Try to extract description from shebang or first line comment
@@ -333,7 +360,13 @@ class SkillLoader:
         """
         skill_dirs = self.discover_skill_dirs()
         for skill_dir in skill_dirs:
-            skill = self.load_skill_from_dir(skill_dir)
+            try:
+                skill = self.load_skill_from_dir(skill_dir)
+            except Exception as exc:
+                # One broken skill (unexpected error, IO failure, etc.) must
+                # not prevent the rest of the batch from loading.
+                logger.warning("Failed to load skill from %s: %s", skill_dir, exc)
+                continue
             if skill:
                 self.registry.register(skill)
         return self.registry.list_all()

@@ -100,14 +100,16 @@ class GlobTool(BaseTool):
 
     def _exclude_virtual_environments(self, files: List[str]) -> List[str]:
         """Exclude files that are in common virtual environment directories."""
+        # NOTE: Do NOT add "lib" or "bin" here — those are common project
+        # directory names (e.g. src/lib/utils.py, project/bin/cli.py) and
+        # would silently drop legitimate files. Actual virtual environments
+        # are covered by venv/.venv/env/.env and site-packages below.
         excluded_dirs = {
             "venv",
             ".venv",
             "env",
             ".env",  # Common venv directory names
             "site-packages",
-            "lib",
-            "bin",  # Common Python package directories
         }
 
         filtered_files = []
