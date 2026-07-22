@@ -51,6 +51,15 @@ class CliConfig:
     new_skill_name: Optional[str] = None
     new_skill_with_script: bool = False
 
+    # Subcommand: new (backend)
+    new_backend_name: Optional[str] = None
+    new_backend_base_url: Optional[str] = None
+    new_backend_model: Optional[str] = None
+    new_backend_api_key: Optional[str] = None
+    new_backend_extra_body: Optional[str] = None
+    new_backend_scope: str = "home"
+    new_backend_force: bool = False
+
     # Subcommand: ra
     ra_template: bool = False
 
@@ -220,6 +229,58 @@ class CliParser:
             help="Also create a placeholder script in the skill's scripts/ directory",
         )
 
+        # new backend command
+        new_backend_parser = new_subparsers.add_parser(
+            "backend",
+            help="Add a new config backend entry to settings.yaml",
+        )
+        new_backend_parser.add_argument(
+            "-n",
+            "--name",
+            type=str,
+            required=True,
+            help="Backend alias name (kebab-case). Use with: wichy -m config/<name>",
+        )
+        new_backend_parser.add_argument(
+            "--base-url",
+            type=str,
+            required=True,
+            help="OpenAI-compatible endpoint URL (e.g. http://localhost:8080/v1)",
+        )
+        new_backend_parser.add_argument(
+            "--model",
+            type=str,
+            required=True,
+            help="Model name the API expects (e.g. llama-3-70b)",
+        )
+        new_backend_parser.add_argument(
+            "--api-key",
+            type=str,
+            default=None,
+            help="API key string. Supports ${ENV_VAR} interpolation. "
+            "If omitted, falls back to openai_api_key at runtime.",
+        )
+        new_backend_parser.add_argument(
+            "--extra-body",
+            type=str,
+            default=None,
+            help="Optional JSON string forwarded as extra_body to the API. "
+            'E.g. \'{"provider": {"allow_fallbacks": true}}\'',
+        )
+        new_backend_parser.add_argument(
+            "--scope",
+            type=str,
+            default="home",
+            choices=["home", "project"],
+            help="Where to save: 'home' (~/.wichy/settings.yaml) or "
+            "'project' (./.wichy/settings.yaml). Default: home.",
+        )
+        new_backend_parser.add_argument(
+            "--force",
+            action="store_true",
+            help="Overwrite if the alias already exists in the target file.",
+        )
+
         # ls command
         ls_parser = subparsers.add_parser("ls", help="List things related to Wichy")
         ls_subparsers = ls_parser.add_subparsers(
@@ -337,6 +398,16 @@ class CliParser:
         if parsed.command == "new" and parsed.new_command == "skill":
             config.new_skill_name = parsed.name
             config.new_skill_with_script = parsed.with_script
+
+        # Extract new backend details if applicable
+        if parsed.command == "new" and parsed.new_command == "backend":
+            config.new_backend_name = parsed.name
+            config.new_backend_base_url = parsed.base_url
+            config.new_backend_model = parsed.model
+            config.new_backend_api_key = getattr(parsed, "api_key", None)
+            config.new_backend_extra_body = getattr(parsed, "extra_body", None)
+            config.new_backend_scope = getattr(parsed, "scope", "home")
+            config.new_backend_force = getattr(parsed, "force", False)
 
         if parsed.command == "server":
             config.server_mode = True

@@ -438,6 +438,25 @@ Configured via `--model-str`:
 | llama.cpp  | `llama_cpp/<model>`                | `llama_cpp/model`                 |
 | OpenRouter | `open_router/<model>`              | `open_router/anthropic/claude-3`  |
 | Generic    | `generic/<host>[:<port>]##<model>` | `generic/localhost:8080##llama-3` |
+| Config     | `config/<alias-or-path>`           | `config/my-local-llm`             |
+
+**Config backends** allow defining arbitrary OpenAI-compatible endpoints in `settings.yaml` without adding hard-coded backend types. Define backends under a `backends` namespace:
+
+```yaml
+# ~/.wichy/settings.yaml or ./.wichy/settings.yaml
+backends:
+  my-local-llm:
+    base_url: "http://localhost:8080/v1"
+    model: "llama-3-70b"
+    api_key: "${MY_API_KEY}" # env var interpolation supported
+    extra_body: # optional, forwarded to the API
+      provider:
+        allow_fallbacks: true
+```
+
+Then use `wichy -m config/my-local-llm`. If no `api_key` is set, falls back to `OPENAI_API_KEY`, then `sk-generic`. Add backends via `wichy new backend --name <alias> --base-url <url> --model <model>`.
+
+You can also reference a standalone JSON/YAML config file directly: `wichy -m config//path/to/config.json`.
 
 Environment variables:
 
@@ -518,31 +537,31 @@ Server logs: `.wichy/logs/server.log`
 
 In addition to the web UIs, Wichy exposes a programmatic HTTP API (prefix `/server/api`).
 
-| Method | Route                                 | Description                                                       |
-| ------ | ------------------------------------- | ----------------------------------------------------------------- |
-| `GET`  | `/server/api/messages`                | Captured console messages                                         |
-| `POST` | `/server/api/messages`                | Inject a line into the input queue                                |
-| `POST` | `/server/api/steer`                   | Steer the root agent                                              |
-| `GET`  | `/server/api/verifications`           | List pending human verifications                                  |
-| `POST` | `/server/api/verifications/<vid>`     | Respond to a verification                                         |
-| `GET`  | `/server/api/questions`               | List pending interaction questions                                |
-| `POST` | `/server/api/questions/<qid>`         | Answer a question                                                 |
-| `GET`  | `/server/api/root/context`            | Root agent context entries                                        |
-| `GET`  | `/server/api/root/status`             | Root agent model, tokens, threshold                               |
-| `GET`  | `/server/api/slashcommands`           | Available slash commands                                          |
-| `GET`  | `/server/api/sub-agents`              | Running task agents; `?include_history=1` includes stopped        |
-| `GET`  | `/server/api/sub-agents/<id>`         | Single task agent status                                          |
-| `POST` | `/server/api/sub-agents/<id>/steer`   | Steer a task agent                                                |
-| `POST` | `/server/api/sub-agents/<id>/stop`    | Request task agent stop                                           |
-| `GET`  | `/server/api/sub-agents/<id>/context` | Task agent context; falls back to history if stopped              |
-| `GET`  | `/server/api/tools`                   | List root-agent tools with schemas                                |
-| `POST` | `/server/api/tools/execute`           | Execute a tool; `verified=true` required for state-mutating tools |
-| `POST` | `/server/api/tools/inject`            | Inject a stored manual tool result into root context              |
-| `GET`  | `/server/api/tools/results`           | List stored manual tool results                                   |
-| `GET`  | `/server/api/events`                  | Session event stream; `?since_id=N&limit=M` for polling         |
-| `POST` | `/server/api/events/clear`            | Clear the root session event log                                  |
-| `GET`  | `/server/api/sub-agents/<id>/events`  | Per-agent event stream                                            |
-| `POST` | `/server/api/sub-agents/<id>/events/clear` | Clear that agent's event log                                 |
+| Method | Route                                      | Description                                                       |
+| ------ | ------------------------------------------ | ----------------------------------------------------------------- |
+| `GET`  | `/server/api/messages`                     | Captured console messages                                         |
+| `POST` | `/server/api/messages`                     | Inject a line into the input queue                                |
+| `POST` | `/server/api/steer`                        | Steer the root agent                                              |
+| `GET`  | `/server/api/verifications`                | List pending human verifications                                  |
+| `POST` | `/server/api/verifications/<vid>`          | Respond to a verification                                         |
+| `GET`  | `/server/api/questions`                    | List pending interaction questions                                |
+| `POST` | `/server/api/questions/<qid>`              | Answer a question                                                 |
+| `GET`  | `/server/api/root/context`                 | Root agent context entries                                        |
+| `GET`  | `/server/api/root/status`                  | Root agent model, tokens, threshold                               |
+| `GET`  | `/server/api/slashcommands`                | Available slash commands                                          |
+| `GET`  | `/server/api/sub-agents`                   | Running task agents; `?include_history=1` includes stopped        |
+| `GET`  | `/server/api/sub-agents/<id>`              | Single task agent status                                          |
+| `POST` | `/server/api/sub-agents/<id>/steer`        | Steer a task agent                                                |
+| `POST` | `/server/api/sub-agents/<id>/stop`         | Request task agent stop                                           |
+| `GET`  | `/server/api/sub-agents/<id>/context`      | Task agent context; falls back to history if stopped              |
+| `GET`  | `/server/api/tools`                        | List root-agent tools with schemas                                |
+| `POST` | `/server/api/tools/execute`                | Execute a tool; `verified=true` required for state-mutating tools |
+| `POST` | `/server/api/tools/inject`                 | Inject a stored manual tool result into root context              |
+| `GET`  | `/server/api/tools/results`                | List stored manual tool results                                   |
+| `GET`  | `/server/api/events`                       | Session event stream; `?since_id=N&limit=M` for polling           |
+| `POST` | `/server/api/events/clear`                 | Clear the root session event log                                  |
+| `GET`  | `/server/api/sub-agents/<id>/events`       | Per-agent event stream                                            |
+| `POST` | `/server/api/sub-agents/<id>/events/clear` | Clear that agent's event log                                      |
 
 **Authentication:** Wichy currently has no built-in API authentication. The server binds to `127.0.0.1` by default and relies on local-host isolation.
 
@@ -675,6 +694,7 @@ wichy ls ctx            # list saved contexts
 wichy ls skills         # list installed skills
 wichy ls sa             # list available sub agents
 wichy new skill -n <name> [--with-script]  # scaffold skill in .wichy/skills/
+wichy new backend -n <alias> --base-url <url> --model <model> [--api-key <key>] [--scope home|project] [--force]  # add config backend
 wichy install skills                    # install default bundled skills
 wichy install hooks                     # install default hooks file
 wichy install mcp                       # install example MCP config

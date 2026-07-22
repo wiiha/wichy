@@ -25,6 +25,7 @@ wichy
 # Use a specific model
 wichy --model-str ollama/llama3.2
 wichy --model-str open_router/anthropic/claude-3.5-sonnet
+wichy --model-str config/my-local-llm    # user-defined config backend
 
 # Resume a previous conversation
 wichy --last-ctx
@@ -41,16 +42,16 @@ wichy --load-ctx .wichy/contexts/2026-07-04_1234567890.jsonl
 - **Agent Notebook**: SQLite memory at `.wichy/notebook.db` for cross-session learning
 - **Web Interface**: Chat, notes editor, context editor, graph editor, and data explorer at `http://127.0.0.1:7891`
 - **Server API**: HTTP API for messages, verifications, sub-agents, root context, and tool execution
-- **Multiple LLM Backends**: Ollama, llama.cpp, OpenRouter, or any OpenAI-compatible endpoint via `generic/`
+- **Multiple LLM Backends**: Ollama, llama.cpp, OpenRouter, any OpenAI-compatible endpoint via `generic/`, or user-defined config backends via `config/`
 - **Context Persistence**: JSONL conversation storage in `.wichy/contexts/`
 
 ## Modes
 
-| Mode | Command | Purpose |
-|------|---------|---------|
-| REPL (default) | `wichy` | Interactive loop with slash commands and web UI |
-| Pipeline | `wichy --prompt "..."` | Single-shot, non-interactive execution to stdout |
-| Server | `wichy server [--port N]` | HTTP server mode without REPL |
+| Mode           | Command                   | Purpose                                          |
+| -------------- | ------------------------- | ------------------------------------------------ |
+| REPL (default) | `wichy`                   | Interactive loop with slash commands and web UI  |
+| Pipeline       | `wichy --prompt "..."`    | Single-shot, non-interactive execution to stdout |
+| Server         | `wichy server [--port N]` | HTTP server mode without REPL                    |
 
 ## CLI Cheatsheet
 
@@ -62,6 +63,7 @@ wichy ls sa           # list available sub-agent types
 wichy ls ctx          # list saved contexts
 
 wichy new skill --name my-skill       # scaffold a project-local skill
+wichy new backend --name my-llm --base-url http://localhost:8080/v1 --model llama-3  # add config backend
 wichy install skills                  # install default bundled skills
 wichy ra --template                   # print root agent template
 
@@ -118,6 +120,7 @@ docker run -it --rm \
 ```
 
 **Key points:**
+
 - LLM backends (Ollama, llama.cpp) run on the **host** — container connects via `host.docker.internal`
 - Project folder mounts at `/workspace` — the `.wichy/` folder for contexts/logs goes there
 - `~/.wichy` mount is optional — stores skills and user root agent definitions

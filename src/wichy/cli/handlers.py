@@ -1,6 +1,7 @@
 """CLI command handlers for listing, creating, and installing wichy resources."""
 
 import json
+import os
 import re
 import shutil
 import sys
@@ -388,6 +389,189 @@ def handle_list_sub_agents():
     user_console.print(Markdown(msg))
 
 
+# ---------------------------------------------------------------------------
+# new backend
+# ---------------------------------------------------------------------------
+
+_KEBAB_CASE_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
+_URL_SCHEME_RE = re.compile(r"^https?://")
+_ENV_VAR_PATTERN = re.compile(r"\$\{([A-Z_][A-Z0-9_]*)\}")
+
+
+def _validate_new_backend(args) -> dict | None:
+    """Validate all 'new backend' flags.
+
+    Returns a validated dict with keys: alias, base_url, model, api_key,
+    extra_body, scope, force. Or None if validation failed (error already
+    printed).
+    """
+    alias = args.new_backend_name
+    base_url = args.new_backend_base_url
+    model = args.new_backend_model
+    api_key = args.new_backend_api_key
+    extra_body_str = args.new_backend_extra_body
+    scope = args.new_backend_scope
+    force = args.new_backend_force
+
+    errors: list[str] = []
+
+    # --- alias (kebab-case) ---
+    if not alias or not alias.strip():
+        errors.append("Backend name is required (use --name).")
+    elif not _KEBAB_CASE_RE.match(alias.strip()):
+        errors.append(
+            f"Backend name '{alias}' is not valid kebab-case. "
+            "Use lowercase letters, numbers, and hyphens (e.g. 'my-local-llm')."
+        )
+    else:
+        alias = alias.strip()
+
+    # --- base_url (must start with http:// or https://) ---
+    if not base_url or not base_url.strip():
+        errors.append("Base URL is required (use --base-url).")
+    elif not _URL_SCHEME_RE.match(base_url.strip()):
+        errors.append(f"Base URL '{base_url}' must start with 'http://' or 'https://'.")
+    else:
+        base_url = base_url.strip()
+
+    # --- model (non-empty) ---
+    if not model or not model.strip():
+        errors.append("Model name is required (use --model).")
+    else:
+        model = model.strip()
+
+    # --- api_key (optional, but if ${VAR} then warn if env var missing) ---
+    if api_key is not None:
+        api_key = api_key.strip()
+        if not api_key:
+            api_key = None  # treat empty string as not provided
+    if api_key and "${" in api_key:
+        env_vars = _ENV_VAR_PATTERN.findall(api_key)
+        missing = [v for v in env_vars if os.environ.get(v) is None]
+        if missing:
+            user_console.print(
+                f"[yellow]warn:[/yellow] API key references environment variable(s) "
+                f"'{', '.join(missing)}' which are not currently set. "
+                f"The entry will be saved as-is; the variable must be set when "
+                f"running 'wichy -m config/{alias}'."
+            )
+
+    # --- extra_body (optional, must be valid JSON dict) ---
+    extra_body = None
+    if extra_body_str is not None:
+        extra_body_str = extra_body_str.strip()
+        if extra_body_str:
+            try:
+                parsed_json = json.loads(extra_body_str)
+            except json.JSONDecodeError as exc:
+                errors.append(
+                    f"--extra-body is not valid JSON: {exc.msg} "
+                    f"(line {exc.lineno}, column {exc.colno})."
+                )
+            else:
+                if not isinstance(parsed_json, dict):
+                    errors.append(
+                        "--extra-body must be a JSON object (dict), "
+                        f"got {type(parsed_json).__name__}."
+                    )
+                else:
+                    extra_body = parsed_json
+
+    if errors:
+        for err in errors:
+            user_console.print(f"[red]error:[/red] {err}")
+        return None
+
+    return {
+        "alias": alias,
+        "base_url": base_url,
+        "model": model,
+        "api_key": api_key,
+        "extra_body": extra_body,
+        "scope": scope,
+        "force": force,
+    }
+
+
+def handle_new_backend(args):
+    """Handle 'new backend' command - add a config backend to settings.yaml."""
+    from wichy.config.backend_resolver import save_backend_to_yaml
+
+    validated = _validate_new_backend(args)
+    if validated is None:
+        user_console.flush()
+        exit(1)
+
+    alias = validated["alias"]
+    base_url = validated["base_url"]
+    model = validated["model"]
+    api_key = validated["api_key"]
+    extra_body = validated["extra_body"]
+    scope = validated["scope"]
+    force = validated["force"]
+
+    # If --force, we need to handle existing alias by removing it first.
+    # save_backend_to_yaml raises if alias exists; with --force we delete first.
+    if force:
+        _remove_backend_alias(alias, scope)
+
+    try:
+        target_path = save_backend_to_yaml(
+            alias=alias,
+            base_url=base_url,
+            model=model,
+            api_key=api_key,
+            extra_body=extra_body,
+            scope=scope,
+        )
+    except ValueError as exc:
+        user_console.print(f"[red]error:[/red] {exc}")
+        user_console.flush()
+        exit(1)
+
+    msg = f"[green]Saved backend:[/green] {alias}\n"
+    msg += f"[dim]Location: {target_path}[/dim]\n\n"
+    msg += f"Usage: [bold]wichy -m config/{alias}[/bold]"
+
+    user_console.print(msg)
+    user_console.flush()
+    exit(0)
+
+
+def _remove_backend_alias(alias: str, scope: str) -> None:
+    """Remove an existing backend alias from settings.yaml (for --force)."""
+    import yaml as _yaml
+
+    if scope == "home":
+        target = settings.wichy_home / "settings.yaml"
+    else:
+        target = Path(".wichy/settings.yaml")
+
+    if not target.exists():
+        return
+
+    text = target.read_text(encoding="utf-8")
+    if not text.strip():
+        return
+
+    try:
+        data = _yaml.safe_load(text)
+    except _yaml.YAMLError:
+        return
+
+    if not isinstance(data, dict):
+        return
+
+    backends = data.get("backends", {})
+    if isinstance(backends, dict) and alias in backends:
+        del backends[alias]
+        data["backends"] = backends
+        tmp_file = target.with_suffix(".yaml.tmp")
+        with tmp_file.open("w", encoding="utf-8") as f:
+            _yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+        os.replace(tmp_file, target)
+
+
 # Router functions that dispatch to the handlers above
 
 
@@ -400,6 +584,9 @@ def handle_new_commands(args):
         handle_new_skill(args)
         user_console.flush()
         exit(0)
+
+    if args.new_command == "backend":
+        handle_new_backend(args)
 
     return False
 

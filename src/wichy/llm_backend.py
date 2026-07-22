@@ -7,6 +7,7 @@ from openai import BadRequestError, OpenAI
 from pydantic import BaseModel
 
 from wichy.config import settings
+from wichy.config.backend_resolver import resolve_config_backend
 from wichy.console import user_console
 from wichy.helpers.console import console
 
@@ -419,9 +420,14 @@ def _call_impl(
         base_url, model = parse_generic_backend(model_str)
         api_key = settings.openai_api_key or "sk-generic"
         client = OpenAI(base_url=base_url, api_key=api_key)
+    elif backend == "config":
+        base_url, api_key, model, cfg_extra_body = resolve_config_backend(model_str)
+        client = OpenAI(base_url=base_url, api_key=api_key)
+        if cfg_extra_body:
+            backend_specific_headers = cfg_extra_body
     else:
         raise ValueError(
-            f"Unknown backend: {backend}. Use 'ollama', 'llama_cpp', 'open_router', or 'generic', got model string: {model_str}"
+            f"Unknown backend: {backend}. Use 'ollama', 'llama_cpp', 'open_router', 'generic', or 'config', got model string: {model_str}"
         )
 
     # Build forwarded arguments

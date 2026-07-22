@@ -9,6 +9,7 @@ from wichy.hooks.loader import hook_loader
 from wichy.hooks.registry import hook_registry
 from wichy.hooks.types import HookType
 from wichy.llm_backend import backend_and_model_from_model_str, parse_generic_backend
+from wichy.config.backend_resolver import resolve_config_backend
 from wichy.root_agent.root_agent import ContextResetStrategies
 from wichy.tools.base import console_tool_result
 from wichy.tools.task import console_task_agents
@@ -200,7 +201,7 @@ class SlashCommandChecker:
                 return f"Current model: {self.root_agent.model_str}"
             new_model = parts[1].strip()
 
-            KNOWN_BACKENDS = {"ollama", "llama_cpp", "open_router", "generic"}
+            KNOWN_BACKENDS = {"ollama", "llama_cpp", "open_router", "generic", "config"}
 
             try:
                 backend, model_name = backend_and_model_from_model_str(new_model)
@@ -215,6 +216,10 @@ class SlashCommandChecker:
                     )
                 if backend == "generic":
                     parse_generic_backend(new_model)  # validates host##model format
+                if backend == "config":
+                    resolve_config_backend(
+                        new_model, validate_only=True
+                    )  # validates alias/filepath exists
             except ValueError as e:
                 return f"[red]{e}[/red]"
 
