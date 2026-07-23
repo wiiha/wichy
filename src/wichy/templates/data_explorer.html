@@ -2248,15 +2248,19 @@ async function loadRecipe(slug) {
 
   // ─── Chart Gallery ───
 
+  let galleryFavoritesOnly = false;
+
   function showChartGallery() {
     currentTable = null;
     currentView = 'gallery';
     updateActiveTable(null);
     showLoading(mainContent);
+    galleryFavoritesOnly = false;
     loadChartGallery(false);
   }
 
   async function loadChartGallery(favoritesOnly) {
+    galleryFavoritesOnly = favoritesOnly;
     try {
       const url = favoritesOnly ? `${API_BASE}/charts/favorites` : `${API_BASE}/charts`;
       const resp = await fetch(url);
@@ -2310,9 +2314,8 @@ async function loadRecipe(slug) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ favorite: favorite })
       });
-      // Reload gallery
-      const isFavView = currentView === 'gallery';
-      loadChartGallery(isFavView);
+      // Reload gallery preserving current filter
+      loadChartGallery(galleryFavoritesOnly);
     } catch (e) {
       alert('Failed to toggle favorite: ' + e);
     }
@@ -2322,7 +2325,7 @@ async function loadRecipe(slug) {
     if (!confirm('Delete this chart?')) return;
     try {
       await fetch(`${API_BASE}/chart/${chartId}`, { method: 'DELETE' });
-      loadChartGallery(currentView === 'gallery');
+      loadChartGallery(galleryFavoritesOnly);
     } catch (e) {
       alert('Failed to delete: ' + e);
     }
