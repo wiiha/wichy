@@ -102,10 +102,14 @@ class ChordChartConfig(BaseChartConfig):
 
 
 class ParallelCoordsConfig(BaseChartConfig):
-    """Config for parallel coordinates plots."""
+    """Config for parallel coordinates plots.
+
+    Dimensions can be numeric or categorical. Categorical values are
+    sorted alphabetically and mapped to evenly spaced positions.
+    """
 
     dimensions: list[str] = Field(
-        ..., description="Column name(s) for numeric dimensions"
+        ..., description="Column name(s) for dimensions (numeric or categorical)"
     )
     color_by: Optional[str] = None
 

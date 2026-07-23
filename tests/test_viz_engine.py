@@ -306,6 +306,26 @@ class TestParallelCoordsRenderer:
         _assert_valid_png(path)
         _assert_meta_exists(isolated_charts_dir, path)
 
+    def test_with_categorical_dimension(self, isolated_charts_dir: Path) -> None:
+        """Parallel coords handles categorical dimensions (sorted alphabetically)."""
+        data = [
+            {"price": 10000, "type": "SUV", "hp": 200, "fuel": "Petrol"},
+            {"price": 20000, "type": "Sedan", "hp": 150, "fuel": "Diesel"},
+            {"price": 30000, "type": "Sports", "hp": 350, "fuel": "Petrol"},
+            {"price": 15000, "type": "Van", "hp": 180, "fuel": "Electric"},
+            {"price": 25000, "type": "Truck", "hp": 300, "fuel": "Diesel"},
+        ]
+        path = render_chart(
+            "parallel_coords",
+            data,
+            {
+                "dimensions": ["price", "type", "hp", "fuel"],
+            },
+            table="cars",
+        )
+        _assert_valid_png(path)
+        _assert_meta_exists(isolated_charts_dir, path)
+
 
 class TestSankeyRenderer:
     """Test Sankey diagram rendering."""
