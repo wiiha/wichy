@@ -23,9 +23,11 @@ def get_charts_dir() -> Path:
     """Return the charts directory path, creating it if it does not exist.
 
     Returns:
-        Path to ``.wichy/charts/`` (INV-006).
+        Path to ``.wichy/charts/`` as an **absolute** path (INV-006).
+        Absolute is required for ``send_from_directory`` to work correctly
+        regardless of the Flask app's working directory.
     """
-    charts_dir = settings.charts_dir
+    charts_dir = settings.charts_dir.resolve()
     charts_dir.mkdir(parents=True, exist_ok=True)
     return charts_dir
 

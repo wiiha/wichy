@@ -727,9 +727,8 @@
                 grid-template-columns: repeat(2, 1fr);
             }
         }
-        #recipes-btn {
+        #recipes-btn, #gallery-btn {
           width: 100%;
-          margin-top: var(--space-md);
           padding: var(--space-md) var(--space-lg);
           background: var(--surface);
           color: var(--text);
@@ -738,7 +737,13 @@
           font-size: var(--font-size-base);
           cursor: pointer;
         }
-        #recipes-btn:hover {
+        #recipes-btn {
+          margin-top: var(--space-md);
+        }
+        #gallery-btn {
+          margin-top: var(--space-xs);
+        }
+        #recipes-btn:hover, #gallery-btn:hover {
           background: var(--primary-light);
         }
         .recipe-card {
