@@ -645,3 +645,250 @@ def register_recipe_routes(bp):
             return jsonify({"status": "ok", "slug": slug})
         except Exception as e:
             return jsonify({"error": str(e)}), 500
+
+
+# ---------------------------------------------------------------------------
+# Chart API Routes
+# ---------------------------------------------------------------------------
+
+
+def register_chart_routes(bp: Blueprint) -> None:
+    """Attach chart-related API routes to the data blueprint.
+
+    Endpoints:
+        GET  /api/chart-types          — list all registered chart types
+        POST /api/chart/render         — render chart from a table
+        POST /api/chart/recipe         — render chart from a recipe
+        GET  /api/charts               — list all charts in gallery
+        GET  /api/charts/favorites     — list only favorited charts
+        GET  /api/chart/<chart_id>     — serve chart PNG
+        GET  /api/chart/<chart_id>/download — download chart PNG
+        GET  /api/chart/<chart_id>/info — get chart metadata
+        PATCH /api/chart/<chart_id>/favorite — toggle favorite
+        DELETE /api/chart/<chart_id>   — delete chart
+    """
+    import re
+    import uuid
+
+    from flask import send_from_directory
+
+    from wichy.tools.viz.engine import (
+        ChartConfigError,
+        ChartNotFoundError,
+        render_chart,
+    )
+    from wichy.tools.viz.metadata import (
+        delete_chart,
+        get_chart_info,
+        get_charts_dir,
+        get_png_path,
+        list_charts,
+        set_favorite,
+    )
+    from wichy.tools.viz.registry import get_chart_types
+
+    # UUID pattern for chart ID validation (prevents path traversal, INV-007)
+    _uuid_re = re.compile(r"^[0-9a-f]{32}$")
+
+    @bp.route("/api/chart-types")
+    def chart_types():
+        try:
+            return jsonify({"chart_types": get_chart_types()})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @bp.route("/api/chart/render", methods=["POST"])
+    def render_chart_from_table():
+        try:
+            data = request.get_json()
+            if not data or "table" not in data or "chart_type" not in data:
+                return jsonify({"error": "Missing 'table' or 'chart_type'"}), 400
+
+            table = data["table"]
+            chart_type = data["chart_type"]
+            config = data.get("config", {})
+
+            # Validate table name (alphanumeric + underscores only)
+            if not all(c.isalnum() or c == "_" for c in table):
+                return jsonify({"error": "Invalid table name"}), 400
+
+            # Query the table (limit to 50,000 rows, INV-013)
+            manager = DuckDBManager.get_instance()
+            with manager.get_connection() as conn:
+                result = conn.execute(f'SELECT * FROM "{table}" LIMIT 50000')
+                if result.description is None:
+                    return jsonify({"error": "Table has no data"}), 400
+                columns = [desc[0] for desc in result.description]
+                rows = result.fetchall()
+
+            data_rows = [dict(zip(columns, row)) for row in rows]
+            if not data_rows:
+                return jsonify({"error": "Table has 0 rows"}), 400
+
+            png_path = render_chart(
+                chart_type=chart_type,
+                data_rows=data_rows,
+                config_dict=config,
+                table=table,
+            )
+
+            chart_id = png_path.stem
+            return jsonify(
+                {
+                    "chart_id": chart_id,
+                    "url": f"/tools/data/api/chart/{chart_id}",
+                    "width": config.get("width", 1200),
+                    "height": config.get("height", 800),
+                }
+            )
+        except ChartNotFoundError as e:
+            return jsonify({"error": str(e)}), 400
+        except ChartConfigError as e:
+            return jsonify({"error": str(e)}), 400
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @bp.route("/api/chart/recipe", methods=["POST"])
+    def render_chart_from_recipe():
+        try:
+            data = request.get_json()
+            if not data or "steps" not in data or "chart_type" not in data:
+                return jsonify({"error": "Missing 'steps' or 'chart_type'"}), 400
+
+            steps = data["steps"]
+            chart_type = data["chart_type"]
+            config = data.get("config", {})
+
+            # Check if the last step is a visualize step
+            if steps and steps[-1].get("type") == "visualize":
+                # Compile steps[0:-1], execute, then render chart
+                compile_steps = steps[:-1]
+                # Use the chart_type and config from the visualize step
+                viz_step = steps[-1]
+                chart_type = viz_step.get("chart_type", chart_type)
+                config = viz_step.get("config", config)
+            else:
+                compile_steps = steps
+
+            if not compile_steps:
+                return jsonify({"error": "No data steps to compile"}), 400
+
+            # Validate and compile
+            validate_recipe(compile_steps, _get_columns_for_table)
+            sql, params = compile_recipe(compile_steps)
+
+            # Execute and get rows
+            manager = DuckDBManager.get_instance()
+            with manager.get_connection() as conn:
+                result = conn.execute(f"{sql} LIMIT 50000", params)
+                if result.description is None:
+                    return jsonify({"error": "Query returned no data"}), 400
+                columns = [desc[0] for desc in result.description]
+                rows = result.fetchall()
+
+            data_rows = [dict(zip(columns, row)) for row in rows]
+            if not data_rows:
+                return jsonify({"error": "Query returned 0 rows"}), 400
+
+            # Determine source table for metadata
+            source_table = steps[0].get("table", "recipe") if steps else "recipe"
+
+            png_path = render_chart(
+                chart_type=chart_type,
+                data_rows=data_rows,
+                config_dict=config,
+                table=source_table,
+            )
+
+            chart_id = png_path.stem
+            return jsonify(
+                {
+                    "chart_id": chart_id,
+                    "url": f"/tools/data/api/chart/{chart_id}",
+                    "width": config.get("width", 1200),
+                    "height": config.get("height", 800),
+                }
+            )
+        except (ValidationError, CompileError) as e:
+            return jsonify({"error": str(e)}), 400
+        except ChartNotFoundError as e:
+            return jsonify({"error": str(e)}), 400
+        except ChartConfigError as e:
+            return jsonify({"error": str(e)}), 400
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @bp.route("/api/charts")
+    def list_all_charts():
+        try:
+            charts = list_charts(favorites_only=False)
+            return jsonify({"charts": charts})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @bp.route("/api/charts/favorites")
+    def list_favorite_charts():
+        try:
+            charts = list_charts(favorites_only=True)
+            return jsonify({"charts": charts})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @bp.route("/api/chart/<chart_id>")
+    def serve_chart(chart_id: str):
+        if not _uuid_re.match(chart_id):
+            return jsonify({"error": "Invalid chart ID"}), 404
+        png_path = get_png_path(chart_id)
+        if png_path is None:
+            return jsonify({"error": "Chart not found"}), 404
+        return send_from_directory(
+            str(get_charts_dir()), png_path.name, mimetype="image/png"
+        )
+
+    @bp.route("/api/chart/<chart_id>/download")
+    def download_chart(chart_id: str):
+        if not _uuid_re.match(chart_id):
+            return jsonify({"error": "Invalid chart ID"}), 404
+        png_path = get_png_path(chart_id)
+        if png_path is None:
+            return jsonify({"error": "Chart not found"}), 404
+        return send_from_directory(
+            str(get_charts_dir()),
+            png_path.name,
+            as_attachment=True,
+            download_name=f"chart_{chart_id}.png",
+        )
+
+    @bp.route("/api/chart/<chart_id>/info")
+    def chart_info(chart_id: str):
+        if not _uuid_re.match(chart_id):
+            return jsonify({"error": "Invalid chart ID"}), 404
+        info = get_chart_info(chart_id)
+        if info is None:
+            return jsonify({"error": "Chart not found"}), 404
+        return jsonify(info)
+
+    @bp.route("/api/chart/<chart_id>/favorite", methods=["PATCH"])
+    def toggle_favorite(chart_id: str):
+        if not _uuid_re.match(chart_id):
+            return jsonify({"error": "Invalid chart ID"}), 404
+        data = request.get_json()
+        if not data or "favorite" not in data:
+            return jsonify({"error": "Missing 'favorite'"}), 400
+        favorite = bool(data["favorite"])
+        success = set_favorite(chart_id, favorite)
+        if not success:
+            return jsonify({"error": "Chart not found"}), 404
+        return jsonify({"status": "ok", "favorite": favorite})
+
+    @bp.route("/api/chart/<chart_id>", methods=["DELETE"])
+    def delete_chart_route(chart_id: str):
+        if not _uuid_re.match(chart_id):
+            return jsonify({"error": "Invalid chart ID"}), 404
+        success = delete_chart(chart_id)
+        if not success:
+            return jsonify({"error": "Chart not found"}), 404
+        return jsonify({"status": "ok"})
+
+    # Suppress unused import warnings
+    _ = (uuid,)
