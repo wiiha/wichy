@@ -290,7 +290,32 @@
             display: flex;
             gap: var(--space-md);
         }
+        .overview-actions {
+            padding: var(--space-lg) var(--space-xl);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            gap: var(--space-md);
+        }
 
+        /* Visualize view styles */
+        .viz-field-row {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            margin-bottom: 8px;
+        }
+        .viz-field-row label {
+            font-size: 12px;
+            color: var(--text);
+        }
+
+        /* Chart Gallery styles */
+        .chart-card {
+            transition: box-shadow 0.2s;
+        }
+        .chart-card:hover {
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
         .overview-columns {
             padding: var(--space-lg) var(--space-xl);
         }
@@ -836,6 +861,7 @@
                         <input type="text" id="table-search" placeholder="Search tables...">
                     </div>
                     <button id="recipes-btn" onclick="showRecipesView()">📝 Recipes</button>
+                    <button id="gallery-btn" onclick="showChartGallery()">🖼️ Chart Gallery</button>
                     <div id="tables-list" class="tables-list">
                         <!-- Tables rendered here -->
                     </div>
@@ -1019,6 +1045,9 @@
                             </button>
                             <button class="btn btn-secondary" onclick="showCorrelations('${escapeJs(currentTable)}')">
                                 View Correlations
+                            </button>
+                            <button class="btn btn-secondary" onclick="showVisualization('${escapeJs(currentTable)}')">
+                                📊 Visualize
                             </button>
                         </div>
                         <div class="overview-columns">
@@ -1678,6 +1707,37 @@ function renderStepForm(step, idx) {
               })()}
             </div>
           </div>`;
+    } else if (stype === 'visualize') {
+      const vizChartType = step.chart_type || 'bar';
+      const vizConfig = step.config || {};
+      const vizConfigStr = JSON.stringify(vizConfig, null, 2);
+      fields = `
+        <div style="display:flex; flex-direction:column; gap:4px; min-width:300px;">
+          <div style="display:flex; gap:4px; align-items:center;">
+            <label style="font-size:11px; color:var(--text-muted); white-space:nowrap;">Chart type:</label>
+            <select onchange="updateStepField(${idx}, 'chart_type', this.value)" style="width:160px;">
+              <option value="bar" ${vizChartType==='bar'?'selected':''}>📊 Bar Chart</option>
+              <option value="distribution" ${vizChartType==='distribution'?'selected':''}>📈 Distribution</option>
+              <option value="line" ${vizChartType==='line'?'selected':''}>📉 Line Graph</option>
+              <option value="scatter" ${vizChartType==='scatter'?'selected':''}>🔵 Scatter Plot</option>
+              <option value="chord" ${vizChartType==='chord'?'selected':''}>🔄 Chord Diagram</option>
+              <option value="parallel_coords" ${vizChartType==='parallel_coords'?'selected':''}>🔀 Parallel Coordinates</option>
+              <option value="time_compass" ${vizChartType==='time_compass'?'selected':''}>🧭 Time Compass</option>
+              <option value="sankey" ${vizChartType==='sankey'?'selected':''}>🌊 Sankey</option>
+              <option value="treemap" ${vizChartType==='treemap'?'selected':''}>🌳 Treemap</option>
+              <option value="sunburst" ${vizChartType==='sunburst'?'selected':''}>☀️ Sunburst</option>
+              <option value="radar" ${vizChartType==='radar'?'selected':''}>🕸️ Radar</option>
+              <option value="violin" ${vizChartType==='violin'?'selected':''}>🎻 Violin Plot</option>
+              <option value="heatmap" ${vizChartType==='heatmap'?'selected':''}>🔥 Heatmap</option>
+              <option value="correlogram" ${vizChartType==='correlogram'?'selected':''}>🔗 Correlogram</option>
+            </select>
+          </div>
+          <label style="font-size:11px; color:var(--text-muted);">Chart config (JSON):</label>
+          <textarea rows="4" style="width:280px; font-family:var(--font-mono); font-size:11px;"
+            onchange="try { updateStepField(${idx}, 'config', JSON.parse(this.value)) } catch(e) { alert('Invalid JSON: ' + e.message) }"
+            placeholder='{"x": "col1", "y": "col2", "title": "My Chart"}'>${escapeHtml(vizConfigStr)}</textarea>
+          <span style="font-size:10px; color:var(--text-muted);">Must be the last step. Config is chart-specific (x, y, title, etc.)</span>
+        </div>`;
     }
     const canMoveUp = idx > 0;
     const canMoveDown = idx < currentRecipeSteps.length - 1;
@@ -1698,6 +1758,7 @@ function renderStepForm(step, idx) {
           <option value="limit" ${stype==='limit'?'selected':''}>limit</option>
           <option value="custom_sql" ${stype==='custom_sql'?'selected':''}>custom_sql</option>
           <option value="join" ${stype==='join'?'selected':''}>join</option>
+          <option value="visualize" ${stype==='visualize'?'selected':''}>visualize</option>
         </select>
         <div class="step-fields">${fields}</div>
       </div>
@@ -1782,6 +1843,42 @@ async function previewRecipe() {
   if (errEl) errEl.style.display = 'none';
   if (sqlEl) sqlEl.textContent = 'Loading...';
   if (gridEl) gridEl.innerHTML = 'Loading...';
+
+  // Check if the last step is a visualize step
+  const lastStep = currentRecipeSteps[currentRecipeSteps.length - 1];
+  if (lastStep && lastStep.type === 'visualize') {
+    try {
+      const chartType = lastStep.chart_type || 'bar';
+      const config = lastStep.config || {};
+      const resp = await fetch(`${API_BASE}/chart/recipe`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ steps: currentRecipeSteps, chart_type: chartType, config: config })
+      });
+      const data = await resp.json();
+      if (data.error) {
+        if (errEl) { errEl.textContent = data.error; errEl.style.display = 'block'; }
+        if (gridEl) gridEl.innerHTML = '';
+        if (sqlEl) sqlEl.textContent = '';
+        return;
+      }
+      if (sqlEl) sqlEl.textContent = 'Chart rendered (visualize step)';
+      if (gridEl) gridEl.innerHTML = `
+        <div style="text-align:center; padding:var(--space-lg);">
+          <img src="${data.url}" alt="Chart" style="max-width:100%; border:1px solid var(--border); border-radius:8px;"/>
+          <div style="margin-top:var(--space-md);">
+            <a href="/tools/data/api/chart/${data.chart_id}/download" class="btn btn-primary" download>⬇ Download PNG</a>
+          </div>
+        </div>`;
+      lastPreviewedSteps = JSON.stringify(currentRecipeSteps);
+      const staleEl = document.getElementById('recipe-stale-banner');
+      if (staleEl) staleEl.style.display = 'none';
+    } catch (e) {
+      if (errEl) { errEl.textContent = 'Chart preview failed: ' + e; errEl.style.display = 'block'; }
+    }
+    return;
+  }
+
   try {
     const resp = await fetch(`${API_BASE}/recipe/preview`, {
       method: 'POST',
@@ -1933,7 +2030,312 @@ async function loadRecipe(slug) {
     alert('Load failed: ' + e);
   }
 }
+  // ─── Visualize View ───
 
+  let vizChartTypes = [];
+  let vizCurrentChartId = null;
+
+  function showVisualization(tableName) {
+    currentTable = tableName;
+    currentView = 'visualize';
+    showLoading(mainContent);
+    loadVisualization(tableName);
+  }
+
+  async function loadVisualization(tableName) {
+    try {
+      // Fetch chart types
+      const resp = await fetch(`${API_BASE}/chart-types`);
+      const data = await resp.json();
+      vizChartTypes = data.chart_types || [];
+      // Fetch table schema for column dropdowns
+      const schemaResp = await fetch(`${API_BASE}/table/${encodeURIComponent(tableName)}`);
+      const schemaData = await schemaResp.json();
+      renderVisualization(vizChartTypes, schemaData, tableName);
+    } catch (e) {
+      mainContent.innerHTML = `<div class="error">Failed to load visualization: ${e}</div>`;
+    }
+  }
+
+  function renderVisualization(chartTypes, schemaData, tableName) {
+    const columns = (schemaData.columns || []).map(c => c.name);
+    const chartTypeOptions = chartTypes.map(ct =>
+      `<option value="${ct.id}">${ct.icon} ${ct.label}</option>`
+    ).join('');
+
+    // Build field mapping inputs for the first chart type
+    const firstType = chartTypes[0] || { field_roles: [] };
+    const fieldRolesHtml = firstType.field_roles.map(role => {
+      const colOpts = columns.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+      if (role.multiple) {
+        return `<div class="viz-field-row">
+          <label>${role.name} ${role.required ? '*' : ''} <span style="font-size:10px;color:var(--text-muted);">(${role.type}, multiple)</span></label>
+          <input type="text" id="viz-field-${role.name}" placeholder="comma-separated columns" style="width:200px;"/>
+        </div>`;
+      } else {
+        return `<div class="viz-field-row">
+          <label>${role.name} ${role.required ? '*' : ''} <span style="font-size:10px;color:var(--text-muted);">(${role.type})</span></label>
+          <select id="viz-field-${role.name}" style="width:200px;">
+            <option value="">-- select --</option>
+            ${colOpts}
+          </select>
+        </div>`;
+      }
+    }).join('');
+
+    mainContent.innerHTML = `
+      <div class="viz-container" style="padding:var(--space-xl);">
+        <div style="display:flex; align-items:center; gap:var(--space-md); margin-bottom:var(--space-lg);">
+          <h2 style="margin:0;">📊 Visualize: ${escapeHtml(tableName)}</h2>
+          <button class="btn btn-secondary" onclick="loadTableOverview('${escapeJs(tableName)}')">← Back to Overview</button>
+        </div>
+
+        <div style="display:grid; grid-template-columns:350px 1fr; gap:var(--space-lg);">
+          <!-- Left: Config Panel -->
+          <div style="background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:var(--space-lg);">
+            <h3 style="margin-top:0;">Chart Configuration</h3>
+
+            <label style="font-size:12px; color:var(--text-muted); display:block; margin-bottom:4px;">Chart Type</label>
+            <select id="viz-chart-type" onchange="updateVizFields()" style="width:100%; margin-bottom:var(--space-md);">
+              ${chartTypeOptions}
+            </select>
+
+            <div id="viz-field-roles">${fieldRolesHtml}</div>
+
+            <h4 style="margin-top:var(--space-md);">Styling</h4>
+            <div style="display:flex; flex-direction:column; gap:6px;">
+              <div><label style="font-size:12px;">Title</label><input type="text" id="viz-title" placeholder="Chart title" style="width:100%;"/></div>
+              <div><label style="font-size:12px;">Subtitle</label><input type="text" id="viz-subtitle" placeholder="Subtitle" style="width:100%;"/></div>
+              <div><label style="font-size:12px;">X Axis Label</label><input type="text" id="viz-xlabel" placeholder="X axis" style="width:100%;"/></div>
+              <div><label style="font-size:12px;">Y Axis Label</label><input type="text" id="viz-ylabel" placeholder="Y axis" style="width:100%;"/></div>
+              <div style="display:flex; gap:8px;">
+                <div style="flex:1;"><label style="font-size:12px;">Width</label><input type="number" id="viz-width" value="1200" style="width:100%;"/></div>
+                <div style="flex:1;"><label style="font-size:12px;">Height</label><input type="number" id="viz-height" value="800" style="width:100%;"/></div>
+              </div>
+              <div style="display:flex; gap:8px;">
+                <div style="flex:1;"><label style="font-size:12px;">DPI</label><input type="number" id="viz-dpi" value="150" style="width:100%;"/></div>
+                <div style="flex:1;"><label style="font-size:12px;">Theme</label><select id="viz-theme" style="width:100%;"><option value="light">light</option><option value="dark">dark</option></select></div>
+              </div>
+            </div>
+
+            <button class="btn btn-primary" onclick="renderChartFromViz('${escapeJs(tableName)}')" style="width:100%; margin-top:var(--space-md);">🎨 Render Chart</button>
+          </div>
+
+          <!-- Right: Chart Display -->
+          <div id="viz-chart-display" style="background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:var(--space-lg); min-height:400px; display:flex; align-items:center; justify-content:center;">
+            <div style="color:var(--text-muted);">Configure and click "Render Chart" to generate a visualization.</div>
+          </div>
+        </div>
+      </div>
+    `;
+    updateActiveTable();
+  }
+
+  function updateVizFields() {
+    const chartTypeId = document.getElementById('viz-chart-type').value;
+    const ct = vizChartTypes.find(c => c.id === chartTypeId);
+    if (!ct) return;
+    const tableName = currentTable;
+    // Get columns from the current schema
+    const columns = (tableColumns[tableName] || []);
+    const fieldRolesHtml = ct.field_roles.map(role => {
+      const colOpts = columns.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+      if (role.multiple) {
+        return `<div class="viz-field-row">
+          <label>${role.name} ${role.required ? '*' : ''} <span style="font-size:10px;color:var(--text-muted);">(${role.type}, multiple)</span></label>
+          <input type="text" id="viz-field-${role.name}" placeholder="comma-separated columns" style="width:200px;"/>
+        </div>`;
+      } else {
+        return `<div class="viz-field-row">
+          <label>${role.name} ${role.required ? '*' : ''} <span style="font-size:10px;color:var(--text-muted);">(${role.type})</span></label>
+          <select id="viz-field-${role.name}" style="width:200px;">
+            <option value="">-- select --</option>
+            ${colOpts}
+          </select>
+        </div>`;
+      }
+    }).join('');
+    document.getElementById('viz-field-roles').innerHTML = fieldRolesHtml;
+  }
+
+  async function renderChartFromViz(tableName) {
+    const chartType = document.getElementById('viz-chart-type').value;
+    const ct = vizChartTypes.find(c => c.id === chartType);
+    if (!ct) return;
+
+    // Build config from field roles + styling
+    const config = {};
+    ct.field_roles.forEach(role => {
+      const el = document.getElementById(`viz-field-${role.name}`);
+      if (!el) return;
+      if (role.multiple) {
+        const val = el.value.trim();
+        if (val) {
+          config[role.name] = val.split(',').map(s => s.trim());
+        }
+      } else {
+        if (el.value) config[role.name] = el.value;
+      }
+    });
+
+    // Styling
+    const title = document.getElementById('viz-title')?.value;
+    const subtitle = document.getElementById('viz-subtitle')?.value;
+    const xlabel = document.getElementById('viz-xlabel')?.value;
+    const ylabel = document.getElementById('viz-ylabel')?.value;
+    const width = parseInt(document.getElementById('viz-width')?.value || '1200');
+    const height = parseInt(document.getElementById('viz-height')?.value || '800');
+    const dpi = parseInt(document.getElementById('viz-dpi')?.value || '150');
+    const theme = document.getElementById('viz-theme')?.value || 'light';
+
+    if (title) config.title = title;
+    if (subtitle) config.subtitle = subtitle;
+    if (xlabel) config.x_axis_label = xlabel;
+    if (ylabel) config.y_axis_label = ylabel;
+    config.width = width;
+    config.height = height;
+    config.dpi = dpi;
+    config.theme = theme;
+
+    const display = document.getElementById('viz-chart-display');
+    display.innerHTML = '<div style="color:var(--text-muted);">Rendering chart...</div>';
+
+    try {
+      const resp = await fetch(`${API_BASE}/chart/render`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ table: tableName, chart_type: chartType, config: config })
+      });
+      const data = await resp.json();
+      if (data.error) {
+        display.innerHTML = `<div class="error" style="color:red; padding:var(--space-md);">${data.error}</div>`;
+        return;
+      }
+      vizCurrentChartId = data.chart_id;
+      display.innerHTML = `
+        <div style="text-align:center; width:100%;">
+          <img src="${data.url}" alt="Chart" style="max-width:100%; border:1px solid var(--border); border-radius:8px;"/>
+          <div style="margin-top:var(--space-md);">
+            <a href="/tools/data/api/chart/${data.chart_id}/download" class="btn btn-primary" download>⬇ Download PNG</a>
+            <button class="btn btn-secondary" onclick="toggleVizFavorite('${data.chart_id}')">⭐ Favorite</button>
+          </div>
+        </div>`;
+    } catch (e) {
+      display.innerHTML = `<div class="error" style="color:red;">Render failed: ${e}</div>`;
+    }
+  }
+
+  async function toggleVizFavorite(chartId) {
+    try {
+      const infoResp = await fetch(`${API_BASE}/chart/${chartId}/info`);
+      const info = await infoResp.json();
+      const newFav = !info.favorite;
+      await fetch(`${API_BASE}/chart/${chartId}/favorite`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ favorite: newFav })
+      });
+      alert(newFav ? 'Added to favorites' : 'Removed from favorites');
+    } catch (e) {
+      alert('Failed to toggle favorite: ' + e);
+    }
+  }
+
+  // ─── Chart Gallery ───
+
+  function showChartGallery() {
+    currentTable = null;
+    currentView = 'gallery';
+    updateActiveTable(null);
+    showLoading(mainContent);
+    loadChartGallery(false);
+  }
+
+  async function loadChartGallery(favoritesOnly) {
+    try {
+      const url = favoritesOnly ? `${API_BASE}/charts/favorites` : `${API_BASE}/charts`;
+      const resp = await fetch(url);
+      const data = await resp.json();
+      renderChartGallery(data.charts || [], favoritesOnly);
+    } catch (e) {
+      mainContent.innerHTML = `<div class="error">Failed to load chart gallery: ${e}</div>`;
+    }
+  }
+
+  function renderChartGallery(charts, favoritesOnly) {
+    const galleryHtml = charts.map(c => `
+      <div class="chart-card" style="background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:var(--space-md); display:flex; flex-direction:column; gap:8px;">
+        <img src="/tools/data/api/chart/${c.chart_id}" alt="${escapeHtml(c.title)}" style="width:100%; height:200px; object-fit:contain; border-radius:4px; cursor:pointer;" onclick="viewChartDetail('${c.chart_id}')"/>
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <strong>${escapeHtml(c.title)}</strong>
+            <div style="font-size:11px; color:var(--text-muted);">${escapeHtml(c.chart_type)} • ${escapeHtml(c.table)}</div>
+            <div style="font-size:10px; color:var(--text-muted);">${escapeHtml(c.created_at || '')}</div>
+          </div>
+          <div style="display:flex; gap:4px;">
+            <button onclick="toggleGalleryFavorite('${c.chart_id}', ${!c.favorite})" title="Favorite" style="font-size:16px; background:none; border:none; cursor:pointer;">${c.favorite ? '⭐' : '☆'}</button>
+            <a href="/tools/data/api/chart/${c.chart_id}/download" download style="text-decoration:none;">⬇</a>
+            <button onclick="deleteGalleryChart('${c.chart_id}')" title="Delete" style="font-size:14px; background:none; border:none; cursor:pointer; color:red;">✕</button>
+          </div>
+        </div>
+      </div>
+    `).join('');
+
+    mainContent.innerHTML = `
+      <div style="padding:var(--space-xl);">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:var(--space-lg);">
+          <h2 style="margin:0;">🖼️ Chart Gallery</h2>
+          <div style="display:flex; gap:8px;">
+            <button class="btn ${!favoritesOnly ? 'btn-primary' : 'btn-secondary'}" onclick="loadChartGallery(false)">All Charts</button>
+            <button class="btn ${favoritesOnly ? 'btn-primary' : 'btn-secondary'}" onclick="loadChartGallery(true)">⭐ Favorites</button>
+          </div>
+        </div>
+        ${charts.length === 0 ? '<div style="text-align:center; padding:var(--space-2xl); color:var(--text-muted);">No charts yet. Generate charts from the Visualize tab or recipe visualize step.</div>' : ''}
+        <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:var(--space-md);">
+          ${galleryHtml}
+        </div>
+      </div>
+    `;
+  }
+
+  async function toggleGalleryFavorite(chartId, favorite) {
+    try {
+      await fetch(`${API_BASE}/chart/${chartId}/favorite`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ favorite: favorite })
+      });
+      // Reload gallery
+      const isFavView = currentView === 'gallery';
+      loadChartGallery(isFavView);
+    } catch (e) {
+      alert('Failed to toggle favorite: ' + e);
+    }
+  }
+
+  async function deleteGalleryChart(chartId) {
+    if (!confirm('Delete this chart?')) return;
+    try {
+      await fetch(`${API_BASE}/chart/${chartId}`, { method: 'DELETE' });
+      loadChartGallery(currentView === 'gallery');
+    } catch (e) {
+      alert('Failed to delete: ' + e);
+    }
+  }
+
+  function viewChartDetail(chartId) {
+    // Open chart in a new view
+    mainContent.innerHTML = `
+      <div style="padding:var(--space-xl); text-align:center;">
+        <div style="margin-bottom:var(--space-md);">
+          <button class="btn btn-secondary" onclick="loadChartGallery(false)">← Back to Gallery</button>
+        </div>
+        <img src="/tools/data/api/chart/${chartId}" alt="Chart" style="max-width:100%; border:1px solid var(--border); border-radius:8px;"/>
+        <div style="margin-top:var(--space-md); display:flex; gap:8px; justify-content:center;">
+          <a href="/tools/data/api/chart/${chartId}/download" class="btn btn-primary" download>⬇ Download PNG</a>
+        </div>
+      </div>`;
+  }
 
     </script>
 {% endblock body %}
