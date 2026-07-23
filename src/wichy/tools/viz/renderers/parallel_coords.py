@@ -155,7 +155,11 @@ def render_parallel_coords(
                 )
             for cat in unique_cats:
                 ax.plot([], [], color=cat_colors[cat], label=cat)
-            ax.legend(fontsize=config.font_size - 2)
+            ax.legend(
+                fontsize=config.font_size - 2,
+                loc="center left",
+                bbox_to_anchor=(1.01, 0.5),
+            )
     else:
         for i in range(len(data_rows)):
             y_vals = [normalized[col][i] for col in config.dimensions]
@@ -235,7 +239,7 @@ register_chart_type(
     category="multivariate",
     icon="🔀",
     field_roles=[
-        FieldRole(name="dimensions", type="numeric", required=True, multiple=True),
+        FieldRole(name="dimensions", type="any", required=True, multiple=True),
         FieldRole(name="color_by", type="category", required=False),
     ],
     config_model=ParallelCoordsConfig,

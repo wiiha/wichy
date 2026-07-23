@@ -59,7 +59,11 @@ def render_scatter(
             # Add legend
             for cat in unique_cats:
                 ax.scatter([], [], c=cat_colors[cat], label=cat)
-            ax.legend(fontsize=config.font_size - 2)
+            ax.legend(
+                fontsize=config.font_size - 2,
+                loc="center left",
+                bbox_to_anchor=(1.01, 0.5),
+            )
 
     if config.size_by:
         size_vals = extract_column(data_rows, config.size_by)
@@ -86,7 +90,7 @@ register_chart_type(
     category="basic",
     icon="🔵",
     field_roles=[
-        FieldRole(name="x", type="numeric", required=True),
+        FieldRole(name="x", type="any", required=True),
         FieldRole(name="y", type="numeric", required=True),
         FieldRole(name="color_by", type="category", required=False),
         FieldRole(name="size_by", type="numeric", required=False),

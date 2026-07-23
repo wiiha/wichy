@@ -87,7 +87,9 @@ def render_line(
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
         fig.autofmt_xdate(rotation=45)
 
-    ax.legend(fontsize=config.font_size - 2)
+    ax.legend(
+        fontsize=config.font_size - 2, loc="center left", bbox_to_anchor=(1.01, 0.5)
+    )
     apply_theme(fig, ax, config)
     mpl_to_png(fig, config, output_path)
 
@@ -98,7 +100,7 @@ register_chart_type(
     category="basic",
     icon="📉",
     field_roles=[
-        FieldRole(name="x", type="date", required=True),
+        FieldRole(name="x", type="any", required=True),
         FieldRole(name="y", type="numeric", required=True, multiple=True),
         FieldRole(name="color_by", type="category", required=False),
     ],

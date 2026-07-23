@@ -189,7 +189,7 @@ def render_time_compass(
 
     if config.group_by:
         ax.legend(
-            fontsize=config.font_size - 2, loc="upper right", bbox_to_anchor=(1.3, 1.1)
+            fontsize=config.font_size - 2, loc="center left", bbox_to_anchor=(1.01, 0.5)
         )
 
     apply_theme(fig, ax, config)

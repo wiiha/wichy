@@ -91,7 +91,7 @@ def render_radar(
             ax.fill(angles, val_vals, alpha=0.25, color=color)
 
     ax.legend(
-        fontsize=config.font_size - 2, loc="upper right", bbox_to_anchor=(1.3, 1.1)
+        fontsize=config.font_size - 2, loc="center left", bbox_to_anchor=(1.01, 0.5)
     )
     apply_theme(fig, ax, config)
     mpl_to_png(fig, config, output_path)

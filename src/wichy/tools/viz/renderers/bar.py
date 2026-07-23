@@ -112,7 +112,9 @@ def render_bar(
 
         ax.set_xticks(range(len(x_cats)))
         ax.set_xticklabels(x_cats, rotation=45, ha="right")
-        ax.legend(fontsize=config.font_size - 2)
+        ax.legend(
+            fontsize=config.font_size - 2, loc="center left", bbox_to_anchor=(1.01, 0.5)
+        )
     else:
         x_cats = [str(x) if x is not None else "None" for x in x_vals]
         if config.orientation == "h":

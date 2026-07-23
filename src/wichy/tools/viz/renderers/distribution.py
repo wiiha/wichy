@@ -54,7 +54,11 @@ def render_distribution(
                     label=gname,
                     color=colors[i % len(colors)],
                 )
-            ax.legend(fontsize=config.font_size - 2)
+            ax.legend(
+                fontsize=config.font_size - 2,
+                loc="center left",
+                bbox_to_anchor=(1.01, 0.5),
+            )
         else:
             ax.hist(clean_vals, bins=config.bins or 30, color=colors[0])
 
@@ -81,7 +85,11 @@ def render_distribution(
                     linewidth=2,
                     label="KDE",
                 )
-                ax.legend(fontsize=config.font_size - 2)
+                ax.legend(
+                    fontsize=config.font_size - 2,
+                    loc="center left",
+                    bbox_to_anchor=(1.01, 0.5),
+                )
             except ImportError:
                 pass  # Fallback to just histogram
         else:
