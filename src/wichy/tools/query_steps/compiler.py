@@ -69,6 +69,9 @@ def compile_recipe(steps: list[dict]) -> tuple[str, list[Any]]:
             sql, p = _compile_custom_sql(step, prev)
         elif stype == "join":
             sql, p = _compile_join(step, prev)
+        elif stype == "visualize":
+            sql = _compile_visualize(step, prev)
+            p = []
         else:
             raise CompileError(f"Unknown step type: {stype}")
         ctes.append(f"step_{i} AS ({sql})")
@@ -185,3 +188,25 @@ def _compile_join(step: dict, prev: str) -> tuple[str, list]:
         f'SELECT * FROM {prev} {how} JOIN "{_escape_id(table)}" ON {prev}."{_escape_id(left_col)}" = "{_escape_id(table)}"."{_escape_id(right_col)}"',
         [],
     )
+
+
+def _compile_visualize(step: dict, prev: str) -> str:
+    """Compile a visualize step as a passthrough (SELECT * FROM prev).
+
+    The visualize step is terminal-only (INV-005). The API layer detects it,
+    compiles the preceding steps, executes the SQL, then renders a chart from
+    the result instead of returning rows. The compiler just passes the data
+    through unchanged.
+
+    Args:
+        step: Step dict (must have 'chart_type' and 'config').
+        prev: Previous CTE name.
+
+    Returns:
+        Passthrough SQL: ``SELECT * FROM {prev}``
+    """
+    if not step.get("chart_type"):
+        raise CompileError("Visualize step requires 'chart_type'")
+    if "config" not in step:
+        raise CompileError("Visualize step requires 'config'")
+    return f"SELECT * FROM {prev}"

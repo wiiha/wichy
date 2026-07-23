@@ -85,3 +85,115 @@ class TestCompiler:
                     {"type": "invalid_step"},
                 ]
             )
+
+    def test_visualize_as_terminal_step_compiles(self):
+        """Visualize step compiles as passthrough when it's the last step."""
+        sql, params = compile_recipe(
+            [
+                {"type": "source", "table": "test"},
+                {"type": "limit", "n": 10},
+                {
+                    "type": "visualize",
+                    "chart_type": "bar",
+                    "config": {"x": "col1", "y": "col2"},
+                },
+            ]
+        )
+        assert "WITH" in sql
+        assert "SELECT * FROM step_2" in sql
+        assert params == []
+
+    def test_visualize_missing_chart_type(self):
+        """Visualize step without chart_type raises CompileError."""
+        with pytest.raises(CompileError, match="chart_type"):
+            compile_recipe(
+                [
+                    {"type": "source", "table": "test"},
+                    {"type": "visualize", "config": {}},
+                ]
+            )
+
+    def test_visualize_missing_config(self):
+        """Visualize step without config raises CompileError."""
+        with pytest.raises(CompileError, match="config"):
+            compile_recipe(
+                [
+                    {"type": "source", "table": "test"},
+                    {"type": "visualize", "chart_type": "bar"},
+                ]
+            )
+
+
+class TestValidatorVisualize:
+    """Tests for the visualize step validation."""
+
+    def test_visualize_as_last_step_valid(self):
+        """Visualize as the last step passes validation."""
+        validate_recipe(
+            [
+                {"type": "source", "table": "test"},
+                {
+                    "type": "visualize",
+                    "chart_type": "bar",
+                    "config": {"x": "col1", "y": "col2"},
+                },
+            ],
+            _fake_get_columns,
+        )
+
+    def test_visualize_not_last_step_raises(self):
+        """Visualize not as the last step raises ValidationError (INV-005)."""
+        with pytest.raises(ValidationError, match="last step"):
+            validate_recipe(
+                [
+                    {"type": "source", "table": "test"},
+                    {
+                        "type": "visualize",
+                        "chart_type": "bar",
+                        "config": {},
+                    },
+                    {"type": "limit", "n": 10},
+                ],
+                _fake_get_columns,
+            )
+
+    def test_visualize_missing_chart_type_raises(self):
+        """Visualize without chart_type raises ValidationError."""
+        with pytest.raises(ValidationError, match="chart_type"):
+            validate_recipe(
+                [
+                    {"type": "source", "table": "test"},
+                    {"type": "visualize", "config": {}},
+                ],
+                _fake_get_columns,
+            )
+
+    def test_visualize_missing_config_raises(self):
+        """Visualize without config raises ValidationError."""
+        with pytest.raises(ValidationError, match="config"):
+            validate_recipe(
+                [
+                    {"type": "source", "table": "test"},
+                    {"type": "visualize", "chart_type": "bar"},
+                ],
+                _fake_get_columns,
+            )
+
+    def test_visualize_after_group_valid(self):
+        """Visualize after a group step is valid (common use case)."""
+        validate_recipe(
+            [
+                {"type": "source", "table": "test"},
+                {
+                    "type": "group",
+                    "dimensions": ["col1"],
+                    "aggregates": [{"function": "sum", "column": "amount"}],
+                },
+                {
+                    "type": "visualize",
+                    "chart_type": "bar",
+                    "config": {"x": "col1", "y": "amount_sum"},
+                },
+            ],
+            _fake_get_columns,
+        )

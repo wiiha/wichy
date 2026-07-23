@@ -44,6 +44,11 @@ def validate_recipe(steps: list[dict], get_columns: Callable[[str], set[str]]) -
     strict_validation = True
     for i, step in enumerate(steps):
         stype = step.get("type", "")
+        # Visualize must be the last step (INV-005)
+        if stype == "visualize" and i != len(steps) - 1:
+            raise ValidationError(
+                f"Step {i + 1} (visualize): visualize must be the last step"
+            )
         _validate_step(stype, step, available_cols, i, strict_validation)
         if stype == "custom_sql":
             strict_validation = False
@@ -138,5 +143,10 @@ def _validate_step(
             raise ValidationError(f"{prefix}Invalid join type '{how}'")
         if strict_validation and available_cols and left_col not in available_cols:
             raise ValidationError(f"{prefix}Unknown left column '{left_col}'")
+    elif stype == "visualize":
+        if not step.get("chart_type"):
+            raise ValidationError(f"{prefix}Missing 'chart_type'")
+        if "config" not in step:
+            raise ValidationError(f"{prefix}Missing 'config'")
     else:
         raise ValidationError(f"{prefix}Unknown step type '{stype}'")
