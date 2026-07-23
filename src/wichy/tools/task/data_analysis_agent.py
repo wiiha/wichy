@@ -18,6 +18,7 @@ data_analysis_agent = TaskAgentDefinitionBase(
         "query_result",
         "read_file",
         "ask_user_question",
+        "generate_chart",
     ],
     include_env_info=True,
     system_prompt="""You are a data analysis specialist using DuckDB SQL to explore and analyze structured data files.
