@@ -61,7 +61,10 @@ def render_line(
             gx = [x_plot[i] for i in indices]
             for y_col in config.y:
                 y_vals = extract_column(data_rows, y_col)
-                gy = [y_vals[i] for i in indices]
+                gy = [
+                    y_vals[i] if y_vals[i] is not None else float("nan")
+                    for i in indices
+                ]
                 ax.plot(
                     gx,
                     gy,
@@ -74,9 +77,11 @@ def render_line(
     else:
         for i, y_col in enumerate(config.y):
             y_vals = extract_column(data_rows, y_col)
+            # Replace None with nan so matplotlib draws gaps, not crashes
+            safe_y = [y if y is not None else float("nan") for y in y_vals]
             ax.plot(
                 x_plot,
-                y_vals,
+                safe_y,
                 marker="o",
                 markersize=3,
                 label=y_col,

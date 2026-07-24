@@ -596,3 +596,136 @@ class TestAllChartTypesRegistered:
         for chart_id in self.ALL_TYPES:
             assert chart_id in CHART_REGISTRY, f"Chart type '{chart_id}' not registered"
         assert len(CHART_REGISTRY) >= 14
+
+
+class TestNullHandling:
+    """Tests for null/None value handling across chart renderers.
+
+    Real-world datasets (e.g. Titanic) contain nulls.  Every chart type must
+    handle them gracefully — either filtering them, substituting 0, or
+    drawing gaps — rather than crashing.
+    """
+
+    def test_bar_with_null_y(self, isolated_charts_dir: Path) -> None:
+        """Bar chart with None y-values renders without crashing."""
+        data = [
+            {"category": "A", "value": 10},
+            {"category": "B", "value": None},
+            {"category": "C", "value": 15},
+            {"category": "D", "value": None},
+        ]
+        path = render_chart(
+            "bar", data, {"x": "category", "y": "value"}, table="test_table"
+        )
+        _assert_valid_png(path)
+
+    def test_bar_with_null_y_color_by(self, isolated_charts_dir: Path) -> None:
+        """Bar chart with color_by and None y-values renders without crashing."""
+        data = [
+            {"category": "A", "value": 10, "group": "X"},
+            {"category": "B", "value": None, "group": "X"},
+            {"category": "C", "value": 15, "group": "Y"},
+            {"category": "D", "value": None, "group": "Y"},
+        ]
+        path = render_chart(
+            "bar",
+            data,
+            {"x": "category", "y": "value", "color_by": "group"},
+            table="test_table",
+        )
+        _assert_valid_png(path)
+
+    def test_bar_horizontal_with_null_y(self, isolated_charts_dir: Path) -> None:
+        """Horizontal bar chart with None y-values renders without crashing."""
+        data = [
+            {"category": "A", "value": 10},
+            {"category": "B", "value": None},
+            {"category": "C", "value": 15},
+        ]
+        path = render_chart(
+            "bar",
+            data,
+            {"x": "category", "y": "value", "orientation": "h"},
+            table="test_table",
+        )
+        _assert_valid_png(path)
+
+    def test_line_with_null_y(self, isolated_charts_dir: Path) -> None:
+        """Line graph with None y-values draws gaps instead of crashing."""
+        data = [
+            {"date": "2024-01-01", "series_a": 10, "series_b": 20},
+            {"date": "2024-01-02", "series_a": None, "series_b": 25},
+            {"date": "2024-01-03", "series_a": 12, "series_b": None},
+            {"date": "2024-01-04", "series_a": 20, "series_b": 28},
+            {"date": "2024-01-05", "series_a": 25, "series_b": 35},
+        ]
+        path = render_chart(
+            "line", data, {"x": "date", "y": ["series_a"]}, table="test_table"
+        )
+        _assert_valid_png(path)
+
+    def test_line_with_null_y_color_by(self, isolated_charts_dir: Path) -> None:
+        """Line graph with color_by and None y-values draws gaps instead of crashing."""
+        data = [
+            {"date": "2024-01-01", "series_a": 10, "group": "X"},
+            {"date": "2024-01-02", "series_a": None, "group": "X"},
+            {"date": "2024-01-03", "series_a": 12, "group": "X"},
+            {"date": "2024-01-01", "series_a": 20, "group": "Y"},
+            {"date": "2024-01-02", "series_a": None, "group": "Y"},
+            {"date": "2024-01-03", "series_a": 28, "group": "Y"},
+        ]
+        path = render_chart(
+            "line",
+            data,
+            {"x": "date", "y": ["series_a"], "color_by": "group"},
+            table="test_table",
+        )
+        _assert_valid_png(path)
+
+    def test_scatter_with_null_y(self, isolated_charts_dir: Path) -> None:
+        """Scatter plot with None y-values filters them out and renders."""
+        data = [
+            {"x": 1, "y": 10},
+            {"x": 2, "y": None},
+            {"x": 3, "y": 30},
+            {"x": 4, "y": None},
+            {"x": 5, "y": 50},
+        ]
+        path = render_chart("scatter", data, {"x": "x", "y": "y"}, table="test_table")
+        _assert_valid_png(path)
+
+    def test_scatter_with_null_x(self, isolated_charts_dir: Path) -> None:
+        """Scatter plot with None x-values filters them out and renders."""
+        data = [
+            {"x": 1, "y": 10},
+            {"x": None, "y": 20},
+            {"x": 3, "y": 30},
+        ]
+        path = render_chart("scatter", data, {"x": "x", "y": "y"}, table="test_table")
+        _assert_valid_png(path)
+
+    def test_scatter_with_nulls_color_and_size(self, isolated_charts_dir: Path) -> None:
+        """Scatter with color_by/size_by and null coords filters correctly."""
+        data = [
+            {"x": 1, "y": 10, "cat": "A", "size": 5},
+            {"x": 2, "y": None, "cat": "A", "size": 3},
+            {"x": 3, "y": 30, "cat": "B", "size": 8},
+            {"x": None, "y": 40, "cat": "B", "size": 6},
+            {"x": 5, "y": 50, "cat": "A", "size": 2},
+        ]
+        path = render_chart(
+            "scatter",
+            data,
+            {"x": "x", "y": "y", "color_by": "cat", "size_by": "size"},
+            table="test_table",
+        )
+        _assert_valid_png(path)
+
+    def test_scatter_all_null(self, isolated_charts_dir: Path) -> None:
+        """Scatter plot where all y-values are None renders 'No data'."""
+        data = [
+            {"x": 1, "y": None},
+            {"x": 2, "y": None},
+        ]
+        path = render_chart("scatter", data, {"x": "x", "y": "y"}, table="test_table")
+        _assert_valid_png(path)

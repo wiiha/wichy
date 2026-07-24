@@ -117,12 +117,13 @@ def render_bar(
         )
     else:
         x_cats = [str(x) if x is not None else "None" for x in x_vals]
+        safe_y = [y if y is not None else 0 for y in y_vals]
         if config.orientation == "h":
-            ax.barh(range(len(x_cats)), y_vals, color=colors[0])
+            ax.barh(range(len(x_cats)), safe_y, color=colors[0])
             ax.set_yticks(range(len(x_cats)))
             ax.set_yticklabels(x_cats)
         else:
-            ax.bar(range(len(x_cats)), y_vals, color=colors[0])
+            ax.bar(range(len(x_cats)), safe_y, color=colors[0])
             ax.set_xticks(range(len(x_cats)))
             ax.set_xticklabels(x_cats, rotation=45, ha="right")
 

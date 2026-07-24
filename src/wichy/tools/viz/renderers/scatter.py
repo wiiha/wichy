@@ -35,13 +35,28 @@ def render_scatter(
     x_vals = extract_column(data_rows, config.x)
     y_vals = extract_column(data_rows, config.y)
 
+    # Filter out rows where x or y is None — can't plot points with missing coords
+    keep_idx = [
+        i
+        for i, (x, y) in enumerate(zip(x_vals, y_vals))
+        if x is not None and y is not None
+    ]
+    if not keep_idx:
+        fig, ax = create_figure(config)
+        ax.text(0.5, 0.5, "No data", ha="center", va="center")
+        apply_theme(fig, ax, config)
+        mpl_to_png(fig, config, output_path)
+        return
+    x_vals = [x_vals[i] for i in keep_idx]
+    y_vals = [y_vals[i] for i in keep_idx]
+
     fig, ax = create_figure(config)
     colors = get_colors(config)
 
     scatter_kwargs: dict[str, Any] = {}
 
     if config.color_by:
-        color_vals = extract_column(data_rows, config.color_by)
+        color_vals = [extract_column(data_rows, config.color_by)[i] for i in keep_idx]
         # If categorical, use discrete colors; if numeric, use colormap
         if all(isinstance(c, (int, float)) for c in color_vals if c is not None):
             scatter_kwargs["c"] = color_vals
@@ -66,7 +81,7 @@ def render_scatter(
             )
 
     if config.size_by:
-        size_vals = extract_column(data_rows, config.size_by)
+        size_vals = [extract_column(data_rows, config.size_by)[i] for i in keep_idx]
         clean_sizes = [s for s in size_vals if s is not None]
         if clean_sizes:
             min_s = min(clean_sizes)
