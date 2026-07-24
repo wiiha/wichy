@@ -55,12 +55,17 @@ def render_scatter(
 
     scatter_kwargs: dict[str, Any] = {}
 
+    # Track whether color_by uses numeric colormap (needs colorbar) or
+    # categorical discrete colors (needs legend).
+    color_is_numeric = False
+
     if config.color_by:
         color_vals = [extract_column(data_rows, config.color_by)[i] for i in keep_idx]
         # If categorical, use discrete colors; if numeric, use colormap
         if all(isinstance(c, (int, float)) for c in color_vals if c is not None):
             scatter_kwargs["c"] = color_vals
             scatter_kwargs["cmap"] = "viridis"
+            color_is_numeric = True
         else:
             # Categorical: map each category to a color
             unique_cats = list(
@@ -94,7 +99,13 @@ def render_scatter(
             else:
                 scatter_kwargs["s"] = 30
 
-    ax.scatter(x_vals, y_vals, alpha=0.7, **scatter_kwargs)
+    scatter = ax.scatter(x_vals, y_vals, alpha=0.7, **scatter_kwargs)
+
+    if color_is_numeric:
+        cbar = fig.colorbar(scatter, ax=ax, shrink=0.8)
+        cbar.set_label(config.color_by, fontsize=config.font_size)
+        cbar.ax.tick_params(labelsize=config.font_size - 2)
+
     apply_theme(fig, ax, config)
     mpl_to_png(fig, config, output_path)
 

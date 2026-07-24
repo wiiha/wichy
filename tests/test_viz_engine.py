@@ -288,6 +288,23 @@ class TestScatterRenderer:
         )
         _assert_valid_png(path)
 
+    def test_numeric_color_by_has_colorbar(self, isolated_charts_dir: Path) -> None:
+        """Scatter with numeric color_by (e.g. Survived 0/1) renders a colorbar."""
+        data = [
+            {"x": 1, "y": 10, "survived": 0},
+            {"x": 2, "y": 20, "survived": 1},
+            {"x": 3, "y": 15, "survived": 0},
+            {"x": 4, "y": 25, "survived": 1},
+            {"x": 5, "y": 30, "survived": 1},
+        ]
+        path = render_chart(
+            "scatter",
+            data,
+            {"x": "x", "y": "y", "color_by": "survived"},
+            table="test_table",
+        )
+        _assert_valid_png(path)
+
 
 class TestParallelCoordsRenderer:
     """Test parallel coordinates rendering."""
