@@ -2568,6 +2568,8 @@ title %} {% block color_scheme %}
   // ─── Chart Gallery ───
 
   let galleryFavoritesOnly = false;
+  let galleryAllCharts = [];
+  let galleryDatasetFilter = "";
 
   function showChartGallery() {
     currentTable = null;
@@ -2575,6 +2577,7 @@ title %} {% block color_scheme %}
     updateActiveTable(null);
     showLoading(mainContent);
     galleryFavoritesOnly = false;
+    galleryDatasetFilter = "";
     loadChartGallery(false);
   }
 
@@ -2586,51 +2589,71 @@ title %} {% block color_scheme %}
         : `${API_BASE}/charts`;
       const resp = await fetch(url);
       const data = await resp.json();
-      renderChartGallery(data.charts || [], favoritesOnly);
+      galleryAllCharts = data.charts || [];
+      renderChartGallery(galleryAllCharts, favoritesOnly);
     } catch (e) {
       mainContent.innerHTML = `<div class="error">Failed to load chart gallery: ${e}</div>`;
     }
   }
 
   function renderChartGallery(charts, favoritesOnly) {
-    const galleryHtml = charts
-      .map(
-        (c) => `
-      <div class="chart-card" style="background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:var(--space-md); display:flex; flex-direction:column; gap:8px;">
-        <img src="/tools/data/api/chart/${c.chart_id}" alt="${escapeHtml(c.title)}" style="width:100%; height:200px; object-fit:contain; border-radius:4px; cursor:pointer;" onclick="viewChartDetail('${c.chart_id}')"/>
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-          <div>
-            <strong>${escapeHtml(c.title)}</strong>
-            <div style="font-size:11px; color:var(--text-muted);">${escapeHtml(c.chart_type)} • ${escapeHtml(c.table)}</div>
-            <div style="font-size:10px; color:var(--text-muted);">${escapeHtml(c.created_at || "")}</div>
-          </div>
-          <div style="display:flex; gap:4px;">
-            <button onclick="toggleGalleryFavorite('${c.chart_id}', ${!c.favorite})" title="Favorite" style="font-size:16px; background:none; border:none; cursor:pointer;">${c.favorite ? "⭐" : "☆"}</button>
-            <a href="/tools/data/api/chart/${c.chart_id}/download" download style="text-decoration:none;">⬇</a>
-            <button onclick="deleteGalleryChart('${c.chart_id}')" title="Delete" style="font-size:14px; background:none; border:none; cursor:pointer; color:red;">✕</button>
-          </div>
-        </div>
-      </div>
-    `,
-      )
-      .join("");
+      // Build dataset filter options from the charts present
+      const datasets = [...new Set(charts.map((c) => c.table))].sort();
+      const datasetOpts = ["<option value="">All datasets</option>"]
+        .concat(datasets.map((d) => `<option value="${escapeHtml(d)}" ${d === galleryDatasetFilter ? "selected" : ""}>${escapeHtml(d)}</option>`))
+        .join("");
 
-    mainContent.innerHTML = `
-      <div style="padding:var(--space-xl);">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:var(--space-lg);">
-          <h2 style="margin:0;">🖼️ Chart Gallery</h2>
-          <div style="display:flex; gap:8px;">
-            <button class="btn ${!favoritesOnly ? "btn-primary" : "btn-secondary"}" onclick="loadChartGallery(false)">All Charts</button>
-            <button class="btn ${favoritesOnly ? "btn-primary" : "btn-secondary"}" onclick="loadChartGallery(true)">⭐ Favorites</button>
-              <button class="btn btn-secondary" onclick="deleteAllNonFavorites()" style="color:red;">🗑 Delete all non-favorites</button>
+      // Filter by selected dataset
+      const filtered = galleryDatasetFilter
+        ? charts.filter((c) => c.table === galleryDatasetFilter)
+        : charts;
+
+      const galleryHtml = filtered
+        .map(
+          (c) => `
+        <div class="chart-card" style="background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:var(--space-md); display:flex; flex-direction:column; gap:8px;">
+          <img src="/tools/data/api/chart/${c.chart_id}" alt="${escapeHtml(c.title)}" style="width:100%; height:200px; object-fit:contain; border-radius:4px; cursor:pointer;" onclick="viewChartDetail('${c.chart_id}')"/>
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div>
+              <strong>${escapeHtml(c.title)}</strong>
+              <div style="font-size:11px; color:var(--text-muted);">${escapeHtml(c.table)} • ${escapeHtml(c.chart_type)}</div>
+              <div style="font-size:10px; color:var(--text-muted);">${escapeHtml(c.created_at || "")}</div>
+            </div>
+            <div style="display:flex; gap:4px;">
+              <button onclick="toggleGalleryFavorite('${c.chart_id}', ${!c.favorite})" title="Favorite" style="font-size:16px; background:none; border:none; cursor:pointer;">${c.favorite ? "⭐" : "☆"}</button>
+              <a href="/tools/data/api/chart/${c.chart_id}/download" download style="text-decoration:none;">⬇</a>
+              <button onclick="deleteGalleryChart('${c.chart_id}')" title="Delete" style="font-size:14px; background:none; border:none; cursor:pointer; color:red;">✕</button>
+            </div>
           </div>
         </div>
-        ${charts.length === 0 ? '<div style="text-align:center; padding:var(--space-2xl); color:var(--text-muted);">No charts yet. Generate charts from the Visualize tab or recipe visualize step.</div>' : ""}
-        <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:var(--space-md);">
-          ${galleryHtml}
+      `,
+        )
+        .join("");
+
+      mainContent.innerHTML = `
+        <div style="padding:var(--space-xl);">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:var(--space-lg);">
+            <h2 style="margin:0;">🖼️ Chart Gallery</h2>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <select onchange="filterGalleryByDataset(this.value)" style="padding:4px;">
+                ${datasetOpts}
+              </select>
+              <button class="btn ${!favoritesOnly ? "btn-primary" : "btn-secondary"}" onclick="loadChartGallery(false)">All Charts</button>
+              <button class="btn ${favoritesOnly ? "btn-primary" : "btn-secondary"}" onclick="loadChartGallery(true)">⭐ Favorites</button>
+              <button class="btn btn-secondary" onclick="deleteAllNonFavorites()" style="color:red;">🗑 Delete all non-favorites</button>
+            </div>
+          </div>
+          ${filtered.length === 0 ? '<div style="text-align:center; padding:var(--space-2xl); color:var(--text-muted);">No charts yet. Generate charts from the Visualize tab or recipe visualize step.</div>' : ""}
+          <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:var(--space-md);">
+            ${galleryHtml}
+          </div>
         </div>
-      </div>
-    `;
+      `;
+    }
+
+  function filterGalleryByDataset(dataset) {
+    galleryDatasetFilter = dataset;
+    renderChartGallery(galleryAllCharts, galleryFavoritesOnly);
   }
 
   async function toggleGalleryFavorite(chartId, favorite) {
