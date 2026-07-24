@@ -2684,12 +2684,16 @@ title %} {% block color_scheme %}
         const resp = await fetch(`${API_BASE}/charts`);
         const data = await resp.json();
         const charts = data.charts || [];
-        const nonFav = charts.filter((c) => !c.favorite);
+        let nonFav = charts.filter((c) => !c.favorite);
+        if (galleryDatasetFilter) {
+          nonFav = nonFav.filter((c) => c.table === galleryDatasetFilter);
+        }
         if (nonFav.length === 0) {
           alert("No non-favorite charts to delete.");
           return;
         }
-        if (!confirm(`Delete ${nonFav.length} non-favorite chart(s)? This cannot be undone.`)) return;
+        const scope = galleryDatasetFilter ? ` from ${galleryDatasetFilter}` : "";
+        if (!confirm(`Delete ${nonFav.length} non-favorite chart(s)${scope}? This cannot be undone.`)) return;
         let deleted = 0;
         for (const c of nonFav) {
           try {
