@@ -2622,6 +2622,7 @@ title %} {% block color_scheme %}
           <div style="display:flex; gap:8px;">
             <button class="btn ${!favoritesOnly ? "btn-primary" : "btn-secondary"}" onclick="loadChartGallery(false)">All Charts</button>
             <button class="btn ${favoritesOnly ? "btn-primary" : "btn-secondary"}" onclick="loadChartGallery(true)">⭐ Favorites</button>
+              <button class="btn btn-secondary" onclick="deleteAllNonFavorites()" style="color:red;">🗑 Delete all non-favorites</button>
           </div>
         </div>
         ${charts.length === 0 ? '<div style="text-align:center; padding:var(--space-2xl); color:var(--text-muted);">No charts yet. Generate charts from the Visualize tab or recipe visualize step.</div>' : ""}
@@ -2655,7 +2656,30 @@ title %} {% block color_scheme %}
       alert("Failed to delete: " + e);
     }
   }
-
+    async function deleteAllNonFavorites() {
+      try {
+        const resp = await fetch(`${API_BASE}/charts`);
+        const data = await resp.json();
+        const charts = data.charts || [];
+        const nonFav = charts.filter((c) => !c.favorite);
+        if (nonFav.length === 0) {
+          alert("No non-favorite charts to delete.");
+          return;
+        }
+        if (!confirm(`Delete ${nonFav.length} non-favorite chart(s)? This cannot be undone.`)) return;
+        let deleted = 0;
+        for (const c of nonFav) {
+          try {
+            await fetch(`${API_BASE}/chart/${c.chart_id}`, { method: "DELETE" });
+            deleted++;
+          } catch (e) { /* skip individual failures */ }
+        }
+        alert(`Deleted ${deleted} of ${nonFav.length} non-favorite chart(s).`);
+        loadChartGallery(galleryFavoritesOnly);
+      } catch (e) {
+        alert("Failed to delete: " + e);
+      }
+    }
   function viewChartDetail(chartId) {
     // Open chart in a new view
     mainContent.innerHTML = `
