@@ -373,6 +373,46 @@ class TestTreemapRenderer:
         _assert_valid_png(path)
         _assert_meta_exists(isolated_charts_dir, path)
 
+    def test_flat(self, isolated_charts_dir: Path) -> None:
+        """Treemap renders without parent column (flat)."""
+        data = [
+            {"label": "X", "value": 40},
+            {"label": "Y", "value": 30},
+            {"label": "Z", "value": 20},
+        ]
+        path = render_chart(
+            "treemap",
+            data,
+            {"labels": "label", "values": "value"},
+            table="test_table",
+        )
+        _assert_valid_png(path)
+
+    def test_aggregate_root_renders(self, isolated_charts_dir: Path) -> None:
+        """Treemap with parent value=0 (aggregate root) still renders."""
+        data = [
+            {"label": "Root", "value": 0, "parent": ""},
+            {"label": "A", "value": 50, "parent": "Root"},
+            {"label": "B", "value": 50, "parent": "Root"},
+        ]
+        path = render_chart(
+            "treemap",
+            data,
+            {"labels": "label", "values": "value", "parent": "parent"},
+            table="test_table",
+        )
+        _assert_valid_png(path)
+        # Verify the image has substantial content (not blank)
+        img = Image.open(str(path))
+        import numpy as np
+
+        arr = np.array(img.convert("RGB"))
+        # At least 15% non-white pixels indicates real rendering
+        non_white = ~(
+            (arr[:, :, 0] > 240) & (arr[:, :, 1] > 240) & (arr[:, :, 2] > 240)
+        )
+        assert non_white.sum() / non_white.size > 0.15, "Treemap image appears blank"
+
 
 class TestSunburstRenderer:
     """Test sunburst rendering."""
@@ -387,6 +427,50 @@ class TestSunburstRenderer:
         )
         _assert_valid_png(path)
         _assert_meta_exists(isolated_charts_dir, path)
+
+    def test_flat(self, isolated_charts_dir: Path) -> None:
+        """Sunburst renders without parent column (flat single ring)."""
+        data = [
+            {"label": "Alpha", "value": 40},
+            {"label": "Beta", "value": 30},
+            {"label": "Gamma", "value": 20},
+        ]
+        path = render_chart(
+            "sunburst",
+            data,
+            {"labels": "label", "values": "value"},
+            table="test_table",
+        )
+        _assert_valid_png(path)
+
+    def test_aggregate_root_renders(self, isolated_charts_dir: Path) -> None:
+        """Sunburst with parent value=0 (aggregate root) still renders.
+
+        This is a regression test: previously the sunburst was completely
+        blank when root nodes had value=0 because child drawing was nested
+        inside the root loop with zero angular width.
+        """
+        data = [
+            {"label": "Root", "value": 0, "parent": ""},
+            {"label": "A", "value": 50, "parent": "Root"},
+            {"label": "B", "value": 50, "parent": "Root"},
+        ]
+        path = render_chart(
+            "sunburst",
+            data,
+            {"labels": "label", "values": "value", "parent": "parent"},
+            table="test_table",
+        )
+        _assert_valid_png(path)
+        # Verify the image has substantial content (not blank)
+        img = Image.open(str(path))
+        import numpy as np
+
+        arr = np.array(img.convert("RGB"))
+        non_white = ~(
+            (arr[:, :, 0] > 240) & (arr[:, :, 1] > 240) & (arr[:, :, 2] > 240)
+        )
+        assert non_white.sum() / non_white.size > 0.10, "Sunburst image appears blank"
 
 
 class TestRegistryPopulated:
@@ -422,10 +506,8 @@ class TestRegistryPopulated:
 
 def _radar_data() -> list[dict]:
     return [
-        {"metric": "Speed", "score": 80, "team": "A"},
-        {"metric": "Power", "score": 90, "team": "A"},
-        {"metric": "Agility", "score": 70, "team": "A"},
-        {"metric": "Endurance", "score": 85, "team": "A"},
+        {"name": "Alice", "speed": 80, "power": 90, "agility": 70, "endurance": 85},
+        {"name": "Bob", "speed": 65, "power": 75, "agility": 85, "endurance": 60},
     ]
 
 
@@ -475,11 +557,67 @@ class TestRadarRenderer:
         path = render_chart(
             "radar",
             _radar_data(),
-            {"categories": ["metric"], "values": ["score"], "group_by": "team"},
+            {
+                "categories": ["Speed", "Power", "Agility", "Endurance"],
+                "values": ["speed", "power", "agility", "endurance"],
+                "name_column": "name",
+            },
             table="test_table",
         )
         _assert_valid_png(path)
         _assert_meta_exists(isolated_charts_dir, path)
+
+    def test_group_by(self, isolated_charts_dir: Path) -> None:
+        """Radar chart with group_by averages values per group."""
+        data = [
+            {"team": "X", "speed": 90, "power": 60, "agility": 80},
+            {"team": "X", "speed": 70, "power": 80, "agility": 60},
+            {"team": "Y", "speed": 85, "power": 75, "agility": 70},
+        ]
+        path = render_chart(
+            "radar",
+            data,
+            {
+                "categories": ["Speed", "Power", "Agility"],
+                "values": ["speed", "power", "agility"],
+                "group_by": "team",
+            },
+            table="test_table",
+        )
+        _assert_valid_png(path)
+
+    def test_no_name_column(self, isolated_charts_dir: Path) -> None:
+        """Radar chart without name_column auto-generates 'Series N' labels."""
+        data = [
+            {"a": 80, "b": 70, "c": 90},
+            {"a": 65, "b": 85, "c": 75},
+        ]
+        path = render_chart(
+            "radar",
+            data,
+            {
+                "categories": ["Quality", "Speed", "Cost"],
+                "values": ["a", "b", "c"],
+            },
+            table="test_table",
+        )
+        _assert_valid_png(path)
+
+    def test_short_categories_fallback(self, isolated_charts_dir: Path) -> None:
+        """Radar chart with fewer categories than values uses column names as fallback."""
+        data = [
+            {"a": 80, "b": 70, "c": 90, "d": 60},
+        ]
+        path = render_chart(
+            "radar",
+            data,
+            {
+                "categories": ["Quality", "Speed"],
+                "values": ["a", "b", "c", "d"],
+            },
+            table="test_table",
+        )
+        _assert_valid_png(path)
 
 
 class TestViolinRenderer:
@@ -598,6 +736,56 @@ class TestTimeCompassRenderer:
         )
         _assert_valid_png(path)
         _assert_meta_exists(isolated_charts_dir, path)
+
+    def test_explicit_periods(self, isolated_charts_dir: Path) -> None:
+        """Time compass with explicit period labels (not hardcoded months)."""
+        data = [
+            {"day": "Mon", "value": 30},
+            {"day": "Wed", "value": 50},
+            {"day": "Fri", "value": 40},
+        ]
+        path = render_chart(
+            "time_compass",
+            data,
+            {
+                "time": "day",
+                "value": "value",
+                "periods": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+            },
+            table="test_table",
+        )
+        _assert_valid_png(path)
+
+    def test_non_date_periods(self, isolated_charts_dir: Path) -> None:
+        """Time compass with non-date category periods (auto-detect)."""
+        data = [
+            {"season": "Spring", "value": 30},
+            {"season": "Summer", "value": 50},
+            {"season": "Fall", "value": 40},
+            {"season": "Winter", "value": 20},
+        ]
+        path = render_chart(
+            "time_compass",
+            data,
+            {"time": "season", "value": "value"},
+            table="test_table",
+        )
+        _assert_valid_png(path)
+
+    def test_period_column(self, isolated_charts_dir: Path) -> None:
+        """Time compass with period_column for mapping."""
+        data = [
+            {"date": "2024-01-15", "month_name": "Jan", "value": 10},
+            {"date": "2024-02-20", "month_name": "Feb", "value": 25},
+            {"date": "2024-03-10", "month_name": "Mar", "value": 40},
+        ]
+        path = render_chart(
+            "time_compass",
+            data,
+            {"time": "date", "value": "value", "period_column": "month_name"},
+            table="test_table",
+        )
+        _assert_valid_png(path)
 
 
 class TestAllChartTypesRegistered:
@@ -803,13 +991,17 @@ class TestNullHandling:
     def test_radar_with_null_values(self, isolated_charts_dir: Path) -> None:
         """Radar chart with None in a values column."""
         data = [
-            {"cat": "A", "v1": 10, "v2": None},
-            {"cat": "B", "v1": 20, "v2": 30},
+            {"name": "A", "v1": 10, "v2": None},
+            {"name": "B", "v1": 20, "v2": 30},
         ]
         path = render_chart(
             "radar",
             data,
-            {"categories": ["cat"], "values": ["v1", "v2"]},
+            {
+                "categories": ["Metric 1", "Metric 2"],
+                "values": ["v1", "v2"],
+                "name_column": "name",
+            },
             table="test_table",
         )
         _assert_valid_png(path)

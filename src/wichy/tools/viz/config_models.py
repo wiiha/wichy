@@ -115,11 +115,28 @@ class ParallelCoordsConfig(BaseChartConfig):
 
 
 class TimeCompassConfig(BaseChartConfig):
-    """Config for time compass charts."""
+    """Config for time compass charts.
+
+    The compass arranges time periods radially (clockwise from top).
+    By default, the time granularity is auto-detected from the data
+    (monthly, daily, hourly, etc.). Use ``periods`` to explicitly
+    specify the period labels, and ``period_column`` to specify which
+    column provides the period index/label for each row.
+    """
 
     time: str = Field(..., description="Column name for time/date axis")
     value: str = Field(..., description="Column name for numeric value")
     group_by: Optional[str] = None
+    """Column name to group rows by (multiple series)."""
+    periods: Optional[list[str]] = None
+    """Explicit period labels around the compass (e.g. ["Jan","Feb",...]
+    or ["Mon","Tue",...]). When set, each row's ``time`` value is matched
+    to a period by name or index. When not set, periods are auto-detected."""
+    period_column: Optional[str] = None
+    """Column name that provides the period label or index for each row.
+    When set, used instead of ``time`` for determining which period a row
+    belongs to. Useful when the time column is a full date but you want
+    to group by month name, day-of-week, etc."""
 
 
 class SankeyChartConfig(BaseChartConfig):
@@ -147,11 +164,29 @@ class SunburstChartConfig(BaseChartConfig):
 
 
 class RadarChartConfig(BaseChartConfig):
-    """Config for radar/spider charts."""
+    """Config for radar/spider charts.
 
-    categories: list[str] = Field(..., description="Column name(s) for category axes")
-    values: list[str] = Field(..., description="Column name(s) for numeric values")
+    Each row in the data represents one series (one polygon on the radar).
+    ``values`` is a list of column names to read numeric values from — one
+    per axis. ``categories`` is a list of human-readable axis labels shown
+    around the radar. If ``categories`` is shorter than ``values``, the
+    value column names are used as fallback labels.
+
+    Use ``group_by`` to average multiple rows per group, or ``name_column``
+    to label each row/series in the legend (non-group_by mode).
+    """
+
+    categories: list[str] = Field(
+        ..., description="Human-readable labels for each axis (one per value column)"
+    )
+    values: list[str] = Field(
+        ..., description="Column names to read numeric values from (one per axis)"
+    )
     group_by: Optional[str] = None
+    """Column name to group rows by (averages values within each group)."""
+    name_column: Optional[str] = None
+    """Column name to use for series labels in the legend (non-group_by mode).
+    If not set, series are labeled 'Series 1', 'Series 2', etc."""
 
 
 class ViolinChartConfig(BaseChartConfig):

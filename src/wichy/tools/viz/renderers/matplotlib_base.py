@@ -54,18 +54,57 @@ def apply_theme(
     Returns:
         ``(fig, ax)`` — the styled figure and axes (modified in-place).
     """
-    # Title and subtitle
-    if config.title:
-        fig.suptitle(config.title, fontsize=config.font_size + 4, fontweight="bold")
-    if config.subtitle:
+    # Title and subtitle — position with adequate vertical spacing
+    # to prevent overlap.  We compute y-positions in figure coordinates
+    # based on font sizes so the gap scales with text size.
+    fig_h_in = config.height / config.dpi
+    fig_h_pt = fig_h_in * 72.0  # total figure height in points
+
+    if config.title and config.subtitle:
+        # Title near the top, subtitle below it with a clear gap
+        title_fs = config.font_size + 4
+        subtitle_fs = config.font_size - 2
+        # Convert font sizes to figure-fraction for y positioning
+        title_y = 1.0 - (title_fs * 1.5) / fig_h_pt
+        subtitle_y = title_y - (title_fs * 1.2 + subtitle_fs * 0.8) / fig_h_pt
+        fig.suptitle(
+            config.title,
+            fontsize=title_fs,
+            fontweight="bold",
+            y=title_y,
+        )
+        subtitle_color = "#aaaaaa" if config.theme != "dark" else "#888888"
         fig.text(
             0.5,
-            0.95,
+            subtitle_y,
             config.subtitle,
             ha="center",
             va="top",
-            fontsize=config.font_size - 2,
-            color="gray",
+            fontsize=subtitle_fs,
+            color=subtitle_color,
+        )
+    elif config.title:
+        title_fs = config.font_size + 4
+        title_y = 1.0 - (title_fs * 1.0) / fig_h_pt
+        fig.suptitle(
+            config.title,
+            fontsize=title_fs,
+            fontweight="bold",
+            y=title_y,
+        )
+    elif config.subtitle:
+        # Subtitle only (no title) — place near top
+        subtitle_fs = config.font_size - 2
+        subtitle_y = 1.0 - (subtitle_fs * 1.5) / fig_h_pt
+        subtitle_color = "#aaaaaa" if config.theme != "dark" else "#888888"
+        fig.text(
+            0.5,
+            subtitle_y,
+            config.subtitle,
+            ha="center",
+            va="top",
+            fontsize=subtitle_fs,
+            color=subtitle_color,
         )
 
     # Axis labels
@@ -86,7 +125,9 @@ def apply_theme(
             spine.set_color("white")
         ax.xaxis.label.set_color("white")
         ax.yaxis.label.set_color("white")
-        fig.suptitle(color="white") if config.title else None
+        # Update existing suptitle color for dark theme
+        if config.title and fig._suptitle is not None:
+            fig._suptitle.set_color("white")
     else:
         bg = "white" if config.background != "transparent" else "none"
         fig.patch.set_facecolor(bg)
