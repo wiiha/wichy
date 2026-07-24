@@ -2350,6 +2350,7 @@ title %} {% block color_scheme %}
             </div>
 
             <button class="btn btn-primary" onclick="renderChartFromViz('${escapeJs(tableName)}')" style="width:100%; margin-top:var(--space-md);">Render Chart</button>
+              <button class="btn btn-secondary" onclick="copyVizConfig()" style="width:100%; margin-top:var(--space-sm);">Copy chart config</button>
           </div>
 
           <!-- Right: Chart Display -->
@@ -2369,6 +2370,56 @@ title %} {% block color_scheme %}
     const fieldRolesHtml = renderVizFieldRoles(chartTypeId, columns, {});
     document.getElementById("viz-field-roles").innerHTML = fieldRolesHtml;
   }
+    // Build a config object with ALL possible keys for the current chart type.
+    // Field roles: null if empty, the selected value(s) if filled.
+    // Styling: filled from the styling inputs with defaults.
+    function buildFullVizConfig() {
+      const chartType = document.getElementById("viz-chart-type").value;
+      const ct = vizChartTypes.find((c) => c.id === chartType);
+      if (!ct) return {};
+
+      const config = {};
+
+      // Field roles — every role gets a key, null if unset
+      ct.field_roles.forEach((role) => {
+        const el = document.getElementById(`viz-field-${role.name}`);
+        if (!el) return;
+        if (role.multiple) {
+          const selected = [...el.selectedOptions].map((o) => o.value);
+          config[role.name] = selected.length ? selected : null;
+        } else {
+          config[role.name] = el.value || null;
+        }
+      });
+
+      // Styling fields (from BaseChartConfig)
+      config.title = document.getElementById("viz-title")?.value || null;
+      config.subtitle = document.getElementById("viz-subtitle")?.value || null;
+      config.x_axis_label = document.getElementById("viz-xlabel")?.value || null;
+      config.y_axis_label = document.getElementById("viz-ylabel")?.value || null;
+      config.width = parseInt(document.getElementById("viz-width")?.value || "1200");
+      config.height = parseInt(document.getElementById("viz-height")?.value || "800");
+      config.dpi = parseInt(document.getElementById("viz-dpi")?.value || "150");
+      config.theme = document.getElementById("viz-theme")?.value || "light";
+      config.color_palette = null;
+      config.font_size = 14;
+      config.background = "white";
+
+      return config;
+    }
+
+    function copyVizConfig() {
+      const config = buildFullVizConfig();
+      const json = JSON.stringify(config, null, 2);
+      navigator.clipboard.writeText(json).then(() => {
+        const btn = event.target;
+        const orig = btn.textContent;
+        btn.textContent = "Copied!";
+        setTimeout(() => { btn.textContent = orig; }, 1500);
+      }).catch(() => {
+        alert("Failed to copy to clipboard. Config:\n" + json);
+      });
+    }
 
   async function renderChartFromViz(tableName) {
     const chartType = document.getElementById("viz-chart-type").value;
