@@ -69,7 +69,7 @@ def render_radar(
         for gi, (gname, indices) in enumerate(groups.items()):
             for idx in indices:
                 row = data_rows[idx]
-                val_vals = [float(row.get(v, 0)) for v in config.values]
+                val_vals = [float(row.get(v) or 0) for v in config.values]
                 # Pad to n_axes if needed
                 while len(val_vals) < n_axes:
                     val_vals.append(0.0)
@@ -80,7 +80,7 @@ def render_radar(
                 ax.fill(angles, val_vals, alpha=0.25, color=color)
     else:
         for i, row in enumerate(data_rows):
-            val_vals = [float(row.get(v, 0)) for v in config.values]
+            val_vals = [float(row.get(v) or 0) for v in config.values]
             while len(val_vals) < n_axes:
                 val_vals.append(0.0)
             val_vals = val_vals[:n_axes]

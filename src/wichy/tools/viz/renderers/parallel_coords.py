@@ -42,7 +42,7 @@ def _normalize_dimension(
     if is_numeric and clean:
         numeric_vals = [float(v) for v in vals if v is not None]
         if not numeric_vals:
-            return [], [], False
+            return [0.0] * len(vals), [], False
         vmin, vmax = min(numeric_vals), max(numeric_vals)
         normalized = []
         for v in vals:
@@ -63,7 +63,7 @@ def _normalize_dimension(
     # Categorical: sort alphabetically, map to evenly spaced positions
     unique_sorted = sorted(set(str(v) for v in clean))
     if not unique_sorted:
-        return [], [], True
+        return [0.0] * len(vals), [], True
 
     cat_to_pos: dict[str, float] = {}
     n_cats = len(unique_sorted)

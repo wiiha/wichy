@@ -48,6 +48,9 @@ def render_line(
             pass
 
     x_plot = x_dates if x_dates is not None else x_vals
+    # Replace None x-values with nan so matplotlib draws gaps, not crashes
+    if x_dates is None:
+        x_plot = [x if x is not None else float("nan") for x in x_plot]
 
     if config.color_by:
         color_vals = extract_column(data_rows, config.color_by)

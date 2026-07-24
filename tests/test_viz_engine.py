@@ -760,3 +760,74 @@ class TestNullHandling:
         ]
         path = render_chart("scatter", data, {"x": "x", "y": "y"}, table="test_table")
         _assert_valid_png(path)
+
+    def test_line_with_null_x(self, isolated_charts_dir: Path) -> None:
+        """Line graph with None x-values draws gaps instead of crashing."""
+        data = [
+            {"date": "2024-01-01", "val": 10},
+            {"date": None, "val": 20},
+            {"date": "2024-01-03", "val": 30},
+        ]
+        path = render_chart(
+            "line", data, {"x": "date", "y": ["val"]}, table="test_table"
+        )
+        _assert_valid_png(path)
+
+    def test_line_with_null_x_numeric(self, isolated_charts_dir: Path) -> None:
+        """Line graph with None numeric x-values draws gaps instead of crashing."""
+        data = [
+            {"x": 1, "val": 10},
+            {"x": None, "val": 20},
+            {"x": 3, "val": 30},
+        ]
+        path = render_chart("line", data, {"x": "x", "y": ["val"]}, table="test_table")
+        _assert_valid_png(path)
+
+    def test_parallel_coords_all_none_dimension(
+        self, isolated_charts_dir: Path
+    ) -> None:
+        """Parallel coords with a dimension where all values are None."""
+        data = [
+            {"a": 1, "b": None, "c": 10},
+            {"a": 2, "b": None, "c": 20},
+            {"a": 3, "b": None, "c": 30},
+        ]
+        path = render_chart(
+            "parallel_coords",
+            data,
+            {"dimensions": ["a", "b", "c"]},
+            table="test_table",
+        )
+        _assert_valid_png(path)
+
+    def test_radar_with_null_values(self, isolated_charts_dir: Path) -> None:
+        """Radar chart with None in a values column."""
+        data = [
+            {"cat": "A", "v1": 10, "v2": None},
+            {"cat": "B", "v1": 20, "v2": 30},
+        ]
+        path = render_chart(
+            "radar",
+            data,
+            {"categories": ["cat"], "values": ["v1", "v2"]},
+            table="test_table",
+        )
+        _assert_valid_png(path)
+
+    def test_scatter_numeric_color_by_with_null(
+        self, isolated_charts_dir: Path
+    ) -> None:
+        """Scatter with numeric color_by containing None renders without crash."""
+        data = [
+            {"x": 1, "y": 10, "survived": 0},
+            {"x": 2, "y": 20, "survived": None},
+            {"x": 3, "y": 30, "survived": 1},
+            {"x": 4, "y": 40, "survived": 1},
+        ]
+        path = render_chart(
+            "scatter",
+            data,
+            {"x": "x", "y": "y", "color_by": "survived"},
+            table="test_table",
+        )
+        _assert_valid_png(path)
