@@ -526,6 +526,20 @@ class TestCorrelogramRenderer:
         _assert_valid_png(path)
         _assert_meta_exists(isolated_charts_dir, path)
 
+    def test_with_null_values(self, isolated_charts_dir: Path) -> None:
+        """Correlogram with null values in a column computes pairwise correlations."""
+        data = [
+            {"a": 1, "b": 10, "c": 100},
+            {"a": 2, "b": 20, "c": None},
+            {"a": 3, "b": None, "c": 300},
+            {"a": 4, "b": 40, "c": 400},
+            {"a": 5, "b": 50, "c": 500},
+        ]
+        path = render_chart(
+            "correlogram", data, {"columns": ["a", "b", "c"]}, table="test_table"
+        )
+        _assert_valid_png(path)
+
 
 # ---------------------------------------------------------------------------
 # Stage 6 renderer tests: chord, time_compass

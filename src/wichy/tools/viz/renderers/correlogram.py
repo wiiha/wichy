@@ -50,13 +50,18 @@ def render_correlogram(
             except (TypeError, ValueError):
                 pass
 
-    # Compute correlation matrix
+    # Compute correlation matrix using pairwise-complete observations.
+    # np.corrcoef returns nan for any column containing nan, which then gets
+    # zeroed by nan_to_num -- including the self-correlation diagonal. Using a
+    # masked array computes each pairwise correlation over only the rows where
+    # both columns have valid values.
     if n_rows < 2 or n_cols < 2:
         corr = np.eye(n_cols)
     else:
         try:
-            corr = np.corrcoef(matrix, rowvar=False)
-            corr = np.nan_to_num(corr, nan=0.0)
+            masked = np.ma.masked_invalid(matrix)
+            corr = np.ma.corrcoef(masked, rowvar=False)
+            corr = np.nan_to_num(corr.filled(0.0), nan=0.0)
         except (ValueError, np.linalg.LinAlgError):
             corr = np.eye(n_cols)
 
