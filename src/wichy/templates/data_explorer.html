@@ -2243,39 +2243,93 @@ title %} {% block color_scheme %}
     }
   }
     // Build field-role inputs for a chart type with given columns.
-    // Single roles → <select>; multiple roles → <select multiple>.
+    // Single roles -> <select>; multiple roles -> add/remove ordered list.
     // currentConfig is read to pre-select values.
     function renderVizFieldRoles(chartType, columns, currentConfig) {
-      const ct = vizChartTypes.find((c) => c.id === chartType) || vizChartTypes[0];
-      if (!ct) return "";
-      const cfg = currentConfig || {};
-      return ct.field_roles
-        .map((role) => {
-          const colOpts = columns
-            .map((c) => {
-              const selected = role.multiple
-                ? (Array.isArray(cfg[role.name]) && cfg[role.name].includes(c))
-                  ? "selected"
-                  : ""
-                : cfg[role.name] === c
-                  ? "selected"
-                  : "";
-              return `<option value="${escapeHtml(c)}" ${selected}>${escapeHtml(c)}</option>`;
-            })
-            .join("");
-          const typeHint = role.multiple
-            ? `(${role.type}, multiple)`
-            : `(${role.type})`;
-          const input = role.multiple
-            ? `<select multiple id="viz-field-${role.name}" style="width:200px; min-height:60px;">${colOpts}</select>`
-            : `<select id="viz-field-${role.name}" style="width:200px;"><option value="">-- select --</option>${colOpts}</select>`;
-          return `<div class="viz-field-row">
-            <label>${role.name} ${role.required ? "*" : ""} <span style="font-size:10px;color:var(--text-muted);">${typeHint}</span></label>
-            ${input}
+        const ct = vizChartTypes.find((c) => c.id === chartType) || vizChartTypes[0];
+        if (!ct) return "";
+        const cfg = currentConfig || {};
+        return ct.field_roles
+          .map((role) => {
+            const colOpts = columns
+              .map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`)
+              .join("");
+            const typeHint = role.multiple
+              ? `(${role.type}, multiple)`
+              : `(${role.type})`;
+            let input;
+            if (role.multiple) {
+              // Ordered add/remove list with up/down/remove buttons.
+              // State stored as JSON in a hidden element; list rendered on changes.
+              const selected = Array.isArray(cfg[role.name]) ? cfg[role.name] : [];
+              const selectedJson = escapeHtml(JSON.stringify(selected));
+              input = `<div id="viz-multi-${role.name}" style="display:flex; flex-direction:column; gap:2px;">
+                <div style="display:flex; gap:4px;">
+                  <select id="viz-add-select-${role.name}" style="flex:1;"><option value="">-- add column --</option>${colOpts}</select>
+                  <button type="button" onclick="vizMultiAdd('${role.name}')" style="padding:2px 6px;">+</button>
+                </div>
+                <div id="viz-multi-list-${role.name}" data-val="${selectedJson}"></div>
+              </div>`;
+            } else {
+              const sel = cfg[role.name] || "";
+              input = `<select id="viz-field-${role.name}" style="width:200px;"><option value="">-- select --</option>${columns.map((c) => `<option value="${escapeHtml(c)}" ${c === sel ? "selected" : ""}>${escapeHtml(c)}</option>`).join("")}</select>`;
+            }
+            return `<div class="viz-field-row">
+              <label>${role.name} ${role.required ? "*" : ""} <span style="font-size:10px;color:var(--text-muted);">${typeHint}</span></label>
+              ${input}
+            </div>`;
+          })
+          .join("");
+      }
+
+      // --- Ordered multi-column helpers ---
+      function vizMultiGet(roleName) {
+        const el = document.getElementById(`viz-multi-list-${roleName}`);
+        if (!el) return [];
+        try { return JSON.parse(el.dataset.val || "[]"); } catch { return []; }
+      }
+      function vizMultiSet(roleName, vals) {
+        const el = document.getElementById(`viz-multi-list-${roleName}`);
+        if (!el) return;
+        el.dataset.val = JSON.stringify(vals);
+        el.innerHTML = vals.map((c, i) => {
+          return `<div style="display:flex; align-items:center; gap:4px; padding:2px 4px; background:var(--surface); border:1px solid var(--border); border-radius:4px;">
+            <span style="flex:1; font-size:12px;">${escapeHtml(c)}</span>
+            <button type="button" onclick="vizMultiMove('${roleName}', ${i}, -1)" style="padding:0 4px; font-size:11px;" ${i === 0 ? "disabled" : ""}>↑</button>
+            <button type="button" onclick="vizMultiMove('${roleName}', ${i}, 1)" style="padding:0 4px; font-size:11px;" ${i === vals.length - 1 ? "disabled" : ""}>↓</button>
+            <button type="button" onclick="vizMultiRemove('${roleName}', ${i})" style="padding:0 4px; font-size:11px;">✕</button>
           </div>`;
-        })
-        .join("");
-    }  // ─── Visualize View ───
+        }).join("");
+      }
+      function vizMultiAdd(roleName) {
+        const sel = document.getElementById(`viz-add-select-${roleName}`);
+        if (!sel || !sel.value) return;
+        const vals = vizMultiGet(roleName);
+        if (!vals.includes(sel.value)) vals.push(sel.value);
+        vizMultiSet(roleName, vals);
+        sel.value = "";
+      }
+      function vizMultiMove(roleName, idx, dir) {
+        const vals = vizMultiGet(roleName);
+        const ni = idx + dir;
+        if (ni < 0 || ni >= vals.length) return;
+        [vals[idx], vals[ni]] = [vals[ni], vals[idx]];
+        vizMultiSet(roleName, vals);
+      }
+      function vizMultiRemove(roleName, idx) {
+        const vals = vizMultiGet(roleName);
+        vals.splice(idx, 1);
+        vizMultiSet(roleName, vals);
+      }
+      // Render initial state of all multi-lists for the current chart type.
+      // Must be called after the field-roles HTML is in the DOM.
+      function vizMultiInitAll() {
+        const chartTypeId = document.getElementById("viz-chart-type")?.value;
+        if (!chartTypeId) return;
+        const ct = vizChartTypes.find((c) => c.id === chartTypeId);
+        if (!ct) return;
+        ct.field_roles.filter((r) => r.multiple).forEach((r) => vizMultiSet(r.name, vizMultiGet(r.name)));
+      }
 
   let vizChartTypes = [];
   let vizCurrentChartId = null;
@@ -2361,6 +2415,7 @@ title %} {% block color_scheme %}
       </div>
     `;
     updateActiveTable();
+    vizMultiInitAll();
   }
 
   function updateVizFields() {
@@ -2369,6 +2424,7 @@ title %} {% block color_scheme %}
     const columns = tableColumns[tableName] || [];
     const fieldRolesHtml = renderVizFieldRoles(chartTypeId, columns, {});
     document.getElementById("viz-field-roles").innerHTML = fieldRolesHtml;
+    vizMultiInitAll();
   }
     // Build a config object with ALL possible keys for the current chart type.
     // Field roles: null if empty, the selected value(s) if filled.
@@ -2382,13 +2438,12 @@ title %} {% block color_scheme %}
 
       // Field roles — every role gets a key, null if unset
       ct.field_roles.forEach((role) => {
-        const el = document.getElementById(`viz-field-${role.name}`);
-        if (!el) return;
         if (role.multiple) {
-          const selected = [...el.selectedOptions].map((o) => o.value);
+          const selected = vizMultiGet(role.name);
           config[role.name] = selected.length ? selected : null;
         } else {
-          config[role.name] = el.value || null;
+          const el = document.getElementById(`viz-field-${role.name}`);
+          config[role.name] = el?.value || null;
         }
       });
 
@@ -2429,13 +2484,12 @@ title %} {% block color_scheme %}
     // Build config from field roles + styling
     const config = {};
     ct.field_roles.forEach((role) => {
-      const el = document.getElementById(`viz-field-${role.name}`);
-      if (!el) return;
       if (role.multiple) {
-        const selected = [...el.selectedOptions].map((o) => o.value);
+        const selected = vizMultiGet(role.name);
         if (selected.length) config[role.name] = selected;
       } else {
-        if (el.value) config[role.name] = el.value;
+        const el = document.getElementById(`viz-field-${role.name}`);
+        if (el?.value) config[role.name] = el.value;
       }
     });
 
