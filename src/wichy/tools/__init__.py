@@ -5,6 +5,7 @@ from wichy.skills import (
     SkillScriptTool,
     SkillSearchTool,
 )
+from wichy.tools.chart_info import ChartInfoTool
 from wichy.tools.ask_user_question import AskUserQuestionTool
 from wichy.tools.base import BaseTool
 from wichy.tools.bash import BashTool
@@ -66,6 +67,7 @@ __all__ = [
     # Base class
     "BaseTool",
     # Tool classes
+    "ChartInfoTool",
     "AskUserQuestionTool",
     "BashTool",
     "DuckDBLoadTool",

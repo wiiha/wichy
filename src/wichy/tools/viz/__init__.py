@@ -24,6 +24,13 @@ from wichy.tools.viz.registry import (
 # Import renderers to trigger chart type registration (side effect)
 import wichy.tools.viz.renderers  # noqa: F401
 
+from wichy.tools.viz.info import (
+    format_chart_info,
+    format_chart_requirements,
+    format_chart_summary,
+    list_chart_type_ids,
+)
+
 __all__ = [
     "CHART_REGISTRY",
     "ChartTypeDefinition",
@@ -31,4 +38,8 @@ __all__ = [
     "get_chart_type",
     "get_chart_types",
     "register_chart_type",
+    "format_chart_info",
+    "format_chart_requirements",
+    "format_chart_summary",
+    "list_chart_type_ids",
 ]

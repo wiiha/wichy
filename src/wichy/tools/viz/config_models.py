@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 
 class BaseChartConfig(BaseModel):
@@ -208,7 +208,8 @@ def validate_config(
     """Validate a config dict against the chart type's Pydantic model.
 
     Returns ``(config_instance, None)`` on success, ``(None, error_msg)`` on
-    failure.
+    failure. The error message is concise — it lists only the field names and
+    the issue (e.g. "x: field required") rather than the full Pydantic dump.
     """
     model_cls = get_config_model(chart_type)
     if model_cls is None:
@@ -216,5 +217,13 @@ def validate_config(
     try:
         instance = model_cls(**config_dict)
         return instance, None
+    except ValidationError as exc:
+        # Extract concise field-level errors from Pydantic's verbose output
+        problems: list[str] = []
+        for err in exc.errors():
+            field = ".".join(str(loc) for loc in err.get("loc", ()))
+            msg = err.get("msg", "invalid")
+            problems.append(f"{field}: {msg}")
+        return None, "; ".join(problems)
     except Exception as exc:
         return None, str(exc)

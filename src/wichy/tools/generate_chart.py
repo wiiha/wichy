@@ -32,20 +32,20 @@ class GenerateChartParameters(ParametersModel):
         description=(
             "Type of chart to render. One of: bar, distribution, line, scatter, "
             "chord, parallel_coords, time_compass, sankey, treemap, sunburst, "
-            "radar, violin, heatmap, correlogram."
+            "radar, violin, heatmap, correlogram. "
+            "Use the chart_info tool to discover required config fields for each type."
         ),
     )
     config: dict[str, Any] = Field(
         default_factory=dict,
         description=(
-            "Chart configuration dict. Required fields depend on chart_type. "
-            "Common optional fields: title, subtitle, x_axis_label, y_axis_label, "
+            "Chart configuration dict mapping field names to column names in your data. "
+            "Required and optional fields depend on chart_type. "
+            "Call chart_info with the chart_type first to learn the exact fields needed. "
+            "Common optional styling fields: title, subtitle, x_axis_label, y_axis_label, "
             "width (default 1200), height (default 800), dpi (default 150), "
             "theme ('light' or 'dark'), color_palette (list of hex strings), "
-            "font_size (default 14), background ('white' or 'transparent'). "
-            "Chart-specific fields: bar needs {x, y, color_by?, orientation?, mode?}, "
-            "scatter needs {x, y, color_by?, size_by?}, line needs {x, y (list), color_by?}, "
-            "etc. See chart-types endpoint for full field role definitions."
+            "font_size (default 14), background ('white' or 'transparent')."
         ),
     )
 
@@ -61,6 +61,15 @@ class GenerateChartTool(BaseTool):
         "Generate a chart from DuckDB data and save it as a PNG file. "
         "Returns the file path to the generated chart. "
         "The chart is rendered server-side using matplotlib."
+    )
+    description_long = (
+        "Generate a chart from DuckDB data and save it as a PNG file.\n"
+        "Returns the file path to the generated chart.\n\n"
+        "IMPORTANT: The config dict structure varies by chart_type. "
+        "Call chart_info with the chart_type first to discover the exact "
+        "required and optional fields before calling this tool.\n\n"
+        "The data_source can be a DuckDB table name or a SQL SELECT query. "
+        "Config field values are column names from the data source."
     )
     parameters_model = GenerateChartParameters
     needs_verification_in_api: bool = False
@@ -135,9 +144,18 @@ class GenerateChartTool(BaseTool):
             return str(png_path)
 
         except ChartNotFoundError:
-            return format_error(f"Unknown chart type: {chart_type}")
+            from wichy.tools.viz.info import list_chart_type_ids
+
+            return format_error(
+                f"Unknown chart type: {chart_type}. "
+                f"Available types: {', '.join(list_chart_type_ids())}"
+            )
         except ChartConfigError as e:
-            return format_error(f"Invalid chart config: {e}")
+            from wichy.tools.viz.info import format_chart_requirements
+
+            req = format_chart_requirements(chart_type)
+            hint = f" {req}." if req else ""
+            return format_error(f"{e}.{hint}")
         except ChartRenderError as e:
             return format_error(f"Chart rendering failed: {e}")
         except Exception as e:
