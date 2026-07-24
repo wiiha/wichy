@@ -1,1024 +1,1086 @@
-{% extends "base.html" %}
-
-{% block title %}Wichy - Data Explorer{% endblock title %}
-
-{% block color_scheme %}
+{% extends "base.html" %} {% block title %}Wichy - Data Explorer{% endblock
+title %} {% block color_scheme %}
 <meta name="color-scheme" content="light" />
-{% endblock color_scheme %}
-
-{% block theme_script %}{% endblock theme_script %}
-
+{% endblock color_scheme %} {% block theme_script %}{% endblock theme_script %}
 {% block extra_css %}
-    <style>
-        /* Data Explorer specific styles */
-        body {
-            padding: 0;
-        }
-
-        .page-container {
-            display: flex;
-            flex-direction: column;
-            min-height: 100vh;
-        }
-
-        /* Page Header */
-        .page-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: var(--space-lg) var(--space-2xl);
-            background: var(--surface);
-            border-bottom: 1px solid var(--border);
-        }
-
-        .page-header-left {
-            display: flex;
-            align-items: center;
-            gap: var(--space-md);
-        }
-
-        .page-header h1 {
-            margin: 0;
-            font-size: var(--font-size-xl);
-            color: var(--text);
-            display: flex;
-            align-items: center;
-            gap: var(--space-sm);
-        }
-
-        .page-header-subtitle {
-            color: var(--text-muted);
-            font-size: var(--font-size-sm);
-        }
-
-        .page-header-nav a {
-            color: var(--primary-500);
-            text-decoration: none;
-            font-size: var(--font-size-sm);
-            transition: color var(--transition-fast);
-        }
-
-        .page-header-nav a:hover {
-            color: var(--primary-700);
-        }
-
-        /* Main Layout */
-        .main-layout {
-            display: flex;
-            flex: 1;
-            min-height: 0;
-        }
-
-        /* Sidebar */
-        .sidebar {
-            width: 300px;
-            background: var(--surface);
-            border-right: 1px solid var(--border);
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-        }
-
-        .sidebar-header {
-            padding: var(--space-lg);
-            border-bottom: 1px solid var(--border);
-        }
-
-        .sidebar-header h2 {
-            margin: 0 0 var(--space-xs) 0;
-            font-size: var(--font-size-base);
-            font-weight: 600;
-        }
-
-        .sidebar-header .table-count {
-            font-size: var(--font-size-xs);
-            color: var(--text-muted);
-        }
-
-        .sidebar-search {
-            padding: var(--space-md) var(--space-lg);
-            border-bottom: 1px solid var(--border);
-        }
-
-        .sidebar-search input {
-            width: 100%;
-            padding: var(--space-sm) var(--space-md);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-md);
-            font-size: var(--font-size-sm);
-            background: var(--background);
-        }
-
-        .sidebar-search input:focus {
-            outline: none;
-            border-color: var(--primary-500);
-        }
-
-        .tables-list {
-            flex: 1;
-            overflow-y: auto;
-            padding: var(--space-sm) 0;
-        }
-
-        .table-item {
-            padding: var(--space-md) var(--space-lg);
-            cursor: pointer;
-            border-bottom: 1px solid var(--border);
-            transition: background var(--transition-fast);
-        }
-
-        .table-item:last-child {
-            border-bottom: none;
-        }
-
-        .table-item:hover {
-            background: var(--background);
-        }
-
-        .table-item.active {
-            background: var(--primary-50);
-            border-left: 3px solid var(--primary-500);
-        }
-
-        .table-item-name {
-            display: flex;
-            align-items: center;
-            gap: var(--space-sm);
-            font-weight: 500;
-            color: var(--text);
-        }
-
-        .table-item-icon {
-            font-size: var(--font-size-base);
-        }
-
-        .table-item-count {
-            font-size: var(--font-size-xs);
-            color: var(--text-muted);
-            margin-top: var(--space-xs);
-            padding-left: calc(var(--font-size-base) + var(--space-sm));
-        }
-
-        /* Main Content */
-        .main-content {
-            flex: 1;
-            background: var(--background);
-            overflow-y: auto;
-        }
-
-        .content-area {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: var(--space-2xl);
-        }
-
-        /* Empty State */
-        .empty-state {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100%;
-            min-height: 400px;
-            color: var(--text-muted);
-            text-align: center;
-        }
-
-        .empty-state-icon {
-            font-size: 3rem;
-            margin-bottom: var(--space-lg);
-        }
-
-        .empty-state-title {
-            font-size: var(--font-size-lg);
-            font-weight: 500;
-            color: var(--text);
-            margin-bottom: var(--space-sm);
-        }
-
-        .empty-state-description {
-            font-size: var(--font-size-base);
-        }
-
-        /* Loading State */
-        .loading {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: var(--space-md);
-            padding: var(--space-2xl);
-            color: var(--text-muted);
-        }
-
-        .loading-spinner {
-            width: 20px;
-            height: 20px;
-            border: 2px solid var(--border);
-            border-top-color: var(--primary-500);
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
-        }
-
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-
-        /* Error State */
-        .error-message {
-            background: #fef2f2;
-            border: 1px solid #fecaca;
-            border-radius: var(--radius-md);
-            padding: var(--space-lg);
-            color: #991b1b;
-            margin-bottom: var(--space-lg);
-        }
-
-        .error-message-title {
-            font-weight: 600;
-            margin-bottom: var(--space-sm);
-        }
-
-        /* Table Overview */
-        .table-overview {
-            background: var(--surface);
-            border-radius: var(--radius-lg);
-            border: 1px solid var(--border);
-            overflow: hidden;
-        }
-
-        .overview-header {
-            padding: var(--space-lg) var(--space-xl);
-            border-bottom: 1px solid var(--border);
-            background: var(--background);
-        }
-
-        .overview-title {
-            margin: 0;
-            font-size: var(--font-size-xl);
-            display: flex;
-            align-items: center;
-            gap: var(--space-sm);
-        }
-
-        .overview-stats {
-            display: flex;
-            gap: var(--space-xl);
-            margin-top: var(--space-md);
-        }
-
-        .stat-item {
-            display: flex;
-            flex-direction: column;
-        }
-
-        .stat-value {
-            font-size: var(--font-size-lg);
-            font-weight: 600;
-            color: var(--text);
-        }
-
-        .stat-label {
-            font-size: var(--font-size-xs);
-            color: var(--text-muted);
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-
-        .overview-actions {
-            padding: var(--space-lg) var(--space-xl);
-            border-bottom: 1px solid var(--border);
-            display: flex;
-            gap: var(--space-md);
-        }
-        .overview-actions {
-            padding: var(--space-lg) var(--space-xl);
-            border-bottom: 1px solid var(--border);
-            display: flex;
-            gap: var(--space-md);
-        }
-
-        /* Visualize view styles */
-        .viz-field-row {
-            display: flex;
-            flex-direction: column;
-            gap: 2px;
-            margin-bottom: 8px;
-        }
-        .viz-field-row label {
-            font-size: 12px;
-            color: var(--text);
-        }
-
-        /* Chart Gallery styles */
-        .chart-card {
-            transition: box-shadow 0.2s;
-        }
-        .chart-card:hover {
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        }
-        .overview-columns {
-            padding: var(--space-lg) var(--space-xl);
-        }
-
-        .columns-header {
-            font-size: var(--font-size-base);
-            font-weight: 600;
-            margin-bottom: var(--space-md);
-        }
-
-        .columns-list {
-            display: flex;
-            flex-direction: column;
-            gap: var(--space-sm);
-        }
-
-        .column-item {
-            display: flex;
-            align-items: center;
-            gap: var(--space-md);
-            padding: var(--space-md) var(--space-lg);
-            background: var(--background);
-            border-radius: var(--radius-md);
-            cursor: pointer;
-            transition: background var(--transition-fast), box-shadow var(--transition-fast);
-        }
-
-        .column-item:hover {
-            background: var(--background-alt);
-            box-shadow: var(--shadow-sm);
-        }
-
-        .column-name {
-            flex: 1;
-            font-weight: 500;
-            color: var(--text);
-        }
-
-        .column-type {
-            font-size: var(--font-size-xs);
-            padding: var(--space-xs) var(--space-sm);
-            background: var(--surface);
-            border-radius: var(--radius-sm);
-            color: var(--text-muted);
-            font-family: var(--font-mono);
-        }
-
-        .column-nullable {
-            font-size: var(--font-size-xs);
-            color: var(--text-muted);
-        }
-
-        /* Column Profile */
-        .column-profile {
-            background: var(--surface);
-            border-radius: var(--radius-lg);
-            border: 1px solid var(--border);
-            overflow: hidden;
-        }
-
-        .profile-header {
-            padding: var(--space-lg) var(--space-xl);
-            border-bottom: 1px solid var(--border);
-            background: var(--background);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .profile-title {
-            margin: 0;
-            font-size: var(--font-size-xl);
-            display: flex;
-            align-items: center;
-            gap: var(--space-sm);
-        }
-
-        .back-btn {
-            background: none;
-            border: none;
-            color: var(--primary-500);
-            cursor: pointer;
-            font-size: var(--font-size-base);
-            padding: var(--space-sm) var(--space-md);
-            border-radius: var(--radius-md);
-            transition: background var(--transition-fast);
-        }
-
-        .back-btn:hover {
-            background: var(--primary-50);
-        }
-
-        .profile-content {
-            padding: var(--space-xl);
-        }
-
-        .profile-section {
-            margin-bottom: var(--space-xl);
-        }
-
-        .profile-section:last-child {
-            margin-bottom: 0;
-        }
-
-        .profile-section-title {
-            font-size: var(--font-size-sm);
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            color: var(--text-muted);
-            margin-bottom: var(--space-md);
-        }
-
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-            gap: var(--space-md);
-        }
-
-        .stat-card {
-            background: var(--background);
-            border-radius: var(--radius-md);
-            padding: var(--space-md);
-        }
-
-        .stat-card-value {
-            font-size: var(--font-size-lg);
-            font-weight: 600;
-            color: var(--text);
-            font-family: var(--font-mono);
-        }
-
-        .stat-card-label {
-            font-size: var(--font-size-xs);
-            color: var(--text-muted);
-            margin-top: var(--space-xs);
-        }
-
-        /* Histogram */
-        .histogram {
-            margin-top: var(--space-lg);
-        }
-
-        .histogram-title {
-            font-size: var(--font-size-sm);
-            font-weight: 600;
-            margin-bottom: var(--space-md);
-        }
-
-        .histogram-bars {
-            display: flex;
-            flex-direction: column;
-            gap: var(--space-xs);
-        }
-
-        .histogram-bar {
-            display: flex;
-            align-items: center;
-            gap: var(--space-sm);
-        }
-
-        .histogram-label {
-            width: 100px;
-            font-size: var(--font-size-xs);
-            color: var(--text-muted);
-            font-family: var(--font-mono);
-            text-align: right;
-        }
-
-        .histogram-track {
-            flex: 1;
-            height: 20px;
-            background: var(--background);
-            border-radius: var(--radius-sm);
-            overflow: hidden;
-        }
-
-        .histogram-fill {
-            height: 100%;
-            background: var(--primary-500);
-            border-radius: var(--radius-sm);
-            transition: width 0.3s ease;
-        }
-
-        .histogram-count {
-            width: 60px;
-            font-size: var(--font-size-xs);
-            color: var(--text-muted);
-            font-family: var(--font-mono);
-        }
-
-        /* Top Values */
-        .top-values {
-            display: flex;
-            flex-direction: column;
-            gap: var(--space-sm);
-        }
-
-        .value-row {
-            display: flex;
-            align-items: center;
-            gap: var(--space-md);
-            padding: var(--space-sm) var(--space-md);
-            background: var(--background);
-            border-radius: var(--radius-sm);
-        }
-
-        .value-name {
-            flex: 1;
-            font-family: var(--font-mono);
-            font-size: var(--font-size-sm);
-            color: var(--text);
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        .value-count {
-            font-size: var(--font-size-sm);
-            color: var(--text-muted);
-            font-family: var(--font-mono);
-        }
-
-        .value-bar {
-            width: 100px;
-            height: 8px;
-            background: var(--background-alt);
-            border-radius: var(--radius-sm);
-            overflow: hidden;
-        }
-
-        .value-bar-fill {
-            height: 100%;
-            background: var(--primary-500);
-        }
-
-        /* Data Table */
-        .data-table-container {
-            background: var(--surface);
-            border-radius: var(--radius-lg);
-            border: 1px solid var(--border);
-            overflow: hidden;
-        }
-
-        .data-table-header {
-            padding: var(--space-lg) var(--space-xl);
-            border-bottom: 1px solid var(--border);
-            background: var(--background);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .data-table-title {
-            margin: 0;
-            font-size: var(--font-size-xl);
-        }
-
-        .data-table-wrapper {
-            overflow-x: auto;
-            max-height: 500px;
-            overflow-y: auto;
-        }
-
-        .data-table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: var(--font-size-sm);
-        }
-
-        .data-table th {
-            position: sticky;
-            top: 0;
-            background: var(--background-alt);
-            padding: var(--space-sm) var(--space-md);
-            text-align: left;
-            font-weight: 600;
-            color: var(--text);
-            border-bottom: 1px solid var(--border);
-            white-space: nowrap;
-        }
-
-        .data-table td {
-            padding: var(--space-sm) var(--space-md);
-            border-bottom: 1px solid var(--border);
-            font-family: var(--font-mono);
-            color: var(--text);
-        }
-
-        .data-table tr:last-child td {
-            border-bottom: none;
-        }
-
-        .data-table tr:hover td {
-            background: var(--background);
-        }
-
-        .data-table td.null {
-            color: var(--text-light);
-            font-style: italic;
-        }
-
-        /* Correlation Matrix */
-        .correlation-container {
-            background: var(--surface);
-            border-radius: var(--radius-lg);
-            border: 1px solid var(--border);
-            overflow: hidden;
-        }
-
-        .correlation-header {
-            padding: var(--space-lg) var(--space-xl);
-            border-bottom: 1px solid var(--border);
-            background: var(--background);
-        }
-
-        .correlation-title {
-            margin: 0;
-            font-size: var(--font-size-xl);
-        }
-
-        .correlation-subtitle {
-            font-size: var(--font-size-sm);
-            color: var(--text-muted);
-            margin-top: var(--space-xs);
-        }
-
-        .correlation-matrix-wrapper {
-            overflow: auto;
-            padding: var(--space-lg);
-        }
-
-        .correlation-matrix {
-            border-collapse: collapse;
-            font-size: var(--font-size-sm);
-        }
-
-        .correlation-matrix th {
-            padding: var(--space-sm);
-            font-weight: 500;
-            color: var(--text-muted);
-            white-space: nowrap;
-        }
-
-        .correlation-matrix td {
-            padding: var(--space-sm);
-            text-align: center;
-            font-family: var(--font-mono);
-            border: 1px solid var(--border);
-        }
-
-        .correlation-matrix .row-header {
-            text-align: left;
-            font-weight: 500;
-            color: var(--text);
-            background: var(--background);
-        }
-
-        .correlation-matrix .col-header {
-            background: var(--background);
-        }
-
-        .correlation-matrix .diagonal {
-            background: var(--primary-500);
-            color: white;
-            font-weight: 600;
-        }
-
-        /* Correlation color scale: -1 (red) to 1 (blue) */
-        .corr-neg-strong { background: #fca5a5; }
-        .corr-neg-medium { background: #fecaca; }
-        .corr-neg-weak { background: #fee2e2; }
-        .corr-neutral { background: var(--background-alt); }
-        .corr-pos-weak { background: #dbeafe; }
-        .corr-pos-medium { background: #93c5fd; }
-        .corr-pos-strong { background: #60a5fa; color: white; }
-
-        /* No numeric columns */
-        .no-correlation {
-            padding: var(--space-2xl);
-            text-align: center;
-            color: var(--text-muted);
-        }
-
-        /* Responsive */
-        @media (max-width: 768px) {
-            .page-header {
-                padding: var(--space-md) var(--space-lg);
-            }
-
-            .main-layout {
-                flex-direction: column;
-            }
-
-            .sidebar {
-                width: 100%;
-                max-height: 300px;
-            }
-
-            .content-area {
-                padding: var(--space-lg);
-            }
-
-            .overview-stats {
-                flex-wrap: wrap;
-            }
-
-            .stats-grid {
-                grid-template-columns: repeat(2, 1fr);
-            }
-        }
-        #recipes-btn, #gallery-btn {
-          width: 100%;
-          padding: var(--space-md) var(--space-lg);
-          background: var(--surface);
-          color: var(--text);
-          border: 1px solid var(--border);
-          border-radius: var(--radius-sm);
-          font-size: var(--font-size-base);
-          cursor: pointer;
-        }
-        #recipes-btn {
-          margin-top: var(--space-md);
-        }
-        #gallery-btn {
-          margin-top: var(--space-xs);
-        }
-        #recipes-btn:hover, #gallery-btn:hover {
-          background: var(--primary-light);
-        }
-        .recipe-card {
-          background: var(--surface);
-          border: 1px solid var(--border);
-          border-radius: var(--radius-md);
-          padding: var(--space-md);
-          margin-bottom: var(--space-md);
-          cursor: pointer;
-          transition: box-shadow var(--transition-normal);
-        }
-        .recipe-card:hover {
-          box-shadow: var(--shadow-md);
-        }
-        .recipe-card-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-        }
-        .recipe-step-item {
-          display: flex;
-          gap: var(--space-sm);
-          align-items: center;
-          padding: var(--space-sm);
-          background: var(--background);
-          border-radius: var(--radius-sm);
-          margin-bottom: var(--space-xs);
-        }
-        .step-number {
-          font-weight: 600;
-          color: var(--text-muted);
-          min-width: 24px;
-        }
-        .step-fields {
-          flex: 1;
-          display: flex;
-          gap: var(--space-sm);
-          align-items: center;
-        }
-        .recipe-step-item select,
-        .recipe-step-item input {
-          font-size: var(--font-size-base);
-          padding: var(--space-sm);
-        }
-        #error-banner {
-          color: var(--warning-text);
-          background: var(--warning-bg);
-          padding: var(--space-md);
-          border-radius: var(--radius-sm);
-          margin: var(--space-md) 0;
-          display: none;
-        }
-        .preview-grid {
-          width: 100%;
-          border-collapse: collapse;
-          font-size: var(--font-size-sm);
-        }
-        .preview-grid th,
-        .preview-grid td {
-          border: 1px solid var(--border);
-          padding: var(--space-xs);
-          text-align: left;
-        }
-        .preview-grid th {
-          background: var(--background);
-          font-weight: 600;
-        }
-        .preview-grid tr:nth-child(even) {
-          background: var(--surface);
-        }
-        #recipe-sql-preview {
-          background: var(--background);
-          padding: var(--space-md);
-          border-radius: var(--radius-sm);
-          overflow-x: auto;
-          font-family: var(--font-mono);
-          font-size: var(--font-size-sm);
-          white-space: pre-wrap;
-          max-height: 200px;
-          overflow-y: auto;
-          border: 1px solid var(--border);
-        }
-/* Sidebar collapse toggle */
-#sidebar { position: relative; transition: width 0.3s ease; overflow: hidden; }
-#sidebar.collapsed { width: 40px !important; }
-#sidebar.collapsed .sidebar-content { display: none; }
-#sidebar.collapsed h2 { display: none; }
-#sidebar.collapsed #table-count { display: none; }
-#sidebar-toggle { position: absolute; top: 8px; right: 4px; padding: 2px 6px; font-size: 12px; cursor: pointer; }
-    </style>
-{% endblock extra_css %}
-
-{% block body %}
-    <div class="page-container">
-        <!-- Page Header -->
-        <header class="page-header">
-            <div class="page-header-left">
-                <h1>
-                    <span>📊</span>
-                    Data Explorer
-                </h1>
-                <span class="page-header-subtitle">Browse and explore your DuckDB tables</span>
-            </div>
-            <nav class="page-header-nav">
-                <a href="/">← Back to Home</a>
-            </nav>
-        </header>
-
-        <!-- Main Layout -->
-        <main class="main-layout">
-            <!-- Sidebar: Tables List -->
-            <aside class="sidebar" id="sidebar">
-                <div class="sidebar-header">
-                    <h2>Tables</h2>
-                    <button id="sidebar-toggle" onclick="toggleSidebar()" title="Toggle sidebar">◀</button>
-                    <div id="table-count" class="table-count">Loading...</div>
-                </div>
-                <div class="sidebar-content">
-                    <div class="sidebar-search">
-                        <input type="text" id="table-search" placeholder="Search tables...">
-                    </div>
-                    <button id="recipes-btn" onclick="showRecipesView()">📝 Recipes</button>
-                    <button id="gallery-btn" onclick="showChartGallery()">🖼️ Chart Gallery</button>
-                    <div id="tables-list" class="tables-list">
-                        <!-- Tables rendered here -->
-                    </div>
-                </div>
-            </aside>
-
-            <!-- Main Content Area -->
-            <section id="main-content" class="main-content">
-                <!-- Content rendered dynamically -->
-            </section>
-        </main>
+<style>
+  /* Data Explorer specific styles */
+  body {
+    padding: 0;
+  }
+
+  .page-container {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+  }
+
+  /* Page Header */
+  .page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--space-lg) var(--space-2xl);
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .page-header-left {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+  }
+
+  .page-header h1 {
+    margin: 0;
+    font-size: var(--font-size-xl);
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+  }
+
+  .page-header-subtitle {
+    color: var(--text-muted);
+    font-size: var(--font-size-sm);
+  }
+
+  .page-header-nav a {
+    color: var(--primary-500);
+    text-decoration: none;
+    font-size: var(--font-size-sm);
+    transition: color var(--transition-fast);
+  }
+
+  .page-header-nav a:hover {
+    color: var(--primary-700);
+  }
+
+  /* Main Layout */
+  .main-layout {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+  }
+
+  /* Sidebar */
+  .sidebar {
+    width: 300px;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .sidebar-header {
+    padding: var(--space-lg);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .sidebar-header h2 {
+    margin: 0 0 var(--space-xs) 0;
+    font-size: var(--font-size-base);
+    font-weight: 600;
+  }
+
+  .sidebar-header .table-count {
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+  }
+
+  .sidebar-search {
+    padding: var(--space-md) var(--space-lg);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .sidebar-search input {
+    width: 100%;
+    padding: var(--space-sm) var(--space-md);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
+    background: var(--background);
+  }
+
+  .sidebar-search input:focus {
+    outline: none;
+    border-color: var(--primary-500);
+  }
+
+  .tables-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--space-sm) 0;
+  }
+
+  .table-item {
+    padding: var(--space-md) var(--space-lg);
+    cursor: pointer;
+    border-bottom: 1px solid var(--border);
+    transition: background var(--transition-fast);
+  }
+
+  .table-item:last-child {
+    border-bottom: none;
+  }
+
+  .table-item:hover {
+    background: var(--background);
+  }
+
+  .table-item.active {
+    background: var(--primary-50);
+    border-left: 3px solid var(--primary-500);
+  }
+
+  .table-item-name {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    font-weight: 500;
+    color: var(--text);
+  }
+
+  .table-item-icon {
+    font-size: var(--font-size-base);
+  }
+
+  .table-item-count {
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+    margin-top: var(--space-xs);
+    padding-left: calc(var(--font-size-base) + var(--space-sm));
+  }
+
+  /* Main Content */
+  .main-content {
+    flex: 1;
+    background: var(--background);
+    overflow-y: auto;
+  }
+
+  .content-area {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: var(--space-2xl);
+  }
+
+  /* Empty State */
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    min-height: 400px;
+    color: var(--text-muted);
+    text-align: center;
+  }
+
+  .empty-state-icon {
+    font-size: 3rem;
+    margin-bottom: var(--space-lg);
+  }
+
+  .empty-state-title {
+    font-size: var(--font-size-lg);
+    font-weight: 500;
+    color: var(--text);
+    margin-bottom: var(--space-sm);
+  }
+
+  .empty-state-description {
+    font-size: var(--font-size-base);
+  }
+
+  /* Loading State */
+  .loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-md);
+    padding: var(--space-2xl);
+    color: var(--text-muted);
+  }
+
+  .loading-spinner {
+    width: 20px;
+    height: 20px;
+    border: 2px solid var(--border);
+    border-top-color: var(--primary-500);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  /* Error State */
+  .error-message {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: var(--radius-md);
+    padding: var(--space-lg);
+    color: #991b1b;
+    margin-bottom: var(--space-lg);
+  }
+
+  .error-message-title {
+    font-weight: 600;
+    margin-bottom: var(--space-sm);
+  }
+
+  /* Table Overview */
+  .table-overview {
+    background: var(--surface);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border);
+    overflow: hidden;
+  }
+
+  .overview-header {
+    padding: var(--space-lg) var(--space-xl);
+    border-bottom: 1px solid var(--border);
+    background: var(--background);
+  }
+
+  .overview-title {
+    margin: 0;
+    font-size: var(--font-size-xl);
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+  }
+
+  .overview-stats {
+    display: flex;
+    gap: var(--space-xl);
+    margin-top: var(--space-md);
+  }
+
+  .stat-item {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .stat-value {
+    font-size: var(--font-size-lg);
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .stat-label {
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .overview-actions {
+    padding: var(--space-lg) var(--space-xl);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    gap: var(--space-md);
+  }
+  .overview-actions {
+    padding: var(--space-lg) var(--space-xl);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    gap: var(--space-md);
+  }
+
+  /* Visualize view styles */
+  .viz-field-row {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-bottom: 8px;
+  }
+  .viz-field-row label {
+    font-size: 12px;
+    color: var(--text);
+  }
+
+  /* Chart Gallery styles */
+  .chart-card {
+    transition: box-shadow 0.2s;
+  }
+  .chart-card:hover {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  }
+  .overview-columns {
+    padding: var(--space-lg) var(--space-xl);
+  }
+
+  .columns-header {
+    font-size: var(--font-size-base);
+    font-weight: 600;
+    margin-bottom: var(--space-md);
+  }
+
+  .columns-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+  }
+
+  .column-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    padding: var(--space-md) var(--space-lg);
+    background: var(--background);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition:
+      background var(--transition-fast),
+      box-shadow var(--transition-fast);
+  }
+
+  .column-item:hover {
+    background: var(--background-alt);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .column-name {
+    flex: 1;
+    font-weight: 500;
+    color: var(--text);
+  }
+
+  .column-type {
+    font-size: var(--font-size-xs);
+    padding: var(--space-xs) var(--space-sm);
+    background: var(--surface);
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+  }
+
+  .column-nullable {
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+  }
+
+  /* Column Profile */
+  .column-profile {
+    background: var(--surface);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border);
+    overflow: hidden;
+  }
+
+  .profile-header {
+    padding: var(--space-lg) var(--space-xl);
+    border-bottom: 1px solid var(--border);
+    background: var(--background);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .profile-title {
+    margin: 0;
+    font-size: var(--font-size-xl);
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+  }
+
+  .back-btn {
+    background: none;
+    border: none;
+    color: var(--primary-500);
+    cursor: pointer;
+    font-size: var(--font-size-base);
+    padding: var(--space-sm) var(--space-md);
+    border-radius: var(--radius-md);
+    transition: background var(--transition-fast);
+  }
+
+  .back-btn:hover {
+    background: var(--primary-50);
+  }
+
+  .profile-content {
+    padding: var(--space-xl);
+  }
+
+  .profile-section {
+    margin-bottom: var(--space-xl);
+  }
+
+  .profile-section:last-child {
+    margin-bottom: 0;
+  }
+
+  .profile-section-title {
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    margin-bottom: var(--space-md);
+  }
+
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: var(--space-md);
+  }
+
+  .stat-card {
+    background: var(--background);
+    border-radius: var(--radius-md);
+    padding: var(--space-md);
+  }
+
+  .stat-card-value {
+    font-size: var(--font-size-lg);
+    font-weight: 600;
+    color: var(--text);
+    font-family: var(--font-mono);
+  }
+
+  .stat-card-label {
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+    margin-top: var(--space-xs);
+  }
+
+  /* Histogram */
+  .histogram {
+    margin-top: var(--space-lg);
+  }
+
+  .histogram-title {
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    margin-bottom: var(--space-md);
+  }
+
+  .histogram-bars {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+  }
+
+  .histogram-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+  }
+
+  .histogram-label {
+    width: 100px;
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    text-align: right;
+  }
+
+  .histogram-track {
+    flex: 1;
+    height: 20px;
+    background: var(--background);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+  }
+
+  .histogram-fill {
+    height: 100%;
+    background: var(--primary-500);
+    border-radius: var(--radius-sm);
+    transition: width 0.3s ease;
+  }
+
+  .histogram-count {
+    width: 60px;
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+  }
+
+  /* Top Values */
+  .top-values {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+  }
+
+  .value-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    padding: var(--space-sm) var(--space-md);
+    background: var(--background);
+    border-radius: var(--radius-sm);
+  }
+
+  .value-name {
+    flex: 1;
+    font-family: var(--font-mono);
+    font-size: var(--font-size-sm);
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .value-count {
+    font-size: var(--font-size-sm);
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+  }
+
+  .value-bar {
+    width: 100px;
+    height: 8px;
+    background: var(--background-alt);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+  }
+
+  .value-bar-fill {
+    height: 100%;
+    background: var(--primary-500);
+  }
+
+  /* Data Table */
+  .data-table-container {
+    background: var(--surface);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border);
+    overflow: hidden;
+  }
+
+  .data-table-header {
+    padding: var(--space-lg) var(--space-xl);
+    border-bottom: 1px solid var(--border);
+    background: var(--background);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .data-table-title {
+    margin: 0;
+    font-size: var(--font-size-xl);
+  }
+
+  .data-table-wrapper {
+    overflow-x: auto;
+    max-height: 500px;
+    overflow-y: auto;
+  }
+
+  .data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--font-size-sm);
+  }
+
+  .data-table th {
+    position: sticky;
+    top: 0;
+    background: var(--background-alt);
+    padding: var(--space-sm) var(--space-md);
+    text-align: left;
+    font-weight: 600;
+    color: var(--text);
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+
+  .data-table td {
+    padding: var(--space-sm) var(--space-md);
+    border-bottom: 1px solid var(--border);
+    font-family: var(--font-mono);
+    color: var(--text);
+  }
+
+  .data-table tr:last-child td {
+    border-bottom: none;
+  }
+
+  .data-table tr:hover td {
+    background: var(--background);
+  }
+
+  .data-table td.null {
+    color: var(--text-light);
+    font-style: italic;
+  }
+
+  /* Correlation Matrix */
+  .correlation-container {
+    background: var(--surface);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border);
+    overflow: hidden;
+  }
+
+  .correlation-header {
+    padding: var(--space-lg) var(--space-xl);
+    border-bottom: 1px solid var(--border);
+    background: var(--background);
+  }
+
+  .correlation-title {
+    margin: 0;
+    font-size: var(--font-size-xl);
+  }
+
+  .correlation-subtitle {
+    font-size: var(--font-size-sm);
+    color: var(--text-muted);
+    margin-top: var(--space-xs);
+  }
+
+  .correlation-matrix-wrapper {
+    overflow: auto;
+    padding: var(--space-lg);
+  }
+
+  .correlation-matrix {
+    border-collapse: collapse;
+    font-size: var(--font-size-sm);
+  }
+
+  .correlation-matrix th {
+    padding: var(--space-sm);
+    font-weight: 500;
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+
+  .correlation-matrix td {
+    padding: var(--space-sm);
+    text-align: center;
+    font-family: var(--font-mono);
+    border: 1px solid var(--border);
+  }
+
+  .correlation-matrix .row-header {
+    text-align: left;
+    font-weight: 500;
+    color: var(--text);
+    background: var(--background);
+  }
+
+  .correlation-matrix .col-header {
+    background: var(--background);
+  }
+
+  .correlation-matrix .diagonal {
+    background: var(--primary-500);
+    color: white;
+    font-weight: 600;
+  }
+
+  /* Correlation color scale: -1 (red) to 1 (blue) */
+  .corr-neg-strong {
+    background: #fca5a5;
+  }
+  .corr-neg-medium {
+    background: #fecaca;
+  }
+  .corr-neg-weak {
+    background: #fee2e2;
+  }
+  .corr-neutral {
+    background: var(--background-alt);
+  }
+  .corr-pos-weak {
+    background: #dbeafe;
+  }
+  .corr-pos-medium {
+    background: #93c5fd;
+  }
+  .corr-pos-strong {
+    background: #60a5fa;
+    color: white;
+  }
+
+  /* No numeric columns */
+  .no-correlation {
+    padding: var(--space-2xl);
+    text-align: center;
+    color: var(--text-muted);
+  }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    .page-header {
+      padding: var(--space-md) var(--space-lg);
+    }
+
+    .main-layout {
+      flex-direction: column;
+    }
+
+    .sidebar {
+      width: 100%;
+      max-height: 300px;
+    }
+
+    .content-area {
+      padding: var(--space-lg);
+    }
+
+    .overview-stats {
+      flex-wrap: wrap;
+    }
+
+    .stats-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+  #recipes-btn,
+  #gallery-btn {
+    width: 100%;
+    padding: var(--space-md) var(--space-lg);
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-base);
+    cursor: pointer;
+  }
+  #recipes-btn {
+    margin-top: var(--space-md);
+  }
+  #gallery-btn {
+    margin-top: var(--space-xs);
+  }
+  #recipes-btn:hover,
+  #gallery-btn:hover {
+    background: var(--primary-light);
+  }
+  .recipe-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: var(--space-md);
+    margin-bottom: var(--space-md);
+    cursor: pointer;
+    transition: box-shadow var(--transition-normal);
+  }
+  .recipe-card:hover {
+    box-shadow: var(--shadow-md);
+  }
+  .recipe-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .recipe-step-item {
+    display: flex;
+    gap: var(--space-sm);
+    align-items: center;
+    padding: var(--space-sm);
+    background: var(--background);
+    border-radius: var(--radius-sm);
+    margin-bottom: var(--space-xs);
+  }
+  .step-number {
+    font-weight: 600;
+    color: var(--text-muted);
+    min-width: 24px;
+  }
+  .step-fields {
+    flex: 1;
+    display: flex;
+    gap: var(--space-sm);
+    align-items: center;
+  }
+  .recipe-step-item select,
+  .recipe-step-item input {
+    font-size: var(--font-size-base);
+    padding: var(--space-sm);
+  }
+  #error-banner {
+    color: var(--warning-text);
+    background: var(--warning-bg);
+    padding: var(--space-md);
+    border-radius: var(--radius-sm);
+    margin: var(--space-md) 0;
+    display: none;
+  }
+  .preview-grid {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--font-size-sm);
+  }
+  .preview-grid th,
+  .preview-grid td {
+    border: 1px solid var(--border);
+    padding: var(--space-xs);
+    text-align: left;
+  }
+  .preview-grid th {
+    background: var(--background);
+    font-weight: 600;
+  }
+  .preview-grid tr:nth-child(even) {
+    background: var(--surface);
+  }
+  #recipe-sql-preview {
+    background: var(--background);
+    padding: var(--space-md);
+    border-radius: var(--radius-sm);
+    overflow-x: auto;
+    font-family: var(--font-mono);
+    font-size: var(--font-size-sm);
+    white-space: pre-wrap;
+    max-height: 200px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+  }
+  /* Sidebar collapse toggle */
+  #sidebar {
+    position: relative;
+    transition: width 0.3s ease;
+    overflow: hidden;
+  }
+  #sidebar.collapsed {
+    width: 40px !important;
+  }
+  #sidebar.collapsed .sidebar-content {
+    display: none;
+  }
+  #sidebar.collapsed h2 {
+    display: none;
+  }
+  #sidebar.collapsed #table-count {
+    display: none;
+  }
+  #sidebar-toggle {
+    position: absolute;
+    top: 8px;
+    right: 4px;
+    padding: 2px 6px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+</style>
+{% endblock extra_css %} {% block body %}
+<div class="page-container">
+  <!-- Page Header -->
+  <header class="page-header">
+    <div class="page-header-left">
+      <h1>
+        <span>📊</span>
+        Data Explorer
+      </h1>
+      <span class="page-header-subtitle"
+        >Browse and explore your DuckDB tables</span
+      >
     </div>
+    <nav class="page-header-nav">
+      <a href="/">← Back to Home</a>
+    </nav>
+  </header>
 
-    <script>
-        // API Base URL
-        const API_BASE = '/tools/data/api';
+  <!-- Main Layout -->
+  <main class="main-layout">
+    <!-- Sidebar: Tables List -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <h2>Tables</h2>
+        <button
+          id="sidebar-toggle"
+          onclick="toggleSidebar()"
+          title="Toggle sidebar"
+        >
+          ◀
+        </button>
+        <div id="table-count" class="table-count">Loading...</div>
+      </div>
+      <div class="sidebar-content">
+        <div class="sidebar-search">
+          <input type="text" id="table-search" placeholder="Search tables..." />
+        </div>
+        <button id="recipes-btn" onclick="showRecipesView()">📝 Recipes</button>
+        <button id="gallery-btn" onclick="showChartGallery()">
+          🖼️ Chart Gallery
+        </button>
+        <div id="tables-list" class="tables-list">
+          <!-- Tables rendered here -->
+        </div>
+      </div>
+    </aside>
 
-        // State
-        let tables = [];
-        let currentTable = null;
-        let currentView = null; // 'overview', 'column', 'sample', 'correlations'
-          let tableColumns = {};
-        // DOM Elements
-        const tablesList = document.getElementById('tables-list');
-        const tableCount = document.getElementById('table-count');
-        const tableSearch = document.getElementById('table-search');
-        const mainContent = document.getElementById('main-content');
+    <!-- Main Content Area -->
+    <section id="main-content" class="main-content">
+      <!-- Content rendered dynamically -->
+    </section>
+  </main>
+</div>
 
-        // Initialize
-        document.addEventListener('DOMContentLoaded', loadTables);
+<script>
+  // API Base URL
+  const API_BASE = "/tools/data/api";
 
-        // Search functionality
-        tableSearch.addEventListener('input', (e) => {
-            const query = e.target.value.toLowerCase();
-            renderTablesList(tables.filter(t => t.name.toLowerCase().includes(query)));
-        });
+  // State
+  let tables = [];
+  let currentTable = null;
+  let currentView = null; // 'overview', 'column', 'sample', 'correlations'
+  let tableColumns = {};
+  // DOM Elements
+  const tablesList = document.getElementById("tables-list");
+  const tableCount = document.getElementById("table-count");
+  const tableSearch = document.getElementById("table-search");
+  const mainContent = document.getElementById("main-content");
 
-        // API Functions
-        async function loadTables() {
-            showLoading(tablesList);
-            try {
-                const response = await fetch(`${API_BASE}/tables`);
-                const data = await response.json();
-                tables = data.tables || [];
-                renderTablesList(tables);
-                updateTableCount();
-                showEmptyState('Select a table to explore');
-            } catch (error) {
-                showError('Failed to load tables', error.message);
-            }
-        }
+  // Initialize
+  document.addEventListener("DOMContentLoaded", loadTables);
 
-        async function loadTableOverview(tableName) {
-            currentTable = tableName;
-            currentView = 'overview';
-            showLoading(mainContent);
+  // Search functionality
+  tableSearch.addEventListener("input", (e) => {
+    const query = e.target.value.toLowerCase();
+    renderTablesList(
+      tables.filter((t) => t.name.toLowerCase().includes(query)),
+    );
+  });
 
-            try {
-                const response = await fetch(`${API_BASE}/table/${encodeURIComponent(tableName)}`);
-                const data = await response.json();
-                renderTableOverview(data);
-                  if (data.columns) {
-                      tableColumns[data.name] = data.columns.map(col => col.name);
-                  }
-            } catch (error) {
-                showError('Failed to load table', error.message);
-            }
-        }
+  // API Functions
+  async function loadTables() {
+    showLoading(tablesList);
+    try {
+      const response = await fetch(`${API_BASE}/tables`);
+      const data = await response.json();
+      tables = data.tables || [];
+      renderTablesList(tables);
+      updateTableCount();
+      showEmptyState("Select a table to explore");
+    } catch (error) {
+      showError("Failed to load tables", error.message);
+    }
+  }
 
-        async function loadColumnProfile(tableName, columnName) {
-            currentView = 'column';
-            showLoading(mainContent);
+  async function loadTableOverview(tableName) {
+    currentTable = tableName;
+    currentView = "overview";
+    showLoading(mainContent);
 
-            try {
-                const response = await fetch(`${API_BASE}/column/${encodeURIComponent(tableName)}/${encodeURIComponent(columnName)}`);
-                const data = await response.json();
-                renderColumnProfile(data, tableName, columnName);
-            } catch (error) {
-                showError('Failed to load column profile', error.message);
-            }
-        }
+    try {
+      const response = await fetch(
+        `${API_BASE}/table/${encodeURIComponent(tableName)}`,
+      );
+      const data = await response.json();
+      renderTableOverview(data);
+      if (data.columns) {
+        tableColumns[data.name] = data.columns.map((col) => col.name);
+      }
+    } catch (error) {
+      showError("Failed to load table", error.message);
+    }
+  }
 
-        async function loadSampleRows(tableName) {
-            currentView = 'sample';
-            showLoading(mainContent);
+  async function loadColumnProfile(tableName, columnName) {
+    currentView = "column";
+    showLoading(mainContent);
 
-            try {
-                const response = await fetch(`${API_BASE}/sample/${encodeURIComponent(tableName)}`);
-                const data = await response.json();
-                renderSampleRows(data, tableName);
-            } catch (error) {
-                showError('Failed to load sample rows', error.message);
-            }
-        }
+    try {
+      const response = await fetch(
+        `${API_BASE}/column/${encodeURIComponent(tableName)}/${encodeURIComponent(columnName)}`,
+      );
+      const data = await response.json();
+      renderColumnProfile(data, tableName, columnName);
+    } catch (error) {
+      showError("Failed to load column profile", error.message);
+    }
+  }
 
-        async function loadCorrelations(tableName) {
-            currentView = 'correlations';
-            showLoading(mainContent);
+  async function loadSampleRows(tableName) {
+    currentView = "sample";
+    showLoading(mainContent);
 
-            try {
-                const response = await fetch(`${API_BASE}/correlations/${encodeURIComponent(tableName)}`);
-                const data = await response.json();
-                renderCorrelations(data, tableName);
-            } catch (error) {
-                showError('Failed to load correlations', error.message);
-            }
-        }
+    try {
+      const response = await fetch(
+        `${API_BASE}/sample/${encodeURIComponent(tableName)}`,
+      );
+      const data = await response.json();
+      renderSampleRows(data, tableName);
+    } catch (error) {
+      showError("Failed to load sample rows", error.message);
+    }
+  }
 
-        // Render Functions
-        function renderTablesList(tablesToRender) {
-            if (tablesToRender.length === 0) {
-                tablesList.innerHTML = `
+  async function loadCorrelations(tableName) {
+    currentView = "correlations";
+    showLoading(mainContent);
+
+    try {
+      const response = await fetch(
+        `${API_BASE}/correlations/${encodeURIComponent(tableName)}`,
+      );
+      const data = await response.json();
+      renderCorrelations(data, tableName);
+    } catch (error) {
+      showError("Failed to load correlations", error.message);
+    }
+  }
+
+  // Render Functions
+  function renderTablesList(tablesToRender) {
+    if (tablesToRender.length === 0) {
+      tablesList.innerHTML = `
                     <div class="empty-state">
                         <p>No tables found</p>
                     </div>
                 `;
-                return;
-            }
+      return;
+    }
 
-            tablesList.innerHTML = tablesToRender.map(table => `
-                <div class="table-item ${currentTable === table.name ? 'active' : ''}" 
-                     data-table="${escapeHtml(table.name)}" 
+    tablesList.innerHTML = tablesToRender
+      .map(
+        (table) => `
+                <div class="table-item ${currentTable === table.name ? "active" : ""}"
+                     data-table="${escapeHtml(table.name)}"
                      onclick="selectTable('${escapeJs(table.name)}')">
                     <div class="table-item-name">
                         <span class="table-item-icon">📄</span>
                         ${escapeHtml(table.name)}
                     </div>
                     <div class="table-item-count">
-                        ${table.row_count !== null ? formatNumber(table.row_count) + ' rows' : 'Unknown rows'}
-                        ${table.error ? ' ⚠️' : ''}
+                        ${table.row_count !== null ? formatNumber(table.row_count) + " rows" : "Unknown rows"}
+                        ${table.error ? " ⚠️" : ""}
                     </div>
                 </div>
-            `).join('');
-        }
+            `,
+      )
+      .join("");
+  }
 
-        function renderTableOverview(data) {
-            const errorHtml = data.error ? `
+  function renderTableOverview(data) {
+    const errorHtml = data.error
+      ? `
                 <div class="error-message">
                     <div class="error-message-title">Error</div>
                     <div>${escapeHtml(data.error)}</div>
                 </div>
-            ` : '';
+            `
+      : "";
 
-            const columnsHtml = data.columns.map(col => `
+    const columnsHtml = data.columns
+      .map(
+        (col) => `
                 <div class="column-item" onclick="selectColumn('${escapeJs(currentTable)}', '${escapeJs(col.name)}')">
                     <span class="column-name">${escapeHtml(col.name)}</span>
                     <span class="column-type">${escapeHtml(col.type)}</span>
-                    <span class="column-nullable">${col.nullable ? 'nullable' : 'required'}</span>
+                    <span class="column-nullable">${col.nullable ? "nullable" : "required"}</span>
                 </div>
-            `).join('');
+            `,
+      )
+      .join("");
 
-            mainContent.innerHTML = `
+    mainContent.innerHTML = `
                 <div class="content-area">
                     ${errorHtml}
                     <div class="table-overview">
@@ -1036,12 +1098,16 @@
                                     <span class="stat-value">${formatNumber(data.columns.length)}</span>
                                     <span class="stat-label">Columns</span>
                                 </div>
-                                ${data.size_bytes !== null ? `
+                                ${
+                                  data.size_bytes !== null
+                                    ? `
                                 <div class="stat-item">
                                     <span class="stat-value">${formatBytes(data.size_bytes)}</span>
                                     <span class="stat-label">Size</span>
                                 </div>
-                                ` : ''}
+                                `
+                                    : ""
+                                }
                             </div>
                         </div>
                         <div class="overview-actions">
@@ -1052,7 +1118,7 @@
                                 View Correlations
                             </button>
                             <button class="btn btn-secondary" onclick="showVisualization('${escapeJs(currentTable)}')">
-                                📊 Visualize
+                                Visualize
                             </button>
                         </div>
                         <div class="overview-columns">
@@ -1065,21 +1131,21 @@
                 </div>
             `;
 
-            updateActiveTable();
-        }
+    updateActiveTable();
+  }
 
-        function renderColumnProfile(data, tableName, columnName) {
-            const isNumeric = data.type === 'numeric';
-            
-            let profileHtml = '';
-            
-            if (isNumeric) {
-                profileHtml = renderNumericProfile(data);
-            } else {
-                profileHtml = renderCategoricalProfile(data);
-            }
+  function renderColumnProfile(data, tableName, columnName) {
+    const isNumeric = data.type === "numeric";
 
-            mainContent.innerHTML = `
+    let profileHtml = "";
+
+    if (isNumeric) {
+      profileHtml = renderNumericProfile(data);
+    } else {
+      profileHtml = renderCategoricalProfile(data);
+    }
+
+    mainContent.innerHTML = `
                 <div class="content-area">
                     <div class="column-profile">
                         <div class="profile-header">
@@ -1102,17 +1168,21 @@
                                         <div class="stat-card-value">${formatNumber(data.null_count)}</div>
                                         <div class="stat-card-label">Nulls</div>
                                     </div>
-                                    ${isNumeric ? `
+                                    ${
+                                      isNumeric
+                                        ? `
                                     <div class="stat-card">
-                                        <div class="stat-card-value">${formatNumber(data.distinct_count || 'N/A')}</div>
+                                        <div class="stat-card-value">${formatNumber(data.distinct_count || "N/A")}</div>
                                         <div class="stat-card-label">Distinct</div>
                                     </div>
-                                    ` : `
+                                    `
+                                        : `
                                     <div class="stat-card">
                                         <div class="stat-card-value">${formatNumber(data.distinct_count)}</div>
                                         <div class="stat-card-label">Distinct</div>
                                     </div>
-                                    `}
+                                    `
+                                    }
                                 </div>
                             </div>
                             ${profileHtml}
@@ -1120,10 +1190,10 @@
                     </div>
                 </div>
             `;
-        }
+  }
 
-        function renderNumericProfile(data) {
-            let statsHtml = `
+  function renderNumericProfile(data) {
+    let statsHtml = `
                 <div class="profile-section">
                     <div class="profile-section-title">Statistics</div>
                     <div class="stats-grid">
@@ -1151,64 +1221,76 @@
                 </div>
             `;
 
-            let histogramHtml = '';
-            if (data.histogram && data.histogram.length > 0) {
-                const maxCount = Math.max(...data.histogram.map(h => h.count));
-                histogramHtml = `
+    let histogramHtml = "";
+    if (data.histogram && data.histogram.length > 0) {
+      const maxCount = Math.max(...data.histogram.map((h) => h.count));
+      histogramHtml = `
                     <div class="histogram">
                         <h4 class="histogram-title">Distribution</h4>
                         <div class="histogram-bars">
-                            ${data.histogram.map(bucket => `
+                            ${data.histogram
+                              .map(
+                                (bucket) => `
                                 <div class="histogram-bar">
                                     <span class="histogram-label">${formatNumber(bucket.bucket_min)}</span>
                                     <div class="histogram-track">
-                                        <div class="histogram-fill" style="width: ${(bucket.count / maxCount * 100)}%"></div>
+                                        <div class="histogram-fill" style="width: ${(bucket.count / maxCount) * 100}%"></div>
                                     </div>
                                     <span class="histogram-count">${formatNumber(bucket.count)}</span>
                                 </div>
-                            `).join('')}
+                            `,
+                              )
+                              .join("")}
                         </div>
                     </div>
                 `;
-            }
+    }
 
-            return statsHtml + histogramHtml;
-        }
+    return statsHtml + histogramHtml;
+  }
 
-        function renderCategoricalProfile(data) {
-            let valuesHtml = '';
-            if (data.top_values && data.top_values.length > 0) {
-                const maxCount = data.top_values[0].count;
-                valuesHtml = `
+  function renderCategoricalProfile(data) {
+    let valuesHtml = "";
+    if (data.top_values && data.top_values.length > 0) {
+      const maxCount = data.top_values[0].count;
+      valuesHtml = `
                     <div class="profile-section">
                         <div class="profile-section-title">Top Values</div>
                         <div class="top-values">
-                            ${data.top_values.map(item => `
+                            ${data.top_values
+                              .map(
+                                (item) => `
                                 <div class="value-row">
                                     <span class="value-name" title="${escapeHtml(item.value)}">${escapeHtml(String(item.value))}</span>
                                     <span class="value-count">${formatNumber(item.count)}</span>
                                     <div class="value-bar">
-                                        <div class="value-bar-fill" style="width: ${(item.count / maxCount * 100)}%"></div>
+                                        <div class="value-bar-fill" style="width: ${(item.count / maxCount) * 100}%"></div>
                                     </div>
                                 </div>
-                            `).join('')}
-                            ${data.other_count > 0 ? `
+                            `,
+                              )
+                              .join("")}
+                            ${
+                              data.other_count > 0
+                                ? `
                                 <div class="value-row" style="color: var(--text-muted);">
                                     <span class="value-name">Other values</span>
                                     <span class="value-count">${formatNumber(data.other_count)}</span>
                                 </div>
-                            ` : ''}
+                            `
+                                : ""
+                            }
                         </div>
                     </div>
                 `;
-            }
+    }
 
-            return valuesHtml;
-        }
+    return valuesHtml;
+  }
 
-        function renderSampleRows(data, tableName) {
-            if (data.error) {
-                mainContent.innerHTML = `
+  function renderSampleRows(data, tableName) {
+    if (data.error) {
+      mainContent.innerHTML = `
                     <div class="content-area">
                         <div class="data-table-container">
                             <div class="data-table-header">
@@ -1224,24 +1306,30 @@
                         </div>
                     </div>
                 `;
-                return;
-            }
+      return;
+    }
 
-            const headerHtml = data.columns.map(col => 
-                `<th>${escapeHtml(col)}</th>`
-            ).join('');
+    const headerHtml = data.columns
+      .map((col) => `<th>${escapeHtml(col)}</th>`)
+      .join("");
 
-            const rowsHtml = data.rows.map(row => `
+    const rowsHtml = data.rows
+      .map(
+        (row) => `
                 <tr>
-                    ${row.map(val => 
-                        val === null 
-                            ? '<td class="null">null</td>'
-                            : `<td>${escapeHtml(String(val))}</td>`
-                    ).join('')}
+                    ${row
+                      .map((val) =>
+                        val === null
+                          ? '<td class="null">null</td>'
+                          : `<td>${escapeHtml(String(val))}</td>`,
+                      )
+                      .join("")}
                 </tr>
-            `).join('');
+            `,
+      )
+      .join("");
 
-            mainContent.innerHTML = `
+    mainContent.innerHTML = `
                 <div class="content-area">
                     <div class="data-table-container">
                         <div class="data-table-header">
@@ -1264,11 +1352,11 @@
                     </div>
                 </div>
             `;
-        }
+  }
 
-        function renderCorrelations(data, tableName) {
-            if (!data.columns || data.columns.length === 0) {
-                mainContent.innerHTML = `
+  function renderCorrelations(data, tableName) {
+    if (!data.columns || data.columns.length === 0) {
+      mainContent.innerHTML = `
                     <div class="content-area">
                         <div class="correlation-container">
                             <div class="correlation-header">
@@ -1284,29 +1372,36 @@
                         </div>
                     </div>
                 `;
-                return;
-            }
+      return;
+    }
 
-            const cols = data.columns;
-            const matrix = data.matrix;
+    const cols = data.columns;
+    const matrix = data.matrix;
 
-            const headerHtml = cols.map(col => 
-                `<th class="col-header">${escapeHtml(col)}</th>`
-            ).join('');
+    const headerHtml = cols
+      .map((col) => `<th class="col-header">${escapeHtml(col)}</th>`)
+      .join("");
 
-            const rowsHtml = matrix.map((row, i) => `
+    const rowsHtml = matrix
+      .map(
+        (row, i) => `
                 <tr>
                     <th class="row-header">${escapeHtml(cols[i])}</th>
-                    ${row.map((val, j) => {
+                    ${row
+                      .map((val, j) => {
                         const isDiagonal = i === j;
                         const corrClass = getCorrelationClass(val);
-                        const displayVal = val === null ? 'N/A' : val.toFixed(2);
-                        return `<td class="${isDiagonal ? 'diagonal' : corrClass}">${displayVal}</td>`;
-                    }).join('')}
+                        const displayVal =
+                          val === null ? "N/A" : val.toFixed(2);
+                        return `<td class="${isDiagonal ? "diagonal" : corrClass}">${displayVal}</td>`;
+                      })
+                      .join("")}
                 </tr>
-            `).join('');
+            `,
+      )
+      .join("");
 
-            mainContent.innerHTML = `
+    mainContent.innerHTML = `
                 <div class="content-area">
                     <div class="correlation-container">
                         <div class="correlation-header">
@@ -1332,145 +1427,150 @@
                     </div>
                 </div>
             `;
-        }
+  }
 
-        // Helper Functions
-        function selectTable(tableName) {
-            currentTable = tableName;
-            updateActiveTable();
-            loadTableOverview(tableName);
-        }
+  // Helper Functions
+  function selectTable(tableName) {
+    currentTable = tableName;
+    updateActiveTable();
+    loadTableOverview(tableName);
+  }
 
-        function selectColumn(tableName, columnName) {
-            loadColumnProfile(tableName, columnName);
-        }
+  function selectColumn(tableName, columnName) {
+    loadColumnProfile(tableName, columnName);
+  }
 
-        function showSampleRows(tableName) {
-            loadSampleRows(tableName);
-        }
+  function showSampleRows(tableName) {
+    loadSampleRows(tableName);
+  }
 
-        function showCorrelations(tableName) {
-            loadCorrelations(tableName);
-        }
+  function showCorrelations(tableName) {
+    loadCorrelations(tableName);
+  }
 
-        function updateActiveTable() {
-            document.querySelectorAll('.table-item').forEach(item => {
-                if (item.dataset.table === currentTable) {
-                    item.classList.add('active');
-                } else {
-                    item.classList.remove('active');
-                }
-            });
-        }
+  function updateActiveTable() {
+    document.querySelectorAll(".table-item").forEach((item) => {
+      if (item.dataset.table === currentTable) {
+        item.classList.add("active");
+      } else {
+        item.classList.remove("active");
+      }
+    });
+  }
 
-        function updateTableCount() {
-            tableCount.textContent = `${tables.length} table${tables.length !== 1 ? 's' : ''}`;
-        }
+  function updateTableCount() {
+    tableCount.textContent = `${tables.length} table${tables.length !== 1 ? "s" : ""}`;
+  }
 
-        function showLoading(container) {
-            container.innerHTML = `
+  function showLoading(container) {
+    container.innerHTML = `
                 <div class="loading">
                     <div class="loading-spinner"></div>
                     <span>Loading...</span>
                 </div>
             `;
-        }
+  }
 
-        function showEmptyState(message) {
-            mainContent.innerHTML = `
+  function showEmptyState(message) {
+    mainContent.innerHTML = `
                 <div class="empty-state">
                     <div class="empty-state-icon">📊</div>
                     <div class="empty-state-title">No Table Selected</div>
                     <div class="empty-state-description">${escapeHtml(message)}</div>
                 </div>
             `;
-        }
+  }
 
-        function showError(title, message) {
-            const target = tablesList.contains(document.querySelector('.loading')) ? tablesList : mainContent;
-            target.innerHTML = `
+  function showError(title, message) {
+    const target = tablesList.contains(document.querySelector(".loading"))
+      ? tablesList
+      : mainContent;
+    target.innerHTML = `
                 <div class="error-message">
                     <div class="error-message-title">${escapeHtml(title)}</div>
                     <div>${escapeHtml(message)}</div>
                 </div>
             `;
-        }
-
-        function formatNumber(num) {
-            if (num === null || num === undefined) return 'N/A';
-            if (typeof num !== 'number') return num;
-            return num.toLocaleString(undefined, { maximumFractionDigits: 2 });
-        }
-
-        function formatBytes(bytes) {
-            if (bytes === 0) return '0 B';
-            const k = 1024;
-            const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-            const i = Math.floor(Math.log(bytes) / Math.log(k));
-            return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-        }
-
-        function getCorrelationClass(value) {
-            // Handle null/undefined values (from NaN/Infinity correlations)
-            if (value === null || value === undefined) return 'corr-na';
-            // Color scale for correlation values
-            if (value < -0.7) return 'corr-neg-strong';
-            if (value < -0.3) return 'corr-neg-medium';
-            if (value < 0) return 'corr-neg-weak';
-            if (value === 0) return 'corr-neutral';
-            if (value < 0.3) return 'corr-pos-weak';
-            if (value < 0.7) return 'corr-pos-medium';
-            return 'corr-pos-strong';
-        }
-
-        function escapeHtml(str) {
-            if (str === null || str === undefined) return '';
-            const div = document.createElement('div');
-            div.textContent = String(str);
-            return div.innerHTML;
-        }
-
-        function escapeJs(str) {
-            return String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n');
-        }
-
-// ─── Recipes State ───
-let currentRecipeSteps = [];
-let currentRecipeSlug = null;
-let currentRecipeName = "";
-
-function showRecipesView() {
-  currentTable = null;
-  currentView = 'recipes';
-  updateActiveTable(null);
-  loadRecipesList();
-}
-
-async function loadRecipesList() {
-  const container = document.getElementById('main-content');
-  showLoading(container);
-  try {
-    const resp = await fetch(`${API_BASE}/recipes`);
-    const data = await resp.json();
-    renderRecipesList(data.recipes || []);
-  } catch (e) {
-    showError(container, 'Failed to load recipes: ' + e);
   }
-}
 
-function renderRecipesList(recipes) {
-  const container = document.getElementById('main-content');
-  let html = `
+  function formatNumber(num) {
+    if (num === null || num === undefined) return "N/A";
+    if (typeof num !== "number") return num;
+    return num.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  }
+
+  function formatBytes(bytes) {
+    if (bytes === 0) return "0 B";
+    const k = 1024;
+    const sizes = ["B", "KB", "MB", "GB", "TB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
+  }
+
+  function getCorrelationClass(value) {
+    // Handle null/undefined values (from NaN/Infinity correlations)
+    if (value === null || value === undefined) return "corr-na";
+    // Color scale for correlation values
+    if (value < -0.7) return "corr-neg-strong";
+    if (value < -0.3) return "corr-neg-medium";
+    if (value < 0) return "corr-neg-weak";
+    if (value === 0) return "corr-neutral";
+    if (value < 0.3) return "corr-pos-weak";
+    if (value < 0.7) return "corr-pos-medium";
+    return "corr-pos-strong";
+  }
+
+  function escapeHtml(str) {
+    if (str === null || str === undefined) return "";
+    const div = document.createElement("div");
+    div.textContent = String(str);
+    return div.innerHTML;
+  }
+
+  function escapeJs(str) {
+    return String(str)
+      .replace(/\\/g, "\\\\")
+      .replace(/'/g, "\\'")
+      .replace(/\n/g, "\\n");
+  }
+
+  // ─── Recipes State ───
+  let currentRecipeSteps = [];
+  let currentRecipeSlug = null;
+  let currentRecipeName = "";
+
+  function showRecipesView() {
+    currentTable = null;
+    currentView = "recipes";
+    updateActiveTable(null);
+    loadRecipesList();
+  }
+
+  async function loadRecipesList() {
+    const container = document.getElementById("main-content");
+    showLoading(container);
+    try {
+      const resp = await fetch(`${API_BASE}/recipes`);
+      const data = await resp.json();
+      renderRecipesList(data.recipes || []);
+    } catch (e) {
+      showError(container, "Failed to load recipes: " + e);
+    }
+  }
+
+  function renderRecipesList(recipes) {
+    const container = document.getElementById("main-content");
+    let html = `
     <div class="content-header">
       <h2>Recipes</h2>
       <button onclick="startNewRecipe()" style="padding:var(--space-md) var(--space-lg); font-size:var(--font-size-base);">+ New recipe</button>
     </div>
   `;
-  if (!recipes.length) {
-    html += `<div class="empty-state"><p>No saved recipes yet.</p></div>`;
-  } else {
-    recipes.forEach(r => {
-      html += `
+    if (!recipes.length) {
+      html += `<div class="empty-state"><p>No saved recipes yet.</p></div>`;
+    } else {
+      recipes.forEach((r) => {
+        html += `
         <div class="recipe-card" onclick="loadRecipe('${escapeJs(r.slug)}')">
           <div class="recipe-card-header">
             <strong>${escapeHtml(r.name)}</strong>
@@ -1479,100 +1579,112 @@ function renderRecipesList(recipes) {
           <div class="recipe-card-meta">${escapeHtml(r.created_at)}</div>
         </div>
       `;
-    });
-  }
-  container.innerHTML = html;
-}
-
-function startNewRecipe() {
-  currentRecipeSteps = [{ type: 'source', table: '' }];
-  currentRecipeSlug = null;
-  currentRecipeName = '';
-  renderRecipeEditor();
-}
-
-let lastPreviewedSteps = null;
-let stepSchemaCache = new Map();
-let schemaTimers = {};
-
-function getSchemaForStep(idx) {
-  if (stepSchemaCache.has(idx)) return stepSchemaCache.get(idx);
-  return null;
-}
-
-function scheduleSchemaFetch(idx) {
-  if (schemaTimers[idx]) clearTimeout(schemaTimers[idx]);
-  schemaTimers[idx] = setTimeout(() => fetchSchemaForStep(idx), 300);
-}
-
-async function fetchSchemaForStep(idx) {
-  if (idx === 0) {
-    const srcStep = currentRecipeSteps[0];
-    if (srcStep && srcStep.table && tableColumns[srcStep.table]) {
-      stepSchemaCache.set(idx, tableColumns[srcStep.table]);
-      renderRecipeEditor();
+      });
     }
-    return;
+    container.innerHTML = html;
   }
-  const precedingSteps = currentRecipeSteps.slice(0, idx);
-  try {
-    const resp = await fetch(`${API_BASE}/recipe/preview`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ steps: precedingSteps })
-    });
-    const data = await resp.json();
-    if (data.columns) {
-      stepSchemaCache.set(idx, data.columns);
-      delete schemaTimers[idx];
-      renderRecipeEditor();
+
+  function startNewRecipe() {
+    currentRecipeSteps = [{ type: "source", table: "" }];
+    currentRecipeSlug = null;
+    currentRecipeName = "";
+    renderRecipeEditor();
+  }
+
+  let lastPreviewedSteps = null;
+  let stepSchemaCache = new Map();
+  let schemaTimers = {};
+
+  function getSchemaForStep(idx) {
+    if (stepSchemaCache.has(idx)) return stepSchemaCache.get(idx);
+    return null;
+  }
+
+  function scheduleSchemaFetch(idx) {
+    if (schemaTimers[idx]) clearTimeout(schemaTimers[idx]);
+    schemaTimers[idx] = setTimeout(() => fetchSchemaForStep(idx), 300);
+  }
+
+  async function fetchSchemaForStep(idx) {
+    if (idx === 0) {
+      const srcStep = currentRecipeSteps[0];
+      if (srcStep && srcStep.table && tableColumns[srcStep.table]) {
+        stepSchemaCache.set(idx, tableColumns[srcStep.table]);
+        renderRecipeEditor();
+      }
+      return;
     }
-  } catch (e) {
-    console.warn('Schema fetch failed for step', idx, e);
+    const precedingSteps = currentRecipeSteps.slice(0, idx);
+    try {
+      const resp = await fetch(`${API_BASE}/recipe/preview`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ steps: precedingSteps }),
+      });
+      const data = await resp.json();
+      if (data.columns) {
+        stepSchemaCache.set(idx, data.columns);
+        delete schemaTimers[idx];
+        renderRecipeEditor();
+      }
+    } catch (e) {
+      console.warn("Schema fetch failed for step", idx, e);
+    }
   }
-}
 
-function renderColumnSelect(idx, fieldName, currentVal, width) {
-  const cols = getSchemaForStep(idx);
-  if (!cols) {
-    return `<input type="text" placeholder="Column" value="${escapeHtml(currentVal || '')}" onchange="updateStepField(${idx}, '${fieldName}', this.value)" style="width:${width || '100px'};"/>`;
+  function renderColumnSelect(idx, fieldName, currentVal, width) {
+    const cols = getSchemaForStep(idx);
+    if (!cols) {
+      return `<input type="text" placeholder="Column" value="${escapeHtml(currentVal || "")}" onchange="updateStepField(${idx}, '${fieldName}', this.value)" style="width:${width || "100px"};"/>`;
+    }
+    let opts = cols
+      .map(
+        (c) =>
+          `<option value="${escapeHtml(c)}" ${c === currentVal ? "selected" : ""}>${escapeHtml(c)}</option>`,
+      )
+      .join("");
+    return `<select onchange="updateStepField(${idx}, '${fieldName}', this.value)" style="width:${width || "120px"};"><option value="">-- column --</option>${opts}</select>`;
   }
-  let opts = cols.map(c => `<option value="${escapeHtml(c)}" ${c === currentVal ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('');
-  return `<select onchange="updateStepField(${idx}, '${fieldName}', this.value)" style="width:${width || '120px'};"><option value="">-- column --</option>${opts}</select>`;
-}
 
-function renderMultiColumnSelect(idx, fieldName, currentVals, width) {
-  const cols = getSchemaForStep(idx);
-  const valSet = new Set(currentVals || []);
-  if (!cols) {
-    return `<input type="text" placeholder="e.g. region, country" value="${escapeHtml(currentVals ? currentVals.join(', ') : '')}" onchange="updateGroupStep(${idx}, '${fieldName}', this.value)" style="width:${width || '180px'};"/>`;
+  function renderMultiColumnSelect(idx, fieldName, currentVals, width) {
+    const cols = getSchemaForStep(idx);
+    const valSet = new Set(currentVals || []);
+    if (!cols) {
+      return `<input type="text" placeholder="e.g. region, country" value="${escapeHtml(currentVals ? currentVals.join(", ") : "")}" onchange="updateGroupStep(${idx}, '${fieldName}', this.value)" style="width:${width || "180px"};"/>`;
+    }
+    let opts = cols
+      .map(
+        (c) =>
+          `<option value="${escapeHtml(c)}" ${valSet.has(c) ? "selected" : ""}>${escapeHtml(c)}</option>`,
+      )
+      .join("");
+    return `<select multiple onchange="const selected=[...this.selectedOptions].map(o=>o.value); updateGroupStep(${idx}, '${fieldName}', selected.join(','))" style="width:${width || "180px"};">${opts}</select>`;
   }
-  let opts = cols.map(c => `<option value="${escapeHtml(c)}" ${valSet.has(c) ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('');
-  return `<select multiple onchange="const selected=[...this.selectedOptions].map(o=>o.value); updateGroupStep(${idx}, '${fieldName}', selected.join(','))" style="width:${width || '180px'};">${opts}</select>`;
-}
 
-function renderSortInputWithDatalist(idx, currentVal, width) {
-  const cols = getSchemaForStep(idx);
-  if (!cols) {
-    return `<input type="text" placeholder="e.g. date desc, amount asc" value="${escapeHtml(currentVal || '')}" onchange="updateSortStep(${idx}, this.value)" style="width:${width || '220px'};"/>`;
+  function renderSortInputWithDatalist(idx, currentVal, width) {
+    const cols = getSchemaForStep(idx);
+    if (!cols) {
+      return `<input type="text" placeholder="e.g. date desc, amount asc" value="${escapeHtml(currentVal || "")}" onchange="updateSortStep(${idx}, this.value)" style="width:${width || "220px"};"/>`;
+    }
+    const datalistId = `sort-cols-${idx}`;
+    const listOpts = cols
+      .flatMap((c) => [
+        `<option value="${escapeHtml(c)} desc">`,
+        `<option value="${escapeHtml(c)} asc">`,
+      ])
+      .join("");
+    return `<input type="text" list="${datalistId}" placeholder="e.g. date desc, amount asc" value="${escapeHtml(currentVal || "")}" onchange="updateSortStep(${idx}, this.value)" style="width:${width || "220px"};"/><datalist id="${datalistId}">${listOpts}</datalist>`;
   }
-  const datalistId = `sort-cols-${idx}`;
-  const listOpts = cols.flatMap(c => [
-    `<option value="${escapeHtml(c)} desc">`,
-    `<option value="${escapeHtml(c)} asc">`
-  ]).join('');
-  return `<input type="text" list="${datalistId}" placeholder="e.g. date desc, amount asc" value="${escapeHtml(currentVal || '')}" onchange="updateSortStep(${idx}, this.value)" style="width:${width || '220px'};"/><datalist id="${datalistId}">${listOpts}</datalist>`;
-}
-function toggleSidebar() {
-  const sb = document.getElementById('sidebar');
-  sb.classList.toggle('collapsed');
-  const btn = document.getElementById('sidebar-toggle');
-  if (btn) btn.innerHTML = sb.classList.contains('collapsed') ? '▶' : '◀';
-}
+  function toggleSidebar() {
+    const sb = document.getElementById("sidebar");
+    sb.classList.toggle("collapsed");
+    const btn = document.getElementById("sidebar-toggle");
+    if (btn) btn.innerHTML = sb.classList.contains("collapsed") ? "▶" : "◀";
+  }
 
-function renderRecipeEditor() {
-  const container = document.getElementById('main-content');
-  let html = `
+  function renderRecipeEditor() {
+    const container = document.getElementById("main-content");
+    let html = `
     <div class="content-header">
       <h2>Recipe Editor</h2>
       <div class="actions">
@@ -1584,7 +1696,7 @@ function renderRecipeEditor() {
       </div>
     </div>
     <div id="recipe-steps-list">
-      ${currentRecipeSteps.map((s, i) => renderStepForm(s, i)).join('')}
+      ${currentRecipeSteps.map((s, i) => renderStepForm(s, i)).join("")}
     </div>
     <button onclick="addStep()" style="padding:var(--space-md) var(--space-lg); font-size:var(--font-size-base);">+ Add Step</button>
     <div id="recipe-preview-area" style="margin-top:var(--space-lg);">
@@ -1598,122 +1710,145 @@ function renderRecipeEditor() {
       <div id="recipe-preview-error" style="color:var(--warning-text); display:none;"></div>
     </div>
   `;
-  container.innerHTML = html;
-  const oldSql = document.getElementById('recipe-sql-preview')?.textContent || '';
-  const oldGrid = document.getElementById('recipe-result-grid')?.innerHTML || '';
-  if (oldSql) document.getElementById('recipe-sql-preview').textContent = oldSql;
-  if (oldGrid) document.getElementById('recipe-result-grid').innerHTML = oldGrid;
-  const staleEl = document.getElementById('recipe-stale-banner');
-  if (staleEl) {
-    const currentStr = JSON.stringify(currentRecipeSteps);
-    if (lastPreviewedSteps && currentStr !== lastPreviewedSteps) {
-      staleEl.style.display = 'block';
-    } else {
-      staleEl.style.display = 'none';
+    container.innerHTML = html;
+    const oldSql =
+      document.getElementById("recipe-sql-preview")?.textContent || "";
+    const oldGrid =
+      document.getElementById("recipe-result-grid")?.innerHTML || "";
+    if (oldSql)
+      document.getElementById("recipe-sql-preview").textContent = oldSql;
+    if (oldGrid)
+      document.getElementById("recipe-result-grid").innerHTML = oldGrid;
+    const staleEl = document.getElementById("recipe-stale-banner");
+    if (staleEl) {
+      const currentStr = JSON.stringify(currentRecipeSteps);
+      if (lastPreviewedSteps && currentStr !== lastPreviewedSteps) {
+        staleEl.style.display = "block";
+      } else {
+        staleEl.style.display = "none";
+      }
     }
   }
-}
 
-function renderStepForm(step, idx) {
+  function renderStepForm(step, idx) {
     if (!getSchemaForStep(idx)) {
       scheduleSchemaFetch(idx);
     }
     const stype = step.type;
-    let fields = '';
-    if (stype === 'source') {
-      fields = `<label>Table:</label><select onchange="updateStepField(${idx}, 'table', this.value)"><option value="">-- Select table --</option>${tables.map(t => { const sel = step.table === t.name ? 'selected' : ''; return `<option value="${escapeHtml(t.name)}" ${sel}>${escapeHtml(t.name)}</option>`; }).join('')}</select>`;
-    } else if (stype === 'filter') {
+    let fields = "";
+    if (stype === "source") {
+      fields = `<label>Table:</label><select onchange="updateStepField(${idx}, 'table', this.value)"><option value="">-- Select table --</option>${tables
+        .map((t) => {
+          const sel = step.table === t.name ? "selected" : "";
+          return `<option value="${escapeHtml(t.name)}" ${sel}>${escapeHtml(t.name)}</option>`;
+        })
+        .join("")}</select>`;
+    } else if (stype === "filter") {
       fields = `
         <label style="font-size:11px; color:var(--text-muted);">Where</label>
-        ${renderColumnSelect(idx, 'column', step.column, '120px')}
+        ${renderColumnSelect(idx, "column", step.column, "120px")}
         <select onchange="updateFilterOperator(${idx}, this.value)">
-          <option value="==" ${step.operator==='=='?'selected':''}>==</option>
-          <option value="!=" ${step.operator==='!='?'selected':''}>!=</option>
-          <option value=">" ${step.operator==='>'?'selected':''}>></option>
-          <option value=">=" ${step.operator==='>='?'selected':''}>>=</option>
-          <option value="<" ${step.operator==='<'?'selected':''}><</option>
-          <option value="<=" ${step.operator==='<='?'selected':''}><=</option>
-          <option value="contains" ${step.operator==='contains'?'selected':''}>contains</option>
-          <option value="starts_with" ${step.operator==='starts_with'?'selected':''}>starts_with</option>
-          <option value="is_null" ${step.operator==='is_null'?'selected':''}>is_null</option>
-          <option value="is_not_null" ${step.operator==='is_not_null'?'selected':''}>is_not_null</option>
+          <option value="==" ${step.operator === "==" ? "selected" : ""}>==</option>
+          <option value="!=" ${step.operator === "!=" ? "selected" : ""}>!=</option>
+          <option value=">" ${step.operator === ">" ? "selected" : ""}>></option>
+          <option value=">=" ${step.operator === ">=" ? "selected" : ""}>>=</option>
+          <option value="<" ${step.operator === "<" ? "selected" : ""}><</option>
+          <option value="<=" ${step.operator === "<=" ? "selected" : ""}><=</option>
+          <option value="contains" ${step.operator === "contains" ? "selected" : ""}>contains</option>
+          <option value="starts_with" ${step.operator === "starts_with" ? "selected" : ""}>starts_with</option>
+          <option value="is_null" ${step.operator === "is_null" ? "selected" : ""}>is_null</option>
+          <option value="is_not_null" ${step.operator === "is_not_null" ? "selected" : ""}>is_not_null</option>
         </select>
-        <input type="text" id="filter-value-${idx}" placeholder="Value" value="${escapeHtml(step.value !== undefined ? String(step.value) : '')}" onchange="updateStepField(${idx}, 'value', this.value)" style="width:100px; ${step.operator==='is_null' || step.operator==='is_not_null' ? 'display:none;' : ''}"/>`;
-    } else if (stype === 'sort') {
+        <input type="text" id="filter-value-${idx}" placeholder="Value" value="${escapeHtml(step.value !== undefined ? String(step.value) : "")}" onchange="updateStepField(${idx}, 'value', this.value)" style="width:100px; ${step.operator === "is_null" || step.operator === "is_not_null" ? "display:none;" : ""}"/>`;
+    } else if (stype === "sort") {
       const cols = step.columns || [];
-      const colStr = cols.map(c => `${c.column} ${c.order}`).join(', ');
+      const colStr = cols.map((c) => `${c.column} ${c.order}`).join(", ");
       fields = `
         <label style="font-size:11px; color:var(--text-muted);">Sort columns (comma-separated):</label>
-        ${renderSortInputWithDatalist(idx, colStr, '220px')}`;
-    } else if (stype === 'group') {
-        const dims = (step.dimensions || []).join(', ');
-        const aggs = step.aggregates || [{ column: '', function: 'sum' }];
-        let aggRows = '';
-        aggs.forEach((agg, ai) => {
-          aggRows += `
+        ${renderSortInputWithDatalist(idx, colStr, "220px")}`;
+    } else if (stype === "group") {
+      const dims = (step.dimensions || []).join(", ");
+      const aggs = step.aggregates || [{ column: "", function: "sum" }];
+      let aggRows = "";
+      aggs.forEach((agg, ai) => {
+        aggRows += `
             <div style="display:flex; gap:4px; align-items:center; margin-bottom:4px;">
               ${(() => {
                 const cols = getSchemaForStep(idx);
-                if (!cols) return `<input type="text" placeholder="Column" value="${escapeHtml(agg.column || '')}" onchange="updateGroupAgg(${idx}, ${ai}, 'column', this.value)" style="width:80px;"/>`;
-                let opts = cols.map(c => `<option value="${escapeHtml(c)}" ${c === agg.column ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('');
+                if (!cols)
+                  return `<input type="text" placeholder="Column" value="${escapeHtml(agg.column || "")}" onchange="updateGroupAgg(${idx}, ${ai}, 'column', this.value)" style="width:80px;"/>`;
+                let opts = cols
+                  .map(
+                    (c) =>
+                      `<option value="${escapeHtml(c)}" ${c === agg.column ? "selected" : ""}>${escapeHtml(c)}</option>`,
+                  )
+                  .join("");
                 return `<select onchange="updateGroupAgg(${idx}, ${ai}, 'column', this.value)" style="width:120px;"><option value="">-- column --</option>${opts}</select>`;
               })()}
               <select onchange="updateGroupAgg(${idx}, ${ai}, 'function', this.value)">
-                <option value="count" ${agg.function==='count'?'selected':''}>count</option>
-                <option value="sum" ${agg.function==='sum'?'selected':''}>sum</option>
-                <option value="avg" ${agg.function==='avg'?'selected':''}>avg</option>
-                <option value="min" ${agg.function==='min'?'selected':''}>min</option>
-                <option value="max" ${agg.function==='max'?'selected':''}>max</option>
-                <option value="count_distinct" ${agg.function==='count_distinct'?'selected':''}>count_distinct</option>
+                <option value="count" ${agg.function === "count" ? "selected" : ""}>count</option>
+                <option value="sum" ${agg.function === "sum" ? "selected" : ""}>sum</option>
+                <option value="avg" ${agg.function === "avg" ? "selected" : ""}>avg</option>
+                <option value="min" ${agg.function === "min" ? "selected" : ""}>min</option>
+                <option value="max" ${agg.function === "max" ? "selected" : ""}>max</option>
+                <option value="count_distinct" ${agg.function === "count_distinct" ? "selected" : ""}>count_distinct</option>
               </select>
-              ${aggs.length > 1 ? `<button onclick="removeGroupAggregate(${idx}, ${ai})" title="Remove aggregate">✕</button>` : ''}
+              ${aggs.length > 1 ? `<button onclick="removeGroupAggregate(${idx}, ${ai})" title="Remove aggregate">✕</button>` : ""}
             </div>`;
-        });
-        fields = `
+      });
+      fields = `
           <div style="display:flex; flex-direction:column; gap:4px;">
             <label style="font-size:11px; color:var(--text-muted);">Group by (dimensions):</label>
-            ${renderMultiColumnSelect(idx, 'dimensions', step.dimensions, '180px')}
+            ${renderMultiColumnSelect(idx, "dimensions", step.dimensions, "180px")}
             <label style="font-size:11px; color:var(--text-muted);">Aggregates:</label>
             ${aggRows}
             <button onclick="addGroupAggregate(${idx})">+ Add aggregate</button>
           </div>`;
-    } else if (stype === 'limit') {
+    } else if (stype === "limit") {
       fields = `<input type="number" value="${step.n || 100}" min="1" max="10000" onchange="updateStepField(${idx}, 'n', parseInt(this.value))"/>`;
-    } else if (stype === 'custom_sql') {
-      fields = `<textarea rows="2" style="width:200px; font-family:var(--font-mono);" onchange="updateStepField(${idx}, 'sql', this.value)" placeholder="SELECT * FROM {{ '{{' }}previous{{ '}}' }}">${escapeHtml(step.sql || '')}</textarea>`;
-    } else if (stype === 'join') {
-        let joinTableOpts = '<option value="">-- Select table --</option>';
-        if (tables.length) {
-          tables.forEach(t => {
-            const sel = step.table === t.name ? 'selected' : '';
-            joinTableOpts += `<option value="${escapeHtml(t.name)}" ${sel}>${escapeHtml(t.name)}</option>`;
-          });
-        }
-        fields = `
+    } else if (stype === "custom_sql") {
+      fields = `<textarea rows="2" style="width:200px; font-family:var(--font-mono);" onchange="updateStepField(${idx}, 'sql', this.value)" placeholder="SELECT * FROM {{ '{{' }}previous{{ '}}' }}">${escapeHtml(step.sql || "")}</textarea>`;
+    } else if (stype === "join") {
+      let joinTableOpts = '<option value="">-- Select table --</option>';
+      if (tables.length) {
+        tables.forEach((t) => {
+          const sel = step.table === t.name ? "selected" : "";
+          joinTableOpts += `<option value="${escapeHtml(t.name)}" ${sel}>${escapeHtml(t.name)}</option>`;
+        });
+      }
+      fields = `
           <div style="display:flex; flex-direction:column; gap:4px;">
             <div style="display:flex; gap:4px; align-items:center;">
               <label style="font-size:11px; color:var(--text-muted);">Join with:</label>
               <select onchange="updateStepField(${idx}, 'table', this.value)" style="width:120px;">${joinTableOpts}</select>
               <select onchange="updateStepField(${idx}, 'how', this.value)" style="width:80px;">
-                <option value="inner" ${step.how==='inner'?'selected':''}>inner</option>
-                <option value="left" ${step.how==='left'?'selected':''}>left</option>
-                <option value="right" ${step.how==='right'?'selected':''}>right</option>
-                <option value="cross" ${step.how==='cross'?'selected':''}>cross</option>
+                <option value="inner" ${step.how === "inner" ? "selected" : ""}>inner</option>
+                <option value="left" ${step.how === "left" ? "selected" : ""}>left</option>
+                <option value="right" ${step.how === "right" ? "selected" : ""}>right</option>
+                <option value="cross" ${step.how === "cross" ? "selected" : ""}>cross</option>
               </select>
             </div>
             <div style="display:flex; gap:4px; align-items:center;">
-              ${renderColumnSelect(idx, 'left_column', step.left_column, '120px')}
+              ${renderColumnSelect(idx, "left_column", step.left_column, "120px")}
               <span style="font-size:11px; color:var(--text-muted);">=</span>
               ${(() => {
-                const rightCols = step.table ? (tableColumns[step.table] || null) : null;
-                if (!rightCols) return `<input type="text" placeholder="Right column" value="${escapeHtml(step.right_column || '')}" onchange="updateStepField(${idx}, 'right_column', this.value)" style="width:100px;"/>`;
-                let opts = rightCols.map(c => `<option value="${escapeHtml(c)}" ${c === step.right_column ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('');
+                const rightCols = step.table
+                  ? tableColumns[step.table] || null
+                  : null;
+                if (!rightCols)
+                  return `<input type="text" placeholder="Right column" value="${escapeHtml(step.right_column || "")}" onchange="updateStepField(${idx}, 'right_column', this.value)" style="width:100px;"/>`;
+                let opts = rightCols
+                  .map(
+                    (c) =>
+                      `<option value="${escapeHtml(c)}" ${c === step.right_column ? "selected" : ""}>${escapeHtml(c)}</option>`,
+                  )
+                  .join("");
                 return `<select onchange="updateStepField(${idx}, 'right_column', this.value)" style="width:120px;"><option value="">-- column --</option>${opts}</select>`;
               })()}
             </div>
           </div>`;
-    } else if (stype === 'visualize') {
-      const vizChartType = step.chart_type || 'bar';
+    } else if (stype === "visualize") {
+      const vizChartType = step.chart_type || "bar";
       const vizConfig = step.config || {};
       const vizConfigStr = JSON.stringify(vizConfig, null, 2);
       fields = `
@@ -1721,20 +1856,20 @@ function renderStepForm(step, idx) {
           <div style="display:flex; gap:4px; align-items:center;">
             <label style="font-size:11px; color:var(--text-muted); white-space:nowrap;">Chart type:</label>
             <select onchange="updateStepField(${idx}, 'chart_type', this.value)" style="width:160px;">
-              <option value="bar" ${vizChartType==='bar'?'selected':''}>📊 Bar Chart</option>
-              <option value="distribution" ${vizChartType==='distribution'?'selected':''}>📈 Distribution</option>
-              <option value="line" ${vizChartType==='line'?'selected':''}>📉 Line Graph</option>
-              <option value="scatter" ${vizChartType==='scatter'?'selected':''}>🔵 Scatter Plot</option>
-              <option value="chord" ${vizChartType==='chord'?'selected':''}>🔄 Chord Diagram</option>
-              <option value="parallel_coords" ${vizChartType==='parallel_coords'?'selected':''}>🔀 Parallel Coordinates</option>
-              <option value="time_compass" ${vizChartType==='time_compass'?'selected':''}>🧭 Time Compass</option>
-              <option value="sankey" ${vizChartType==='sankey'?'selected':''}>🌊 Sankey</option>
-              <option value="treemap" ${vizChartType==='treemap'?'selected':''}>🌳 Treemap</option>
-              <option value="sunburst" ${vizChartType==='sunburst'?'selected':''}>☀️ Sunburst</option>
-              <option value="radar" ${vizChartType==='radar'?'selected':''}>🕸️ Radar</option>
-              <option value="violin" ${vizChartType==='violin'?'selected':''}>🎻 Violin Plot</option>
-              <option value="heatmap" ${vizChartType==='heatmap'?'selected':''}>🔥 Heatmap</option>
-              <option value="correlogram" ${vizChartType==='correlogram'?'selected':''}>🔗 Correlogram</option>
+              <option value="bar" ${vizChartType === "bar" ? "selected" : ""}>📊 Bar Chart</option>
+              <option value="chord" ${vizChartType === "chord" ? "selected" : ""}>🔄 Chord Diagram</option>
+              <option value="correlogram" ${vizChartType === "correlogram" ? "selected" : ""}>🔗 Correlogram</option>
+              <option value="distribution" ${vizChartType === "distribution" ? "selected" : ""}>📈 Distribution</option>
+              <option value="heatmap" ${vizChartType === "heatmap" ? "selected" : ""}>🔥 Heatmap</option>
+              <option value="line" ${vizChartType === "line" ? "selected" : ""}>📉 Line Graph</option>
+              <option value="parallel_coords" ${vizChartType === "parallel_coords" ? "selected" : ""}>🔀 Parallel Coordinates</option>
+              <option value="radar" ${vizChartType === "radar" ? "selected" : ""}>🕸️ Radar</option>
+              <option value="sankey" ${vizChartType === "sankey" ? "selected" : ""}>🌊 Sankey</option>
+              <option value="scatter" ${vizChartType === "scatter" ? "selected" : ""}>🔵 Scatter Plot</option>
+              <option value="sunburst" ${vizChartType === "sunburst" ? "selected" : ""}>☀️ Sunburst</option>
+              <option value="time_compass" ${vizChartType === "time_compass" ? "selected" : ""}>🧭 Time Compass</option>
+              <option value="treemap" ${vizChartType === "treemap" ? "selected" : ""}>🌳 Treemap</option>
+              <option value="violin" ${vizChartType === "violin" ? "selected" : ""}>🎻 Violin Plot</option>
             </select>
           </div>
           <label style="font-size:11px; color:var(--text-muted);">Chart config (JSON):</label>
@@ -1751,290 +1886,362 @@ function renderStepForm(step, idx) {
       <div class="recipe-step-item" data-idx="${idx}">
         <span class="step-number">${idx + 1}</span>
         <button onclick="previewRecipeUpTo(${idx})" title="Preview up to this step" style="font-size:var(--font-size-base); padding:var(--space-xs) var(--space-sm);">👁</button>
-        <button onclick="moveStepUp(${idx})" ${canMoveUp ? '' : 'disabled'} title="Move up" style="font-size:var(--font-size-base); padding:var(--space-xs) var(--space-sm); margin-left:2px;">▲</button>
-        <button onclick="moveStepDown(${idx})" ${canMoveDown ? '' : 'disabled'} title="Move down" style="font-size:var(--font-size-base); padding:var(--space-xs) var(--space-sm);">▼</button>
-        <button onclick="insertStepBelow(${idx})" ${canInsert ? '' : 'disabled'} title="Insert below" style="font-size:var(--font-size-base); padding:var(--space-xs) var(--space-sm);">+</button>
+        <button onclick="moveStepUp(${idx})" ${canMoveUp ? "" : "disabled"} title="Move up" style="font-size:var(--font-size-base); padding:var(--space-xs) var(--space-sm); margin-left:2px;">▲</button>
+        <button onclick="moveStepDown(${idx})" ${canMoveDown ? "" : "disabled"} title="Move down" style="font-size:var(--font-size-base); padding:var(--space-xs) var(--space-sm);">▼</button>
+        <button onclick="insertStepBelow(${idx})" ${canInsert ? "" : "disabled"} title="Insert below" style="font-size:var(--font-size-base); padding:var(--space-xs) var(--space-sm);">+</button>
         <button onclick="removeStep(${idx})" title="Remove step" style="font-size:var(--font-size-base); padding:var(--space-xs) var(--space-sm); margin-left:2px;">✕</button>
         <select onchange="updateStepType(${idx}, this.value)">
-          <option value="source" ${stype==='source'?'selected':''}>source</option>
-          <option value="filter" ${stype==='filter'?'selected':''}>filter</option>
-          <option value="sort" ${stype==='sort'?'selected':''}>sort</option>
-          <option value="group" ${stype==='group'?'selected':''}>group</option>
-          <option value="limit" ${stype==='limit'?'selected':''}>limit</option>
-          <option value="custom_sql" ${stype==='custom_sql'?'selected':''}>custom_sql</option>
-          <option value="join" ${stype==='join'?'selected':''}>join</option>
-          <option value="visualize" ${stype==='visualize'?'selected':''}>visualize</option>
+          <option value="source" ${stype === "source" ? "selected" : ""}>source</option>
+          <option value="filter" ${stype === "filter" ? "selected" : ""}>filter</option>
+          <option value="sort" ${stype === "sort" ? "selected" : ""}>sort</option>
+          <option value="group" ${stype === "group" ? "selected" : ""}>group</option>
+          <option value="limit" ${stype === "limit" ? "selected" : ""}>limit</option>
+          <option value="custom_sql" ${stype === "custom_sql" ? "selected" : ""}>custom_sql</option>
+          <option value="join" ${stype === "join" ? "selected" : ""}>join</option>
+          <option value="visualize" ${stype === "visualize" ? "selected" : ""}>visualize</option>
         </select>
         <div class="step-fields">${fields}</div>
       </div>
     `;
   }
-// --- Step manipulation ---
-function addStep() {
-  if (currentRecipeSteps.length >= 20) { alert('Max 20 steps'); return; }
-  currentRecipeSteps.push({ type: 'filter', column: '', operator: '==', value: '' });
-  stepSchemaCache.clear();
-  renderRecipeEditor();
-}
-
-function removeStep(idx) {
-  if (idx === 0) { alert('Cannot remove source step'); return; }
-  currentRecipeSteps.splice(idx, 1);
-  stepSchemaCache.clear();
-  renderRecipeEditor();
-}
-
-function updateStepType(idx, newType) {
-  currentRecipeSteps[idx] = { type: newType };
-  stepSchemaCache.clear();
-  renderRecipeEditor();
-}
-
-function moveStepUp(idx) {
-  if (idx <= 0) return;
-  [currentRecipeSteps[idx - 1], currentRecipeSteps[idx]] = [currentRecipeSteps[idx], currentRecipeSteps[idx - 1]];
-  stepSchemaCache.clear();
-  renderRecipeEditor();
-}
-
-function moveStepDown(idx) {
-  if (idx >= currentRecipeSteps.length - 1) return;
-  [currentRecipeSteps[idx], currentRecipeSteps[idx + 1]] = [currentRecipeSteps[idx + 1], currentRecipeSteps[idx]];
-  stepSchemaCache.clear();
-  renderRecipeEditor();
-}
-
-function insertStepBelow(idx) {
-  currentRecipeSteps.splice(idx + 1, 0, { type: 'filter' });
-  stepSchemaCache.clear();
-  renderRecipeEditor();
-}
-
-function updateStepField(idx, field, value) {
-  currentRecipeSteps[idx][field] = value;
-}
-
-function updateSortStep(idx, val) {
-  const parts = val.split(',').map(s => s.trim()).filter(Boolean);
-  currentRecipeSteps[idx].columns = parts.map(p => {
-    const words = p.split(/\s+/);
-    const last = words[words.length - 1].toLowerCase();
-    if (last === 'asc' || last === 'desc') {
-      words.pop();
-      return { column: words.join(' '), order: last };
+  // --- Step manipulation ---
+  function addStep() {
+    if (currentRecipeSteps.length >= 20) {
+      alert("Max 20 steps");
+      return;
     }
-    return { column: words.join(' '), order: 'asc' };
-  });
-}
+    currentRecipeSteps.push({
+      type: "filter",
+      column: "",
+      operator: "==",
+      value: "",
+    });
+    stepSchemaCache.clear();
+    renderRecipeEditor();
+  }
 
-function updateGroupStep(idx, field, val) {
-  if (field === 'dimensions') {
-    currentRecipeSteps[idx].dimensions = val.split(',').map(s => s.trim()).filter(Boolean);
-  } else {
-    currentRecipeSteps[idx].aggregates = val.split(',').map(s => s.trim()).filter(Boolean).map(p => {
-      const [col, fn] = p.split(':');
-      return { column: col, function: fn || 'sum' };
+  function removeStep(idx) {
+    if (idx === 0) {
+      alert("Cannot remove source step");
+      return;
+    }
+    currentRecipeSteps.splice(idx, 1);
+    stepSchemaCache.clear();
+    renderRecipeEditor();
+  }
+
+  function updateStepType(idx, newType) {
+    currentRecipeSteps[idx] = { type: newType };
+    stepSchemaCache.clear();
+    renderRecipeEditor();
+  }
+
+  function moveStepUp(idx) {
+    if (idx <= 0) return;
+    [currentRecipeSteps[idx - 1], currentRecipeSteps[idx]] = [
+      currentRecipeSteps[idx],
+      currentRecipeSteps[idx - 1],
+    ];
+    stepSchemaCache.clear();
+    renderRecipeEditor();
+  }
+
+  function moveStepDown(idx) {
+    if (idx >= currentRecipeSteps.length - 1) return;
+    [currentRecipeSteps[idx], currentRecipeSteps[idx + 1]] = [
+      currentRecipeSteps[idx + 1],
+      currentRecipeSteps[idx],
+    ];
+    stepSchemaCache.clear();
+    renderRecipeEditor();
+  }
+
+  function insertStepBelow(idx) {
+    currentRecipeSteps.splice(idx + 1, 0, { type: "filter" });
+    stepSchemaCache.clear();
+    renderRecipeEditor();
+  }
+
+  function updateStepField(idx, field, value) {
+    currentRecipeSteps[idx][field] = value;
+  }
+
+  function updateSortStep(idx, val) {
+    const parts = val
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    currentRecipeSteps[idx].columns = parts.map((p) => {
+      const words = p.split(/\s+/);
+      const last = words[words.length - 1].toLowerCase();
+      if (last === "asc" || last === "desc") {
+        words.pop();
+        return { column: words.join(" "), order: last };
+      }
+      return { column: words.join(" "), order: "asc" };
     });
   }
-}
 
-// ─── Actions ───
-async function previewRecipe() {
-  const area = document.getElementById('recipe-preview-area');
-  const errEl = document.getElementById('recipe-preview-error');
-  const sqlEl = document.getElementById('recipe-sql-preview');
-  const gridEl = document.getElementById('recipe-result-grid');
-  if (area) area.style.display = 'block';
-  if (errEl) errEl.style.display = 'none';
-  if (sqlEl) sqlEl.textContent = 'Loading...';
-  if (gridEl) gridEl.innerHTML = 'Loading...';
+  function updateGroupStep(idx, field, val) {
+    if (field === "dimensions") {
+      currentRecipeSteps[idx].dimensions = val
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+    } else {
+      currentRecipeSteps[idx].aggregates = val
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map((p) => {
+          const [col, fn] = p.split(":");
+          return { column: col, function: fn || "sum" };
+        });
+    }
+  }
 
-  // Check if the last step is a visualize step
-  const lastStep = currentRecipeSteps[currentRecipeSteps.length - 1];
-  if (lastStep && lastStep.type === 'visualize') {
-    try {
-      const chartType = lastStep.chart_type || 'bar';
-      const config = lastStep.config || {};
-      const resp = await fetch(`${API_BASE}/chart/recipe`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ steps: currentRecipeSteps, chart_type: chartType, config: config })
-      });
-      const data = await resp.json();
-      if (data.error) {
-        if (errEl) { errEl.textContent = data.error; errEl.style.display = 'block'; }
-        if (gridEl) gridEl.innerHTML = '';
-        if (sqlEl) sqlEl.textContent = '';
-        return;
-      }
-      if (sqlEl) sqlEl.textContent = 'Chart rendered (visualize step)';
-      if (gridEl) gridEl.innerHTML = `
+  // ─── Actions ───
+  async function previewRecipe() {
+    const area = document.getElementById("recipe-preview-area");
+    const errEl = document.getElementById("recipe-preview-error");
+    const sqlEl = document.getElementById("recipe-sql-preview");
+    const gridEl = document.getElementById("recipe-result-grid");
+    if (area) area.style.display = "block";
+    if (errEl) errEl.style.display = "none";
+    if (sqlEl) sqlEl.textContent = "Loading...";
+    if (gridEl) gridEl.innerHTML = "Loading...";
+
+    // Check if the last step is a visualize step
+    const lastStep = currentRecipeSteps[currentRecipeSteps.length - 1];
+    if (lastStep && lastStep.type === "visualize") {
+      try {
+        const chartType = lastStep.chart_type || "bar";
+        const config = lastStep.config || {};
+        const resp = await fetch(`${API_BASE}/chart/recipe`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            steps: currentRecipeSteps,
+            chart_type: chartType,
+            config: config,
+          }),
+        });
+        const data = await resp.json();
+        if (data.error) {
+          if (errEl) {
+            errEl.textContent = data.error;
+            errEl.style.display = "block";
+          }
+          if (gridEl) gridEl.innerHTML = "";
+          if (sqlEl) sqlEl.textContent = "";
+          return;
+        }
+        if (sqlEl) sqlEl.textContent = "Chart rendered (visualize step)";
+        if (gridEl)
+          gridEl.innerHTML = `
         <div style="text-align:center; padding:var(--space-lg);">
           <img src="${data.url}" alt="Chart" style="max-width:100%; border:1px solid var(--border); border-radius:8px;"/>
           <div style="margin-top:var(--space-md);">
             <a href="/tools/data/api/chart/${data.chart_id}/download" class="btn btn-primary" download>⬇ Download PNG</a>
           </div>
         </div>`;
-      lastPreviewedSteps = JSON.stringify(currentRecipeSteps);
-      const staleEl = document.getElementById('recipe-stale-banner');
-      if (staleEl) staleEl.style.display = 'none';
-    } catch (e) {
-      if (errEl) { errEl.textContent = 'Chart preview failed: ' + e; errEl.style.display = 'block'; }
-    }
-    return;
-  }
-
-  try {
-    const resp = await fetch(`${API_BASE}/recipe/preview`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ steps: currentRecipeSteps })
-    });
-    const data = await resp.json();
-    if (data.error) {
-      if (errEl) { errEl.textContent = data.error; errEl.style.display = 'block'; }
-      if (gridEl) gridEl.innerHTML = '';
-      if (sqlEl) sqlEl.textContent = '';
+        lastPreviewedSteps = JSON.stringify(currentRecipeSteps);
+        const staleEl = document.getElementById("recipe-stale-banner");
+        if (staleEl) staleEl.style.display = "none";
+      } catch (e) {
+        if (errEl) {
+          errEl.textContent = "Chart preview failed: " + e;
+          errEl.style.display = "block";
+        }
+      }
       return;
     }
-    if (sqlEl) sqlEl.textContent = data.sql_preview || '';
-    if (gridEl) renderPreviewGrid(gridEl, data.columns, data.rows);
-    lastPreviewedSteps = JSON.stringify(currentRecipeSteps);
-    const staleEl = document.getElementById('recipe-stale-banner');
-    if (staleEl) staleEl.style.display = 'none';
-  } catch (e) {
-    if (errEl) { errEl.textContent = 'Preview failed: ' + e; errEl.style.display = 'block'; }
-  }
-}
-async function previewRecipeUpTo(idx) {
-    const area = document.getElementById('recipe-preview-area');
-    const errEl = document.getElementById('recipe-preview-error');
-    const sqlEl = document.getElementById('recipe-sql-preview');
-    const gridEl = document.getElementById('recipe-result-grid');
-    if (area) area.style.display = 'block';
-    if (errEl) errEl.style.display = 'none';
-    if (sqlEl) sqlEl.textContent = 'Loading...';
-    if (gridEl) gridEl.innerHTML = 'Loading...';
+
     try {
-      const steps = currentRecipeSteps.slice(0, idx + 1);
       const resp = await fetch(`${API_BASE}/recipe/preview`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ steps: steps })
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ steps: currentRecipeSteps }),
       });
       const data = await resp.json();
       if (data.error) {
-        if (errEl) { errEl.textContent = data.error; errEl.style.display = 'block'; }
-        if (gridEl) gridEl.innerHTML = '';
-        if (sqlEl) sqlEl.textContent = '';
+        if (errEl) {
+          errEl.textContent = data.error;
+          errEl.style.display = "block";
+        }
+        if (gridEl) gridEl.innerHTML = "";
+        if (sqlEl) sqlEl.textContent = "";
         return;
       }
-      if (sqlEl) sqlEl.textContent = data.sql_preview || '';
+      if (sqlEl) sqlEl.textContent = data.sql_preview || "";
+      if (gridEl) renderPreviewGrid(gridEl, data.columns, data.rows);
+      lastPreviewedSteps = JSON.stringify(currentRecipeSteps);
+      const staleEl = document.getElementById("recipe-stale-banner");
+      if (staleEl) staleEl.style.display = "none";
+    } catch (e) {
+      if (errEl) {
+        errEl.textContent = "Preview failed: " + e;
+        errEl.style.display = "block";
+      }
+    }
+  }
+  async function previewRecipeUpTo(idx) {
+    const area = document.getElementById("recipe-preview-area");
+    const errEl = document.getElementById("recipe-preview-error");
+    const sqlEl = document.getElementById("recipe-sql-preview");
+    const gridEl = document.getElementById("recipe-result-grid");
+    if (area) area.style.display = "block";
+    if (errEl) errEl.style.display = "none";
+    if (sqlEl) sqlEl.textContent = "Loading...";
+    if (gridEl) gridEl.innerHTML = "Loading...";
+    try {
+      const steps = currentRecipeSteps.slice(0, idx + 1);
+      const resp = await fetch(`${API_BASE}/recipe/preview`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ steps: steps }),
+      });
+      const data = await resp.json();
+      if (data.error) {
+        if (errEl) {
+          errEl.textContent = data.error;
+          errEl.style.display = "block";
+        }
+        if (gridEl) gridEl.innerHTML = "";
+        if (sqlEl) sqlEl.textContent = "";
+        return;
+      }
+      if (sqlEl) sqlEl.textContent = data.sql_preview || "";
       if (gridEl) renderPreviewGrid(gridEl, data.columns, data.rows);
       lastPreviewedSteps = JSON.stringify(steps);
-      const staleEl = document.getElementById('recipe-stale-banner');
-      if (staleEl) staleEl.style.display = 'none';
+      const staleEl = document.getElementById("recipe-stale-banner");
+      if (staleEl) staleEl.style.display = "none";
     } catch (e) {
-      if (errEl) { errEl.textContent = 'Preview failed: ' + e; errEl.style.display = 'block'; }
+      if (errEl) {
+        errEl.textContent = "Preview failed: " + e;
+        errEl.style.display = "block";
+      }
     }
   }
 
-
-
-function updateFilterOperator(idx, op) {
-  currentRecipeSteps[idx].operator = op;
-  renderRecipeEditor();
-}
-function updateGroupAgg(idx, aggIdx, field, value) {
-  if (!currentRecipeSteps[idx].aggregates) {
-    currentRecipeSteps[idx].aggregates = [];
-  }
-  if (!currentRecipeSteps[idx].aggregates[aggIdx]) {
-    currentRecipeSteps[idx].aggregates[aggIdx] = { column: '', function: 'sum' };
-  }
-  currentRecipeSteps[idx].aggregates[aggIdx][field] = value;
-}
-function addGroupAggregate(idx) {
-  if (!currentRecipeSteps[idx].aggregates) {
-    currentRecipeSteps[idx].aggregates = [];
-  }
-  currentRecipeSteps[idx].aggregates.push({ column: '', function: 'sum' });
-  renderRecipeEditor();
-}
-function removeGroupAggregate(idx, aggIdx) {
-  if (!currentRecipeSteps[idx].aggregates) return;
-  currentRecipeSteps[idx].aggregates.splice(aggIdx, 1);
-  if (currentRecipeSteps[idx].aggregates.length === 0) {
-    currentRecipeSteps[idx].aggregates = [{ column: '', function: 'sum' }];
-  }
-  renderRecipeEditor();
-}
-function renderPreviewGrid(container, columns, rows) {
-  if (!columns.length) { container.innerHTML = '<p>No data.</p>'; return; }
-  let html = '<table class="preview-grid"><thead><tr>';
-  columns.forEach(c => html += `<th>${escapeHtml(c)}</th>`);
-  html += '</tr></thead><tbody>';
-  rows.forEach(row => {
-    html += '<tr>';
-    columns.forEach(c => {
-      const v = row[c] !== undefined ? String(row[c]) : '';
-      html += `<td>${escapeHtml(v)}</td>`;
-    });
-    html += '</tr>';
-  });
-  html += '</tbody></table>';
-  container.innerHTML = html;
-}
-
-async function saveRecipe() {
-  const name = prompt('Recipe name:', currentRecipeName || 'My Recipe');
-  if (!name) return;
-  currentRecipeName = name;
-  try {
-    const resp = await fetch(`${API_BASE}/recipe/save`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: name, steps: currentRecipeSteps })
-    });
-    const data = await resp.json();
-    if (data.error) { alert('Save failed: ' + data.error); return; }
-    currentRecipeSlug = data.slug;
-    alert('Recipe saved!');
-  } catch (e) {
-    alert('Save failed: ' + e);
-  }
-}
-
-async function exportRecipe(format) {
-  try {
-    const resp = await fetch(`${API_BASE}/recipe/export`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ format: format, steps: currentRecipeSteps, slug: currentRecipeSlug || 'recipe' })
-    });
-    const data = await resp.json();
-    if (data.error) { alert('Export failed: ' + data.error); return; }
-    alert('Exported to ' + data.filename);
-  } catch (e) {
-    alert('Export failed: ' + e);
-  }
-}
-
-async function loadRecipe(slug) {
-  try {
-    const resp = await fetch(`${API_BASE}/recipe/${encodeURIComponent(slug)}`);
-    const data = await resp.json();
-    if (data.error) { alert('Recipe not found: ' + data.error); return; }
-    const recipe = data.recipe;
-    if (!recipe) { alert('Recipe not found'); return; }
-    currentRecipeName = recipe.name;
-    currentRecipeSlug = recipe.slug;
-    currentRecipeSteps = recipe.steps || [{ type: 'source', table: '' }];
+  function updateFilterOperator(idx, op) {
+    currentRecipeSteps[idx].operator = op;
     renderRecipeEditor();
-  } catch (e) {
-    alert('Load failed: ' + e);
   }
-}
+  function updateGroupAgg(idx, aggIdx, field, value) {
+    if (!currentRecipeSteps[idx].aggregates) {
+      currentRecipeSteps[idx].aggregates = [];
+    }
+    if (!currentRecipeSteps[idx].aggregates[aggIdx]) {
+      currentRecipeSteps[idx].aggregates[aggIdx] = {
+        column: "",
+        function: "sum",
+      };
+    }
+    currentRecipeSteps[idx].aggregates[aggIdx][field] = value;
+  }
+  function addGroupAggregate(idx) {
+    if (!currentRecipeSteps[idx].aggregates) {
+      currentRecipeSteps[idx].aggregates = [];
+    }
+    currentRecipeSteps[idx].aggregates.push({ column: "", function: "sum" });
+    renderRecipeEditor();
+  }
+  function removeGroupAggregate(idx, aggIdx) {
+    if (!currentRecipeSteps[idx].aggregates) return;
+    currentRecipeSteps[idx].aggregates.splice(aggIdx, 1);
+    if (currentRecipeSteps[idx].aggregates.length === 0) {
+      currentRecipeSteps[idx].aggregates = [{ column: "", function: "sum" }];
+    }
+    renderRecipeEditor();
+  }
+  function renderPreviewGrid(container, columns, rows) {
+    if (!columns.length) {
+      container.innerHTML = "<p>No data.</p>";
+      return;
+    }
+    let html = '<table class="preview-grid"><thead><tr>';
+    columns.forEach((c) => (html += `<th>${escapeHtml(c)}</th>`));
+    html += "</tr></thead><tbody>";
+    rows.forEach((row) => {
+      html += "<tr>";
+      columns.forEach((c) => {
+        const v = row[c] !== undefined ? String(row[c]) : "";
+        html += `<td>${escapeHtml(v)}</td>`;
+      });
+      html += "</tr>";
+    });
+    html += "</tbody></table>";
+    container.innerHTML = html;
+  }
+
+  async function saveRecipe() {
+    const name = prompt("Recipe name:", currentRecipeName || "My Recipe");
+    if (!name) return;
+    currentRecipeName = name;
+    try {
+      const resp = await fetch(`${API_BASE}/recipe/save`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name, steps: currentRecipeSteps }),
+      });
+      const data = await resp.json();
+      if (data.error) {
+        alert("Save failed: " + data.error);
+        return;
+      }
+      currentRecipeSlug = data.slug;
+      alert("Recipe saved!");
+    } catch (e) {
+      alert("Save failed: " + e);
+    }
+  }
+
+  async function exportRecipe(format) {
+    try {
+      const resp = await fetch(`${API_BASE}/recipe/export`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          format: format,
+          steps: currentRecipeSteps,
+          slug: currentRecipeSlug || "recipe",
+        }),
+      });
+      const data = await resp.json();
+      if (data.error) {
+        alert("Export failed: " + data.error);
+        return;
+      }
+      alert("Exported to " + data.filename);
+    } catch (e) {
+      alert("Export failed: " + e);
+    }
+  }
+
+  async function loadRecipe(slug) {
+    try {
+      const resp = await fetch(
+        `${API_BASE}/recipe/${encodeURIComponent(slug)}`,
+      );
+      const data = await resp.json();
+      if (data.error) {
+        alert("Recipe not found: " + data.error);
+        return;
+      }
+      const recipe = data.recipe;
+      if (!recipe) {
+        alert("Recipe not found");
+        return;
+      }
+      currentRecipeName = recipe.name;
+      currentRecipeSlug = recipe.slug;
+      currentRecipeSteps = recipe.steps || [{ type: "source", table: "" }];
+      renderRecipeEditor();
+    } catch (e) {
+      alert("Load failed: " + e);
+    }
+  }
   // ─── Visualize View ───
 
   let vizChartTypes = [];
@@ -2042,7 +2249,7 @@ async function loadRecipe(slug) {
 
   function showVisualization(tableName) {
     currentTable = tableName;
-    currentView = 'visualize';
+    currentView = "visualize";
     showLoading(mainContent);
     loadVisualization(tableName);
   }
@@ -2054,7 +2261,9 @@ async function loadRecipe(slug) {
       const data = await resp.json();
       vizChartTypes = data.chart_types || [];
       // Fetch table schema for column dropdowns
-      const schemaResp = await fetch(`${API_BASE}/table/${encodeURIComponent(tableName)}`);
+      const schemaResp = await fetch(
+        `${API_BASE}/table/${encodeURIComponent(tableName)}`,
+      );
       const schemaData = await schemaResp.json();
       renderVisualization(vizChartTypes, schemaData, tableName);
     } catch (e) {
@@ -2063,35 +2272,41 @@ async function loadRecipe(slug) {
   }
 
   function renderVisualization(chartTypes, schemaData, tableName) {
-    const columns = (schemaData.columns || []).map(c => c.name);
-    const chartTypeOptions = chartTypes.map(ct =>
-      `<option value="${ct.id}">${ct.icon} ${ct.label}</option>`
-    ).join('');
+    const columns = (schemaData.columns || []).map((c) => c.name);
+    const chartTypeOptions = chartTypes
+      .map((ct) => `<option value="${ct.id}">${ct.icon} ${ct.label}</option>`)
+      .join("");
 
     // Build field mapping inputs for the first chart type
     const firstType = chartTypes[0] || { field_roles: [] };
-    const fieldRolesHtml = firstType.field_roles.map(role => {
-      const colOpts = columns.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
-      if (role.multiple) {
-        return `<div class="viz-field-row">
-          <label>${role.name} ${role.required ? '*' : ''} <span style="font-size:10px;color:var(--text-muted);">(${role.type}, multiple)</span></label>
+    const fieldRolesHtml = firstType.field_roles
+      .map((role) => {
+        const colOpts = columns
+          .map(
+            (c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`,
+          )
+          .join("");
+        if (role.multiple) {
+          return `<div class="viz-field-row">
+          <label>${role.name} ${role.required ? "*" : ""} <span style="font-size:10px;color:var(--text-muted);">(${role.type}, multiple)</span></label>
           <input type="text" id="viz-field-${role.name}" placeholder="comma-separated columns" style="width:200px;"/>
         </div>`;
-      } else {
-        return `<div class="viz-field-row">
-          <label>${role.name} ${role.required ? '*' : ''} <span style="font-size:10px;color:var(--text-muted);">(${role.type})</span></label>
+        } else {
+          return `<div class="viz-field-row">
+          <label>${role.name} ${role.required ? "*" : ""} <span style="font-size:10px;color:var(--text-muted);">(${role.type})</span></label>
           <select id="viz-field-${role.name}" style="width:200px;">
             <option value="">-- select --</option>
             ${colOpts}
           </select>
         </div>`;
-      }
-    }).join('');
+        }
+      })
+      .join("");
 
     mainContent.innerHTML = `
       <div class="viz-container" style="padding:var(--space-xl);">
         <div style="display:flex; align-items:center; gap:var(--space-md); margin-bottom:var(--space-lg);">
-          <h2 style="margin:0;">📊 Visualize: ${escapeHtml(tableName)}</h2>
+          <h2 style="margin:0;">Visualize: ${escapeHtml(tableName)}</h2>
           <button class="btn btn-secondary" onclick="loadTableOverview('${escapeJs(tableName)}')">← Back to Overview</button>
         </div>
 
@@ -2123,7 +2338,7 @@ async function loadRecipe(slug) {
               </div>
             </div>
 
-            <button class="btn btn-primary" onclick="renderChartFromViz('${escapeJs(tableName)}')" style="width:100%; margin-top:var(--space-md);">🎨 Render Chart</button>
+            <button class="btn btn-primary" onclick="renderChartFromViz('${escapeJs(tableName)}')" style="width:100%; margin-top:var(--space-md);">Render Chart</button>
           </div>
 
           <!-- Right: Chart Display -->
@@ -2137,46 +2352,52 @@ async function loadRecipe(slug) {
   }
 
   function updateVizFields() {
-    const chartTypeId = document.getElementById('viz-chart-type').value;
-    const ct = vizChartTypes.find(c => c.id === chartTypeId);
+    const chartTypeId = document.getElementById("viz-chart-type").value;
+    const ct = vizChartTypes.find((c) => c.id === chartTypeId);
     if (!ct) return;
     const tableName = currentTable;
     // Get columns from the current schema
-    const columns = (tableColumns[tableName] || []);
-    const fieldRolesHtml = ct.field_roles.map(role => {
-      const colOpts = columns.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
-      if (role.multiple) {
-        return `<div class="viz-field-row">
-          <label>${role.name} ${role.required ? '*' : ''} <span style="font-size:10px;color:var(--text-muted);">(${role.type}, multiple)</span></label>
+    const columns = tableColumns[tableName] || [];
+    const fieldRolesHtml = ct.field_roles
+      .map((role) => {
+        const colOpts = columns
+          .map(
+            (c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`,
+          )
+          .join("");
+        if (role.multiple) {
+          return `<div class="viz-field-row">
+          <label>${role.name} ${role.required ? "*" : ""} <span style="font-size:10px;color:var(--text-muted);">(${role.type}, multiple)</span></label>
           <input type="text" id="viz-field-${role.name}" placeholder="comma-separated columns" style="width:200px;"/>
         </div>`;
-      } else {
-        return `<div class="viz-field-row">
-          <label>${role.name} ${role.required ? '*' : ''} <span style="font-size:10px;color:var(--text-muted);">(${role.type})</span></label>
+        } else {
+          return `<div class="viz-field-row">
+          <label>${role.name} ${role.required ? "*" : ""} <span style="font-size:10px;color:var(--text-muted);">(${role.type})</span></label>
           <select id="viz-field-${role.name}" style="width:200px;">
             <option value="">-- select --</option>
             ${colOpts}
           </select>
         </div>`;
-      }
-    }).join('');
-    document.getElementById('viz-field-roles').innerHTML = fieldRolesHtml;
+        }
+      })
+      .join("");
+    document.getElementById("viz-field-roles").innerHTML = fieldRolesHtml;
   }
 
   async function renderChartFromViz(tableName) {
-    const chartType = document.getElementById('viz-chart-type').value;
-    const ct = vizChartTypes.find(c => c.id === chartType);
+    const chartType = document.getElementById("viz-chart-type").value;
+    const ct = vizChartTypes.find((c) => c.id === chartType);
     if (!ct) return;
 
     // Build config from field roles + styling
     const config = {};
-    ct.field_roles.forEach(role => {
+    ct.field_roles.forEach((role) => {
       const el = document.getElementById(`viz-field-${role.name}`);
       if (!el) return;
       if (role.multiple) {
         const val = el.value.trim();
         if (val) {
-          config[role.name] = val.split(',').map(s => s.trim());
+          config[role.name] = val.split(",").map((s) => s.trim());
         }
       } else {
         if (el.value) config[role.name] = el.value;
@@ -2184,14 +2405,18 @@ async function loadRecipe(slug) {
     });
 
     // Styling
-    const title = document.getElementById('viz-title')?.value;
-    const subtitle = document.getElementById('viz-subtitle')?.value;
-    const xlabel = document.getElementById('viz-xlabel')?.value;
-    const ylabel = document.getElementById('viz-ylabel')?.value;
-    const width = parseInt(document.getElementById('viz-width')?.value || '1200');
-    const height = parseInt(document.getElementById('viz-height')?.value || '800');
-    const dpi = parseInt(document.getElementById('viz-dpi')?.value || '150');
-    const theme = document.getElementById('viz-theme')?.value || 'light';
+    const title = document.getElementById("viz-title")?.value;
+    const subtitle = document.getElementById("viz-subtitle")?.value;
+    const xlabel = document.getElementById("viz-xlabel")?.value;
+    const ylabel = document.getElementById("viz-ylabel")?.value;
+    const width = parseInt(
+      document.getElementById("viz-width")?.value || "1200",
+    );
+    const height = parseInt(
+      document.getElementById("viz-height")?.value || "800",
+    );
+    const dpi = parseInt(document.getElementById("viz-dpi")?.value || "150");
+    const theme = document.getElementById("viz-theme")?.value || "light";
 
     if (title) config.title = title;
     if (subtitle) config.subtitle = subtitle;
@@ -2202,14 +2427,19 @@ async function loadRecipe(slug) {
     config.dpi = dpi;
     config.theme = theme;
 
-    const display = document.getElementById('viz-chart-display');
-    display.innerHTML = '<div style="color:var(--text-muted);">Rendering chart...</div>';
+    const display = document.getElementById("viz-chart-display");
+    display.innerHTML =
+      '<div style="color:var(--text-muted);">Rendering chart...</div>';
 
     try {
       const resp = await fetch(`${API_BASE}/chart/render`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ table: tableName, chart_type: chartType, config: config })
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          table: tableName,
+          chart_type: chartType,
+          config: config,
+        }),
       });
       const data = await resp.json();
       if (data.error) {
@@ -2236,13 +2466,13 @@ async function loadRecipe(slug) {
       const info = await infoResp.json();
       const newFav = !info.favorite;
       await fetch(`${API_BASE}/chart/${chartId}/favorite`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ favorite: newFav })
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ favorite: newFav }),
       });
-      alert(newFav ? 'Added to favorites' : 'Removed from favorites');
+      alert(newFav ? "Added to favorites" : "Removed from favorites");
     } catch (e) {
-      alert('Failed to toggle favorite: ' + e);
+      alert("Failed to toggle favorite: " + e);
     }
   }
 
@@ -2252,7 +2482,7 @@ async function loadRecipe(slug) {
 
   function showChartGallery() {
     currentTable = null;
-    currentView = 'gallery';
+    currentView = "gallery";
     updateActiveTable(null);
     showLoading(mainContent);
     galleryFavoritesOnly = false;
@@ -2262,7 +2492,9 @@ async function loadRecipe(slug) {
   async function loadChartGallery(favoritesOnly) {
     galleryFavoritesOnly = favoritesOnly;
     try {
-      const url = favoritesOnly ? `${API_BASE}/charts/favorites` : `${API_BASE}/charts`;
+      const url = favoritesOnly
+        ? `${API_BASE}/charts/favorites`
+        : `${API_BASE}/charts`;
       const resp = await fetch(url);
       const data = await resp.json();
       renderChartGallery(data.charts || [], favoritesOnly);
@@ -2272,34 +2504,38 @@ async function loadRecipe(slug) {
   }
 
   function renderChartGallery(charts, favoritesOnly) {
-    const galleryHtml = charts.map(c => `
+    const galleryHtml = charts
+      .map(
+        (c) => `
       <div class="chart-card" style="background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:var(--space-md); display:flex; flex-direction:column; gap:8px;">
         <img src="/tools/data/api/chart/${c.chart_id}" alt="${escapeHtml(c.title)}" style="width:100%; height:200px; object-fit:contain; border-radius:4px; cursor:pointer;" onclick="viewChartDetail('${c.chart_id}')"/>
         <div style="display:flex; justify-content:space-between; align-items:center;">
           <div>
             <strong>${escapeHtml(c.title)}</strong>
             <div style="font-size:11px; color:var(--text-muted);">${escapeHtml(c.chart_type)} • ${escapeHtml(c.table)}</div>
-            <div style="font-size:10px; color:var(--text-muted);">${escapeHtml(c.created_at || '')}</div>
+            <div style="font-size:10px; color:var(--text-muted);">${escapeHtml(c.created_at || "")}</div>
           </div>
           <div style="display:flex; gap:4px;">
-            <button onclick="toggleGalleryFavorite('${c.chart_id}', ${!c.favorite})" title="Favorite" style="font-size:16px; background:none; border:none; cursor:pointer;">${c.favorite ? '⭐' : '☆'}</button>
+            <button onclick="toggleGalleryFavorite('${c.chart_id}', ${!c.favorite})" title="Favorite" style="font-size:16px; background:none; border:none; cursor:pointer;">${c.favorite ? "⭐" : "☆"}</button>
             <a href="/tools/data/api/chart/${c.chart_id}/download" download style="text-decoration:none;">⬇</a>
             <button onclick="deleteGalleryChart('${c.chart_id}')" title="Delete" style="font-size:14px; background:none; border:none; cursor:pointer; color:red;">✕</button>
           </div>
         </div>
       </div>
-    `).join('');
+    `,
+      )
+      .join("");
 
     mainContent.innerHTML = `
       <div style="padding:var(--space-xl);">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:var(--space-lg);">
           <h2 style="margin:0;">🖼️ Chart Gallery</h2>
           <div style="display:flex; gap:8px;">
-            <button class="btn ${!favoritesOnly ? 'btn-primary' : 'btn-secondary'}" onclick="loadChartGallery(false)">All Charts</button>
-            <button class="btn ${favoritesOnly ? 'btn-primary' : 'btn-secondary'}" onclick="loadChartGallery(true)">⭐ Favorites</button>
+            <button class="btn ${!favoritesOnly ? "btn-primary" : "btn-secondary"}" onclick="loadChartGallery(false)">All Charts</button>
+            <button class="btn ${favoritesOnly ? "btn-primary" : "btn-secondary"}" onclick="loadChartGallery(true)">⭐ Favorites</button>
           </div>
         </div>
-        ${charts.length === 0 ? '<div style="text-align:center; padding:var(--space-2xl); color:var(--text-muted);">No charts yet. Generate charts from the Visualize tab or recipe visualize step.</div>' : ''}
+        ${charts.length === 0 ? '<div style="text-align:center; padding:var(--space-2xl); color:var(--text-muted);">No charts yet. Generate charts from the Visualize tab or recipe visualize step.</div>' : ""}
         <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:var(--space-md);">
           ${galleryHtml}
         </div>
@@ -2310,24 +2546,24 @@ async function loadRecipe(slug) {
   async function toggleGalleryFavorite(chartId, favorite) {
     try {
       await fetch(`${API_BASE}/chart/${chartId}/favorite`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ favorite: favorite })
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ favorite: favorite }),
       });
       // Reload gallery preserving current filter
       loadChartGallery(galleryFavoritesOnly);
     } catch (e) {
-      alert('Failed to toggle favorite: ' + e);
+      alert("Failed to toggle favorite: " + e);
     }
   }
 
   async function deleteGalleryChart(chartId) {
-    if (!confirm('Delete this chart?')) return;
+    if (!confirm("Delete this chart?")) return;
     try {
-      await fetch(`${API_BASE}/chart/${chartId}`, { method: 'DELETE' });
+      await fetch(`${API_BASE}/chart/${chartId}`, { method: "DELETE" });
       loadChartGallery(galleryFavoritesOnly);
     } catch (e) {
-      alert('Failed to delete: ' + e);
+      alert("Failed to delete: " + e);
     }
   }
 
@@ -2344,6 +2580,5 @@ async function loadRecipe(slug) {
         </div>
       </div>`;
   }
-
-    </script>
+</script>
 {% endblock body %}
