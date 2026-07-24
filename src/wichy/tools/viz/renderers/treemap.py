@@ -1,7 +1,7 @@
 """Treemap renderer (matplotlib).
 
-Hierarchical area-based rectangles. Uses the ``squarify`` algorithm
-implemented inline (no external dependency beyond matplotlib).
+Hierarchical area-based rectangles. Uses the squarify algorithm to produce
+rectangles with good aspect ratios.
 """
 
 from __future__ import annotations
@@ -31,58 +31,31 @@ def _squarify(
 ) -> list[tuple[float, float, float, float]]:
     """Compute treemap rectangles using the squarify algorithm.
 
-    Returns a list of (x, y, width, height) tuples.
+    Produces rectangles with aspect ratios as close to 1 as possible.
+
+    Args:
+        values: Normalized values (fractions of total, summing to ~1.0).
+        x, y: Top-left corner of the available area.
+        dx, dy: Width and height of the available area.
+
+    Returns:
+        List of (x, y, width, height) tuples.
     """
     if not values:
         return []
 
     total = sum(values)
     if total <= 0:
-        return [(x, y, dx / len(values), dy) for _ in values]
+        return [
+            (x + i * dx / len(values), y, dx / len(values), dy)
+            for i in range(len(values))
+        ]
 
-    normalized = [v / total for v in values]
+    # Scale values to fill the area
+    areas = [v * dx * dy / total for v in values]
+
     rects: list[tuple[float, float, float, float]] = []
-
-    def _worst_ratio(side: float, area: list[float]) -> float:
-        """Worst aspect ratio for a row of squares."""
-        if not area:
-            return float("inf")
-        total_area = sum(area)
-        max_area = max(area)
-        min_area = min(area)
-        return max(
-            (side**2 * max_area) / total_area**2,
-            total_area**2 / (side**2 * min_area),
-        )
-
-    def _layout_row(
-        row: list[float], side: float, x: float, y: float, dx: float, dy: float
-    ) -> list[tuple[float, float, float, float]]:
-        """Layout a single row of rectangles."""
-        row_total = sum(row)
-        rects_out: list[tuple[float, float, float, float]] = []
-        if dx > dy:
-            # Row is vertical
-            row_height = row_total / dx
-            cy = y
-            for v in row:
-                w = v / row_height
-                rects_out.append((x, cy, row_height, w))
-                cy += w
-            new_x = x + row_height
-            return rects_out, new_x, y, dx - row_height, dy  # type: ignore[return-value]
-        else:
-            # Row is horizontal
-            row_width = row_total / dy
-            cx = x
-            for v in row:
-                h = v / row_width
-                rects_out.append((cx, y, w, h))
-                cx += w  # type: ignore[name-defined]
-            new_y = y + row_width
-            return rects_out, x, new_y, dx, dy - row_width  # type: ignore[return-value]
-
-    remaining = list(normalized)
+    remaining = list(areas)
     cur_x, cur_y, cur_dx, cur_dy = x, y, dx, dy
 
     while remaining:
@@ -90,41 +63,59 @@ def _squarify(
             rects.append((cur_x, cur_y, cur_dx, cur_dy))
             break
 
-        side = min(cur_dx, cur_dy)
+        # Determine layout direction: slice along the shorter dimension
+        # Layout a "row" of rectangles stacked along the shorter side
+        short_side = min(cur_dx, cur_dy)
         row: list[float] = []
 
+        def _worst_ratio(row_areas: list[float], side: float) -> float:
+            """Worst aspect ratio in a row of rectangles laid along `side`."""
+            if not row_areas:
+                return float("inf")
+            total_area = sum(row_areas)
+            max_area = max(row_areas)
+            min_area = min(row_areas)
+            return max(
+                (side**2 * max_area) / total_area**2,
+                total_area**2 / (side**2 * min_area),
+            )
+
+        # Greedily build the row: keep adding rectangles while it improves
+        # the worst aspect ratio
         while remaining:
             if not row:
                 row.append(remaining[0])
                 remaining = remaining[1:]
             else:
-                # Check if adding the next value improves the worst ratio
                 new_row = row + [remaining[0]]
-                if _worst_ratio(side, new_row) <= _worst_ratio(side, row):
+                if _worst_ratio(new_row, short_side) <= _worst_ratio(row, short_side):
                     row = new_row
                     remaining = remaining[1:]
                 else:
                     break
 
         # Layout this row
+        row_total = sum(row)
         if cur_dx >= cur_dy:
-            row_height = sum(row) / cur_dx
+            # Layout row as a vertical strip on the left (full height cur_dy)
+            strip_width = row_total / cur_dy
             cy = cur_y
-            for v in row:
-                w = v / row_height
-                rects.append((cur_x, cy, row_height, w))
-                cy += w
-            cur_x += row_height
-            cur_dx -= row_height
+            for area in row:
+                h = area / strip_width
+                rects.append((cur_x, cy, strip_width, h))
+                cy += h
+            cur_x += strip_width
+            cur_dx -= strip_width
         else:
-            row_width = sum(row) / cur_dy
+            # Layout row as a horizontal strip on top (full width cur_dx)
+            strip_height = row_total / cur_dx
             cx = cur_x
-            for v in row:
-                h = v / row_width
-                rects.append((cx, cur_y, w, h))  # type: ignore[name-defined]
-                cx += h
-            cur_y += row_width
-            cur_dy -= row_width
+            for area in row:
+                w = area / strip_height
+                rects.append((cx, cur_y, w, strip_height))
+                cx += w
+            cur_y += strip_height
+            cur_dy -= strip_height
 
     return rects
 
@@ -135,6 +126,10 @@ def render_treemap(
     output_path: Path,
 ) -> None:
     """Render a treemap and save it to output_path.
+
+    Each row provides a label and a value. The value determines the area
+    of the rectangle. If a parent column is provided, a two-level hierarchy
+    is rendered (parent rectangles containing child rectangles).
 
     Args:
         data_rows: List of row dicts with column names as keys.
