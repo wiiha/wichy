@@ -1,8 +1,9 @@
 """Sankey diagram renderer (matplotlib).
 
 Flow quantities between source → target nodes. Sources are laid out on the
-left, targets on the right, with colored bands whose thickness is
-proportional to the flow value.
+left, targets on the right, with colored bands whose thickness is proportional
+to the flow value. Each source has a consistent color; target bars are stacked
+by incoming source color.
 """
 
 from __future__ import annotations
@@ -30,10 +31,14 @@ def render_sankey(
 ) -> None:
     """Render a Sankey-style flow diagram and save it to output_path.
 
-    Uses a two-column layout: sources on the left at x=0, targets on the
-    right at x=1. Flows are drawn as filled bands whose vertical thickness
-    is proportional to the flow value. Each source and target node also
-    gets a vertical bar whose height equals the total of its flows.
+    Uses a two-column layout: sources on the left at x=0, targets on the right
+    at x=1. Flows are drawn as filled bands whose vertical thickness is
+    proportional to the flow value.
+
+    Each source node is assigned a stable color from the theme palette; all
+    outgoing flows from that source use that color (with alpha varying by
+    relative magnitude). Target nodes are drawn as stacked segments, one per
+    incoming source color.
 
     Args:
         data_rows: List of row dicts with column names as keys.
@@ -74,18 +79,21 @@ def render_sankey(
         source_totals[s] += v
         target_totals[t] += v
 
-    # Layout: stack nodes vertically with gaps proportional to total flow
-    # Left column (x=0) and right column (x=1)
-    gap = 1.0  # Vertical gap between nodes
+    # Assign a stable color to each source node
+    colors = get_colors(config)
+    s_color: dict[str, Any] = {
+        label: colors[i % len(colors)] for i, label in enumerate(source_labels)
+    }
 
-    # Compute y positions for source nodes (top to bottom)
+    # Layout: stack nodes vertically
+    gap = max(max(source_totals.values()) if source_totals else 1.0, 1.0) * 0.05
+
     s_y_pos: dict[str, float] = {}
     cur_y = 0.0
     for label in source_labels:
         s_y_pos[label] = cur_y
         cur_y += source_totals[label] + gap
 
-    # Compute y positions for target nodes
     t_y_pos: dict[str, float] = {}
     cur_y = 0.0
     for label in target_labels:
@@ -93,59 +101,55 @@ def render_sankey(
         cur_y += target_totals[label] + gap
 
     total_height = max(
-        sum(source_totals.values()) + gap * len(source_labels),
-        sum(target_totals.values()) + gap * len(target_labels),
+        sum(source_totals.values()) + gap * max(len(source_labels) - 1, 0),
+        sum(target_totals.values()) + gap * max(len(target_labels) - 1, 0),
         1.0,
     )
 
     fig, ax = create_figure(config)
-    colors = get_colors(config)
-
-    # Track how much of each node has been "used" (for stacking flow bands)
-    s_used: dict[str, float] = {label: 0.0 for label in source_labels}
-    t_used: dict[str, float] = {label: 0.0 for label in target_labels}
 
     max_val = max(flows.values()) if flows else 1.0
 
-    # Draw flow bands as filled polygons
-    for i, ((s_label, t_label), val) in enumerate(
-        sorted(flows.items(), key=lambda x: -x[1])
-    ):
-        if val <= 0:
-            continue
+    # Track how much of each node has been consumed by drawn flows
+    s_used: dict[str, float] = {label: 0.0 for label in source_labels}
+    t_used: dict[str, float] = {label: 0.0 for label in target_labels}
 
-        color = colors[i % len(colors)]
-        alpha = 0.4 + 0.3 * (val / max_val) if max_val > 0 else 0.5
+    # Draw flow bands. Iterate sources in order, and for each source iterate
+    # targets in order. This preserves a consistent stacking and minimizes
+    # visual crossings.
+    for s_label in source_labels:
+        for t_label in target_labels:
+            val = flows.get((s_label, t_label))
+            if not val or val <= 0:
+                continue
 
-        # Source side: vertical slice of the source node
-        s_top = s_y_pos[s_label] + source_totals[s_label] - s_used[s_label]
-        s_bot = s_top - val
-        s_used[s_label] += val
+            color = s_color[s_label]
+            alpha = 0.5 + 0.35 * (val / max_val) if max_val > 0 else 0.6
 
-        # Target side: vertical slice of the target node
-        t_top = t_y_pos[t_label] + target_totals[t_label] - t_used[t_label]
-        t_bot = t_top - val
-        t_used[t_label] += val
+            # Source side: next available vertical slice (top to bottom)
+            s_top = s_y_pos[s_label] + source_totals[s_label] - s_used[s_label]
+            s_bot = s_top - val
+            s_used[s_label] += val
 
-        # Build a filled band from (0, s_top/s_bot) to (1, t_top/t_bot)
-        # with a slight curve in the middle for visual appeal
-        n_points = 50
-        t_arr = np.linspace(0, 1, n_points)
-        # Interpolate top and bottom edges with a cubic ease
-        # Start at source, end at target, with a smooth S-curve
-        ease = 3 * t_arr**2 - 2 * t_arr**3  # smoothstep
+            # Target side: next available vertical slice
+            t_top = t_y_pos[t_label] + target_totals[t_label] - t_used[t_label]
+            t_bot = t_top - val
+            t_used[t_label] += val
 
-        top_y = s_top + (t_top - s_top) * ease
-        bot_y = s_bot + (t_bot - s_bot) * ease
-        x_vals = t_arr  # x goes 0 → 1
+            # Build filled band from (0, s_top/s_bot) to (1, t_top/t_bot)
+            n_points = 50
+            t_arr = np.linspace(0, 1, n_points)
+            ease = 3 * t_arr**2 - 2 * t_arr**3  # smoothstep
 
-        # Build polygon: top edge left→right, then bottom edge right→left
-        poly_x = np.concatenate([x_vals, x_vals[::-1]])
-        poly_y = np.concatenate([top_y, bot_y[::-1]])
+            top_y = s_top + (t_top - s_top) * ease
+            bot_y = s_bot + (t_bot - s_bot) * ease
 
-        ax.fill(poly_x, poly_y, color=color, alpha=alpha, edgecolor="none")
+            poly_x = np.concatenate([t_arr, t_arr[::-1]])
+            poly_y = np.concatenate([top_y, bot_y[::-1]])
 
-    # Draw node bars and labels
+            ax.fill(poly_x, poly_y, color=color, alpha=alpha, edgecolor="none")
+
+    # Draw source node bars using source colors
     bar_width = 0.05
     for label in source_labels:
         y_bot = s_y_pos[label]
@@ -154,7 +158,7 @@ def render_sankey(
             [-bar_width, 0],
             [y_bot, y_bot],
             [y_top, y_top],
-            color=colors[0],
+            color=s_color[label],
             edgecolor="white",
             linewidth=0.5,
         )
@@ -167,17 +171,32 @@ def render_sankey(
             fontsize=config.font_size - 2,
         )
 
-    for idx, label in enumerate(target_labels):
+    # Draw target node bars as stacked incoming flows
+    t_used_draw: dict[str, float] = {label: 0.0 for label in target_labels}
+    for s_label in source_labels:
+        for t_label in target_labels:
+            val = flows.get((s_label, t_label))
+            if not val or val <= 0:
+                continue
+
+            y_bot = (
+                t_y_pos[t_label] + target_totals[t_label] - t_used_draw[t_label] - val
+            )
+            y_top = y_bot + val
+            t_used_draw[t_label] += val
+
+            ax.fill_between(
+                [1, 1 + bar_width],
+                [y_bot, y_bot],
+                [y_top, y_top],
+                color=s_color[s_label],
+                edgecolor="white",
+                linewidth=0.5,
+            )
+
+    for label in target_labels:
         y_bot = t_y_pos[label]
         y_top = y_bot + target_totals[label]
-        ax.fill_between(
-            [1, 1 + bar_width],
-            [y_bot, y_bot],
-            [y_top, y_top],
-            color=colors[(idx + 1) % len(colors)],
-            edgecolor="white",
-            linewidth=0.5,
-        )
         ax.text(
             1 + bar_width + 0.02,
             (y_bot + y_top) / 2,
