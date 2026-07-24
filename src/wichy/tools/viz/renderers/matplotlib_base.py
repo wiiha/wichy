@@ -75,8 +75,21 @@ def apply_theme(
     # Title and subtitle — position with adequate vertical spacing
     # to prevent overlap.  We compute y-positions in figure coordinates
     # based on font sizes so the gap scales with text size.
+    #
+    # The text floats in the figure margin ABOVE the axes.  We must also
+    # shrink the axes' top boundary so it does not extend up under the
+    # title/subtitle and overlap them.  We do that via subplots_adjust(top=...)
+    # using the lowest text y-position minus a small pad.
+    #
+    # Renderers that set a custom axes position (polar charts: radar,
+    # time_compass) already reserve their own top margin, so we leave the
+    # axes alone in that case (detected by a non-default top bound).
     fig_h_in = config.height / config.dpi
     fig_h_pt = fig_h_in * 72.0  # total figure height in points
+
+    # Lowest text y-position in figure coords (used to set the axes top).
+    # Starts at 1.0 (no text) and is lowered by each text element placed.
+    lowest_text_y = 1.0
 
     if config.title and config.subtitle:
         # Title near the top, subtitle below it with a clear gap
@@ -101,6 +114,7 @@ def apply_theme(
             fontsize=subtitle_fs,
             color=subtitle_color,
         )
+        lowest_text_y = subtitle_y
     elif config.title:
         title_fs = config.font_size + 4
         title_y = 1.0 - (title_fs * 1.0) / fig_h_pt
@@ -110,6 +124,7 @@ def apply_theme(
             fontweight="bold",
             y=title_y,
         )
+        lowest_text_y = title_y
     elif config.subtitle:
         # Subtitle only (no title) — place near top
         subtitle_fs = config.font_size - 2
@@ -124,6 +139,27 @@ def apply_theme(
             fontsize=subtitle_fs,
             color=subtitle_color,
         )
+        lowest_text_y = subtitle_y
+
+    # Reserve top margin so the axes don't extend under the title/subtitle.
+    # The subtitle uses va="top", so its text extends DOWNWARD from
+    # subtitle_y; reserve a bit below that for the descenders + padding.
+    # Only adjust if the renderer hasn't set a custom axes position (the
+    # default plt.subplots() top is ~0.88; polar renderers set a square
+    # position and manage their own margins).
+    if config.title or config.subtitle:
+        # Reserve from the lowest text baseline down a couple of lines so
+        # the axes top sits clearly below the last line of text.
+        pad = (config.font_size * 1.0) / fig_h_pt
+        axes_top = lowest_text_y - pad
+        cur_pos = ax.get_position()
+        # cur_pos is [left, bottom, width, height]; top = bottom + height.
+        cur_top = cur_pos.y0 + cur_pos.height
+        # The default axes top is ~0.88.  If a renderer already set a
+        # custom (lower) top (e.g. polar charts reserving margins), leave
+        # it alone — it already accounts for the title space.
+        if cur_top > 0.85 and cur_top > axes_top:
+            fig.subplots_adjust(top=axes_top)
 
     # Axis labels
     if config.x_axis_label:
