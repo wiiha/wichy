@@ -41,6 +41,24 @@ def get_colors(config: BaseChartConfig) -> list[str]:
     return DEFAULT_COLORS
 
 
+def _style_legend_dark(leg: Any) -> None:
+    """Make a matplotlib legend readable on a dark background.
+
+    Matplotlib's legend text defaults to black (via rcParams), which is
+    invisible on the dark axes background. Recolor the legend's text,
+    title, and frame edge to a light color.
+    """
+    # Legend labels (the series names).
+    for text in leg.get_texts():
+        text.set_color("#e0e0e0")
+    # Legend title (set via legend(title=...) or leg.set_title()).
+    title = leg.get_title()
+    if title is not None:
+        title.set_color("#e0e0e0")
+    # Frame edge — subtle so it doesn't overpower on dark.
+    leg.get_frame().set_edgecolor("#444444")
+
+
 def apply_theme(
     fig: plt.Figure, ax: plt.Axes, config: BaseChartConfig
 ) -> tuple[plt.Figure, plt.Axes]:
@@ -128,6 +146,13 @@ def apply_theme(
         # Update existing suptitle color for dark theme
         if config.title and fig._suptitle is not None:
             fig._suptitle.set_color("white")
+        # Legend text: matplotlib defaults to black, which is invisible on a
+        # dark background. Style the axes' legend (if one exists yet) so the
+        # labels, title, and frame edge all read white. Renderers create the
+        # legend before the final apply_theme call, so it is present here.
+        leg = ax.get_legend()
+        if leg is not None:
+            _style_legend_dark(leg)
     else:
         bg = "white" if config.background != "transparent" else "none"
         fig.patch.set_facecolor(bg)

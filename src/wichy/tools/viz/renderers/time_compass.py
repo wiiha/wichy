@@ -54,6 +54,9 @@ _DOW_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 _HOUR_LABELS = [f"{h:02d}:00" for h in range(24)]
 
+# Coarse 4-hour buckets keep hourly data readable on a polar compass (6 slots).
+_4HOUR_LABELS = [f"{h:02d}-{h + 4:02d}" for h in range(0, 24, 4)]
+
 _QUARTER_LABELS = ["Q1", "Q2", "Q3", "Q4"]
 
 
@@ -74,15 +77,18 @@ def _parse_to_datetime(val: Any) -> datetime.datetime | None:
 def _detect_periods_and_map(
     time_vals: list[Any],
 ) -> tuple[list[str], list[int]]:
-    """Auto-detect time granularity and map each row to a period index.
+    """Auto-detect a *coarse* time granularity and map each row to a period index.
 
-    Examines the parsed datetime values to determine the finest granularity
-    that distinguishes the data points:
-    - If values span multiple months → monthly (12 periods)
-    - If all same month but different days → daily (by day-of-month)
-    - If all same day but different hours → hourly (24 periods)
-    - If values look like quarters → quarterly (4 periods)
-    - Fallback: use unique values as-is sorted
+    A time compass is a polar chart, so too many periods (e.g. 24 hours,
+    31 days) make bars thin, labels collide, and the chart unreadable. We
+    therefore pick the *coarsest* granularity that still distinguishes the
+    data, capped at roughly 12 slots:
+
+    - Quarters (4) when months are few / look quarterly.
+    - Months (12) when data spans multiple months.
+    - Days of week (7) when data is intra-month but spans multiple weekdays.
+    - 4-hour buckets (6) when only the hour varies within a day.
+    - Fallback: unique raw values as labels.
 
     Returns:
         Tuple of (period_labels, period_indices) where period_indices[i]
@@ -100,75 +106,58 @@ def _detect_periods_and_map(
             if s not in seen:
                 seen.add(s)
                 unique_vals.append(s)
-        # Map each row to its index
         val_to_idx = {v: i for i, v in enumerate(unique_vals)}
         indices = [
             val_to_idx.get(str(v) if v is not None else "None", 0) for v in time_vals
         ]
         return unique_vals, indices
 
-    # Check granularity: collect the set of months, days, hours
     months = set(d.month for d in valid_dts)
-    days = set(d.day for d in valid_dts)
-    hours = set(d.hour for d in valid_dts)
 
-    # Determine the granularity level
-    # If multiple years and 12 or fewer unique months → monthly
-    # If single year and multiple months → monthly
-    # If single month, multiple days → daily (by day of month)
-    # If single day, multiple hours → hourly
-    # If 4 or fewer unique months and spans full year → quarterly
-
-    if len(months) > 1:
-        # Check if it's quarterly (months are 1,4,7,10 or similar)
-        sorted_months = sorted(months)
-        if (
-            len(months) <= 4
-            and all(m in {1, 4, 7, 10} or m in {1, 4, 7, 10, 12} for m in sorted_months)
-            and len(months) <= 4
-        ):
-            # Could be quarterly — use quarter labels
-            labels = _QUARTER_LABELS
-            indices = [_map_to_quarter(d) for d in dts]
-            return labels, indices
-        else:
-            # Monthly
-            labels = _MONTH_LABELS
-            indices = [(d.month - 1) if d is not None else 0 for d in dts]
-            return labels, indices
-    elif len(days) > 1:
-        # Daily — use day-of-month
-        max_day = max(days)
-        if max_day <= 7:
-            # Could be day-of-week if days are 1-7
-            # But day-of-month 1-7 is ambiguous; use day labels
-            labels = [str(d) for d in range(1, max_day + 1)]
-            indices = [(d.day - 1) if d is not None else 0 for d in dts]
-            return labels, indices
-        else:
-            # Day of month
-            labels = [str(d) for d in range(1, max_day + 1)]
-            indices = [(d.day - 1) if d is not None else 0 for d in dts]
-            return labels, indices
-    elif len(hours) > 1:
-        # Hourly
-        labels = _HOUR_LABELS
-        indices = [d.hour if d is not None else 0 for d in dts]
+    # Quarters: 2+ distinct months that land on quarter boundaries.
+    if (
+        len(months) >= 2
+        and len(months) <= 4
+        and all(m in {1, 4, 7, 10} for m in months)
+    ):
+        labels = _QUARTER_LABELS
+        indices = [_map_to_quarter(d) for d in dts]
         return labels, indices
-    else:
-        # All same timestamp or very low variety — use unique values
-        unique_strs: list[str] = []
-        seen_s: set[str] = set()
-        for v in time_vals:
-            s = str(v) if v is not None else "None"
-            if s not in seen_s:
-                seen_s.add(s)
-                unique_strs.append(s)
-        val_to_idx = {v: i for i, v in enumerate(unique_strs)}
-        indices = [
-            val_to_idx.get(str(v) if v is not None else "None", 0) for v in time_vals
-        ]
-        return unique_strs, indices
+
+    # Multiple months -> monthly (12 slots, the practical compass maximum).
+    if len(months) > 1:
+        labels = _MONTH_LABELS
+        indices = [(d.month - 1) if d is not None else 0 for d in dts]
+        return labels, indices
+
+    # Single month. Distinguish by day-of-week (7) rather than raw day-of-month
+    # (up to 31) so the compass stays readable.
+    weekdays = set(d.weekday() for d in valid_dts)
+    if len(weekdays) > 1:
+        labels = _DOW_LABELS
+        indices = [d.weekday() if d is not None else 0 for d in dts]
+        return labels, indices
+
+    # Same date, hours vary -> coarse 4-hour buckets (6 slots).
+    hours = set(d.hour for d in valid_dts)
+    if len(hours) > 1:
+        labels = _4HOUR_LABELS
+        indices = [d.hour // 4 if d is not None else 0 for d in dts]
+        return labels, indices
+
+    # All same timestamp or very low variety — use unique values.
+    unique_strs: list[str] = []
+    seen_s: set[str] = set()
+    for v in time_vals:
+        s = str(v) if v is not None else "None"
+        if s not in seen_s:
+            seen_s.add(s)
+            unique_strs.append(s)
+    val_to_idx = {v: i for i, v in enumerate(unique_strs)}
+    indices = [
+        val_to_idx.get(str(v) if v is not None else "None", 0) for v in time_vals
+    ]
+    return unique_strs, indices
 
 
 def _map_to_quarter(dt: datetime.datetime | None) -> int:
@@ -325,15 +314,14 @@ def render_time_compass(
     ax_y = bottom_margin + (available_h - side) / 2
     ax.set_position([ax_x, ax_y, side, side])
 
-    # Draw bars
-    max_abs_val = max(abs(v) for v in values) if values else 1.0
-    if max_abs_val == 0:
-        max_abs_val = 1.0
-
+    # Draw bars. The scaling reference (max_abs_val) depends on mode:
+    # single-series -> max abs value; grouped -> max stack height per period,
+    # so stacked bars always fit inside the axis.
     colors = config.color_palette if config.color_palette else DEFAULT_COLORS
 
-    # Bar width: slightly less than the angular gap between periods
-    bar_width = (2 * np.pi / n_periods) * 0.7
+    # Bar width: fill most of the angular slot. Since grouped bars are
+    # stacked (not overlapped), a wide single bar per period reads cleanly.
+    bar_width = (2 * np.pi / n_periods) * 0.8
 
     if config.group_by:
         group_vals = extract_column(data_rows, config.group_by)
@@ -342,49 +330,54 @@ def render_time_compass(
             g_key = str(g) if g is not None else "None"
             groups.setdefault(g_key, []).append(i)
 
-        for gi, (gname, indices_g) in enumerate(groups.items()):
-            color = colors[gi % len(colors)]
-            g_values = [values[i] for i in indices_g]
+        # Pre-aggregate each group's value per period.
+        # per_group[gi] -> {period_idx: summed value for group gi}.
+        group_names = list(groups.keys())
+        per_group: list[dict[int, float]] = [{} for _ in group_names]
+        for gi, gname in enumerate(group_names):
+            for i in groups[gname]:
+                p_idx = indices[i] % n_periods
+                per_group[gi][p_idx] = per_group[gi].get(p_idx, 0.0) + values[i]
 
-            # Aggregate values per period (sum if multiple rows map to same period)
-            period_sums: dict[int, float] = {}
-            for a_idx, v in zip(indices_g, g_values):
-                p_idx = indices[a_idx] % n_periods
-                period_sums[p_idx] = period_sums.get(p_idx, 0.0) + v
+        # Reference height = tallest stack across all periods (sum of |v|).
+        stack_heights: dict[int, float] = {}
+        for gi in range(len(group_names)):
+            for p_idx, v in per_group[gi].items():
+                stack_heights[p_idx] = stack_heights.get(p_idx, 0.0) + abs(v)
+        max_abs_val = max(stack_heights.values()) if stack_heights else 1.0
+        if max_abs_val == 0:
+            max_abs_val = 1.0
 
-            # Draw bars for each period
-            labeled = False
-            for p_idx, total_val in sorted(period_sums.items()):
-                normalized = total_val / max_abs_val
-                a = period_angles[p_idx]
+        # Draw stacked bars: for each period, stack groups in order, one
+        # composite bar. Each segment's height is its magnitude (abs),
+        # so negative and positive contributions both draw outward and the
+        # legend identifies which group each color represents.
+        drawn_label: set[str] = set()
+        for p_idx in range(n_periods):
+            bottom = 0.0
+            for gi, gname in enumerate(group_names):
+                total_val = per_group[gi].get(p_idx, 0.0)
+                if total_val == 0:
+                    continue
+                normalized = abs(total_val) / max_abs_val
                 ax.bar(
-                    a,
-                    abs(normalized),
+                    period_angles[p_idx],
+                    normalized,
                     width=bar_width,
-                    bottom=0,
-                    color=color,
-                    alpha=0.7,
-                    label=gname if not labeled else None,
+                    bottom=bottom,
+                    color=colors[gi % len(colors)],
+                    alpha=0.85,
+                    label=gname if gname not in drawn_label else None,
                 )
-                labeled = True
-
-            # Connect points with a line
-            sorted_periods = sorted(period_sums.keys())
-            if sorted_periods:
-                line_angles = [period_angles[p] for p in sorted_periods]
-                line_values = [period_sums[p] / max_abs_val for p in sorted_periods]
-                # Close the loop
-                line_angles.append(line_angles[0])
-                line_values.append(line_values[0])
-                ax.plot(
-                    line_angles,
-                    [max(0, v) for v in line_values],
-                    "o-",
-                    color=color,
-                    markersize=4,
-                )
+                drawn_label.add(gname)
+                bottom += normalized
     else:
         color = colors[0]
+        # Single series: scale against the largest abs value across periods.
+        max_abs_val = max(abs(v) for v in values) if values else 1.0
+        if max_abs_val == 0:
+            max_abs_val = 1.0
+
         # Aggregate values per period
         period_sums: dict[int, float] = {}
         for i, v in enumerate(values):
@@ -395,7 +388,7 @@ def render_time_compass(
             normalized = total_val / max_abs_val
             a = period_angles[p_idx]
             ax.bar(
-                a, abs(normalized), width=bar_width, bottom=0, color=color, alpha=0.7
+                a, abs(normalized), width=bar_width, bottom=0, color=color, alpha=0.8
             )
 
         # Connect points
