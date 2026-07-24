@@ -2599,7 +2599,7 @@ title %} {% block color_scheme %}
   function renderChartGallery(charts, favoritesOnly) {
       // Build dataset filter options from the charts present
       const datasets = [...new Set(charts.map((c) => c.table))].sort();
-      const datasetOpts = ["<option value="">All datasets</option>"]
+      const datasetOpts = ['<option value="">All datasets</option>']
         .concat(datasets.map((d) => `<option value="${escapeHtml(d)}" ${d === galleryDatasetFilter ? "selected" : ""}>${escapeHtml(d)}</option>`))
         .join("");
 
