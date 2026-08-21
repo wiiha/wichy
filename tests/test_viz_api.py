@@ -22,11 +22,19 @@ def app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Flask:
 
     monkeypatch.setattr(type(settings), "charts_dir", property(lambda self: charts_dir))
 
-    templates_dir = str(
-        Path(__file__).parent.parent / "src" / "wichy" / "tools" / "data" / "templates"
-    )
+    templates_dir = str(Path(__file__).parent.parent / "src" / "wichy" / "templates")
 
     app = Flask(__name__, template_folder=templates_dir)
+
+    # Register shared static blueprint (shared.css, pico, etc.)
+    shared_static_dir = str(Path(__file__).parent.parent / "src" / "wichy" / "static")
+    shared_bp = Blueprint(
+        "shared",
+        __name__,
+        static_folder=shared_static_dir,
+        static_url_path="/shared",
+    )
+    app.register_blueprint(shared_bp)
 
     fresh_bp = Blueprint(
         "data",
@@ -336,3 +344,49 @@ class TestDeleteChartEndpoint:
         """Deleting nonexistent chart returns 404."""
         resp = client.delete("/tools/data/api/chart/" + "b" * 32)
         assert resp.status_code == 404
+
+
+class TestCopyConfigModal:
+    """Test that the data explorer page includes the copy-config modal."""
+
+    def test_page_contains_modal_elements(self, client) -> None:
+        """The data explorer page renders with the copy-config modal HTML."""
+        resp = client.get("/tools/data/")
+        assert resp.status_code == 200
+        html = resp.data.decode("utf-8")
+        assert "viz-copy-config-modal" in html
+        assert "viz-copy-config-textarea" in html
+        assert "showCopyConfigModal" in html
+        assert "closeCopyConfigModal" in html
+        assert "copyConfigFromModal" in html
+
+    def test_old_clipboard_fallback_removed(self, client) -> None:
+        """The old alert() fallback for clipboard failure is no longer present."""
+        resp = client.get("/tools/data/")
+        assert resp.status_code == 200
+        html = resp.data.decode("utf-8")
+        assert "Failed to copy to clipboard" not in html
+
+    def test_modal_uses_shared_css_classes(self, client) -> None:
+        """Modal uses shared.css modal classes, not custom inline overlay styles."""
+        resp = client.get("/tools/data/")
+        assert resp.status_code == 200
+        html = resp.data.decode("utf-8")
+        # Find the modal div and check its classes
+        modal_start = html.find('id="viz-copy-config-modal"')
+        assert modal_start != -1
+        # The class attribute comes after the id on the same element
+        class_region = html[modal_start : modal_start + 80]
+        assert "modal-overlay" in class_region
+        assert "hidden" in class_region
+
+    def test_textarea_is_readonly(self, client) -> None:
+        """The copy-config textarea is readonly so users can't accidentally edit it."""
+        resp = client.get("/tools/data/")
+        assert resp.status_code == 200
+        html = resp.data.decode("utf-8")
+        textarea_start = html.find('id="viz-copy-config-textarea"')
+        assert textarea_start != -1
+        # The readonly attribute comes after the id on the same element
+        attr_region = html[textarea_start : textarea_start + 80]
+        assert "readonly" in attr_region
