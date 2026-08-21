@@ -16,6 +16,24 @@ from wichy.helpers.console import console
 _semaphore: Optional[Semaphore] = None
 _semaphore_lock = threading.Lock()
 
+# Maximum retry attempts for transient LLM backend errors.
+MAX_RETRIES = 3
+
+# Allowlist of parameters safe to forward to the OpenAI API.
+# Defined at module level so it is not rebuilt on every call.
+ALLOWED_FORWARD_KEYS = {
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "n",
+    "stop",
+    "presence_penalty",
+    "frequency_penalty",
+    "logit_bias",
+    "timeout",
+    "response_format",
+}
+
 
 class LLMBackendContextLimitReached(Exception):
     def __init__(
@@ -438,25 +456,43 @@ def _call_impl(
         forwarded.update(extra_args)
     forwarded.update(extra_kwargs)
 
-    # Allowlist known safe parameters to avoid passing unexpected fields
-    ALLOWED_FORWARD_KEYS = {
-        "max_tokens",
-        "temperature",
-        "top_p",
-        "n",
-        "stop",
-        "presence_penalty",
-        "frequency_penalty",
-        "logit_bias",
-        "timeout",
-        "response_format",
-    }
     # keep only allowed keys to avoid invalid API errors
     forwarded = {k: v for k, v in forwarded.items() if k in ALLOWED_FORWARD_KEYS}
 
     # Make the API call
     console.log(f"calling llm endpoint [backend={backend}, model={model}]")
     start_time = time.time()
+
+    def _retry_with_backoff(
+        backoff_base: int,
+        exc_instance: Exception,
+        log_prefix: str,
+        user_msg: str,
+    ):
+        """Sleep with exponential backoff and recurse, or raise exc_instance.
+
+        If the retry count is exhausted, raises *exc_instance*. Otherwise,
+        sleeps for ``backoff_base * 2**retry_count`` seconds and recurses
+        into ``_call_impl`` with an incremented retry count.
+        """
+        if retry_count >= MAX_RETRIES:
+            raise exc_instance
+        backoff = backoff_base * (2**retry_count)
+        console.log(
+            f"{log_prefix}, will retry in {backoff} seconds (attempt {retry_count + 1})"
+        )
+        user_console.print(
+            f"[dim][bold]→[/bold] LLM backend:[/dim] {user_msg}, retrying in {backoff}s (attempt {retry_count + 1})"
+        )
+        time.sleep(backoff)
+        return _call_impl(
+            context=context,
+            tool_defs=tool_defs,
+            model_str=model_str,
+            extra_args=extra_args,
+            retry_count=retry_count + 1,
+            **extra_kwargs,
+        )
 
     try:
         response = client.chat.completions.create(
@@ -502,44 +538,18 @@ def _call_impl(
                 message=f"Model does not support multimodal content: {str(e)}"
             )
         if message_indicates_rate_limit(e):
-            MAX_RETRIES = 3
-            if retry_count >= MAX_RETRIES:
-                raise LLMBackendRateLimitExceeded(retry_count=retry_count)
-            backoff = 3 * (2**retry_count)  # 3, 6, 12 seconds
-            console.log(
-                f"got rate limited, will retry in {backoff} seconds (attempt {retry_count + 1})"
-            )
-            user_console.print(
-                f"[dim][bold]→[/bold] LLM backend:[/dim] Rate limited, will retry in {backoff} seconds (attempt {retry_count + 1})"
-            )
-            time.sleep(backoff)
-            return _call_impl(
-                context=context,
-                tool_defs=tool_defs,
-                model_str=model_str,
-                extra_args=extra_args,
-                retry_count=retry_count + 1,
-                **extra_kwargs,
+            return _retry_with_backoff(
+                backoff_base=3,
+                exc_instance=LLMBackendRateLimitExceeded(retry_count=retry_count),
+                log_prefix="got rate limited",
+                user_msg="Rate limited",
             )
         if message_indicates_server_overloaded(e):
-            MAX_RETRIES = 3
-            if retry_count >= MAX_RETRIES:
-                raise LLMBackendServerOverloaded(retry_count=retry_count)
-            backoff = 5 * (2**retry_count)  # 5, 10, 20 seconds
-            console.log(
-                f"server overloaded, will retry in {backoff} seconds (attempt {retry_count + 1})"
-            )
-            user_console.print(
-                f"[dim][bold]→[/bold] LLM backend:[/dim] Server overloaded, retrying in {backoff}s (attempt {retry_count + 1})"
-            )
-            time.sleep(backoff)
-            return _call_impl(
-                context=context,
-                tool_defs=tool_defs,
-                model_str=model_str,
-                extra_args=extra_args,
-                retry_count=retry_count + 1,
-                **extra_kwargs,
+            return _retry_with_backoff(
+                backoff_base=5,
+                exc_instance=LLMBackendServerOverloaded(retry_count=retry_count),
+                log_prefix="server overloaded",
+                user_msg="Server overloaded",
             )
         # something else is not right
         raise LLMBackendUnhandledException(
@@ -554,26 +564,13 @@ def _call_impl(
         # Nope, no elements, likely due to choices missing from response,
         # but we handle that as missing either way. Lets do retries for this
         # now, similar to when server indicates overload.
-        MAX_RETRIES = 3
-        if retry_count >= MAX_RETRIES:
-            raise LLMBackendUnhandledException(
+        return _retry_with_backoff(
+            backoff_base=5,
+            exc_instance=LLMBackendUnhandledException(
                 message=f"LLM Backend error: {getattr(response, 'error', None) or str('API did not return choices')}: attempts made {retry_count+1}"
-            )
-        backoff = 5 * (2**retry_count)  # 5, 10, 20 seconds
-        console.log(
-            f"server returned no choices array, will retry in {backoff} seconds (attempt {retry_count + 1})"
-        )
-        user_console.print(
-            f"[dim][bold]→[/bold] LLM backend:[/dim] Server returned no choices array, retrying in {backoff}s (attempt {retry_count + 1})"
-        )
-        time.sleep(backoff)
-        return _call_impl(
-            context=context,
-            tool_defs=tool_defs,
-            model_str=model_str,
-            extra_args=extra_args,
-            retry_count=retry_count + 1,
-            **extra_kwargs,
+            ),
+            log_prefix="server returned no choices array",
+            user_msg="Server returned no choices array",
         )
 
     # Unwrap response

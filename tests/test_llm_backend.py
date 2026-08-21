@@ -6,7 +6,6 @@ import threading
 import time
 import pytest
 from unittest.mock import MagicMock, patch
-
 from wichy.llm_backend import (
     parse_generic_backend,
     LLMResponse,
@@ -15,6 +14,8 @@ from wichy.llm_backend import (
     _get_backend_semaphore,
     _reset_backend_semaphore,
     LLMBackendUnhandledException,
+    LLMBackendRateLimitExceeded,
+    LLMBackendServerOverloaded,
 )
 
 
@@ -433,6 +434,17 @@ class TestCallFunction:
         mock_response.model = "test-model"
         mock_response.usage = mock_usage
 
+        mock_client.chat.completions.create.return_value = mock_response
+
+        context = [{"role": "user", "content": "Hello"}]
+        result = call(context, model_str="ollama/llama2")
+
+        assert isinstance(result, LLMResponse)
+        assert result.usage is not None
+        assert result.usage["prompt_tokens"] == 0
+        assert result.usage["completion_tokens"] == 0
+        assert result.usage["total_tokens"] == 30
+
 
 class TestMaxBackendConnections:
     """Tests for the max_backend_connections semaphore."""
@@ -537,3 +549,283 @@ class TestMaxBackendConnections:
         mock_response.model = "test-model"
         mock_response.usage = mock_usage
         return mock_response
+
+
+class TestRetryLogic:
+    """Tests for the _retry_with_backoff helper and retry paths in _call_impl."""
+
+    def setup_method(self):
+        """Reset the global semaphore before each test to avoid cross-test contamination."""
+        _reset_backend_semaphore()
+
+    def _mock_response(self, content: str = "ok"):
+        mock_usage = MagicMock()
+        mock_usage.prompt_tokens = 5
+        mock_usage.completion_tokens = 5
+        mock_usage.total_tokens = 10
+        mock_message = MagicMock()
+        mock_message.content = content
+        mock_message.role = "assistant"
+        mock_message.tool_calls = None
+        mock_message.model_extra = {}
+        mock_choice = MagicMock()
+        mock_choice.message = mock_message
+        mock_choice.finish_reason = "stop"
+        mock_response = MagicMock()
+        mock_response.choices = [mock_choice]
+        mock_response.model = "test-model"
+        mock_response.usage = mock_usage
+        return mock_response
+
+    def _empty_choices_response(self):
+        """A response with an empty choices list (triggers empty-choices retry).
+
+        Returns a factory so each side_effect call gets a fresh mock instance.
+        """
+
+        def _make(*args, **kwargs):
+            mock_response = MagicMock()
+            mock_response.choices = []
+            mock_response.model = "test-model"
+            mock_response.usage = None
+            mock_response.error = None
+            return mock_response
+
+        return _make
+
+    @patch("wichy.llm_backend.time.sleep")
+    @patch("wichy.llm_backend.OpenAI")
+    @patch("wichy.llm_backend.settings")
+    def test_rate_limit_retries_then_succeeds(
+        self, mock_settings, mock_openai, mock_sleep
+    ):
+        """Rate-limit error on first two calls, success on third."""
+        mock_settings.ollama_base_url = "http://localhost:11434/v1"
+        mock_settings.max_backend_connections = None
+        mock_client = MagicMock()
+        mock_openai.return_value = mock_client
+
+        rate_limit_error = Exception(
+            "Error code: 429 - temporarily rate-limited upstream"
+        )
+        mock_client.chat.completions.create.side_effect = [
+            rate_limit_error,
+            rate_limit_error,
+            self._mock_response("success"),
+        ]
+
+        result = call([{"role": "user", "content": "hi"}], model_str="ollama/test")
+        assert result.message.content == "success"
+        assert mock_client.chat.completions.create.call_count == 3
+        assert mock_sleep.call_count == 2
+
+    @patch("wichy.llm_backend.time.sleep")
+    @patch("wichy.llm_backend.OpenAI")
+    @patch("wichy.llm_backend.settings")
+    def test_rate_limit_exhausts_retries(self, mock_settings, mock_openai, mock_sleep):
+        """Rate-limit on every call exhausts retries and raises LLMBackendRateLimitExceeded."""
+        mock_settings.ollama_base_url = "http://localhost:11434/v1"
+        mock_settings.max_backend_connections = None
+        mock_client = MagicMock()
+        mock_openai.return_value = mock_client
+
+        rate_limit_error = Exception(
+            "Error code: 429 - temporarily rate-limited upstream"
+        )
+        mock_client.chat.completions.create.side_effect = rate_limit_error
+
+        with pytest.raises(LLMBackendRateLimitExceeded) as exc_info:
+            call([{"role": "user", "content": "hi"}], model_str="ollama/test")
+        assert exc_info.value.retry_count == 3
+        # MAX_RETRIES + 1 initial = 4 total calls
+        assert mock_client.chat.completions.create.call_count == 4
+        assert mock_sleep.call_count == 3
+
+    @patch("wichy.llm_backend.time.sleep")
+    @patch("wichy.llm_backend.OpenAI")
+    @patch("wichy.llm_backend.settings")
+    def test_server_overloaded_retries_then_succeeds(
+        self, mock_settings, mock_openai, mock_sleep
+    ):
+        """Server-overloaded error on first call, success on second."""
+        mock_settings.ollama_base_url = "http://localhost:11434/v1"
+        mock_settings.max_backend_connections = None
+        mock_client = MagicMock()
+        mock_openai.return_value = mock_client
+
+        overloaded_error = Exception("503 - server overloaded")
+        mock_client.chat.completions.create.side_effect = [
+            overloaded_error,
+            self._mock_response("recovered"),
+        ]
+
+        result = call([{"role": "user", "content": "hi"}], model_str="ollama/test")
+        assert result.message.content == "recovered"
+        assert mock_client.chat.completions.create.call_count == 2
+        assert mock_sleep.call_count == 1
+
+    @patch("wichy.llm_backend.time.sleep")
+    @patch("wichy.llm_backend.OpenAI")
+    @patch("wichy.llm_backend.settings")
+    def test_server_overloaded_exhausts_retries(
+        self, mock_settings, mock_openai, mock_sleep
+    ):
+        """Server-overloaded on every call exhausts retries and raises LLMBackendServerOverloaded."""
+        mock_settings.ollama_base_url = "http://localhost:11434/v1"
+        mock_settings.max_backend_connections = None
+        mock_client = MagicMock()
+        mock_openai.return_value = mock_client
+
+        overloaded_error = Exception("503 - server overloaded")
+        mock_client.chat.completions.create.side_effect = overloaded_error
+
+        with pytest.raises(LLMBackendServerOverloaded) as exc_info:
+            call([{"role": "user", "content": "hi"}], model_str="ollama/test")
+        assert exc_info.value.retry_count == 3
+        assert mock_client.chat.completions.create.call_count == 4
+        assert mock_sleep.call_count == 3
+
+    @patch("wichy.llm_backend.time.sleep")
+    @patch("wichy.llm_backend.OpenAI")
+    @patch("wichy.llm_backend.settings")
+    def test_empty_choices_retries_then_succeeds(
+        self, mock_settings, mock_openai, mock_sleep
+    ):
+        """Empty choices on first call, success on second."""
+        mock_settings.ollama_base_url = "http://localhost:11434/v1"
+        mock_settings.max_backend_connections = None
+        mock_client = MagicMock()
+        mock_openai.return_value = mock_client
+
+        mock_client.chat.completions.create.side_effect = [
+            self._empty_choices_response()(),
+            self._mock_response("got choices"),
+        ]
+
+        result = call([{"role": "user", "content": "hi"}], model_str="ollama/test")
+        assert result.message.content == "got choices"
+        assert mock_client.chat.completions.create.call_count == 2
+        assert mock_sleep.call_count == 1
+
+    @patch("wichy.llm_backend.time.sleep")
+    @patch("wichy.llm_backend.OpenAI")
+    @patch("wichy.llm_backend.settings")
+    def test_empty_choices_exhausts_retries(
+        self, mock_settings, mock_openai, mock_sleep
+    ):
+        """Empty choices on every call exhausts retries and raises LLMBackendUnhandledException."""
+        mock_settings.ollama_base_url = "http://localhost:11434/v1"
+        mock_settings.max_backend_connections = None
+        mock_client = MagicMock()
+        mock_openai.return_value = mock_client
+
+        mock_client.chat.completions.create.side_effect = self._empty_choices_response()
+
+        with pytest.raises(LLMBackendUnhandledException):
+            call([{"role": "user", "content": "hi"}], model_str="ollama/test")
+        assert mock_client.chat.completions.create.call_count == 4
+        assert mock_sleep.call_count == 3
+
+    @patch("wichy.llm_backend.time.sleep")
+    @patch("wichy.llm_backend.OpenAI")
+    @patch("wichy.llm_backend.settings")
+    def test_rate_limit_backoff_values(self, mock_settings, mock_openai, mock_sleep):
+        """Rate-limit backoff uses base 3: 3, 6, 12 seconds."""
+        mock_settings.ollama_base_url = "http://localhost:11434/v1"
+        mock_settings.max_backend_connections = None
+        mock_client = MagicMock()
+        mock_openai.return_value = mock_client
+
+        rate_limit_error = Exception(
+            "Error code: 429 - temporarily rate-limited upstream"
+        )
+        mock_client.chat.completions.create.side_effect = rate_limit_error
+
+        with pytest.raises(LLMBackendRateLimitExceeded):
+            call([{"role": "user", "content": "hi"}], model_str="ollama/test")
+
+        sleep_args = [call.args[0] for call in mock_sleep.call_args_list]
+        assert sleep_args == [3, 6, 12]
+
+    @patch("wichy.llm_backend.time.sleep")
+    @patch("wichy.llm_backend.OpenAI")
+    @patch("wichy.llm_backend.settings")
+    def test_server_overloaded_backoff_values(
+        self, mock_settings, mock_openai, mock_sleep
+    ):
+        """Server-overloaded backoff uses base 5: 5, 10, 20 seconds."""
+        mock_settings.ollama_base_url = "http://localhost:11434/v1"
+        mock_settings.max_backend_connections = None
+        mock_client = MagicMock()
+        mock_openai.return_value = mock_client
+
+        overloaded_error = Exception("503 - server overloaded")
+        mock_client.chat.completions.create.side_effect = overloaded_error
+
+        with pytest.raises(LLMBackendServerOverloaded):
+            call([{"role": "user", "content": "hi"}], model_str="ollama/test")
+
+        sleep_args = [call.args[0] for call in mock_sleep.call_args_list]
+        assert sleep_args == [5, 10, 20]
+
+    @patch("wichy.llm_backend.time.sleep")
+    @patch("wichy.llm_backend.OpenAI")
+    @patch("wichy.llm_backend.settings")
+    def test_empty_choices_backoff_values(self, mock_settings, mock_openai, mock_sleep):
+        """Empty-choices backoff uses base 5: 5, 10, 20 seconds."""
+        mock_settings.ollama_base_url = "http://localhost:11434/v1"
+        mock_settings.max_backend_connections = None
+        mock_client = MagicMock()
+        mock_openai.return_value = mock_client
+
+        mock_client.chat.completions.create.side_effect = self._empty_choices_response()
+
+        with pytest.raises(LLMBackendUnhandledException):
+            call([{"role": "user", "content": "hi"}], model_str="ollama/test")
+
+        sleep_args = [call.args[0] for call in mock_sleep.call_args_list]
+        assert sleep_args == [5, 10, 20]
+
+    @patch("wichy.llm_backend.time.sleep")
+    @patch("wichy.llm_backend.OpenAI")
+    @patch("wichy.llm_backend.settings")
+    def test_non_retryable_error_does_not_retry(
+        self, mock_settings, mock_openai, mock_sleep
+    ):
+        """A generic non-retryable error raises immediately without sleeping."""
+        mock_settings.ollama_base_url = "http://localhost:11434/v1"
+        mock_settings.max_backend_connections = None
+        mock_client = MagicMock()
+        mock_openai.return_value = mock_client
+
+        mock_client.chat.completions.create.side_effect = RuntimeError(
+            "unexpected boom"
+        )
+
+        with pytest.raises(LLMBackendUnhandledException):
+            call([{"role": "user", "content": "hi"}], model_str="ollama/test")
+        assert mock_client.chat.completions.create.call_count == 1
+        assert mock_sleep.call_count == 0
+
+    @patch("wichy.llm_backend.time.sleep")
+    @patch("wichy.llm_backend.OpenAI")
+    @patch("wichy.llm_backend.settings")
+    def test_mixed_retry_then_unhandled(self, mock_settings, mock_openai, mock_sleep):
+        """Rate-limit on first call, then a non-retryable error on retry."""
+        mock_settings.ollama_base_url = "http://localhost:11434/v1"
+        mock_settings.max_backend_connections = None
+        mock_client = MagicMock()
+        mock_openai.return_value = mock_client
+
+        rate_limit_error = Exception(
+            "Error code: 429 - temporarily rate-limited upstream"
+        )
+        mock_client.chat.completions.create.side_effect = [
+            rate_limit_error,
+            RuntimeError("different error"),
+        ]
+
+        with pytest.raises(LLMBackendUnhandledException):
+            call([{"role": "user", "content": "hi"}], model_str="ollama/test")
+        assert mock_client.chat.completions.create.call_count == 2
+        assert mock_sleep.call_count == 1
