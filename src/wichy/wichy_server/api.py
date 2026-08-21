@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import functools
 from queue import Queue
 from typing import TYPE_CHECKING, Optional
 
@@ -56,6 +57,26 @@ def set_active_session(session: Optional["ChatSession"]):
 
 def get_active_session() -> Optional["ChatSession"]:
     return _active_session
+
+
+def _get_active_root_agent():
+    """Return the active session's root agent, or None."""
+    session = get_active_session()
+    if session is None or session.root_agent is None:
+        return None
+    return session.root_agent
+
+
+def require_active_root_agent(func):
+    """Decorator: return 503 if no active session with a root agent."""
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        if _get_active_root_agent() is None:
+            return jsonify({"error": "no active root agent"}), 503
+        return func(*args, **kwargs)
+
+    return wrapper
 
 
 def register_routes(bp: Blueprint):
@@ -152,11 +173,9 @@ def register_routes(bp: Blueprint):
         return jsonify({"status": "ok"})
 
     @bp.route("/root/context", methods=["GET"])
+    @require_active_root_agent
     def get_root_context():
         session = get_active_session()
-        if session is None or session.root_agent is None:
-            return jsonify({"error": "no active root agent"}), 503
-
         ctx = session.root_agent.context
         return jsonify(
             {
@@ -166,11 +185,9 @@ def register_routes(bp: Blueprint):
         )
 
     @bp.route("/events", methods=["GET"])
+    @require_active_root_agent
     def get_events():
         session = get_active_session()
-        if session is None or session.root_agent is None:
-            return jsonify({"error": "no active root agent"}), 503
-
         session_id = session.root_agent.context.session_id
         store = get_event_store(session_id)
         since_id = int(request.args.get("since_id", 0))
@@ -186,22 +203,18 @@ def register_routes(bp: Blueprint):
         )
 
     @bp.route("/events/clear", methods=["POST"])
+    @require_active_root_agent
     def clear_events():
         session = get_active_session()
-        if session is None or session.root_agent is None:
-            return jsonify({"error": "no active root agent"}), 503
-
         session_id = session.root_agent.context.session_id
         store = get_event_store(session_id)
         backup = store._rotate()
         return jsonify({"status": "ok", "backup": backup.name if backup else None})
 
     @bp.route("/root/status", methods=["GET"])
+    @require_active_root_agent
     def get_root_status():
         session = get_active_session()
-        if session is None or session.root_agent is None:
-            return jsonify({"error": "no active root agent"}), 503
-
         ra = session.root_agent
         return jsonify(
             {
@@ -245,11 +258,9 @@ def register_routes(bp: Blueprint):
         return jsonify(agent.status())
 
     @bp.route("/sub-agents/<agent_id>/events", methods=["GET"])
+    @require_active_root_agent
     def get_sub_agent_events(agent_id: str):
         session = get_active_session()
-        if session is None or session.root_agent is None:
-            return jsonify({"error": "no active root agent"}), 503
-
         agent = get_task_agent(agent_id)
         if agent is not None:
             session_id = agent.context.session_id
@@ -273,11 +284,9 @@ def register_routes(bp: Blueprint):
         )
 
     @bp.route("/sub-agents/<agent_id>/events/clear", methods=["POST"])
+    @require_active_root_agent
     def clear_sub_agent_events(agent_id: str):
         session = get_active_session()
-        if session is None or session.root_agent is None:
-            return jsonify({"error": "no active root agent"}), 503
-
         store = get_agent_event_store(session.root_agent.context.session_id, agent_id)
         backup = store._rotate()
         return jsonify({"status": "ok", "backup": backup.name if backup else None})
@@ -350,12 +359,6 @@ def register_routes(bp: Blueprint):
     # Tools API
     # -----------------------------------------------------------------------
 
-    def _get_active_root_agent():
-        session = get_active_session()
-        if session is None or session.root_agent is None:
-            return None
-        return session.root_agent
-
     def _find_tool_by_name(tools: list[BaseTool], name: str) -> BaseTool | None:
         for tool in tools:
             if tool.name == name:
@@ -363,11 +366,9 @@ def register_routes(bp: Blueprint):
         return None
 
     @bp.route("/tools", methods=["GET"])
+    @require_active_root_agent
     def get_tools():
         root_agent = _get_active_root_agent()
-        if root_agent is None:
-            return jsonify({"error": "no active root agent"}), 503
-
         tools = [
             {
                 "name": tool.name,
@@ -380,11 +381,9 @@ def register_routes(bp: Blueprint):
         return jsonify({"tools": tools})
 
     @bp.route("/tools/execute", methods=["POST"])
+    @require_active_root_agent
     def execute_tool():
         root_agent = _get_active_root_agent()
-        if root_agent is None:
-            return jsonify({"error": "no active root agent"}), 503
-
         data = request.get_json(silent=True) or {}
         name = data.get("name")
         arguments = data.get("arguments", {})
@@ -463,11 +462,9 @@ def register_routes(bp: Blueprint):
         )
 
     @bp.route("/tools/inject", methods=["POST"])
+    @require_active_root_agent
     def inject_tool_result():
         root_agent = _get_active_root_agent()
-        if root_agent is None:
-            return jsonify({"error": "no active root agent"}), 503
-
         data = request.get_json(silent=True) or {}
         record_id = data.get("id")
         if not isinstance(record_id, str) or record_id == "":
@@ -488,11 +485,8 @@ def register_routes(bp: Blueprint):
         return jsonify({"status": "ok"})
 
     @bp.route("/tools/results", methods=["GET"])
+    @require_active_root_agent
     def list_tool_results():
-        root_agent = _get_active_root_agent()
-        if root_agent is None:
-            return jsonify({"error": "no active root agent"}), 503
-
         store = get_tool_results_store()
         records = store.list_all()
         return jsonify(
@@ -512,11 +506,8 @@ def register_routes(bp: Blueprint):
         )
 
     @bp.route("/tools/results/<record_id>", methods=["DELETE"])
+    @require_active_root_agent
     def delete_tool_result(record_id: str):
-        root_agent = _get_active_root_agent()
-        if root_agent is None:
-            return jsonify({"error": "no active root agent"}), 503
-
         store = get_tool_results_store()
         deleted = store.delete(record_id)
         if not deleted:
@@ -525,11 +516,8 @@ def register_routes(bp: Blueprint):
         return jsonify({"status": "ok"})
 
     @bp.route("/tools/results", methods=["DELETE"])
+    @require_active_root_agent
     def clear_tool_results():
-        root_agent = _get_active_root_agent()
-        if root_agent is None:
-            return jsonify({"error": "no active root agent"}), 503
-
         if request.args.get("confirm") != "true":
             return jsonify({"error": "confirm=true is required"}), 400
 

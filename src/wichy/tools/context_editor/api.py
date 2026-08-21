@@ -1,5 +1,7 @@
 """API endpoints for context editor."""
 
+import functools
+
 from flask import Blueprint, jsonify, request
 
 # Global reference to active context handler (set by __main__)
@@ -21,15 +23,25 @@ def set_active_root_agent(root_agent):
     _active_root_agent = root_agent
 
 
+def require_active_context(func):
+    """Decorator: return 404 if no active context is set."""
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        if _active_context is None:
+            return jsonify({"error": "No active context"}), 404
+        return func(*args, **kwargs)
+
+    return wrapper
+
+
 def register_routes(bp: Blueprint):
     """Register all API routes on the given blueprint."""
 
     @bp.route("/api/status")
+    @require_active_context
     def status():
         """Get status of the current context."""
-        if _active_context is None:
-            return jsonify({"error": "No active context"}), 404
-
         ctx = _active_context
         root_agent = _active_root_agent
         return jsonify(
@@ -51,19 +63,15 @@ def register_routes(bp: Blueprint):
         )
 
     @bp.route("/api/messages")
+    @require_active_context
     def get_messages():
         """Get all messages in the context."""
-        if _active_context is None:
-            return jsonify({"error": "No active context"}), 404
-
         return jsonify(_active_context.context)
 
     @bp.route("/api/messages", methods=["PUT"])
+    @require_active_context
     def replace_messages():
         """Replace all messages (atomic bulk replace)."""
-        if _active_context is None:
-            return jsonify({"error": "No active context"}), 404
-
         data = request.get_json()
         if not isinstance(data, list):
             return jsonify({"error": "Expected list of message objects"}), 400
@@ -85,11 +93,9 @@ def register_routes(bp: Blueprint):
             return jsonify({"error": str(e)}), 500
 
     @bp.route("/api/messages", methods=["POST"])
+    @require_active_context
     def append_message():
         """Append a single message."""
-        if _active_context is None:
-            return jsonify({"error": "No active context"}), 404
-
         data = request.get_json()
         if not isinstance(data, dict) or "role" not in data or "content" not in data:
             return jsonify({"error": "Message must have 'role' and 'content'"}), 400
@@ -99,11 +105,9 @@ def register_routes(bp: Blueprint):
         return jsonify({"success": True, "message": data}), 200
 
     @bp.route("/api/messages/<int:index>", methods=["PUT"])
+    @require_active_context
     def edit_message(index):
         """Edit a specific message by index."""
-        if _active_context is None:
-            return jsonify({"error": "No active context"}), 404
-
         data = request.get_json()
         if not isinstance(data, dict) or "role" not in data or "content" not in data:
             return jsonify({"error": "Message must have 'role' and 'content'"}), 400
@@ -117,11 +121,9 @@ def register_routes(bp: Blueprint):
             return jsonify({"error": str(e)}), 500
 
     @bp.route("/api/messages/<int:index>", methods=["DELETE"])
+    @require_active_context
     def delete_message(index):
         """Delete a specific message by index."""
-        if _active_context is None:
-            return jsonify({"error": "No active context"}), 404
-
         try:
             _active_context.delete_message(index)
             return jsonify({"success": True})
@@ -131,11 +133,9 @@ def register_routes(bp: Blueprint):
             return jsonify({"error": str(e)}), 500
 
     @bp.route("/api/drop", methods=["POST"])
+    @require_active_context
     def drop_last():
         """Drop the last N messages from the context."""
-        if _active_context is None:
-            return jsonify({"error": "No active context"}), 404
-
         data = request.get_json() or {}
         n = data.get("n", 1)
         try:
@@ -163,11 +163,9 @@ def register_routes(bp: Blueprint):
         )
 
     @bp.route("/api/messages/<int:index>/truncate", methods=["POST"])
+    @require_active_context
     def truncate_message(index):
         """Truncate a message's content, storing original in _truncated_from."""
-        if _active_context is None:
-            return jsonify({"error": "No active context"}), 404
-
         data = request.get_json() or {}
         max_chars = data.get("max_chars", 200)
 
@@ -189,11 +187,9 @@ def register_routes(bp: Blueprint):
             return jsonify({"error": str(e)}), 500
 
     @bp.route("/api/messages/<int:index>/expand", methods=["POST"])
+    @require_active_context
     def expand_message(index):
         """Restore a truncated message's original content."""
-        if _active_context is None:
-            return jsonify({"error": "No active context"}), 404
-
         try:
             _active_context.expand_message(index)
             return jsonify({"success": True, "index": index})
@@ -205,11 +201,9 @@ def register_routes(bp: Blueprint):
             return jsonify({"error": str(e)}), 500
 
     @bp.route("/api/tick", methods=["POST"])
+    @require_active_context
     def tick():
         """Increment _tick on all context entries."""
-        if _active_context is None:
-            return jsonify({"error": "No active context"}), 404
-
         try:
             _active_context.tick()
             return jsonify({"success": True})

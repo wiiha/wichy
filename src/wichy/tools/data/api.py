@@ -1,5 +1,6 @@
 """API endpoints for data explorer."""
 
+import functools
 import json
 import math
 from pathlib import Path
@@ -54,17 +55,26 @@ def _serialize_value(value):
     return value
 
 
+def require_database(func):
+    """Decorator: return 503 if no DuckDB connection pool is loaded."""
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        if DuckDBManager._pool is None:
+            return jsonify({"error": "No database loaded"}), 503
+        return func(*args, **kwargs)
+
+    return wrapper
+
+
 def register_routes(bp: Blueprint):
     """Register all API routes on the given blueprint."""
 
     @bp.route("/api/tables", methods=["GET"])
+    @require_database
     def get_tables():
         """Return list of tables in the database."""
         try:
-            # Check if database is loaded
-            if DuckDBManager._pool is None:
-                return jsonify({"error": "No database loaded", "tables": []})
-
             with DuckDBManager.get_connection() as conn:
                 # Get all tables from main schema
                 result = conn.execute(
@@ -113,13 +123,10 @@ def register_routes(bp: Blueprint):
             return jsonify({"error": str(e), "tables": []})
 
     @bp.route("/api/table/<name>", methods=["GET"])
+    @require_database
     def get_table(name):
         """Return information about a specific table."""
         try:
-            # Check if database is loaded
-            if DuckDBManager._pool is None:
-                return jsonify({"error": "No database loaded"})
-
             with DuckDBManager.get_connection() as conn:
                 # Check if table exists
                 tables_result = conn.execute(
@@ -181,13 +188,10 @@ def register_routes(bp: Blueprint):
             return jsonify({"error": str(e)})
 
     @bp.route("/api/column/<table>/<col>", methods=["GET"])
+    @require_database
     def get_column_profile(table, col):
         """Return profile information for a specific column."""
         try:
-            # Check if database is loaded
-            if DuckDBManager._pool is None:
-                return jsonify({"error": "No database loaded"})
-
             with DuckDBManager.get_connection() as conn:
                 # Check if table exists
                 tables_result = conn.execute(
@@ -350,13 +354,10 @@ def register_routes(bp: Blueprint):
             return jsonify({"error": str(e)})
 
     @bp.route("/api/sample/<table>", methods=["GET"])
+    @require_database
     def get_sample(table):
         """Return sample rows from a table."""
         try:
-            # Check if database is loaded
-            if DuckDBManager._pool is None:
-                return jsonify({"error": "No database loaded"})
-
             with DuckDBManager.get_connection() as conn:
                 # Check if table exists
                 tables_result = conn.execute(
@@ -394,13 +395,10 @@ def register_routes(bp: Blueprint):
             return jsonify({"error": str(e)})
 
     @bp.route("/api/correlations/<table>", methods=["GET"])
+    @require_database
     def get_correlations(table):
         """Return correlation matrix for numeric columns in a table."""
         try:
-            # Check if database is loaded
-            if DuckDBManager._pool is None:
-                return jsonify({"error": "No database loaded"})
-
             with DuckDBManager.get_connection() as conn:
                 # Check if table exists
                 tables_result = conn.execute(
