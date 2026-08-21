@@ -269,6 +269,40 @@ class TestInjectToolResult:
         assert '"command": "hello"' in content
         assert "executed with" in content
 
+    def test_inject_after_delete_fails(self, client):
+        agent = MockRootAgent(tools=[FakeTool()])
+        set_active_session(MockSession(root_agent=agent))
+
+        exec_resp = client.post(
+            "/server/api/tools/execute",
+            json={"name": "fake_tool", "arguments": {"command": "hello"}},
+        )
+        record_id = json.loads(exec_resp.data)["id"]
+
+        client.delete(f"/server/api/tools/results/{record_id}")
+
+        inject_resp = client.post("/server/api/tools/inject", json={"id": record_id})
+        assert inject_resp.status_code == 404
+        assert json.loads(inject_resp.data)["error"] == "result not found"
+        assert len(agent.context._steered) == 0
+
+    def test_inject_after_clear_all_fails(self, client):
+        agent = MockRootAgent(tools=[FakeTool()])
+        set_active_session(MockSession(root_agent=agent))
+
+        exec_resp = client.post(
+            "/server/api/tools/execute",
+            json={"name": "fake_tool", "arguments": {"command": "hello"}},
+        )
+        record_id = json.loads(exec_resp.data)["id"]
+
+        client.delete("/server/api/tools/results?confirm=true")
+
+        inject_resp = client.post("/server/api/tools/inject", json={"id": record_id})
+        assert inject_resp.status_code == 404
+        assert json.loads(inject_resp.data)["error"] == "result not found"
+        assert len(agent.context._steered) == 0
+
 
 class TestListToolResults:
     def test_list_results_empty(self, client):
@@ -360,6 +394,81 @@ class TestDeleteToolResult:
         assert len(results) == 1
         assert results[0]["id"] == id_b
 
+    def test_delete_already_deleted(self, client):
+        agent = MockRootAgent(tools=[FakeTool()])
+        set_active_session(MockSession(root_agent=agent))
+
+        exec_resp = client.post(
+            "/server/api/tools/execute",
+            json={"name": "fake_tool", "arguments": {"command": "hello"}},
+        )
+        record_id = json.loads(exec_resp.data)["id"]
+
+        first = client.delete(f"/server/api/tools/results/{record_id}")
+        assert first.status_code == 200
+
+        second = client.delete(f"/server/api/tools/results/{record_id}")
+        assert second.status_code == 404
+        assert json.loads(second.data)["error"] == "result not found"
+
+    def test_delete_middle_maintains_order(self, client):
+        agent = MockRootAgent(tools=[FakeTool()])
+        set_active_session(MockSession(root_agent=agent))
+
+        id_a = json.loads(
+            client.post(
+                "/server/api/tools/execute",
+                json={"name": "fake_tool", "arguments": {"command": "a"}},
+            ).data
+        )["id"]
+        id_b = json.loads(
+            client.post(
+                "/server/api/tools/execute",
+                json={"name": "fake_tool", "arguments": {"command": "b"}},
+            ).data
+        )["id"]
+        id_c = json.loads(
+            client.post(
+                "/server/api/tools/execute",
+                json={"name": "fake_tool", "arguments": {"command": "c"}},
+            ).data
+        )["id"]
+
+        client.delete(f"/server/api/tools/results/{id_b}")
+
+        results = json.loads(client.get("/server/api/tools/results").data)["results"]
+        assert len(results) == 2
+        assert results[0]["id"] == id_c
+        assert results[0]["arguments"] == {"command": "c"}
+        assert results[1]["id"] == id_a
+        assert results[1]["arguments"] == {"command": "a"}
+
+    def test_delete_preserves_other_result_data(self, client):
+        agent = MockRootAgent(tools=[FakeTool()])
+        set_active_session(MockSession(root_agent=agent))
+
+        id_a = json.loads(
+            client.post(
+                "/server/api/tools/execute",
+                json={"name": "fake_tool", "arguments": {"command": "alpha"}},
+            ).data
+        )["id"]
+        id_b = json.loads(
+            client.post(
+                "/server/api/tools/execute",
+                json={"name": "fake_tool", "arguments": {"command": "beta"}},
+            ).data
+        )["id"]
+
+        client.delete(f"/server/api/tools/results/{id_a}")
+
+        results = json.loads(client.get("/server/api/tools/results").data)["results"]
+        assert len(results) == 1
+        assert results[0]["id"] == id_b
+        assert results[0]["tool"] == "fake_tool"
+        assert results[0]["arguments"] == {"command": "beta"}
+        assert "beta" in results[0]["result"]
+
 
 class TestClearToolResults:
     def test_clear_no_session(self, client):
@@ -403,6 +512,70 @@ class TestClearToolResults:
         assert response.status_code == 200
         data = json.loads(response.data)
         assert data == {"status": "ok", "deleted": 2}
+
+        results = json.loads(client.get("/server/api/tools/results").data)["results"]
+        assert len(results) == 0
+
+    def test_clear_confirm_variants_rejected(self, client):
+        agent = MockRootAgent()
+        set_active_session(MockSession(root_agent=agent))
+
+        for variant in ("True", "TRUE", "yes", "1", "false"):
+            resp = client.delete(f"/server/api/tools/results?confirm={variant}")
+            assert resp.status_code == 400
+            assert json.loads(resp.data)["error"] == "confirm=true is required"
+
+    def test_clear_confirm_with_extra_params(self, client):
+        agent = MockRootAgent(tools=[FakeTool()])
+        set_active_session(MockSession(root_agent=agent))
+
+        client.post(
+            "/server/api/tools/execute",
+            json={"name": "fake_tool", "arguments": {"command": "a"}},
+        )
+
+        response = client.delete("/server/api/tools/results?confirm=true&foo=bar")
+        assert response.status_code == 200
+        assert json.loads(response.data) == {"status": "ok", "deleted": 1}
+
+
+class TestDeleteClearInteraction:
+    def test_clear_then_delete_specific_id(self, client):
+        agent = MockRootAgent(tools=[FakeTool()])
+        set_active_session(MockSession(root_agent=agent))
+
+        exec_resp = client.post(
+            "/server/api/tools/execute",
+            json={"name": "fake_tool", "arguments": {"command": "hello"}},
+        )
+        record_id = json.loads(exec_resp.data)["id"]
+
+        clear_resp = client.delete("/server/api/tools/results?confirm=true")
+        assert json.loads(clear_resp.data) == {"status": "ok", "deleted": 1}
+
+        del_resp = client.delete(f"/server/api/tools/results/{record_id}")
+        assert del_resp.status_code == 404
+        assert json.loads(del_resp.data)["error"] == "result not found"
+
+    def test_delete_then_clear_remaining(self, client):
+        agent = MockRootAgent(tools=[FakeTool()])
+        set_active_session(MockSession(root_agent=agent))
+
+        id_a = json.loads(
+            client.post(
+                "/server/api/tools/execute",
+                json={"name": "fake_tool", "arguments": {"command": "a"}},
+            ).data
+        )["id"]
+        client.post(
+            "/server/api/tools/execute",
+            json={"name": "fake_tool", "arguments": {"command": "b"}},
+        )
+
+        client.delete(f"/server/api/tools/results/{id_a}")
+
+        clear_resp = client.delete("/server/api/tools/results?confirm=true")
+        assert json.loads(clear_resp.data) == {"status": "ok", "deleted": 1}
 
         results = json.loads(client.get("/server/api/tools/results").data)["results"]
         assert len(results) == 0
