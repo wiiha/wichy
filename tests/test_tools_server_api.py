@@ -469,6 +469,14 @@ class TestDeleteToolResult:
         assert results[0]["arguments"] == {"command": "beta"}
         assert "beta" in results[0]["result"]
 
+    def test_delete_rejects_wrong_methods(self, client):
+        agent = MockRootAgent()
+        set_active_session(MockSession(root_agent=agent))
+
+        for method in ("get", "post", "put"):
+            resp = getattr(client, method)("/server/api/tools/results/someid")
+            assert resp.status_code == 405
+
 
 class TestClearToolResults:
     def test_clear_no_session(self, client):
@@ -537,6 +545,15 @@ class TestClearToolResults:
         response = client.delete("/server/api/tools/results?confirm=true&foo=bar")
         assert response.status_code == 200
         assert json.loads(response.data) == {"status": "ok", "deleted": 1}
+
+    def test_clear_rejects_wrong_methods(self, client):
+        agent = MockRootAgent()
+        set_active_session(MockSession(root_agent=agent))
+
+        # GET is valid (list route shares this path), but POST and PUT are not
+        for method in ("post", "put"):
+            resp = getattr(client, method)("/server/api/tools/results?confirm=true")
+            assert resp.status_code == 405
 
 
 class TestDeleteClearInteraction:

@@ -511,14 +511,14 @@ def register_routes(bp: Blueprint):
             }
         )
 
-    @bp.route("/tools/results/<id>", methods=["DELETE"])
-    def delete_tool_result(id: str):
+    @bp.route("/tools/results/<record_id>", methods=["DELETE"])
+    def delete_tool_result(record_id: str):
         root_agent = _get_active_root_agent()
         if root_agent is None:
             return jsonify({"error": "no active root agent"}), 503
 
         store = get_tool_results_store()
-        deleted = store.delete(id)
+        deleted = store.delete(record_id)
         if not deleted:
             return jsonify({"error": "result not found"}), 404
 
