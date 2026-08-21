@@ -11,8 +11,9 @@ from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 
+from wichy.agent.loop_detector import LoopDetector, compute_signature
 from wichy.config import settings
-from wichy.constants import ROLE_ASSISTANT, ROLE_TOOL
+from wichy.constants import ROLE_ASSISTANT, ROLE_TOOL, ROLE_USER
 from wichy.event_log.schema import preview_args
 from wichy.helpers.multimodal import (
     build_multimodal_user_message,
@@ -42,6 +43,9 @@ class AgentCore(ABC):
 
         # Set by subclasses via context handler
         self.context = None
+
+        # Loop detection — each agent instance gets its own detector
+        self.loop_detector = LoopDetector()
 
     def _emit_event(self, event_type: str, payload: Dict[str, Any]) -> None:
         """Hook for subclasses to emit events. Default does nothing."""
@@ -262,11 +266,38 @@ class AgentCore(ABC):
                         multimodal_parts.extend(mm_parts)
         else:
             # Sequential path: single tool or --seq-exec / WICHY_PARALLEL_EXEC=false
-            for item in response.tool_calls:
-                tool_message, mm_parts = self._tool_call(tools, item, inject_model_str)
+            for i, item in enumerate(response.tool_calls):
+                tool_results[i] = self._tool_call(tools, item, inject_model_str)
+                tool_message, mm_parts = tool_results[i]
                 self.context.append(tool_message)
                 if mm_parts:
                     multimodal_parts.extend(mm_parts)
+
+        # Loop detection: record each tool-call signature and check for loops.
+        # Signatures are computed from the original tool_calls and their
+        # results (available in tool_results, populated by both paths above).
+        loop_triggered = False
+        if self.loop_detector.enabled:
+            for idx, item in enumerate(response.tool_calls):
+                result_str = ""
+                if tool_results[idx] is not None:
+                    result_str = str(tool_results[idx][0].get("content", ""))
+                sig = compute_signature(
+                    item.function.name, item.function.arguments, result_str
+                )
+                if self.loop_detector.record(sig):
+                    loop_triggered = True
+                    break
+
+        if loop_triggered:
+            warning = (
+                "You appear to be in a loop - you've called a tool with "
+                "the same arguments and received the same result too many "
+                "times. Try a different approach."
+            )
+            self.context.append({"role": ROLE_USER, "content": warning})
+            self._log("[yellow]Loop detected — stopping turn[/yellow]")
+            return len(self.context) != osz, []
 
         # If any tool returned multimodal content, inject a user message with it
         if multimodal_parts:

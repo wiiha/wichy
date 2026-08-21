@@ -144,6 +144,20 @@ class Settings(BaseSettings):
     result_offload_max_validation_retries: int = 2
 
     # -------------------------------------------------------------------------
+    # Loop Detection Configuration
+    # -------------------------------------------------------------------------
+
+    # Enable/disable loop detection for agent tool calls
+    loop_detection_enabled: bool = True
+
+    # Number of recent tool-call signatures to keep in the rolling window
+    loop_detection_window: int = 10
+
+    # Max number of times a signature may repeat before triggering
+    # (count > threshold triggers, so 5 means the 6th repeat triggers)
+    loop_detection_threshold: int = 5
+
+    # -------------------------------------------------------------------------
     # MCP Configuration
     # -------------------------------------------------------------------------
 
