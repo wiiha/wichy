@@ -55,6 +55,17 @@ def _serialize_value(value):
     return value
 
 
+def _validate_identifier(name: str) -> str:
+    """Validate a SQL identifier (table or column name).
+
+    Only alphanumeric characters and underscores are allowed.
+    Returns the name if valid, raises ValueError otherwise.
+    """
+    if not name or not all(c.isalnum() or c == "_" for c in name):
+        raise ValueError(f"Invalid SQL identifier: {name!r}")
+    return name
+
+
 def require_database(func):
     """Decorator: return 503 if no DuckDB connection pool is loaded."""
 
@@ -85,6 +96,7 @@ def register_routes(bp: Blueprint):
             tables = []
             for table_name in table_names:
                 try:
+                    _validate_identifier(table_name)
                     with DuckDBManager.get_connection() as conn:
                         # Get row count
                         row_count_result = conn.execute(
@@ -127,6 +139,7 @@ def register_routes(bp: Blueprint):
     def get_table(name):
         """Return information about a specific table."""
         try:
+            _validate_identifier(name)
             with DuckDBManager.get_connection() as conn:
                 # Check if table exists
                 tables_result = conn.execute(
@@ -192,6 +205,8 @@ def register_routes(bp: Blueprint):
     def get_column_profile(table, col):
         """Return profile information for a specific column."""
         try:
+            _validate_identifier(table)
+            _validate_identifier(col)
             with DuckDBManager.get_connection() as conn:
                 # Check if table exists
                 tables_result = conn.execute(
@@ -358,6 +373,7 @@ def register_routes(bp: Blueprint):
     def get_sample(table):
         """Return sample rows from a table."""
         try:
+            _validate_identifier(table)
             with DuckDBManager.get_connection() as conn:
                 # Check if table exists
                 tables_result = conn.execute(
@@ -399,6 +415,7 @@ def register_routes(bp: Blueprint):
     def get_correlations(table):
         """Return correlation matrix for numeric columns in a table."""
         try:
+            _validate_identifier(table)
             with DuckDBManager.get_connection() as conn:
                 # Check if table exists
                 tables_result = conn.execute(
@@ -434,6 +451,10 @@ def register_routes(bp: Blueprint):
                 # Calculate pairwise correlations using CORR function
                 n = len(numeric_columns)
                 matrix = [[None] * n for _ in range(n)]
+
+                # Validate column names before using in SQL
+                for col_name in numeric_columns:
+                    _validate_identifier(col_name)
 
                 for i in range(n):
                     matrix[i][i] = 1.0  # Diagonal is always 1
@@ -706,8 +727,10 @@ def register_chart_routes(bp: Blueprint) -> None:
             chart_type = data["chart_type"]
             config = data.get("config", {})
 
-            # Validate table name (alphanumeric + underscores only)
-            if not all(c.isalnum() or c == "_" for c in table):
+            # Validate table name
+            try:
+                _validate_identifier(table)
+            except ValueError:
                 return jsonify({"error": "Invalid table name"}), 400
 
             # Query the table (limit to 50,000 rows, INV-013)
