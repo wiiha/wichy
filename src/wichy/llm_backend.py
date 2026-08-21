@@ -285,6 +285,11 @@ def message_indicates_server_overloaded(error) -> bool:
     return "server overloaded" in m or ("503" in m and "overload" in m)
 
 
+def message_indicates_timeout_error(error) -> bool:
+    m = str(error).lower()
+    return "timeout" in m or "timed out" in m or "408" in m or "504" in m
+
+
 def message_indicates_rate_limit(error) -> bool:
     m = str(error).lower()
     if "temporarily rate-limited upstream" in m:
@@ -550,6 +555,13 @@ def _call_impl(
                 exc_instance=LLMBackendServerOverloaded(retry_count=retry_count),
                 log_prefix="server overloaded",
                 user_msg="Server overloaded",
+            )
+        if message_indicates_timeout_error(e):
+            return _retry_with_backoff(
+                backoff_base=5,
+                exc_instance=LLMBackendServerOverloaded(retry_count=retry_count),
+                log_prefix="request timed out",
+                user_msg="Request timed out",
             )
         # something else is not right
         raise LLMBackendUnhandledException(

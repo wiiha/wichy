@@ -16,6 +16,7 @@ from wichy.llm_backend import (
     LLMBackendUnhandledException,
     LLMBackendRateLimitExceeded,
     LLMBackendServerOverloaded,
+    message_indicates_timeout_error,
 )
 
 
@@ -829,3 +830,92 @@ class TestRetryLogic:
             call([{"role": "user", "content": "hi"}], model_str="ollama/test")
         assert mock_client.chat.completions.create.call_count == 2
         assert mock_sleep.call_count == 1
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "timeout",
+            "Request timed out",
+            "Error code: 408 - Request Timeout",
+            "Error code: 504 - Gateway Timeout",
+            "operation timed out",
+        ],
+    )
+    def test_message_indicates_timeout_error(self, error_msg):
+        """message_indicates_timeout_error detects various timeout phrasings."""
+        assert message_indicates_timeout_error(Exception(error_msg)) is True
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "server overloaded",
+            "rate limit exceeded",
+            "unexpected error",
+            "connection refused",
+            "",
+        ],
+    )
+    def test_message_indicates_timeout_error_negative(self, error_msg):
+        """message_indicates_timeout_error does not match non-timeout errors."""
+        assert message_indicates_timeout_error(Exception(error_msg)) is False
+
+    @patch("wichy.llm_backend.time.sleep")
+    @patch("wichy.llm_backend.OpenAI")
+    @patch("wichy.llm_backend.settings")
+    def test_timeout_retries_then_succeeds(
+        self, mock_settings, mock_openai, mock_sleep
+    ):
+        """Timeout error on first call, success on second."""
+        mock_settings.ollama_base_url = "http://localhost:11434/v1"
+        mock_settings.max_backend_connections = None
+        mock_client = MagicMock()
+        mock_openai.return_value = mock_client
+
+        timeout_error = Exception("Error code: 504 - Gateway Timeout")
+        mock_client.chat.completions.create.side_effect = [
+            timeout_error,
+            self._mock_response("recovered"),
+        ]
+
+        result = call([{"role": "user", "content": "hi"}], model_str="ollama/test")
+        assert result.message.content == "recovered"
+        assert mock_client.chat.completions.create.call_count == 2
+        assert mock_sleep.call_count == 1
+
+    @patch("wichy.llm_backend.time.sleep")
+    @patch("wichy.llm_backend.OpenAI")
+    @patch("wichy.llm_backend.settings")
+    def test_timeout_exhausts_retries(self, mock_settings, mock_openai, mock_sleep):
+        """Timeout on every call exhausts retries and raises LLMBackendServerOverloaded."""
+        mock_settings.ollama_base_url = "http://localhost:11434/v1"
+        mock_settings.max_backend_connections = None
+        mock_client = MagicMock()
+        mock_openai.return_value = mock_client
+
+        timeout_error = Exception("Request timed out")
+        mock_client.chat.completions.create.side_effect = timeout_error
+
+        with pytest.raises(LLMBackendServerOverloaded) as exc_info:
+            call([{"role": "user", "content": "hi"}], model_str="ollama/test")
+        assert exc_info.value.retry_count == 3
+        assert mock_client.chat.completions.create.call_count == 4
+        assert mock_sleep.call_count == 3
+
+    @patch("wichy.llm_backend.time.sleep")
+    @patch("wichy.llm_backend.OpenAI")
+    @patch("wichy.llm_backend.settings")
+    def test_timeout_backoff_values(self, mock_settings, mock_openai, mock_sleep):
+        """Timeout backoff uses base 5: 5, 10, 20 seconds (same as server-overloaded)."""
+        mock_settings.ollama_base_url = "http://localhost:11434/v1"
+        mock_settings.max_backend_connections = None
+        mock_client = MagicMock()
+        mock_openai.return_value = mock_client
+
+        timeout_error = Exception("Error code: 408 - Request Timeout")
+        mock_client.chat.completions.create.side_effect = timeout_error
+
+        with pytest.raises(LLMBackendServerOverloaded):
+            call([{"role": "user", "content": "hi"}], model_str="ollama/test")
+
+        sleep_args = [call.args[0] for call in mock_sleep.call_args_list]
+        assert sleep_args == [5, 10, 20]
