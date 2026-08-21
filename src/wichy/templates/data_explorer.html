@@ -1872,7 +1872,7 @@ title %} {% block color_scheme %}
               <option value="violin" ${vizChartType === "violin" ? "selected" : ""}>🎻 Violin Plot</option>
             </select>
           </div>
-          <label style="font-size:11px; color:var(--text-muted);">Chart config (JSON):</label>
+          <label style="font-size:11px; color:var(--text-muted);">Chart config:</label>
           <textarea rows="4" style="width:280px; font-family:var(--font-mono); font-size:11px;"
             onchange="try { updateStepField(${idx}, 'config', JSON.parse(this.value)) } catch(e) { alert('Invalid JSON: ' + e.message) }"
             placeholder='{"x": "col1", "y": "col2", "title": "My Chart"}'>${escapeHtml(vizConfigStr)}</textarea>
@@ -2242,94 +2242,105 @@ title %} {% block color_scheme %}
       alert("Load failed: " + e);
     }
   }
-    // Build field-role inputs for a chart type with given columns.
-    // Single roles -> <select>; multiple roles -> add/remove ordered list.
-    // currentConfig is read to pre-select values.
-    function renderVizFieldRoles(chartType, columns, currentConfig) {
-        const ct = vizChartTypes.find((c) => c.id === chartType) || vizChartTypes[0];
-        if (!ct) return "";
-        const cfg = currentConfig || {};
-        return ct.field_roles
-          .map((role) => {
-            const colOpts = columns
-              .map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`)
-              .join("");
-            const typeHint = role.multiple
-              ? `(${role.type}, multiple)`
-              : `(${role.type})`;
-            let input;
-            if (role.multiple) {
-              // Ordered add/remove list with up/down/remove buttons.
-              // State stored as JSON in a hidden element; list rendered on changes.
-              const selected = Array.isArray(cfg[role.name]) ? cfg[role.name] : [];
-              const selectedJson = escapeHtml(JSON.stringify(selected));
-              input = `<div id="viz-multi-${role.name}" style="display:flex; flex-direction:column; gap:2px;">
+  // Build field-role inputs for a chart type with given columns.
+  // Single roles -> <select>; multiple roles -> add/remove ordered list.
+  // currentConfig is read to pre-select values.
+  function renderVizFieldRoles(chartType, columns, currentConfig) {
+    const ct =
+      vizChartTypes.find((c) => c.id === chartType) || vizChartTypes[0];
+    if (!ct) return "";
+    const cfg = currentConfig || {};
+    return ct.field_roles
+      .map((role) => {
+        const colOpts = columns
+          .map(
+            (c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`,
+          )
+          .join("");
+        const typeHint = role.multiple
+          ? `(${role.type}, multiple)`
+          : `(${role.type})`;
+        let input;
+        if (role.multiple) {
+          // Ordered add/remove list with up/down/remove buttons.
+          // State stored as JSON in a hidden element; list rendered on changes.
+          const selected = Array.isArray(cfg[role.name]) ? cfg[role.name] : [];
+          const selectedJson = escapeHtml(JSON.stringify(selected));
+          input = `<div id="viz-multi-${role.name}" style="display:flex; flex-direction:column; gap:2px;">
                 <div style="display:flex; gap:4px;">
                   <select id="viz-add-select-${role.name}" style="flex:1;"><option value="">-- add column --</option>${colOpts}</select>
                   <button type="button" onclick="vizMultiAdd('${role.name}')" style="padding:2px 6px;">+</button>
                 </div>
                 <div id="viz-multi-list-${role.name}" data-val="${selectedJson}"></div>
               </div>`;
-            } else {
-              const sel = cfg[role.name] || "";
-              input = `<select id="viz-field-${role.name}" style="width:200px;"><option value="">-- select --</option>${columns.map((c) => `<option value="${escapeHtml(c)}" ${c === sel ? "selected" : ""}>${escapeHtml(c)}</option>`).join("")}</select>`;
-            }
-            return `<div class="viz-field-row">
+        } else {
+          const sel = cfg[role.name] || "";
+          input = `<select id="viz-field-${role.name}" style="width:200px;"><option value="">-- select --</option>${columns.map((c) => `<option value="${escapeHtml(c)}" ${c === sel ? "selected" : ""}>${escapeHtml(c)}</option>`).join("")}</select>`;
+        }
+        return `<div class="viz-field-row">
               <label>${role.name} ${role.required ? "*" : ""} <span style="font-size:10px;color:var(--text-muted);">${typeHint}</span></label>
               ${input}
             </div>`;
-          })
-          .join("");
-      }
+      })
+      .join("");
+  }
 
-      // --- Ordered multi-column helpers ---
-      function vizMultiGet(roleName) {
-        const el = document.getElementById(`viz-multi-list-${roleName}`);
-        if (!el) return [];
-        try { return JSON.parse(el.dataset.val || "[]"); } catch { return []; }
-      }
-      function vizMultiSet(roleName, vals) {
-        const el = document.getElementById(`viz-multi-list-${roleName}`);
-        if (!el) return;
-        el.dataset.val = JSON.stringify(vals);
-        el.innerHTML = vals.map((c, i) => {
-          return `<div style="display:flex; align-items:center; gap:4px; padding:2px 4px; background:var(--surface); border:1px solid var(--border); border-radius:4px;">
+  // --- Ordered multi-column helpers ---
+  function vizMultiGet(roleName) {
+    const el = document.getElementById(`viz-multi-list-${roleName}`);
+    if (!el) return [];
+    try {
+      return JSON.parse(el.dataset.val || "[]");
+    } catch {
+      return [];
+    }
+  }
+  function vizMultiSet(roleName, vals) {
+    const el = document.getElementById(`viz-multi-list-${roleName}`);
+    if (!el) return;
+    el.dataset.val = JSON.stringify(vals);
+    el.innerHTML = vals
+      .map((c, i) => {
+        return `<div style="display:flex; align-items:center; gap:4px; padding:2px 4px; background:var(--surface); border:1px solid var(--border); border-radius:4px;">
             <span style="flex:1; font-size:12px;">${escapeHtml(c)}</span>
             <button type="button" onclick="vizMultiMove('${roleName}', ${i}, -1)" style="padding:0 4px; font-size:11px;" ${i === 0 ? "disabled" : ""}>↑</button>
             <button type="button" onclick="vizMultiMove('${roleName}', ${i}, 1)" style="padding:0 4px; font-size:11px;" ${i === vals.length - 1 ? "disabled" : ""}>↓</button>
             <button type="button" onclick="vizMultiRemove('${roleName}', ${i})" style="padding:0 4px; font-size:11px;">✕</button>
           </div>`;
-        }).join("");
-      }
-      function vizMultiAdd(roleName) {
-        const sel = document.getElementById(`viz-add-select-${roleName}`);
-        if (!sel || !sel.value) return;
-        const vals = vizMultiGet(roleName);
-        if (!vals.includes(sel.value)) vals.push(sel.value);
-        vizMultiSet(roleName, vals);
-        sel.value = "";
-      }
-      function vizMultiMove(roleName, idx, dir) {
-        const vals = vizMultiGet(roleName);
-        const ni = idx + dir;
-        if (ni < 0 || ni >= vals.length) return;
-        [vals[idx], vals[ni]] = [vals[ni], vals[idx]];
-        vizMultiSet(roleName, vals);
-      }
-      function vizMultiRemove(roleName, idx) {
-        const vals = vizMultiGet(roleName);
-        vals.splice(idx, 1);
-        vizMultiSet(roleName, vals);
-      }
-      // Render initial state of all multi-lists for the current chart type.
-      // Must be called after the field-roles HTML is in the DOM.
-      function vizMultiInitAll() {
-        const chartTypeId = document.getElementById("viz-chart-type")?.value;
-        if (!chartTypeId) return;
-        const ct = vizChartTypes.find((c) => c.id === chartTypeId);
-        if (!ct) return;
-        ct.field_roles.filter((r) => r.multiple).forEach((r) => vizMultiSet(r.name, vizMultiGet(r.name)));
-      }
+      })
+      .join("");
+  }
+  function vizMultiAdd(roleName) {
+    const sel = document.getElementById(`viz-add-select-${roleName}`);
+    if (!sel || !sel.value) return;
+    const vals = vizMultiGet(roleName);
+    if (!vals.includes(sel.value)) vals.push(sel.value);
+    vizMultiSet(roleName, vals);
+    sel.value = "";
+  }
+  function vizMultiMove(roleName, idx, dir) {
+    const vals = vizMultiGet(roleName);
+    const ni = idx + dir;
+    if (ni < 0 || ni >= vals.length) return;
+    [vals[idx], vals[ni]] = [vals[ni], vals[idx]];
+    vizMultiSet(roleName, vals);
+  }
+  function vizMultiRemove(roleName, idx) {
+    const vals = vizMultiGet(roleName);
+    vals.splice(idx, 1);
+    vizMultiSet(roleName, vals);
+  }
+  // Render initial state of all multi-lists for the current chart type.
+  // Must be called after the field-roles HTML is in the DOM.
+  function vizMultiInitAll() {
+    const chartTypeId = document.getElementById("viz-chart-type")?.value;
+    if (!chartTypeId) return;
+    const ct = vizChartTypes.find((c) => c.id === chartTypeId);
+    if (!ct) return;
+    ct.field_roles
+      .filter((r) => r.multiple)
+      .forEach((r) => vizMultiSet(r.name, vizMultiGet(r.name)));
+  }
 
   let vizChartTypes = [];
   let vizCurrentChartId = null;
@@ -2417,8 +2428,7 @@ title %} {% block color_scheme %}
       <div id="viz-copy-config-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeCopyConfigModal()">
         <div class="modal-content" style="max-width:600px;">
           <div class="modal-header">
-            <h3 class="modal-title">Chart Configuration (JSON)</h3>
-            <button class="btn btn-secondary" onclick="closeCopyConfigModal()" style="padding:2px 10px;">×</button>
+            <h3 class="modal-title">Chart Configuration</h3>
           </div>
           <div class="modal-body">
             <textarea id="viz-copy-config-textarea" readonly rows="14" style="width:100%; font-family:var(--font-mono,monospace); font-size:12px; resize:vertical; color:var(--text); background:var(--background-alt); border:1px solid var(--border); border-radius:var(--radius-md); padding:var(--space-sm);"></textarea>
@@ -2442,89 +2452,97 @@ title %} {% block color_scheme %}
     document.getElementById("viz-field-roles").innerHTML = fieldRolesHtml;
     vizMultiInitAll();
   }
-    // Build a config object with ALL possible keys for the current chart type.
-    // Field roles: null if empty, the selected value(s) if filled.
-    // Styling: filled from the styling inputs with defaults.
-    function buildFullVizConfig() {
-      const chartType = document.getElementById("viz-chart-type").value;
-      const ct = vizChartTypes.find((c) => c.id === chartType);
-      if (!ct) return {};
+  // Build a config object with ALL possible keys for the current chart type.
+  // Field roles: null if empty, the selected value(s) if filled.
+  // Styling: filled from the styling inputs with defaults.
+  function buildFullVizConfig() {
+    const chartType = document.getElementById("viz-chart-type").value;
+    const ct = vizChartTypes.find((c) => c.id === chartType);
+    if (!ct) return {};
 
-      const config = {};
+    const config = {};
 
-      // Field roles — every role gets a key, null if unset
-      ct.field_roles.forEach((role) => {
-        if (role.multiple) {
-          const selected = vizMultiGet(role.name);
-          config[role.name] = selected.length ? selected : null;
-        } else {
-          const el = document.getElementById(`viz-field-${role.name}`);
-          config[role.name] = el?.value || null;
-        }
-      });
-
-      // Styling fields (from BaseChartConfig)
-      config.title = document.getElementById("viz-title")?.value || null;
-      config.subtitle = document.getElementById("viz-subtitle")?.value || null;
-      config.x_axis_label = document.getElementById("viz-xlabel")?.value || null;
-      config.y_axis_label = document.getElementById("viz-ylabel")?.value || null;
-      config.width = parseInt(document.getElementById("viz-width")?.value || "1200");
-      config.height = parseInt(document.getElementById("viz-height")?.value || "800");
-      config.dpi = parseInt(document.getElementById("viz-dpi")?.value || "150");
-      config.theme = document.getElementById("viz-theme")?.value || "light";
-      config.color_palette = null;
-      config.font_size = 14;
-      config.background = "white";
-
-      return config;
-    }
-
-    function copyVizConfig() {
-      const config = buildFullVizConfig();
-      const json = JSON.stringify(config, null, 2);
-      showCopyConfigModal(json);
-    }
-
-    function showCopyConfigModal(jsonStr) {
-      const modal = document.getElementById("viz-copy-config-modal");
-      const textarea = document.getElementById("viz-copy-config-textarea");
-      textarea.value = jsonStr;
-      modal.classList.remove("hidden");
-      textarea.focus();
-      textarea.select();
-    }
-
-    function closeCopyConfigModal() {
-      document.getElementById("viz-copy-config-modal").classList.add("hidden");
-    }
-
-    async function copyConfigFromModal(btn) {
-      const textarea = document.getElementById("viz-copy-config-textarea");
-      textarea.select();
-      let copied = false;
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        try {
-          await navigator.clipboard.writeText(textarea.value);
-          copied = true;
-        } catch (e) {
-          copied = false;
-        }
-      }
-      if (!copied) {
-        try {
-          copied = document.execCommand("copy");
-        } catch (e) {
-          copied = false;
-        }
-      }
-      if (copied) {
-        btn.textContent = "Copied!";
-        setTimeout(() => { btn.textContent = "Copy"; }, 1500);
+    // Field roles — every role gets a key, null if unset
+    ct.field_roles.forEach((role) => {
+      if (role.multiple) {
+        const selected = vizMultiGet(role.name);
+        config[role.name] = selected.length ? selected : null;
       } else {
-        btn.textContent = "Select & Ctrl+C";
-        setTimeout(() => { btn.textContent = "Copy"; }, 2000);
+        const el = document.getElementById(`viz-field-${role.name}`);
+        config[role.name] = el?.value || null;
+      }
+    });
+
+    // Styling fields (from BaseChartConfig)
+    config.title = document.getElementById("viz-title")?.value || null;
+    config.subtitle = document.getElementById("viz-subtitle")?.value || null;
+    config.x_axis_label = document.getElementById("viz-xlabel")?.value || null;
+    config.y_axis_label = document.getElementById("viz-ylabel")?.value || null;
+    config.width = parseInt(
+      document.getElementById("viz-width")?.value || "1200",
+    );
+    config.height = parseInt(
+      document.getElementById("viz-height")?.value || "800",
+    );
+    config.dpi = parseInt(document.getElementById("viz-dpi")?.value || "150");
+    config.theme = document.getElementById("viz-theme")?.value || "light";
+    config.color_palette = null;
+    config.font_size = 14;
+    config.background = "white";
+
+    return config;
+  }
+
+  function copyVizConfig() {
+    const config = buildFullVizConfig();
+    const json = JSON.stringify(config, null, 2);
+    showCopyConfigModal(json);
+  }
+
+  function showCopyConfigModal(jsonStr) {
+    const modal = document.getElementById("viz-copy-config-modal");
+    const textarea = document.getElementById("viz-copy-config-textarea");
+    textarea.value = jsonStr;
+    modal.classList.remove("hidden");
+    textarea.focus();
+    textarea.select();
+  }
+
+  function closeCopyConfigModal() {
+    document.getElementById("viz-copy-config-modal").classList.add("hidden");
+  }
+
+  async function copyConfigFromModal(btn) {
+    const textarea = document.getElementById("viz-copy-config-textarea");
+    textarea.select();
+    let copied = false;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      try {
+        await navigator.clipboard.writeText(textarea.value);
+        copied = true;
+      } catch (e) {
+        copied = false;
       }
     }
+    if (!copied) {
+      try {
+        copied = document.execCommand("copy");
+      } catch (e) {
+        copied = false;
+      }
+    }
+    if (copied) {
+      btn.textContent = "Copied!";
+      setTimeout(() => {
+        btn.textContent = "Copy";
+      }, 1500);
+    } else {
+      btn.textContent = "Select & Ctrl+C";
+      setTimeout(() => {
+        btn.textContent = "Copy";
+      }, 2000);
+    }
+  }
 
   async function renderChartFromViz(tableName) {
     const chartType = document.getElementById("viz-chart-type").value;
@@ -2647,20 +2665,25 @@ title %} {% block color_scheme %}
   }
 
   function renderChartGallery(charts, favoritesOnly) {
-      // Build dataset filter options from the charts present
-      const datasets = [...new Set(charts.map((c) => c.table))].sort();
-      const datasetOpts = ['<option value="">All datasets</option>']
-        .concat(datasets.map((d) => `<option value="${escapeHtml(d)}" ${d === galleryDatasetFilter ? "selected" : ""}>${escapeHtml(d)}</option>`))
-        .join("");
+    // Build dataset filter options from the charts present
+    const datasets = [...new Set(charts.map((c) => c.table))].sort();
+    const datasetOpts = ['<option value="">All datasets</option>']
+      .concat(
+        datasets.map(
+          (d) =>
+            `<option value="${escapeHtml(d)}" ${d === galleryDatasetFilter ? "selected" : ""}>${escapeHtml(d)}</option>`,
+        ),
+      )
+      .join("");
 
-      // Filter by selected dataset
-      const filtered = galleryDatasetFilter
-        ? charts.filter((c) => c.table === galleryDatasetFilter)
-        : charts;
+    // Filter by selected dataset
+    const filtered = galleryDatasetFilter
+      ? charts.filter((c) => c.table === galleryDatasetFilter)
+      : charts;
 
-      const galleryHtml = filtered
-        .map(
-          (c) => `
+    const galleryHtml = filtered
+      .map(
+        (c) => `
         <div class="chart-card" style="background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:var(--space-md); display:flex; flex-direction:column; gap:8px;">
           <img src="/tools/data/api/chart/${c.chart_id}" alt="${escapeHtml(c.title)}" style="width:100%; height:200px; object-fit:contain; border-radius:4px; cursor:pointer;" onclick="viewChartDetail('${c.chart_id}')"/>
           <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -2677,10 +2700,10 @@ title %} {% block color_scheme %}
           </div>
         </div>
       `,
-        )
-        .join("");
+      )
+      .join("");
 
-      mainContent.innerHTML = `
+    mainContent.innerHTML = `
         <div style="padding:var(--space-xl);">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:var(--space-lg);">
             <h2 style="margin:0;">🖼️ Chart Gallery</h2>
@@ -2699,7 +2722,7 @@ title %} {% block color_scheme %}
           </div>
         </div>
       `;
-    }
+  }
 
   function filterGalleryByDataset(dataset) {
     galleryDatasetFilter = dataset;
@@ -2729,34 +2752,41 @@ title %} {% block color_scheme %}
       alert("Failed to delete: " + e);
     }
   }
-    async function deleteAllNonFavorites() {
-      try {
-        const resp = await fetch(`${API_BASE}/charts`);
-        const data = await resp.json();
-        const charts = data.charts || [];
-        let nonFav = charts.filter((c) => !c.favorite);
-        if (galleryDatasetFilter) {
-          nonFav = nonFav.filter((c) => c.table === galleryDatasetFilter);
-        }
-        if (nonFav.length === 0) {
-          alert("No non-favorite charts to delete.");
-          return;
-        }
-        const scope = galleryDatasetFilter ? ` from ${galleryDatasetFilter}` : "";
-        if (!confirm(`Delete ${nonFav.length} non-favorite chart(s)${scope}? This cannot be undone.`)) return;
-        let deleted = 0;
-        for (const c of nonFav) {
-          try {
-            await fetch(`${API_BASE}/chart/${c.chart_id}`, { method: "DELETE" });
-            deleted++;
-          } catch (e) { /* skip individual failures */ }
-        }
-        alert(`Deleted ${deleted} of ${nonFav.length} non-favorite chart(s).`);
-        loadChartGallery(galleryFavoritesOnly);
-      } catch (e) {
-        alert("Failed to delete: " + e);
+  async function deleteAllNonFavorites() {
+    try {
+      const resp = await fetch(`${API_BASE}/charts`);
+      const data = await resp.json();
+      const charts = data.charts || [];
+      let nonFav = charts.filter((c) => !c.favorite);
+      if (galleryDatasetFilter) {
+        nonFav = nonFav.filter((c) => c.table === galleryDatasetFilter);
       }
+      if (nonFav.length === 0) {
+        alert("No non-favorite charts to delete.");
+        return;
+      }
+      const scope = galleryDatasetFilter ? ` from ${galleryDatasetFilter}` : "";
+      if (
+        !confirm(
+          `Delete ${nonFav.length} non-favorite chart(s)${scope}? This cannot be undone.`,
+        )
+      )
+        return;
+      let deleted = 0;
+      for (const c of nonFav) {
+        try {
+          await fetch(`${API_BASE}/chart/${c.chart_id}`, { method: "DELETE" });
+          deleted++;
+        } catch (e) {
+          /* skip individual failures */
+        }
+      }
+      alert(`Deleted ${deleted} of ${nonFav.length} non-favorite chart(s).`);
+      loadChartGallery(galleryFavoritesOnly);
+    } catch (e) {
+      alert("Failed to delete: " + e);
     }
+  }
   function viewChartDetail(chartId) {
     // Open chart in a new view
     mainContent.innerHTML = `
