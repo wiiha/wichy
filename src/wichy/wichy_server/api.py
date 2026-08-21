@@ -511,6 +511,32 @@ def register_routes(bp: Blueprint):
             }
         )
 
+    @bp.route("/tools/results/<id>", methods=["DELETE"])
+    def delete_tool_result(id: str):
+        root_agent = _get_active_root_agent()
+        if root_agent is None:
+            return jsonify({"error": "no active root agent"}), 503
+
+        store = get_tool_results_store()
+        deleted = store.delete(id)
+        if not deleted:
+            return jsonify({"error": "result not found"}), 404
+
+        return jsonify({"status": "ok"})
+
+    @bp.route("/tools/results", methods=["DELETE"])
+    def clear_tool_results():
+        root_agent = _get_active_root_agent()
+        if root_agent is None:
+            return jsonify({"error": "no active root agent"}), 503
+
+        if request.args.get("confirm") != "true":
+            return jsonify({"error": "confirm=true is required"}), 400
+
+        store = get_tool_results_store()
+        count = store.delete_all()
+        return jsonify({"status": "ok", "deleted": count})
+
     def _tool_requires_verification(tool: BaseTool) -> bool:
         """Return True if the tool is marked as needing API-side verification.
 

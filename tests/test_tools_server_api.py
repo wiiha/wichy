@@ -300,3 +300,109 @@ class TestListToolResults:
         assert data["results"][0]["tool"] == "fake_tool"
         assert data["results"][0]["arguments"] == {"command": "b"}
         assert data["results"][1]["arguments"] == {"command": "a"}
+
+
+class TestDeleteToolResult:
+    def test_delete_no_session(self, client):
+        response = client.delete("/server/api/tools/results/someid")
+        assert response.status_code == 503
+        data = json.loads(response.data)
+        assert data["error"] == "no active root agent"
+
+    def test_delete_unknown_id(self, client):
+        agent = MockRootAgent()
+        set_active_session(MockSession(root_agent=agent))
+
+        response = client.delete("/server/api/tools/results/missing")
+        assert response.status_code == 404
+        data = json.loads(response.data)
+        assert data["error"] == "result not found"
+
+    def test_delete_existing_id(self, client):
+        agent = MockRootAgent(tools=[FakeTool()])
+        set_active_session(MockSession(root_agent=agent))
+
+        exec_resp = client.post(
+            "/server/api/tools/execute",
+            json={"name": "fake_tool", "arguments": {"command": "hello"}},
+        )
+        record_id = json.loads(exec_resp.data)["id"]
+
+        del_resp = client.delete(f"/server/api/tools/results/{record_id}")
+        assert del_resp.status_code == 200
+        assert json.loads(del_resp.data) == {"status": "ok"}
+
+        # Verify it's gone from the list
+        list_resp = client.get("/server/api/tools/results")
+        results = json.loads(list_resp.data)["results"]
+        assert len(results) == 0
+
+    def test_delete_one_of_many(self, client):
+        agent = MockRootAgent(tools=[FakeTool()])
+        set_active_session(MockSession(root_agent=agent))
+
+        id_a = json.loads(
+            client.post(
+                "/server/api/tools/execute",
+                json={"name": "fake_tool", "arguments": {"command": "a"}},
+            ).data
+        )["id"]
+        id_b = json.loads(
+            client.post(
+                "/server/api/tools/execute",
+                json={"name": "fake_tool", "arguments": {"command": "b"}},
+            ).data
+        )["id"]
+
+        client.delete(f"/server/api/tools/results/{id_a}")
+
+        results = json.loads(client.get("/server/api/tools/results").data)["results"]
+        assert len(results) == 1
+        assert results[0]["id"] == id_b
+
+
+class TestClearToolResults:
+    def test_clear_no_session(self, client):
+        response = client.delete("/server/api/tools/results?confirm=true")
+        assert response.status_code == 503
+        data = json.loads(response.data)
+        assert data["error"] == "no active root agent"
+
+    def test_clear_without_confirm(self, client):
+        agent = MockRootAgent()
+        set_active_session(MockSession(root_agent=agent))
+
+        response = client.delete("/server/api/tools/results")
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert data["error"] == "confirm=true is required"
+
+    def test_clear_empty_store(self, client):
+        agent = MockRootAgent()
+        set_active_session(MockSession(root_agent=agent))
+
+        response = client.delete("/server/api/tools/results?confirm=true")
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert data == {"status": "ok", "deleted": 0}
+
+    def test_clear_all(self, client):
+        agent = MockRootAgent(tools=[FakeTool()])
+        set_active_session(MockSession(root_agent=agent))
+
+        client.post(
+            "/server/api/tools/execute",
+            json={"name": "fake_tool", "arguments": {"command": "a"}},
+        )
+        client.post(
+            "/server/api/tools/execute",
+            json={"name": "fake_tool", "arguments": {"command": "b"}},
+        )
+
+        response = client.delete("/server/api/tools/results?confirm=true")
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert data == {"status": "ok", "deleted": 2}
+
+        results = json.loads(client.get("/server/api/tools/results").data)["results"]
+        assert len(results) == 0

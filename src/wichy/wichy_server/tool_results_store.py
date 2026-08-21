@@ -139,6 +139,13 @@ class ToolResultsStore:
             conn.commit()
         return cursor.rowcount > 0
 
+    def delete_all(self) -> int:
+        """Delete all records. Returns the number of rows removed."""
+        with self._lock, self._connection() as conn:
+            cursor = conn.execute("DELETE FROM tool_results")
+            conn.commit()
+        return cursor.rowcount
+
 
 # Module-level singleton. Reused across requests in the same process.
 _store: Optional[ToolResultsStore] = None
