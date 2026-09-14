@@ -326,7 +326,7 @@ class TaskAgent(AgentCore):
         This runs before the agent is removed from the running registry so that
         callers can still retrieve a stopped agent's context via the server API.
         """
-        stopped_at = datetime.now().isoformat()
+        stopped_at = datetime.now(timezone.utc).isoformat()
         status = "completed"
         if self._stop_event.is_set():
             status = "stopped"

@@ -1,5 +1,5 @@
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Literal, Optional
 
@@ -374,4 +374,4 @@ When in doubt, use this tool. Being proactive with task management demonstrates 
         """
         Returns current timestamp in YYYY-MM-DD HH:MM:SS format.
         """
-        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")

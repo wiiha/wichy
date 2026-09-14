@@ -2,7 +2,7 @@ import json
 import os
 import re
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, List, Optional
 
 from pydantic import Field
@@ -322,7 +322,7 @@ class ListGraphsTool(BaseTool):
                 stat = os.stat(filepath)
                 size_kb = stat.st_size / 1024
 
-                mtime = datetime.fromtimestamp(stat.st_mtime).strftime(
+                mtime = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).strftime(
                     "%Y-%m-%d %H:%M:%S"
                 )
                 lines.append(f"{f:<30} {size_kb:>8.1f} KB  {mtime}")

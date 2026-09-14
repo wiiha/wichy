@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from pydantic import Field
@@ -214,7 +214,7 @@ assistant: "I'm going to use the Task tool to launch the greeting-responder agen
                     "task_context_file": str(sa.context.path),
                     "task_agent_type": subagent_type,
                     "description": kwargs.get("description", ""),
-                    "timestamp": datetime.now().isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
             )
 
