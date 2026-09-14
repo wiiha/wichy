@@ -1,7 +1,7 @@
 import shutil
 import subprocess
 from enum import Enum
-from typing import Any
+from typing import Any, ClassVar
 
 from pydantic import Field
 
@@ -75,7 +75,7 @@ class SearchInFilesTool(BaseTool):
     needs_verification_in_api: bool = False
 
     # Directories to exclude from search
-    EXCLUDED_DIRS = [
+    EXCLUDED_DIRS: ClassVar[list[str]] = [
         "venv",
         ".venv",
         ".git",

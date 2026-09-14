@@ -29,16 +29,15 @@ def load_history() -> list[dict[str, Any]]:
     if not HISTORY_FILE.exists():
         return []
     entries = []
-    with _file_lock:
-        with HISTORY_FILE.open("r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    entries.append(json.loads(line))
-                except json.JSONDecodeError:
-                    continue
+    with _file_lock, HISTORY_FILE.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entries.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
     if len(entries) > MAX_HISTORY:
         entries = entries[-MAX_HISTORY:]
         _rewrite(entries)
@@ -47,10 +46,9 @@ def load_history() -> list[dict[str, Any]]:
 
 def _rewrite(entries: list[dict[str, Any]]) -> None:
     _ensure_dir()
-    with _file_lock:
-        with HISTORY_FILE.open("w", encoding="utf-8") as f:
-            for e in entries:
-                f.write(json.dumps(e, ensure_ascii=False) + "\n")
+    with _file_lock, HISTORY_FILE.open("w", encoding="utf-8") as f:
+        for e in entries:
+            f.write(json.dumps(e, ensure_ascii=False) + "\n")
 
 
 def append(entry: dict[str, Any]) -> None:

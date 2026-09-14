@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import TypeAlias
+from typing import ClassVar, TypeAlias
 
 from prompt_toolkit.completion import NestedCompleter
 from rich.table import Table
@@ -52,7 +52,7 @@ class BtwException(Exception):
 class SlashCommandChecker:
     #: Tools available to the BTW sandbox agent. Override or extend this list
     #: to give /btw commands access to specific tools.
-    BTW_TOOLS: list = []
+    BTW_TOOLS: ClassVar[list] = []
 
     def __init__(self, root_agent):
         self.root_agent = root_agent

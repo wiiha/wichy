@@ -5,7 +5,7 @@ import threading
 from contextlib import contextmanager
 from pathlib import Path
 from queue import Empty, Full, Queue
-from typing import Dict, List, Optional
+from typing import ClassVar, Dict, List, Optional
 
 import duckdb
 
@@ -119,7 +119,7 @@ class DuckDBManager:
     """Singleton manager for DuckDB connections within a session."""
 
     _instance: Optional["DuckDBManager"] = None
-    _loaded_tables: Dict[str, str] = {}  # table_name -> source_path
+    _loaded_tables: ClassVar[Dict[str, str]] = {}  # table_name -> source_path
     _db_path: Optional[str] = None  # Path if persisted to disk
     _pool: Optional[ConnectionPool] = None
     _metadata_lock = threading.RLock()  # For _loaded_tables

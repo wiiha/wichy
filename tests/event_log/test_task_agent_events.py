@@ -34,9 +34,11 @@ def temp_contexts_dir():
                 events_retention_days = 7
                 events_queue_size = 10_000
 
-            with patch("wichy.event_log.store.settings", FakeSettings()):
-                with patch("wichy.event_log.paths.settings", FakeSettings()):
-                    yield tmp_path
+            with (
+                patch("wichy.event_log.store.settings", FakeSettings()),
+                patch("wichy.event_log.paths.settings", FakeSettings()),
+            ):
+                yield tmp_path
 
 
 class TestTaskAgentEvents:

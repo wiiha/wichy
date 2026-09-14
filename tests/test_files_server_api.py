@@ -388,11 +388,13 @@ class TestDeleteFile:
         set_active_session(session)
         (tmp_path / "locked.txt").write_text("content")
 
-        with patch("pathlib.Path.unlink", side_effect=PermissionError("locked")):
-            with patch(
+        with (
+            patch("pathlib.Path.unlink", side_effect=PermissionError("locked")),
+            patch(
                 "wichy.wichy_server.file_routes._get_uploads_dir", return_value=tmp_path
-            ):
-                response = client.delete("/server/api/files/locked.txt")
+            ),
+        ):
+            response = client.delete("/server/api/files/locked.txt")
 
         assert response.status_code == 500
         assert "locked" in response.json["error"]

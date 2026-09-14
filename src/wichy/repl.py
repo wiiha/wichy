@@ -1,5 +1,7 @@
 """REPL - interactive read-eval-print loop for wichy."""
 
+import sys
+
 from prompt_toolkit import PromptSession
 from rich.markdown import Markdown
 
@@ -128,7 +130,7 @@ class Repl:
             except EOFError:
                 user_console.print("\nexiting...")
                 user_console.flush()
-                exit(0)
+                sys.exit(0)
 
     def _print_user_prompt(self) -> None:
         """Print the user prompt header."""

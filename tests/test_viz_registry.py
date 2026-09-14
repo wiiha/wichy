@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 import pytest
 
 from wichy.tools.viz.config_models import (
@@ -204,7 +206,7 @@ class TestValidateConfig:
 class TestChartConfigModels:
     """Verify all 14 chart types have config models registered."""
 
-    EXPECTED_TYPES = [
+    EXPECTED_TYPES: ClassVar[list[str]] = [
         "bar",
         "distribution",
         "line",

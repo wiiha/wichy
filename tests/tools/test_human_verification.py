@@ -321,11 +321,13 @@ class TestLabelResolution:
         do_dangerous._action_label = "Danger"
         do_dangerous._action_message = "This action cannot be undone."
 
-        with patch.object(hv, "prompt_session") as mock_session:
-            with patch.object(hv, "needs_user_attention"):
-                with patch.object(hv.special_console, "print") as mock_print:
-                    mock_session.prompt.return_value = "y"
-                    do_dangerous("/var/data")
+        with (
+            patch.object(hv, "prompt_session") as mock_session,
+            patch.object(hv, "needs_user_attention"),
+            patch.object(hv.special_console, "print") as mock_print,
+        ):
+            mock_session.prompt.return_value = "y"
+            do_dangerous("/var/data")
 
         printed = [str(c) for c in mock_print.call_args_list]
         printed_str = " ".join(printed)

@@ -25,67 +25,66 @@ class REPLInteractionProvider(InteractionProvider):
             }
         )
 
-        with _user_interaction_lock:
-            with user_console.paused():
-                needs_user_attention()
-                for question in questions:
-                    header = question.header
-                    if header is None:
-                        continue
+        with _user_interaction_lock, user_console.paused():
+            needs_user_attention()
+            for question in questions:
+                header = question.header
+                if header is None:
+                    continue
 
-                    values = [
-                        (
-                            opt.label if isinstance(opt, QuestionOption) else str(opt),
-                            f"{opt.label if isinstance(opt, QuestionOption) else str(opt)}: {opt.description if isinstance(opt, QuestionOption) else str(opt)}",
-                        )
-                        for opt in question.options
-                    ]
-
-                    other_label = "Other (please specify)"
-                    other_was_passed = any(
-                        (opt.label if isinstance(opt, QuestionOption) else str(opt))
-                        .lower()
-                        .strip()
-                        == "other"
-                        for opt in question.options
+                values = [
+                    (
+                        opt.label if isinstance(opt, QuestionOption) else str(opt),
+                        f"{opt.label if isinstance(opt, QuestionOption) else str(opt)}: {opt.description if isinstance(opt, QuestionOption) else str(opt)}",
                     )
-                    if not other_was_passed:
-                        values.append((other_label, "Provide a custom answer"))
+                    for opt in question.options
+                ]
 
-                    title = "Question"
-                    if metadata and "source" in metadata:
-                        title = f"Question from {metadata['source']}"
+                other_label = "Other (please specify)"
+                other_was_passed = any(
+                    (opt.label if isinstance(opt, QuestionOption) else str(opt))
+                    .lower()
+                    .strip()
+                    == "other"
+                    for opt in question.options
+                )
+                if not other_was_passed:
+                    values.append((other_label, "Provide a custom answer"))
 
-                    if question.multiSelect:
-                        multi_result = checkboxlist_dialog(
-                            title=title,
-                            text=question.question,
-                            values=values,
+                title = "Question"
+                if metadata and "source" in metadata:
+                    title = f"Question from {metadata['source']}"
+
+                if question.multiSelect:
+                    multi_result = checkboxlist_dialog(
+                        title=title,
+                        text=question.question,
+                        values=values,
+                        style=style,
+                    ).run()
+                    filtered = [r for r in (multi_result or []) if r != other_label]
+                    answers[header] = (
+                        ", ".join(filtered) if filtered else "No selection"
+                    )
+                else:
+                    single_result = radiolist_dialog(
+                        title=title,
+                        text=question.question,
+                        values=values,
+                        style=style,
+                    ).run()
+
+                    if single_result and single_result != other_label:
+                        answers[header] = single_result
+                    elif single_result == other_label:
+                        custom = input_dialog(
+                            title="Custom Answer",
+                            text=f"You selected 'Other' for '{question.question}'. Please specify:",
                             style=style,
                         ).run()
-                        filtered = [r for r in (multi_result or []) if r != other_label]
-                        answers[header] = (
-                            ", ".join(filtered) if filtered else "No selection"
-                        )
+                        answers[header] = custom or "No selection"
                     else:
-                        single_result = radiolist_dialog(
-                            title=title,
-                            text=question.question,
-                            values=values,
-                            style=style,
-                        ).run()
-
-                        if single_result and single_result != other_label:
-                            answers[header] = single_result
-                        elif single_result == other_label:
-                            custom = input_dialog(
-                                title="Custom Answer",
-                                text=f"You selected 'Other' for '{question.question}'. Please specify:",
-                                style=style,
-                            ).run()
-                            answers[header] = custom or "No selection"
-                        else:
-                            answers[header] = "No selection"
+                        answers[header] = "No selection"
 
         output = {"answers": answers}
         if metadata:

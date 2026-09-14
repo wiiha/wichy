@@ -27,14 +27,13 @@ class TestConnectionPoolThreadSafety:
         """Test that pool exhaustion raises PoolExhaustedError."""
         pool = ConnectionPool(db_path=None, pool_size=2)
 
-        with pool.get_connection() as _conn1:
-            with pool.get_connection() as _conn2:
-                # Third acquisition should fail with short timeout
-                with pytest.raises(PoolExhaustedError) as exc_info:
-                    pool._acquire(timeout=0.1)
+        with pool.get_connection() as _conn1, pool.get_connection() as _conn2:
+            # Third acquisition should fail with short timeout
+            with pytest.raises(PoolExhaustedError) as exc_info:
+                pool._acquire(timeout=0.1)
 
-                assert "No connections available" in str(exc_info.value)
-                assert "Pool size: 2" in str(exc_info.value)
+            assert "No connections available" in str(exc_info.value)
+            assert "Pool size: 2" in str(exc_info.value)
 
         pool.close()
 
@@ -50,16 +49,17 @@ class TestConnectionPoolThreadSafety:
             conn2.execute("SELECT 2").fetchall()
 
         # Both should be released - we can acquire 2 again
-        with pool.get_connection() as conn1:
-            with pool.get_connection() as conn2:
-                # Third should fail since pool is exhausted
-                with pytest.raises(PoolExhaustedError):
-                    pool._acquire(timeout=0.1)
+        with (
+            pool.get_connection() as conn1,
+            pool.get_connection() as conn2,
+            pytest.raises(PoolExhaustedError),
+        ):
+            # Third should fail since pool is exhausted
+            pool._acquire(timeout=0.1)
 
         # Now both are released, we should be able to get 2 again
-        with pool.get_connection() as conn1:
-            with pool.get_connection() as conn2:
-                pass  # Successfully acquired both
+        with pool.get_connection() as conn1, pool.get_connection() as conn2:
+            pass  # Successfully acquired both
 
         pool.close()
 

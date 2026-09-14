@@ -203,7 +203,7 @@ def handle_new_skill(args):
             "[red]error:[/red] Skill name must be kebab-case: lowercase letters, numbers, and hyphens (e.g., 'my-skill-name')",
         )
         user_console.flush()
-        exit(1)
+        sys.exit(1)
 
     # Check if skill already exists
     if skill_dir.exists():
@@ -211,7 +211,7 @@ def handle_new_skill(args):
             f"[red]error:[/red] Skill '{skill_name}' already exists at {skill_dir}",
         )
         user_console.flush()
-        exit(1)
+        sys.exit(1)
 
     # Create skill directory
     skill_dir.mkdir(parents=True, exist_ok=False)
@@ -333,7 +333,7 @@ def handle_install_skills(args):
 
     user_console.print(f"[dim]Location: {target_dir}[/dim]")
     user_console.flush()
-    exit(0)
+    sys.exit(0)
 
 
 # Router functions that dispatch to the handlers above
@@ -347,28 +347,28 @@ def handle_ls_commands(args, tool_manager):
     if args.ls_command == "ra":
         handle_list_root_agents()
         user_console.flush()
-        exit(0)
+        sys.exit(0)
 
     if args.ls_command == "ctx" or str(args.ls_command).startswith("context"):
         handle_list_contexts()
         user_console.flush()
-        exit(0)
+        sys.exit(0)
 
     if args.ls_command == "tools":
         tools = tool_manager.instantiate_all()
         handle_list_tools(tools)
         user_console.flush()
-        exit(0)
+        sys.exit(0)
 
     if args.ls_command == "skills":
         handle_list_skills()
         user_console.flush()
-        exit(0)
+        sys.exit(0)
 
     if args.ls_command == "sa":
         handle_list_sub_agents()
         user_console.flush()
-        exit(0)
+        sys.exit(0)
 
     return False
 
@@ -500,7 +500,7 @@ def handle_new_backend(args):
     validated = _validate_new_backend(args)
     if validated is None:
         user_console.flush()
-        exit(1)
+        sys.exit(1)
 
     alias = validated["alias"]
     base_url = validated["base_url"]
@@ -527,7 +527,7 @@ def handle_new_backend(args):
     except ValueError as exc:
         user_console.print(f"[red]error:[/red] {exc}")
         user_console.flush()
-        exit(1)
+        sys.exit(1)
 
     msg = f"[green]Saved backend:[/green] {alias}\n"
     msg += f"[dim]Location: {target_path}[/dim]\n\n"
@@ -535,7 +535,7 @@ def handle_new_backend(args):
 
     user_console.print(msg)
     user_console.flush()
-    exit(0)
+    sys.exit(0)
 
 
 def _remove_backend_alias(alias: str, scope: str) -> None:
@@ -583,7 +583,7 @@ def handle_new_commands(args):
     if args.new_command == "skill":
         handle_new_skill(args)
         user_console.flush()
-        exit(0)
+        sys.exit(0)
 
     if args.new_command == "backend":
         handle_new_backend(args)
@@ -596,7 +596,7 @@ def handle_ra_template(args):
     if args.command == "ra" and args.ra_template:
         sys.stdout.write(root_agent_desc_template)
         sys.stdout.flush()
-        exit(0)
+        sys.exit(0)
     return False
 
 
@@ -691,21 +691,21 @@ def handle_install_commands(args):
     if args.install_command == "hooks":
         handle_install_hooks(args)
         user_console.flush()
-        exit(0)
+        sys.exit(0)
 
     if args.install_command == "mcp":
         handle_install_mcp(args)
         user_console.flush()
-        exit(0)
+        sys.exit(0)
 
     if args.install_command == "skills":
         handle_install_skills(args)
         user_console.flush()
-        exit(0)
+        sys.exit(0)
 
     if args.install_command == "sub-agents":
         handle_install_sub_agents(args)
         user_console.flush()
-        exit(0)
+        sys.exit(0)
 
     return False

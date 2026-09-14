@@ -39,37 +39,38 @@ class TestPipelineMode:
     def _run_pipeline(self, argv, mock_settings, mock_root_agent, extra_patches=None):
         """Run main() in pipeline mode, suppressing SystemExit."""
         extra_patches = extra_patches or []
-        with patch(
-            "wichy.__main__.build_agent_from_config", return_value=mock_root_agent
+        with (
+            patch(
+                "wichy.__main__.build_agent_from_config", return_value=mock_root_agent
+            ),
+            patch("wichy.__main__.settings", mock_settings),
         ):
-            with patch("wichy.__main__.settings", mock_settings):
-                for patch_target, patch_value in extra_patches:
-                    patcher = patch(patch_target, patch_value)
-                    patcher.start()
-                    extra_patches.append((patch_target, patcher.stop))
-                with patch.object(sys, "argv", argv):
-                    with pytest.raises(SystemExit):
-                        from wichy.__main__ import main
+            for patch_target, patch_value in extra_patches:
+                patcher = patch(patch_target, patch_value)
+                patcher.start()
+                extra_patches.append((patch_target, patcher.stop))
+            with patch.object(sys, "argv", argv), pytest.raises(SystemExit):
+                from wichy.__main__ import main
 
-                        main()
+                main()
 
     def test_pipeline_mode_skips_server(self, mock_settings, mock_root_agent):
         """When --prompt is given, start_server is NOT called."""
-        with patch(
-            "wichy.__main__.build_agent_from_config", return_value=mock_root_agent
+        with (
+            patch(
+                "wichy.__main__.build_agent_from_config", return_value=mock_root_agent
+            ),
+            patch("wichy.__main__.start_server_in_background") as mock_start_server,
         ):
-            with patch(
-                "wichy.__main__.start_server_in_background"
-            ) as mock_start_server:
-                with patch.object(
-                    sys, "argv", ["wichy", "--prompt", "hi", "--no-server"]
-                ):
-                    with pytest.raises(SystemExit):
-                        from wichy.__main__ import main
+            with (
+                patch.object(sys, "argv", ["wichy", "--prompt", "hi", "--no-server"]),
+                pytest.raises(SystemExit),
+            ):
+                from wichy.__main__ import main
 
-                        main()
+                main()
 
-                mock_start_server.assert_not_called()
+            mock_start_server.assert_not_called()
 
     def test_pipeline_mode_agent_has_first_initiative_calls_wake_up_then_prompt(
         self, mock_settings, mock_root_agent
@@ -77,17 +78,19 @@ class TestPipelineMode:
         """With agent_has_first_initiative=True, process is called twice."""
         mock_root_agent.agent_has_first_initiative = True
 
-        with patch(
-            "wichy.__main__.build_agent_from_config", return_value=mock_root_agent
+        with (
+            patch(
+                "wichy.__main__.build_agent_from_config", return_value=mock_root_agent
+            ),
+            patch("wichy.__main__.settings", mock_settings),
+            patch.object(
+                sys, "argv", ["wichy", "--prompt", "fix the bug", "--no-server"]
+            ),
+            pytest.raises(SystemExit),
         ):
-            with patch("wichy.__main__.settings", mock_settings):
-                with patch.object(
-                    sys, "argv", ["wichy", "--prompt", "fix the bug", "--no-server"]
-                ):
-                    with pytest.raises(SystemExit):
-                        from wichy.__main__ import main
+            from wichy.__main__ import main
 
-                        main()
+            main()
 
         assert mock_root_agent.process.call_count == 2
         mock_root_agent.process.assert_any_call(mock_settings.wake_up_message)
@@ -99,19 +102,21 @@ class TestPipelineMode:
         """With --first (agent_has_first_initiative=False), process is called once."""
         mock_root_agent.agent_has_first_initiative = False
 
-        with patch(
-            "wichy.__main__.build_agent_from_config", return_value=mock_root_agent
+        with (
+            patch(
+                "wichy.__main__.build_agent_from_config", return_value=mock_root_agent
+            ),
+            patch("wichy.__main__.settings", mock_settings),
+            patch.object(
+                sys,
+                "argv",
+                ["wichy", "--prompt", "fix the bug", "--no-server", "--first"],
+            ),
+            pytest.raises(SystemExit),
         ):
-            with patch("wichy.__main__.settings", mock_settings):
-                with patch.object(
-                    sys,
-                    "argv",
-                    ["wichy", "--prompt", "fix the bug", "--no-server", "--first"],
-                ):
-                    with pytest.raises(SystemExit):
-                        from wichy.__main__ import main
+            from wichy.__main__ import main
 
-                        main()
+            main()
 
         mock_root_agent.process.assert_called_once_with("fix the bug")
 
@@ -121,17 +126,17 @@ class TestPipelineMode:
         """Pipeline preamble is appended to context as ROLE_USER, then prompt is processed."""
         mock_root_agent.agent_has_first_initiative = False
 
-        with patch(
-            "wichy.__main__.build_agent_from_config", return_value=mock_root_agent
+        with (
+            patch(
+                "wichy.__main__.build_agent_from_config", return_value=mock_root_agent
+            ),
+            patch("wichy.__main__.settings", mock_settings),
+            patch.object(sys, "argv", ["wichy", "--prompt", "hello", "--no-server"]),
+            pytest.raises(SystemExit),
         ):
-            with patch("wichy.__main__.settings", mock_settings):
-                with patch.object(
-                    sys, "argv", ["wichy", "--prompt", "hello", "--no-server"]
-                ):
-                    with pytest.raises(SystemExit):
-                        from wichy.__main__ import main
+            from wichy.__main__ import main
 
-                        main()
+            main()
 
         mock_root_agent.context.append.assert_called_once()
         call_args = mock_root_agent.context.append.call_args[0][0]
@@ -145,43 +150,43 @@ class TestPipelineMode:
         clean_response = "Hello!"
         mock_root_agent.process.return_value = raw_response
 
-        with patch(
-            "wichy.__main__.build_agent_from_config", return_value=mock_root_agent
+        with (
+            patch(
+                "wichy.__main__.build_agent_from_config", return_value=mock_root_agent
+            ),
+            patch("wichy.__main__.settings", mock_settings),
+            patch("wichy.__main__.strip_thinking_content", return_value=clean_response),
+            patch("wichy.__main__.sys.stdout", new_callable=MagicMock) as mock_stdout,
         ):
-            with patch("wichy.__main__.settings", mock_settings):
-                with patch(
-                    "wichy.__main__.strip_thinking_content", return_value=clean_response
-                ):
-                    with patch(
-                        "wichy.__main__.sys.stdout", new_callable=MagicMock
-                    ) as mock_stdout:
-                        with patch.object(
-                            sys,
-                            "argv",
-                            ["wichy", "--prompt", "say hello", "--no-server"],
-                        ):
-                            with pytest.raises(SystemExit):
-                                from wichy.__main__ import main
+            with (
+                patch.object(
+                    sys,
+                    "argv",
+                    ["wichy", "--prompt", "say hello", "--no-server"],
+                ),
+                pytest.raises(SystemExit),
+            ):
+                from wichy.__main__ import main
 
-                                main()
+                main()
 
-                        mock_stdout.write.assert_called_with(clean_response)
+            mock_stdout.write.assert_called_with(clean_response)
 
     def test_pipeline_mode_exits_zero(self, mock_settings, mock_root_agent):
         """Pipeline mode exits with code 0."""
-        with patch(
-            "wichy.__main__.build_agent_from_config", return_value=mock_root_agent
+        with (
+            patch(
+                "wichy.__main__.build_agent_from_config", return_value=mock_root_agent
+            ),
+            patch("wichy.__main__.settings", mock_settings),
+            patch.object(sys, "argv", ["wichy", "--prompt", "do it", "--no-server"]),
         ):
-            with patch("wichy.__main__.settings", mock_settings):
-                with patch.object(
-                    sys, "argv", ["wichy", "--prompt", "do it", "--no-server"]
-                ):
-                    with pytest.raises(SystemExit) as exc_info:
-                        from wichy.__main__ import main
+            with pytest.raises(SystemExit) as exc_info:
+                from wichy.__main__ import main
 
-                        main()
+                main()
 
-                    assert exc_info.value.code == 0
+            assert exc_info.value.code == 0
 
     def test_pipeline_mode_strip_thinking_content_called(
         self, mock_settings, mock_root_agent
@@ -191,45 +196,47 @@ class TestPipelineMode:
         clean_response = "Result without thinking"
         mock_root_agent.process.return_value = raw_response
 
-        with patch(
-            "wichy.__main__.build_agent_from_config", return_value=mock_root_agent
+        with (
+            patch(
+                "wichy.__main__.build_agent_from_config", return_value=mock_root_agent
+            ),
+            patch("wichy.__main__.settings", mock_settings),
+            patch(
+                "wichy.__main__.strip_thinking_content", return_value=clean_response
+            ) as mock_strip,
+            patch.object(sys, "argv", ["wichy", "--prompt", "go", "--no-server"]),
         ):
-            with patch("wichy.__main__.settings", mock_settings):
-                with patch(
-                    "wichy.__main__.strip_thinking_content", return_value=clean_response
-                ) as mock_strip:
-                    with patch.object(
-                        sys, "argv", ["wichy", "--prompt", "go", "--no-server"]
-                    ):
-                        with pytest.raises(SystemExit):
-                            from wichy.__main__ import main
+            with pytest.raises(SystemExit):
+                from wichy.__main__ import main
 
-                            main()
+                main()
 
-                        mock_strip.assert_called_once_with(raw_response)
+            mock_strip.assert_called_once_with(raw_response)
 
     def test_pipeline_mode_sets_pipeline_mode_and_quiet(
         self, mock_settings, mock_root_agent
     ):
         """set_pipeline_mode(True) and set_user_output_quiet(True) are called."""
-        with patch(
-            "wichy.__main__.build_agent_from_config", return_value=mock_root_agent
+        with (
+            patch(
+                "wichy.__main__.build_agent_from_config", return_value=mock_root_agent
+            ),
+            patch("wichy.__main__.settings", mock_settings),
+            patch(
+                "wichy.__main__.human_verification.set_pipeline_mode"
+            ) as mock_set_pipeline,
+            patch("wichy.__main__.set_user_output_quiet") as mock_quiet,
         ):
-            with patch("wichy.__main__.settings", mock_settings):
-                with patch(
-                    "wichy.__main__.human_verification.set_pipeline_mode"
-                ) as mock_set_pipeline:
-                    with patch("wichy.__main__.set_user_output_quiet") as mock_quiet:
-                        with patch.object(
-                            sys, "argv", ["wichy", "--prompt", "go", "--no-server"]
-                        ):
-                            with pytest.raises(SystemExit):
-                                from wichy.__main__ import main
+            with (
+                patch.object(sys, "argv", ["wichy", "--prompt", "go", "--no-server"]),
+                pytest.raises(SystemExit),
+            ):
+                from wichy.__main__ import main
 
-                                main()
+                main()
 
-                        mock_set_pipeline.assert_called_once_with(True)
-                        mock_quiet.assert_called_once_with(True)
+            mock_set_pipeline.assert_called_once_with(True)
+            mock_quiet.assert_called_once_with(True)
 
     def test_pipeline_mode_skips_preamble_when_context_already_has_it(
         self, mock_settings
@@ -250,25 +257,27 @@ class TestPipelineMode:
         agent.context = mock_ctx
         agent.context.append = MagicMock()
 
-        with patch("wichy.__main__.build_agent_from_config", return_value=agent):
-            with patch("wichy.__main__.context_from_file", return_value=MagicMock()):
-                with patch("wichy.__main__.settings", mock_settings):
-                    with patch.object(
-                        sys,
-                        "argv",
-                        [
-                            "wichy",
-                            "--prompt",
-                            "hello",
-                            "--no-server",
-                            "--load-ctx",
-                            "foo.json",
-                        ],
-                    ):
-                        with pytest.raises(SystemExit):
-                            from wichy.__main__ import main
+        with (
+            patch("wichy.__main__.build_agent_from_config", return_value=agent),
+            patch("wichy.__main__.context_from_file", return_value=MagicMock()),
+            patch("wichy.__main__.settings", mock_settings),
+            patch.object(
+                sys,
+                "argv",
+                [
+                    "wichy",
+                    "--prompt",
+                    "hello",
+                    "--no-server",
+                    "--load-ctx",
+                    "foo.json",
+                ],
+            ),
+            pytest.raises(SystemExit),
+        ):
+            from wichy.__main__ import main
 
-                            main()
+            main()
 
         agent.context.append.assert_not_called()
         agent.process.assert_called_once_with("hello")

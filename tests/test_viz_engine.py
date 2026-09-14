@@ -11,6 +11,7 @@ Tests use an isolated charts directory to avoid polluting the real one.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 from PIL import Image
@@ -476,7 +477,7 @@ class TestSunburstRenderer:
 class TestRegistryPopulated:
     """Verify that all expected chart types are registered after import."""
 
-    EXPECTED_TYPES = [
+    EXPECTED_TYPES: ClassVar[list[str]] = [
         "bar",
         "distribution",
         "line",
@@ -791,7 +792,7 @@ class TestTimeCompassRenderer:
 class TestAllChartTypesRegistered:
     """Verify ALL 14 chart types are registered after import."""
 
-    ALL_TYPES = [
+    ALL_TYPES: ClassVar[list[str]] = [
         "bar",
         "distribution",
         "line",

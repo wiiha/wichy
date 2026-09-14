@@ -199,7 +199,7 @@ def main():
 
     if args.server_mode and args.no_server:
         print("error: server mode and --no-server are incompatible, choose one")
-        exit(1)
+        sys.exit(1)
 
     if args.server_mode:
         user_console.set_impl(ServerConsole())
@@ -253,7 +253,7 @@ def main():
                 # At this point if ls/ra/new/install is specified without a subcommand, something is wrong.
                 if args.command in ("ls", "ra", "new", "install"):
                     parser.print_usage()
-                    exit(1)
+                    sys.exit(1)
 
     # Parse all root agent descriptions
     root_agent_descs = [
@@ -268,7 +268,7 @@ def main():
         user_console.print(
             f"[red]error:[/red] Root agent '{selected_ra_name}' not found",
         )
-        exit(1)
+        sys.exit(1)
 
     # Determine tools based on priority
     in_tools = initialize_tools(tool_manager, selected_ra, args)
@@ -318,7 +318,7 @@ def main():
             "[red]error:[/red] --load-ctx and --last-ctx are mutually exclusive"
         )
         user_console.flush()
-        exit(1)
+        sys.exit(1)
 
     if args.load_ctx:
         try:
@@ -329,7 +329,7 @@ def main():
         except Exception as e:
             user_console.print(f"[red]✗ Failed to load context file:[/red] {e}")
             user_console.flush()
-            exit(1)
+            sys.exit(1)
 
     if args.last_ctx:
         try:
@@ -341,11 +341,11 @@ def main():
         except FileNotFoundError as e:
             user_console.print(f"[red]✗ {e}[/red]")
             user_console.flush()
-            exit(1)
+            sys.exit(1)
         except Exception as e:
             user_console.print(f"[red]✗ Failed to load context file:[/red] {e}")
             user_console.flush()
-            exit(1)
+            sys.exit(1)
 
     # Build the agent using AgentBuilder
     try:
@@ -358,7 +358,7 @@ def main():
         )
     except AgentBuilderError as e:
         user_console.print(f"[red]error:[/red] {e}")
-        exit(1)
+        sys.exit(1)
 
     # Set active context for hooks (works in all modes: REPL, pipeline, with/without server)
     hooks_set_active_context(root_agent.context)
@@ -434,7 +434,7 @@ def main():
         result = strip_thinking_content(result)
         sys.stdout.write(result)
         sys.stdout.flush()
-        exit(0)
+        sys.exit(0)
 
     if args.server_mode:
         session = ChatSession(root_agent=root_agent, cmd_checker=cmd_checker)

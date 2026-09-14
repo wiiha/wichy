@@ -298,18 +298,20 @@ class TestProcessWithAutoCompaction:
         with patch("wichy.root_agent.root_agent.call") as mock_call:
             mock_call.return_value = response
 
-            with patch.object(
-                self.root_agent, "_auto_compact_context"
-            ) as mock_auto_compact:
-                with patch.object(self.root_agent, "compact_context") as mock_compact:
-                    result = self.root_agent.process("Hello")
+            with (
+                patch.object(
+                    self.root_agent, "_auto_compact_context"
+                ) as mock_auto_compact,
+                patch.object(self.root_agent, "compact_context") as mock_compact,
+            ):
+                result = self.root_agent.process("Hello")
 
-                    # Verify process still works
-                    assert result is not None
+                # Verify process still works
+                assert result is not None
 
-                    # Verify auto_compact was NOT called (tokens below threshold)
-                    mock_auto_compact.assert_not_called()
-                    mock_compact.assert_not_called()
+                # Verify auto_compact was NOT called (tokens below threshold)
+                mock_auto_compact.assert_not_called()
+                mock_compact.assert_not_called()
 
     def test_process_with_tool_calls_still_triggers_compaction(self):
         """Test that auto-compaction still triggers even when response has tool_calls."""

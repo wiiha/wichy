@@ -63,17 +63,19 @@ class TestRootAgentProcessEvents:
         def fake_emit(event_type: str, payload: dict) -> None:
             emitted.append((event_type, payload))
 
-        with patch.object(agent, "_emit_event", side_effect=fake_emit):
-            with patch("wichy.root_agent.root_agent.call") as mock_call:
-                response = MagicMock()
-                response.message = MagicMock()
-                response.message.content = "hello"
-                response.message.finish_reason = "stop"
-                response.message.tool_calls = None
-                response.message.reasoning = None
-                response.usage = None
-                mock_call.return_value = response
-                agent.process("hi")
+        with (
+            patch.object(agent, "_emit_event", side_effect=fake_emit),
+            patch("wichy.root_agent.root_agent.call") as mock_call,
+        ):
+            response = MagicMock()
+            response.message = MagicMock()
+            response.message.content = "hello"
+            response.message.finish_reason = "stop"
+            response.message.tool_calls = None
+            response.message.reasoning = None
+            response.usage = None
+            mock_call.return_value = response
+            agent.process("hi")
 
         types = [e[0] for e in emitted]
         assert "user_message_received" in types
@@ -90,41 +92,41 @@ class TestRootAgentProcessEvents:
         def fake_emit(event_type: str, payload: dict) -> None:
             emitted.append((event_type, payload))
 
-        with patch.object(agent, "_emit_event", side_effect=fake_emit):
-            with patch("wichy.root_agent.root_agent.call") as mock_call:
-                first_response = MagicMock()
-                first_response.message = MagicMock()
-                first_response.message.content = ""
-                first_response.message.finish_reason = "tool_calls"
-                first_response.message.reasoning = None
-                first_response.message.tool_calls = [
-                    MagicMock(
-                        id="call_1",
-                        function=MagicMock(
-                            name="mock_tool", arguments='{"value": "x"}'
-                        ),
-                        model_dump=lambda: {
-                            "id": "call_1",
-                            "type": "function",
-                            "function": {
-                                "name": "mock_tool",
-                                "arguments": '{"value": "x"}',
-                            },
+        with (
+            patch.object(agent, "_emit_event", side_effect=fake_emit),
+            patch("wichy.root_agent.root_agent.call") as mock_call,
+        ):
+            first_response = MagicMock()
+            first_response.message = MagicMock()
+            first_response.message.content = ""
+            first_response.message.finish_reason = "tool_calls"
+            first_response.message.reasoning = None
+            first_response.message.tool_calls = [
+                MagicMock(
+                    id="call_1",
+                    function=MagicMock(name="mock_tool", arguments='{"value": "x"}'),
+                    model_dump=lambda: {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {
+                            "name": "mock_tool",
+                            "arguments": '{"value": "x"}',
                         },
-                    )
-                ]
-                first_response.usage = None
+                    },
+                )
+            ]
+            first_response.usage = None
 
-                final_response = MagicMock()
-                final_response.message = MagicMock()
-                final_response.message.content = "done"
-                final_response.message.finish_reason = "stop"
-                final_response.message.tool_calls = None
-                final_response.message.reasoning = None
-                final_response.usage = None
+            final_response = MagicMock()
+            final_response.message = MagicMock()
+            final_response.message.content = "done"
+            final_response.message.finish_reason = "stop"
+            final_response.message.tool_calls = None
+            final_response.message.reasoning = None
+            final_response.usage = None
 
-                mock_call.side_effect = [first_response, final_response]
-                agent.process("run tool")
+            mock_call.side_effect = [first_response, final_response]
+            agent.process("run tool")
 
         types = [e[0] for e in emitted]
         assert "tool_call_batch_started" in types
