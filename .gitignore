@@ -23,8 +23,8 @@ parts/
 sdist/
 var/
 venv/
-venv/
 wheels/
+host_venv/
 .env
 .env.docker
 .coverage

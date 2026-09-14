@@ -78,12 +78,22 @@ dependencies = [
     "watchdog==6.0.0",
     "matplotlib>=3.8.0",
     "numpy>=1.24.0",
+    "scipy>=1.10.0",
     "pillow>=10.0.0",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0.0",
+    "ruff>=0.4.0",
+    "black>=24.0.0",
+    "mypy>=1.8.0",
+    "build>=1.2.0",
+    "twine>=5.0.0",
+    "types-PyYAML>=6.0",
+    # numpy 2.3+ bundled stubs use Python 3.12+ syntax that mypy cannot parse
+    # when checking against this project's python_version = "3.10" floor
+    "numpy<2.3",
 ]
 
 [project.scripts]
@@ -108,3 +118,9 @@ python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = false
+
+[[tool.mypy.overrides]]
+# scipy ships no inline type stubs; used for gaussian_kde in the
+# distribution renderer (with a histogram fallback at runtime)
+module = "scipy.*"
+ignore_missing_imports = true
