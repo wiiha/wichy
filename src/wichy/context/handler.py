@@ -399,9 +399,11 @@ class ContextHandler:
             time.sleep(self._watch_interval)
             try:
                 self.check_and_reload_if_changed()
-            except Exception:
+            except Exception as e:
+                # Keep the watcher alive, but surface the failure so a
+                # persistent problem is not invisible.
+                user_console.print(f"[red]Context file watcher error:[/red] {e}")
                 # Silently ignore errors in watcher; we don't want the thread to die
-                pass
 
     def _reload_from_disk(self):
         """Reload context and logs from the file. Must be called with lock held."""
@@ -410,7 +412,9 @@ class ContextHandler:
 
         try:
             lines = self._path.read_text(encoding="utf-8").splitlines()
-        except Exception:
+        except Exception as e:
+            # Reload becomes a no-op; say so instead of failing silently.
+            user_console.print(f"[red]Error reloading context from disk:[/red] {e}")
             return
 
         messages, logs = [], []
@@ -501,8 +505,13 @@ class ContextHandler:
                                 logs.append(entry)
                         except json.JSONDecodeError:
                             continue
-                except Exception:
-                    pass
+                except Exception as e:
+                    # Reading existing logs failed: the rewrite below will
+                    # drop them. Log loudly so the loss is visible rather
+                    # than silent.
+                    user_console.print(
+                        f"[red]Error preserving logs during replace_all:[/red] {e}"
+                    )
 
             # Write new messages + preserved logs atomically
             temp_path = self._path.with_suffix(".tmp")

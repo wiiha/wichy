@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 import sys
 from typing import Dict, List, Optional
@@ -221,7 +221,12 @@ class TaskAgent(AgentCore):
         """Emit an event to this task agent's own event log."""
         try:
             session_id = self.context.session_id
-        except Exception:
+        except (AttributeError, RuntimeError) as e:
+            # Event persistence is best-effort; a missing session context
+            # should not fail the agent run, but should not be invisible.
+            self._log_dict(
+                {"event": "emit_event_skipped", "reason": f"no session_id: {e}"}
+            )
             return
         try:
             store = get_agent_event_store(session_id, self.context.custom_suffix)

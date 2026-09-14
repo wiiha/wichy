@@ -50,7 +50,11 @@ def register_routes(bp: Blueprint):
         return updated
 
     def _read_note(slug: str) -> dict | None:
-        """Read a note file and return its data, or None if not found."""
+        """Read a note file and return its data, or None if not found.
+
+        Raises on I/O or parse errors so callers can distinguish a missing
+        note from an unreadable one; route handlers catch and surface these.
+        """
         notes_dir = Path(get_notes_dir())
         file_path = notes_dir / f"{slug}.md"
         if not file_path.exists():
@@ -59,15 +63,19 @@ def register_routes(bp: Blueprint):
             with open(file_path, "r") as f:
                 raw = f.read()
             metadata, body = parse_markdown_frontmatter(raw)
-            return {
-                "slug": slug,
-                "title": metadata.get("title", slug),
-                "content": body,
-                "created": metadata.get("created", ""),
-                "updated": metadata.get("updated", ""),
-            }
-        except Exception:
-            return None
+        except (OSError, UnicodeDecodeError, ValueError) as e:
+            # Corrupt or unreadable note: propagate instead of masquerading
+            # as "not found", which would invite the caller to overwrite it.
+            raise RuntimeError(
+                f"Note '{slug}' exists but could not be read: {e}"
+            ) from e
+        return {
+            "slug": slug,
+            "title": metadata.get("title", slug),
+            "content": body,
+            "created": metadata.get("created", ""),
+            "updated": metadata.get("updated", ""),
+        }
 
     # -------------------------------------------------------------------------
     # Routes
