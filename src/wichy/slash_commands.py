@@ -98,10 +98,25 @@ class SlashCommandChecker:
             raise ContextDropException()
 
         def handle_status(_line: str) -> str | None:
-            tokens = self.root_agent.current_prompt_tokens
-            threshold = self.root_agent.auto_compact_threshold
-            threshold_str = str(threshold) if threshold is not None else "off"
-            return f"[Status] tokens: {tokens} | auto-compact: {threshold_str}"
+            agent = self.root_agent
+            tokens = agent.current_prompt_tokens
+            threshold = agent.auto_compact_threshold
+            if threshold:
+                threshold_str = str(threshold)
+                if tokens > 0:
+                    pct = tokens * 100 // threshold
+                    threshold_str = f"{threshold} ({pct}%)"
+            else:
+                threshold_str = "off"
+            lines = [
+                "[Status] Session summary",
+                f"Model: {agent.model_str}",
+                f"Name: {agent.display_name}",
+                f"Messages: {len(agent.context.context)}",
+                f"Tokens (last request): {tokens}",
+                f"Auto-compact: {threshold_str}",
+            ]
+            return "\n".join(lines)
 
         def handle_hooks(_line: str) -> str | None | Table:
             """Handle /hooks - reload and list all registered hooks."""
@@ -248,7 +263,7 @@ class SlashCommandChecker:
             "/reset": "Nuke the entire conversation context",
             "/compact": "Summarize and compact the conversation context",
             "/drop": "Drop the last context entry",
-            "/status": "Show current token count and auto-compact threshold",
+            "/status": "Show session summary: model, name, message count, tokens, auto-compact",
             "/hooks": "Reload and list all registered hooks",
             "/help": "Show this help message",
             "/name": "Set or show the agent display name",
