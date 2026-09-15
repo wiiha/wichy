@@ -88,6 +88,8 @@ class RootAgent(AgentCore):
         self.agent_has_first_initiative = agent_has_first_initiative
         self.auto_compact_threshold = auto_compact_threshold
         self.current_prompt_tokens = 0
+        self.last_completion_tokens = 0
+        self.last_total_tokens = 0
 
     # -------------------------------------------------------------------------
     # AgentCore abstract property implementation
@@ -468,6 +470,9 @@ class RootAgent(AgentCore):
         ctx = new_context(session_id=self.context.session_id, resumed_after="reset")
         ctx.append(first_prompt)
         self.context = ctx
+        # The token counter belonged to the discarded context; reset it so
+        # /status never reports counts for a context that no longer exists.
+        self.current_prompt_tokens = 0
         # Start watching new context
         self.context.start_watching(interval=_DEFAULT_WATCH_INTERVAL)
         self._notify_context_editor(old_context)
@@ -546,6 +551,13 @@ class RootAgent(AgentCore):
         n_ctx.append(first_prompt)
         n_ctx.add(role="user", content=summary_msg)
         self.context = n_ctx
+        # The old counter referred to the discarded context. The summary
+        # itself was just measured: its completion_tokens approximate the
+        # new context's prompt size (system prompt + summary, excluding the
+        # re-appended reply). Seed with that; exact count arrives with the
+        # next real request.
+        seed = (response.usage or {}).get("completion_tokens", 0) or 0
+        self.current_prompt_tokens = seed if isinstance(seed, int) else 0
         self.context.start_watching(interval=_DEFAULT_WATCH_INTERVAL)
         self._notify_context_editor(old_context)
         self._emit_event(

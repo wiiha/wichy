@@ -137,6 +137,7 @@ class TestSessionIdentityAcrossResetCompact:
         # Mock the LLM call used for summarization.
         class FakeResponse:
             message = type("M", (), {"content": "summary"})()
+            usage = None
 
         with patch("wichy.root_agent.root_agent.call", return_value=FakeResponse()):
             agent.compact_context(is_auto_compact=True)

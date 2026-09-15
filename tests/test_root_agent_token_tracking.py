@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-from wichy.root_agent.root_agent import RootAgent
+from wichy.root_agent.root_agent import ContextResetStrategies, RootAgent
 from wichy.tools.base import BaseTool, ParametersModel
 
 
@@ -478,6 +478,103 @@ class TestCompactContext:
             # Context should be MUCH smaller (2 instead of 21)
             assert new_size < original_size
             assert new_size == 2  # Only system prompt + summary
+
+    def test_compact_seeds_counter_from_summary_usage(self):
+        """Post-compact counter is seeded from the summary's completion_tokens."""
+        self.root_agent.current_prompt_tokens = 99999  # stale pre-compact value
+
+        mock_response = Mock()
+        mock_response.message = Mock()
+        mock_response.message.content = "A summary of the conversation."
+        mock_response.usage = {
+            "prompt_tokens": 3000,
+            "completion_tokens": 421,
+            "total_tokens": 3421,
+        }
+
+        with patch("wichy.root_agent.root_agent.call") as mock_call:
+            mock_call.return_value = mock_response
+
+            self.root_agent.compact_context()
+
+        assert self.root_agent.current_prompt_tokens == 421
+
+    def test_compact_zeroes_counter_when_usage_missing(self):
+        """Usage None -> seed falls back to 0, never keeps the stale count."""
+        self.root_agent.current_prompt_tokens = 99999
+
+        mock_response = Mock()
+        mock_response.message = Mock()
+        mock_response.message.content = "A summary of the conversation."
+        mock_response.usage = None
+
+        with patch("wichy.root_agent.root_agent.call") as mock_call:
+            mock_call.return_value = mock_response
+
+            self.root_agent.compact_context()
+
+        assert self.root_agent.current_prompt_tokens == 0
+
+    def test_compact_zeroes_counter_on_non_int_seed(self):
+        """A garbage usage value must not leak a non-int into the counter."""
+        self.root_agent.current_prompt_tokens = 99999
+
+        mock_response = Mock()
+        mock_response.message = Mock()
+        mock_response.message.content = "A summary."
+        mock_response.usage = {"completion_tokens": "not-an-int"}
+
+        with patch("wichy.root_agent.root_agent.call") as mock_call:
+            mock_call.return_value = mock_response
+
+            self.root_agent.compact_context()
+
+        assert self.root_agent.current_prompt_tokens == 0
+
+
+class TestResetContextCounter:
+    """reset_context must zero the token counter (the old context is gone)."""
+
+    def setup_method(self):
+        """Create a RootAgent with a mock context, mirroring sibling classes."""
+        self.messages = [
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": "Tell me about Python."},
+        ]
+        self.mock_context = MagicMock()
+        self.mock_context.return_value = self.messages
+        self.mock_context.context = self.messages
+        self.mock_context.__len__ = MagicMock(return_value=len(self.messages))
+        self.mock_context.append = MagicMock()
+        self.mock_context.add = MagicMock()
+        self.mock_context.add_log = MagicMock()
+        self.mock_context.start_watching = MagicMock()
+        self.mock_context.stop_watching = MagicMock()
+
+        tools = [MockTool()]
+        self.root_agent = RootAgent(
+            model_str="ollama/test",
+            tools=tools,
+            context=self.mock_context,
+            name="test-agent",
+            agent_has_first_initiative=False,
+        )
+
+    def test_reset_zeroes_stale_counter(self):
+        """After NUKE reset the counter must not survive for the new context."""
+        self.root_agent.current_prompt_tokens = 12345
+
+        with (
+            patch("wichy.root_agent.root_agent.HookExecutor.run_context_hooks"),
+            patch.object(self.root_agent, "_notify_context_editor"),
+            patch(
+                "wichy.root_agent.root_agent.new_context",
+                return_value=self.mock_context,
+            ),
+        ):
+            self.root_agent.reset_context(ContextResetStrategies.NUKE)
+
+        assert self.root_agent.current_prompt_tokens == 0
 
 
 class TestReasoningPersistence:
