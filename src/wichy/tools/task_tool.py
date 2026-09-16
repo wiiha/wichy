@@ -13,6 +13,7 @@ from wichy.helpers.string import strip_thinking_content
 from wichy.hooks.context_access import get_active_context
 from wichy.tools.base import BaseTool, ParametersModel
 from wichy.tools.errors import format_error
+from wichy.tools.kill_registry import current_record
 from wichy.tools.registry import get_all_tools
 from wichy.tools.task import (
     TASK_AGENT_DEFS,
@@ -93,6 +94,10 @@ class TaskAgentTool(BaseTool):
     name = "task"
     description = "The Task tool launches specialized agents that autonomously handle complex, multi-step tasks like bash operations, codebase exploration, implementation planning, and general-purpose research. Each agent type has specific capabilities and tools available to it."
     parameters_model = TaskAgentParameters
+    # Kill machinery: this tool's call record gets the longer backstop
+    # grace period, and kills of this call cascade into the spawned
+    # task agent (request_stop + kill of its in-flight calls).
+    is_task_agent_tool = True
     description_long = (
         """
 Launch a new agent to handle complex, multi-step tasks autonomously.
@@ -189,6 +194,18 @@ assistant: "I'm going to use the Task tool to launch the greeting-responder agen
             all_tools_not_instantiated=tools,
             max_turns=max_turns,
         )
+
+        # Kill-cascade wiring: pre-register the agent so a kill landing
+        # during construction (before run() starts) still finds it,
+        # then attach it to THIS call's kill record so a kill of the
+        # `task` call cascades into it (request_stop + kill of its
+        # in-flight calls). If a kill already arrived, both paths fire
+        # the cascade immediately -- the agent's fast-exit then observes
+        # it before the first LLM round.
+        record = current_record()
+        agent_id = sa.pre_register()
+        if record is not None:
+            record.attach_task_agent(agent_id)
 
         root_context = get_active_context()
         session_id = root_context.session_id if root_context is not None else None

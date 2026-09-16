@@ -25,6 +25,7 @@ from wichy.llm_backend import (
     call,
 )
 from wichy.tools import get_tool_definitions
+from wichy.tools import kill_registry
 from wichy.tools.base import BaseTool
 from wichy.tool_manager import _matches_tool_patterns
 
@@ -41,6 +42,11 @@ _TURNS_WARNING_THRESHOLD = 5
 _TASK_AGENT_REGISTRY: dict[str, "TaskAgent"] = {}
 _TASK_AGENT_HISTORY: dict[str, "TaskAgentHistoryEntry"] = {}
 _TASK_AGENT_REGISTRY_LOCK = threading.Lock()
+
+# Canned result for a task agent whose enclosing `task` tool call was
+# force-killed by the user. Never sent to the LLM as-is: the outer
+# validate_and_execute swaps it for the [TOOL_KILLED] notice.
+_TASK_KILLED_RESULT = "Task agent stopped by user."
 
 
 class TaskAgentHistoryEntry(BaseModel):
@@ -99,6 +105,28 @@ def list_task_agent_history_entries() -> list["TaskAgentHistoryEntry"]:
         return list(_TASK_AGENT_HISTORY.values())
 
 
+def _cascade_stop_task_agent(agent_id: str, reason: Optional[str]) -> None:
+    """Cascade-stop a task agent whose enclosing `task` call was killed.
+
+    Installed into the kill registry as the task-agent stopper: sets the
+    agent's killed flag (fast-exit, no summary LLM call) and requests a
+    normal stop so the loop exits at its next check. Unknown agents are
+    a no-op (the agent may have already finished -- a kill arriving late
+    is a race-tolerant no-op, same as any other kill).
+    """
+    agent = get_task_agent(agent_id)
+    if agent is None:
+        return
+    agent._killed.set()
+    agent.request_stop()
+
+
+# The kill registry is stdlib-only and must never import this module
+# (cycle: tools package init -> task_tool -> task.base -> agent.core),
+# so it calls back through this registered hook instead.
+kill_registry.set_task_agent_stopper(_cascade_stop_task_agent)
+
+
 class TaskAgentDefinitionBase(BaseModel):
     name: str
     description: str
@@ -126,6 +154,10 @@ class TaskAgent(AgentCore):
         self._stop_event = threading.Event()
         self._steer_queue: list[tuple[str, str]] = []
         self._steer_queue_lock = threading.Lock()
+        # Kill-cascade machinery: set when the enclosing `task` tool
+        # call is force-killed. The loop then fast-exits with a canned
+        # string WITHOUT the _gen_summary() LLM call.
+        self._killed = threading.Event()
         self._turns_used = 0
         self.description = agent_definition.description
         self.model_str = (
@@ -258,6 +290,24 @@ class TaskAgent(AgentCore):
     # TaskAgent-specific methods
     # -------------------------------------------------------------------------
 
+    def pre_register(self) -> str:
+        """Insert this agent into the running registry BEFORE run().
+
+        The kill cascade locates a task agent by registry id. If a kill
+        of the enclosing `task` call lands while the agent is still
+        being constructed (before run() inserts it), the cascade would
+        be a silent no-op; pre-registering closes that window. run()
+        re-inserts the same id idempotently and removes it in its
+        finally. Returns the agent_id.
+
+        Only the spawning thread (the `task` tool call's thread) may
+        call this -- the entry is replaced by run() itself.
+        """
+        agent_id = str(self.context.custom_suffix)
+        with _TASK_AGENT_REGISTRY_LOCK:
+            _TASK_AGENT_REGISTRY[agent_id] = self
+        return agent_id
+
     def run(self):
         # Register in global registry
         agent_id = self.context.custom_suffix  # format: <name>-<12-char-hex>
@@ -265,16 +315,21 @@ class TaskAgent(AgentCore):
         with _TASK_AGENT_REGISTRY_LOCK:
             _TASK_AGENT_REGISTRY[agent_id] = self
 
-        self._emit_event(
-            "task_agent_registered",
-            {
-                "model": self.model_str,
-                "parent_session_id": self.context.session_id,
-                "turns_limit": self._max_turns,
-            },
-        )
+        # Ambient agent-id stack: inner tool calls executed on this
+        # thread inherit this agent_id when no explicit one is passed,
+        # so a cascade kill of this task agent can find and kill every
+        # in-flight inner call (push/pop MUST pair in try/finally).
+        kill_registry.push_agent_id(agent_id)
 
         try:
+            self._emit_event(
+                "task_agent_registered",
+                {
+                    "model": self.model_str,
+                    "parent_session_id": self.context.session_id,
+                    "turns_limit": self._max_turns,
+                },
+            )
             console_task_agents.log(
                 Markdown(
                     "\n\n---\n\n ### Task Agent "
@@ -316,7 +371,16 @@ class TaskAgent(AgentCore):
             )
             raise
         finally:
-            self._record_history_entry(agent_id, started_at)
+            kill_registry.pop_agent_id()
+            try:
+                self._record_history_entry(agent_id, started_at)
+            except Exception as e:
+                # History capture is best-effort: failing it must never
+                # skip the registry removal below (the agent would show
+                # as running forever) nor mask the original exception.
+                console_task_agents.log(
+                    f"[yellow]Task agent history capture failed: {e}[/yellow]"
+                )
             with _TASK_AGENT_REGISTRY_LOCK:
                 _TASK_AGENT_REGISTRY.pop(agent_id, None)
 
@@ -328,7 +392,9 @@ class TaskAgent(AgentCore):
         """
         stopped_at = datetime.now(timezone.utc).isoformat()
         status = "completed"
-        if self._stop_event.is_set():
+        if self._killed.is_set():
+            status = "killed"
+        elif self._stop_event.is_set():
             status = "stopped"
 
         # Determine final status from exception context if the run ended with an error.
@@ -368,6 +434,8 @@ class TaskAgent(AgentCore):
             # --- stop / steer hook before initial call ---
             if self._stop_event.is_set():
                 self._drain_steer_queue()
+                if self._killed.is_set():
+                    return _TASK_KILLED_RESULT
                 return self._gen_summary()
             self._drain_steer_queue()
             # --- end ---
@@ -458,6 +526,14 @@ class TaskAgent(AgentCore):
                 # --- stop / steer hook at bottom of loop ---
                 if self._stop_event.is_set():
                     self._drain_steer_queue()
+                    if self._killed.is_set():
+                        # Cascade kill: fast-exit without the summary
+                        # LLM call. Inner calls were already killed
+                        # (kill_calls_for_agent), so their kill-string
+                        # results are in context; the outer task call
+                        # result gets swapped for the kill notice by
+                        # validate_and_execute.
+                        return _TASK_KILLED_RESULT
                     return self._gen_summary()
                 self._drain_steer_queue()
                 # --- end ---
@@ -632,6 +708,12 @@ class TaskAgent(AgentCore):
 
     def status(self) -> dict:
         """Return a JSON-serializable status snapshot."""
+        if self._killed.is_set():
+            status = "killed"
+        elif self._stop_event.is_set():
+            status = "stopping"
+        else:
+            status = "running"
         return {
             "id": self.context.custom_suffix,
             "name": self._name,
@@ -639,5 +721,5 @@ class TaskAgent(AgentCore):
             "model": self.model_str,
             "turns_used": self._turns_used,
             "turns_limit": self._max_turns,
-            "status": "stopping" if self._stop_event.is_set() else "running",
+            "status": status,
         }

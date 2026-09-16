@@ -313,31 +313,89 @@ Usage notes:
     def execute(
         self, command: str, timeout: int = 30, description: Optional[str] = None
     ) -> str:
-        """Execute the given command."""
+        """Execute the given command.
+
+        Runs the command in its own session (process group) so a
+        force-kill of this tool call can SIGKILL the whole tree
+        (children like ``find`` do not survive), then waits with a
+        timeout. The subprocess handle is registered with the kill
+        registry right after spawn.
+        """
+        from wichy.tools.kill_registry import current_record
+
+        # Guard: a missing/None timeout would make Popen.communicate
+        # wait forever; the parameter model defaults to 30.
+        if timeout is None:
+            timeout = 30
         try:
-            result = subprocess.run(
+            proc = subprocess.Popen(
                 command,  # Pass as string, not split
                 shell=True,  # Enable shell processing
                 text=True,
                 stderr=subprocess.STDOUT,
                 stdout=subprocess.PIPE,
-                timeout=timeout,
+                start_new_session=True,  # Own process group: kills can
+                # SIGKILL the whole tree without
+                # touching the wichy process.
             )
-            output = result.stdout
-            if result.returncode != 0:
-                # Command failed — always show exit code
-                if output:
-                    return output + f"\n[exit code: {result.returncode}]"
-                else:
-                    return f"[exit code: {result.returncode}]"
-            else:
-                # Command succeeded — show exit code only if no output
-                if output:
-                    return output
-                else:
-                    return "[exit code: 0]"
         except Exception as e:
             return format_error(f"command execution failed: {e}")
+
+        # Register the process with this call's kill record: a kill
+        # request then SIGKILLs the process group and the blocked
+        # communicate() below returns promptly. If a kill already
+        # arrived between registration and spawn, set_process fires
+        # the kill immediately (closing the race).
+        record = current_record()
+        if record is not None:
+            record.set_process(proc)
+
+        try:
+            output, _ = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            # Timeout: kill the whole process group (children too),
+            # then collect whatever output was produced. Without the
+            # killpg the shell's children would be orphaned.
+            record_for_kill = record if record is not None else current_record()
+            if record_for_kill is not None:
+                record_for_kill.kill_process_group()
+            else:
+                # No kill record (direct execution outside the agent
+                # loop): fall back to killing the group by pgid.
+                try:
+                    import os
+                    import signal
+
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    pass  # already dead / not ours
+            try:
+                output, _ = proc.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                # Unkillable process: report what we have.
+                output = ""
+            return self._format_output(output, proc.returncode, timed_out=True)
+        except Exception as e:
+            return format_error(f"command execution failed: {e}")
+        return self._format_output(output, proc.returncode, timed_out=False)
+
+    @staticmethod
+    def _format_output(output: str, returncode: Optional[int], timed_out: bool) -> str:
+        """Format command output following the tool's output contract."""
+        prefix = "[timed out]" if timed_out else ""
+        if output:
+            result = output.rstrip("\n")
+        else:
+            result = ""
+        if returncode not in (0, None) or timed_out:
+            code = returncode if returncode is not None else "unknown"
+            if result:
+                return f"{prefix}{result}\n[exit code: {code}]".strip()
+            return f"{prefix} [exit code: {code}]".strip()
+        # Command succeeded -- show exit code only if no output
+        if result:
+            return result
+        return "[exit code: 0]"
 
 
 # Set the custom verification predicate on the execute method

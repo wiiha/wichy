@@ -12,7 +12,8 @@ from rich.markdown import Markdown
 from wichy.console import user_console
 from wichy.constants import HIDE_FROM_LLM_PREFIX
 from wichy.hooks.executor import HookExecutor
-from wichy.tools.errors import format_error
+from wichy.tools import kill_registry
+from wichy.tools.errors import format_error, format_tool_killed
 from wichy.tools.registry import ToolMeta
 
 console_tool_result = Console(quiet=True)
@@ -42,6 +43,11 @@ class BaseTool(ABC, metaclass=ToolMeta):
     will be passed to the LLM and description will be shown in the tool listing for
     the user.
     """
+    #: True for the task tool: its kill record gets the longer async-raise
+    #: backstop grace period because the cascade (request_stop + inner
+    #: kills + agent fast-exit) is tried first and the raw raise into a
+    #: task frame may be swallowed by an inner tool's handler.
+    is_task_agent_tool: bool = False
     parameters_model: Type[ParametersModel]
     # -------------------------------------------------------------------------
     # Result offload control
@@ -129,113 +135,223 @@ class BaseTool(ABC, metaclass=ToolMeta):
         res = ""
         final_args: Dict[str, Any] = {}
         execution_error: Optional[Exception] = None
+        killed = False
 
+        # Kill-registry bookkeeping: the call id and agent id arrive as
+        # hidden kwargs from AgentCore._tool_call (same convention as
+        # _can_query_results) and must not reach pydantic validation.
+        # Synthetic ids cover executions never routed through
+        # _tool_call (task agents, manual invocations).
+        tool_call_id = kwargs.pop("_tool_call_id", None) or (
+            kill_registry.generate_tool_call_id()
+        )
+        agent_id = kwargs.pop("_agent_id", None) or (
+            kill_registry.current_agent_id() or "root"
+        )
+        # Register before validation starts so a kill can arrive at any
+        # point of this call's life (hooks / verification included); a
+        # pre-execute kill is honored by the skip check further down.
+        record = kill_registry.register(
+            tool_call_id=tool_call_id,
+            tool_name=self.name,
+            arguments=kwargs,
+            agent_id=agent_id,
+            in_task_agent_frame=self.is_task_agent_tool,
+        )
+        # Expose the record to execute() via a thread-local: tools like
+        # task/bash attach their spawned agent/process to it so kills
+        # can reach them. Saved/restored around execute() for nesting.
+        previous_record = kill_registry.current_record()
+        kill_registry.set_current_record(record)
+
+        # try/finally: the record MUST leave the registry no matter how
+        # this method ends. The finally body is tiny on purpose -- an
+        # async-kill straggler landing inside it would escape both
+        # except handlers, so only the registry pop (plus its bounded
+        # history bookkeeping) may happen there.
         try:
-            validated_params = self.parameters_model(**kwargs)
-            cmd_info = validated_params.info()
-            if cmd_info != "":
-                cmd_info = " [pre]" + cmd_info + "[/pre]"
-            user_console.print(
-                f"[dim][bold]→[/bold] Calling tool:[/dim] [bold]{self.name}[/bold][dim]{cmd_info}[/dim]"
-            )
-
-            # Run pre-tool hooks
-            pre_result = HookExecutor.run_pre_hooks(
-                self, self.name, validated_params.model_dump()
-            )
-
-            # If pre-hook denied execution, return error immediately
-            if not pre_result.approved:
-                res = format_error(
-                    pre_result.error_message or f"{self.name}: Hook denied execution"
-                )
+            try:
+                validated_params = self.parameters_model(**kwargs)
+                cmd_info = validated_params.info()
+                if cmd_info != "":
+                    cmd_info = " [pre]" + cmd_info + "[/pre]"
                 user_console.print(
-                    f"[red bold]✗[/red bold] tool {self.name} denied by hook"
+                    f"[dim][bold]→[/bold] Calling tool:[/dim] [bold]{self.name}[/bold][dim]{cmd_info}[/dim]"
                 )
-            else:
-                # Use modified input if hooks changed it, otherwise use original
-                if pre_result.modified_input:
-                    # Re-validate modified input
-                    validated_params = self.parameters_model(
-                        **pre_result.modified_input
-                    )
-                    final_args = validated_params.model_dump()
-                else:
-                    final_args = validated_params.model_dump()
 
-                start_time = time.time()
-                try:
-                    res = self.execute(**final_args)
-                except Exception as e:
-                    execution_error = e
-                    res = format_error(f"{self.name}: {type(e).__name__}: {e}")
+                # Run pre-tool hooks
+                pre_result = HookExecutor.run_pre_hooks(
+                    self, self.name, validated_params.model_dump()
+                )
+
+                # If pre-hook denied execution, return error immediately
+                if not pre_result.approved:
+                    res = format_error(
+                        pre_result.error_message
+                        or f"{self.name}: Hook denied execution"
+                    )
                     user_console.print(
-                        f"[red bold]✗[/red bold] tool {self.name} failed"
+                        f"[red bold]✗[/red bold] tool {self.name} denied by hook"
+                    )
+                else:
+                    # Use modified input if hooks changed it, otherwise use original
+                    if pre_result.modified_input:
+                        # Re-validate modified input
+                        validated_params = self.parameters_model(
+                            **pre_result.modified_input
+                        )
+                        final_args = validated_params.model_dump()
+                    else:
+                        final_args = validated_params.model_dump()
+
+                    start_time = time.time()
+                    # Pre-start kill: the call was killed while blocked
+                    # on hooks / verification -- never run execute().
+                    if kill_registry.was_killed(tool_call_id):
+                        res = format_tool_killed(
+                            self.name, kill_registry.killed_reason(tool_call_id)
+                        )
+                        user_console.print(
+                            f"[yellow bold]⨯[/yellow bold] tool {self.name} killed before start"
+                        )
+                        killed = True
+                    else:
+                        killed = False
+                        try:
+                            res = self.execute(**final_args)
+                        except Exception as e:
+                            # A force-kill delivers ToolKilledError
+                            # here; any other exception is a genuine
+                            # tool failure. Either way the kill mark
+                            # decides the final result below.
+                            execution_error = e
+                            res = format_error(f"{self.name}: {type(e).__name__}: {e}")
+                            user_console.print(
+                                f"[red bold]✗[/red bold] tool {self.name} failed"
+                            )
+
+                    # Calculate execution time
+                    end_time = time.time()
+                    execution_time = end_time - start_time
+
+                    # Killed mid-execute: swap in the kill string,
+                    # discard partial output, and treat this as NOT an
+                    # error (the user stopped the call; the tool did
+                    # not fail). The swap precedes the offload block so
+                    # the nudge is never offloaded out of context.
+                    # A pre-start kill already printed its banner and
+                    # set killed; this check only handles the
+                    # mid-execution case.
+                    if not killed and kill_registry.was_killed(tool_call_id):
+                        execution_error = None
+                        killed = True
+                        res = format_tool_killed(
+                            self.name, kill_registry.killed_reason(tool_call_id)
+                        )
+                        user_console.print(
+                            f"[yellow bold]⨯[/yellow bold] tool {self.name} killed by user"
+                        )
+
+                    # Calculate result size metrics
+                    char_count = len(res)
+                    token_estimate = (
+                        char_count // 4
+                    )  # rough estimate: 1 token ≈ 4 chars
+
+                    # Build success message with timing and size info.
+                    # A killed call is never reported as "completed":
+                    # the user stopped it, the tool did not succeed.
+                    if not execution_error and not killed:
+                        msg = f"[green bold]✓[/green bold] tool {self.name} completed"
+                        size_info = f" [dim]({char_count} chars, ~{token_estimate} tokens)[/dim]"
+                        if execution_time > 3:
+                            if execution_time > 60:
+                                minutes = int(execution_time // 60)
+                                seconds = int(execution_time % 60)
+                                time_str = f"{minutes}m {seconds}s"
+                            else:
+                                time_str = f"{execution_time:.2f}s"
+                            msg = f"{msg} in {time_str}"
+
+                        msg = f"{msg}{size_info}"
+                        user_console.print(msg)
+
+                    # Run post-tool hooks (even on exception for logging/monitoring).
+                    # killed=True lets hooks tell a user-stopped call apart
+                    # from a normal success (the res is the kill notice).
+                    post_result = HookExecutor.run_post_hooks(
+                        self,
+                        self.name,
+                        final_args,
+                        res,
+                        error=execution_error,
+                        killed=killed,
                     )
 
-                # Calculate execution time
-                end_time = time.time()
-                execution_time = end_time - start_time
+                    # Use modified output if hooks changed it. A killed
+                    # call's notice is never replaced: it must reach the
+                    # LLM verbatim.
+                    if post_result.modified_output and not killed:
+                        res = post_result.modified_output
 
-                # Calculate result size metrics
-                char_count = len(res)
-                token_estimate = char_count // 4  # rough estimate: 1 token ≈ 4 chars
+                    # ---------------------------------------------------------------------
+                    # Result offload check
+                    # ---------------------------------------------------------------------
+                    # Only consider offloading if execution was
+                    # successful AND the call was not killed (the
+                    # kill nudge must stay in context, never be
+                    # offloaded away).
+                    if not execution_error and not killed:
+                        # Lazy import to avoid circular import with result_offload module
+                        from wichy.result_offload import get_result_store, result_or_ref
 
-                # Build success message with timing and size info
-                if not execution_error:
-                    msg = f"[green bold]✓[/green bold] tool {self.name} completed"
-                    size_info = (
-                        f" [dim]({char_count} chars, ~{token_estimate} tokens)[/dim]"
-                    )
-                    if execution_time > 3:
-                        if execution_time > 60:
-                            minutes = int(execution_time // 60)
-                            seconds = int(execution_time % 60)
-                            time_str = f"{minutes}m {seconds}s"
-                        else:
-                            time_str = f"{execution_time:.2f}s"
-                        msg = f"{msg} in {time_str}"
+                        # Clean up expired results periodically (1% chance per call)
+                        if random.random() < 0.01:
+                            store = get_result_store()
+                            store.cleanup_expired()
 
-                    msg = f"{msg}{size_info}"
-                    user_console.print(msg)
+                        # Apply offload logic
+                        res = result_or_ref(
+                            result=res,
+                            tool_name=self.name,
+                            input_args=final_args,
+                            model_str=kwargs.get("model_str"),  # May be None
+                            enable_offload=self.enable_result_offload,
+                            can_query_results=kwargs.get(
+                                "_can_query_results", True
+                            ),  # Default True if not provided
+                        )
 
-                # Run post-tool hooks (even on exception for logging/monitoring)
-                post_result = HookExecutor.run_post_hooks(
-                    self, self.name, final_args, res, error=execution_error
-                )
-
-                # Use modified output if hooks changed it
-                if post_result.modified_output:
-                    res = post_result.modified_output
-
-                # ---------------------------------------------------------------------
-                # Result offload check
-                # ---------------------------------------------------------------------
-                # Only consider offloading if execution was successful
-                if not execution_error:
-                    # Lazy import to avoid circular import with result_offload module
-                    from wichy.result_offload import get_result_store, result_or_ref
-
-                    # Clean up expired results periodically (1% chance per call)
-                    if random.random() < 0.01:
-                        store = get_result_store()
-                        store.cleanup_expired()
-
-                    # Apply offload logic
-                    res = result_or_ref(
-                        result=res,
-                        tool_name=self.name,
-                        input_args=final_args,
-                        model_str=kwargs.get("model_str"),  # May be None
-                        enable_offload=self.enable_result_offload,
-                        can_query_results=kwargs.get(
-                            "_can_query_results", True
-                        ),  # Default True if not provided
-                    )
-
-        except Exception as e:
-            res = format_error(f"{self.name}: {type(e).__name__}: {e}")
-            user_console.print(f"[red bold]✗[/red bold] tool {self.name} failed")
+            except Exception as e:
+                res = format_error(f"{self.name}: {type(e).__name__}: {e}")
+                user_console.print(f"[red bold]✗[/red bold] tool {self.name} failed")
+        finally:
+            # Containment backstop: a kill exception straggling into
+            # this tail (after both except suites completed) must
+            # never escape validate_and_execute -- convert it to the
+            # kill string. finish_call runs first no matter what so
+            # the record never leaks. The kill lookup happens BEFORE
+            # finish_call pops the record (the live record is the
+            # authoritative source; only afterwards the history
+            # fallback answers), and the whole tail is exception-safe:
+            # a straggler landing mid-tail is swallowed and converted
+            # by this same try/except, never escaping to the caller.
+            # The thread-local record slot is restored FIRST so a
+            # straggler or nested frames never see a stale record.
+            kill_registry.set_current_record(previous_record)
+            try:
+                was_kill = kill_registry.was_killed(tool_call_id)
+                reason = kill_registry.killed_reason(tool_call_id)
+            except BaseException:
+                was_kill = False
+                reason = None
+            kill_registry.finish_call(tool_call_id)
+            if was_kill:
+                try:
+                    res = format_tool_killed(self.name, reason)
+                    execution_error = None
+                except BaseException:
+                    pass
 
         # Log detailed error for debugging
         console_tool_result.log(

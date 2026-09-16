@@ -5,7 +5,7 @@ Tests the shared functionality between RootAgent and TaskAgent.
 """
 
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import ANY, Mock, patch, MagicMock
 from wichy.agent.core import AgentCore
 from wichy.constants import ROLE_TOOL
 from wichy.llm_backend import called_tool, function
@@ -19,6 +19,7 @@ class ConcreteAgent(AgentCore):
         self._name = "TestAgent"
         self.model_str = "test-model"
         self.context = Mock()
+        self.context.custom_suffix = ""
         self.context.append = Mock()
         self.tools = []
 
@@ -93,7 +94,10 @@ class TestAgentCoreToolCall:
         result, multimodal = agent._tool_call([mock_tool], mock_tool_call)
 
         mock_tool.validate_and_execute.assert_called_once_with(
-            arg1="value1", _can_query_results=False
+            arg1="value1",
+            _can_query_results=False,
+            _tool_call_id="call-123",
+            _agent_id="root",
         )
         assert result["role"] == ROLE_TOOL
         assert result["tool_call_id"] == "call-123"
@@ -119,7 +123,11 @@ class TestAgentCoreToolCall:
         agent._tool_call([mock_tool], mock_tool_call, inject_model_str=True)
 
         mock_tool.validate_and_execute.assert_called_once_with(
-            arg1="value1", model_str="test-model", _can_query_results=False
+            arg1="value1",
+            model_str="test-model",
+            _can_query_results=False,
+            _tool_call_id="call-123",
+            _agent_id="root",
         )
 
     def test_tool_call_does_not_inject_model_str_by_default(self):
@@ -140,7 +148,10 @@ class TestAgentCoreToolCall:
 
         # Should not include model_str (but will include _can_query_results)
         mock_tool.validate_and_execute.assert_called_once_with(
-            arg1="value1", _can_query_results=False
+            arg1="value1",
+            _can_query_results=False,
+            _tool_call_id="call-123",
+            _agent_id="root",
         )
 
 
@@ -328,6 +339,8 @@ class TestMROSignatureCompatibility:
             "arg1": "value1",
             "model_str": "gpt-4-turbo",
             "_can_query_results": False,
+            "_tool_call_id": "call-123",
+            "_agent_id": "root",
         }
 
     def test_handle_tools_base_without_inject_model_str(self):
@@ -379,7 +392,12 @@ class TestMROSignatureCompatibility:
         assert modified is True
         assert len(captured_calls) == 1
         # Verify model_str was NOT injected (but _can_query_results is present)
-        assert captured_calls[0] == {"arg1": "value1", "_can_query_results": False}
+        assert captured_calls[0] == {
+            "arg1": "value1",
+            "_can_query_results": False,
+            "_tool_call_id": "call-456",
+            "_agent_id": "root",
+        }
 
     def test_handle_tools_base_multiple_tool_calls(self):
         """
@@ -454,11 +472,23 @@ class TestMROSignatureCompatibility:
         # Both tools should receive model_str and _can_query_results
         assert call_count[0] == (
             "tool1",
-            {"x": 1, "model_str": "test-model", "_can_query_results": False},
+            {
+                "x": 1,
+                "model_str": "test-model",
+                "_can_query_results": False,
+                "_tool_call_id": "call-1",
+                "_agent_id": "root",
+            },
         )
         assert call_count[1] == (
             "tool2",
-            {"y": 2, "model_str": "test-model", "_can_query_results": False},
+            {
+                "y": 2,
+                "model_str": "test-model",
+                "_can_query_results": False,
+                "_tool_call_id": "call-2",
+                "_agent_id": "root",
+            },
         )
 
 
@@ -560,7 +590,10 @@ class TestSubclassIntegration:
 
         assert result["role"] == ROLE_TOOL
         mock_tool.validate_and_execute.assert_called_once_with(
-            model_str="test-model", _can_query_results=False
+            model_str="test-model",
+            _can_query_results=False,
+            _tool_call_id="call-123",
+            _agent_id="root",
         )
 
 
@@ -690,7 +723,11 @@ class TestTaskAgentInheritance:
 
         # Verify tool was executed WITH the agent's resolved model_str (TaskAgent behavior)
         mock_tool_instance.validate_and_execute.assert_called_once_with(
-            input="test", model_str=agent.model_str, _can_query_results=False
+            input="test",
+            model_str=agent.model_str,
+            _can_query_results=False,
+            _tool_call_id="call-2",
+            _agent_id=ANY,
         )
 
 

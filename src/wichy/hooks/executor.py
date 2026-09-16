@@ -61,6 +61,7 @@ class HookExecutor:
         input_args: Dict[str, Any],
         output: Optional[str] = None,
         error: Optional[Exception] = None,
+        killed: bool = False,
     ) -> HookContext:
         """Build a HookContext with all fields populated.
 
@@ -70,6 +71,7 @@ class HookExecutor:
             input_args: Validated input arguments
             output: Tool output/result (for post-tool hooks)
             error: Exception if tool failed
+            killed: True if the call was force-stopped by the user
 
         Returns:
             A fully populated HookContext
@@ -85,6 +87,7 @@ class HookExecutor:
             environment=dict(os.environ),
             output=output,
             error=error,
+            killed=killed,
         )
 
     @staticmethod
@@ -306,6 +309,7 @@ class HookExecutor:
         input_args: Dict[str, Any],
         output: str,
         error: Optional[Exception] = None,
+        killed: bool = False,
     ) -> HookExecutionResult:
         """Run all post-tool hooks for a tool execution.
 
@@ -315,6 +319,9 @@ class HookExecutor:
             input_args: Validated input arguments
             output: Tool output/result
             error: Exception if tool failed
+            killed: True if the call was force-stopped by the user
+                (hooks see the kill notice as output and can tell it
+                apart from a normal success)
 
         Returns:
             HookExecutionResult with approval status and any modifications
@@ -332,6 +339,7 @@ class HookExecutor:
             input_args=input_args,
             output=output,
             error=error,
+            killed=killed,
         )
 
         # Track modified output across hooks

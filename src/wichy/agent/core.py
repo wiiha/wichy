@@ -57,6 +57,21 @@ class AgentCore(ABC):
         """Return the agent name."""
         pass
 
+    @property
+    def agent_id(self) -> str:
+        """Stable id used by the kill registry and events.
+
+        Root agents report "root"; task agents report their context
+        custom_suffix (<name>-<hex>). The kill registry keys cascading
+        kills on this value so inner calls of a task agent can be
+        killed together.
+        """
+        context = getattr(self, "context", None)
+        custom_suffix = getattr(context, "custom_suffix", None)
+        if custom_suffix:
+            return str(custom_suffix)
+        return "root"
+
     # -------------------------------------------------------------------------
     # Logging methods - subclasses override for different console behavior
     # -------------------------------------------------------------------------
@@ -126,12 +141,42 @@ class AgentCore(ABC):
         can_query_results = any(t.name == "query_result" for t in tools)
         args["_can_query_results"] = can_query_results
 
+        # Kill-registry plumbing: hidden kwargs, same convention as
+        # _can_query_results (stripped before pydantic validation by
+        # validate_and_execute). The call id is coalesced ONCE so a
+        # provider returning a falsy id still gets one consistent id
+        # for both the registry and the post-execution kill event.
+        # Lazy import: wichy.tools package init pulls task tools which
+        # import agent.core (circular otherwise).
+        from wichy.tools.kill_registry import generate_tool_call_id
+
+        tool_call_id = item.id or generate_tool_call_id()
+        args["_tool_call_id"] = tool_call_id
+        args["_agent_id"] = self.agent_id
+
         start_time = time.monotonic()
         try:
             for tool in tools:
                 if name == tool.name:
                     result = tool.validate_and_execute(**args)
                     break
+
+            # Emit kill event if this call was force-stopped by the
+            # user: the UI status pill shows "killed by user". Lazy
+            # import: wichy.tools package init pulls task tools which
+            # import agent.core (circular otherwise).
+            from wichy.tools.kill_registry import killed_reason, was_killed
+
+            if was_killed(tool_call_id):
+                self._emit_event(
+                    "tool_call_killed",
+                    {
+                        "tool_name": name,
+                        "tool_call_id": tool_call_id,
+                        "reason": killed_reason(tool_call_id),
+                        "agent_id": self.agent_id,
+                    },
+                )
 
             if result is _NOT_FOUND:
                 result = "There is no tool called " + item.function.name + "."

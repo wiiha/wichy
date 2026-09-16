@@ -36,8 +36,28 @@ def mock_root_agent():
 class TestPipelineMode:
     """Test suite for pipeline mode behavior in main()."""
 
+    @pytest.fixture(autouse=True)
+    def restore_sigchld_handler(self):
+        """Restore the SIGCHLD handler after each test.
+
+        main() installs a process-wide SIGCHLD reaper (intended for the
+        wichy process running as PID 1 in Docker). Inside the pytest
+        process that reaper would steal every subsequent test's child
+        reaping (Popen.waitpid gets ECHILD and reports exit code 0),
+        so the original handler is restored after each test.
+        """
+        import signal
+
+        original_sigchld = signal.getsignal(signal.SIGCHLD)
+        yield
+        signal.signal(signal.SIGCHLD, original_sigchld)
+
     def _run_pipeline(self, argv, mock_settings, mock_root_agent, extra_patches=None):
-        """Run main() in pipeline mode, suppressing SystemExit."""
+        """Run main() in pipeline mode, suppressing SystemExit.
+
+        The SIGCHLD reaper main() installs is restored by the
+        restore_sigchld_handler autouse fixture.
+        """
         extra_patches = extra_patches or []
         with (
             patch(

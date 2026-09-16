@@ -41,6 +41,9 @@ class HookContext:
             For PRE_RESPONSE_TO_USER this carries the response_content and is updated
             between hooks to reflect cumulative modifications.
         error: Exception if tool raised one (None if successful)
+        killed: True when the tool call was force-stopped by the user
+            mid-execution (post-tool hooks see the kill notice as output
+            and can distinguish it from a normal success)
         execution_id: Unique ID for this tool execution (for tracing)
         timestamp: When the hook was invoked
         session_id: Session/conversation ID (if available)
@@ -65,6 +68,7 @@ class HookContext:
     environment: Dict[str, str] = field(default_factory=dict)
     output: Optional[Any] = None
     error: Optional[Exception] = None
+    killed: bool = False
     session_id: Optional[str] = None
     user_message: Optional[str] = None
     conversation_turn: Optional[int] = None
