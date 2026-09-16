@@ -525,3 +525,43 @@
   justify-content: flex-end;
   margin-top: var(--space-sm);
 }
+
+/* Running Tool Call Cards (kill registry) */
+.tc-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  margin-bottom: var(--space-md);
+  transition: box-shadow var(--transition-normal);
+}
+.tc-card:hover {
+  box-shadow: var(--shadow-md);
+}
+.tc-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.tc-name {
+  font-weight: 600;
+  font-size: var(--font-size-sm);
+}
+.tc-meta {
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary, #6b7280);
+}
+.tc-card-args {
+  margin-top: var(--space-sm);
+  padding: var(--space-xs) var(--space-sm);
+  background: var(--bg, #f9fafb);
+  border-radius: var(--radius-sm);
+  font-family: ui-monospace, monospace;
+  font-size: var(--font-size-xs);
+  word-break: break-word;
+}
+.tc-card-actions {
+  display: flex;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+}

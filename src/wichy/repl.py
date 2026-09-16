@@ -20,6 +20,7 @@ from wichy.llm_backend import (
 )
 from wichy.repl_interaction_provider import REPLInteractionProvider
 from wichy.root_agent.root_agent import RootAgent
+from wichy.tools import kill_registry
 from wichy.slash_commands import (
     BtwException,
     ContextDropException,
@@ -63,7 +64,10 @@ class Repl:
             try:
                 # Execute the "wake up" message for the agent to go first
                 self._print_separator()
-                result = self.root_agent.process(settings.wake_up_message)
+                with kill_registry.repl_interrupt_guard(
+                    on_kill=self._print_killed_notice
+                ):
+                    result = self.root_agent.process(settings.wake_up_message)
                 result = strip_thinking_content(result)
                 self._print_assistant_response(result)
             except Exception as e:
@@ -88,7 +92,10 @@ class Repl:
                 if not line.strip():
                     continue
                 self._print_separator()
-                result = self.root_agent.process(line)
+                with kill_registry.repl_interrupt_guard(
+                    on_kill=self._print_killed_notice
+                ):
+                    result = self.root_agent.process(line)
                 result = strip_thinking_content(result)
                 self._print_assistant_response(result)
             except ContextResetException as e:
@@ -131,6 +138,13 @@ class Repl:
                 user_console.print("\nexiting...")
                 user_console.flush()
                 sys.exit(0)
+
+    def _print_killed_notice(self, killed: list) -> None:
+        """Print the Ctrl+C kill notice (one line, tool names included)."""
+        names = ", ".join(f"{entry.get('tool_name', 'tool')}(...)" for entry in killed)
+        user_console.print(
+            f"[yellow]Killed {len(killed)} running tool call(s):[/yellow] {names}"
+        )
 
     def _print_user_prompt(self) -> None:
         """Print the user prompt header."""

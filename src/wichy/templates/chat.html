@@ -36,6 +36,10 @@
         <div class="messages-wrapper">
           <div class="messages" id="messages"></div>
           <div id="chatStatus" class="chat-status"></div>
+          <div class="tool-calls" id="runningToolCalls" hidden>
+            <div class="tool-calls-title">Running tools</div>
+            <div class="tool-calls-list" id="toolCallsList"></div>
+          </div>
           <div class="scroll-to-bottom"
                id="scrollToBottom"
                onclick="messages.scrollTop = messages.scrollHeight">↓</div>
@@ -457,6 +461,8 @@
           return `🚀 Task agent \`${agentName}\` running…`;
         case "task_agent_completed":
           return `✅ Task agent \`${agentName}\` finished`;
+        case "tool_call_killed":
+          return `⛔ \`${toolName}\` killed by user`;
         case "verification_requested":
           return "⏳ Waiting for approval…";
         case "question_asked":
@@ -523,6 +529,124 @@
         clearTimeout(_eventsTimer);
         _eventsTimer = null;
       }
+    }
+
+    // Running tool calls + kill (registry-backed, direct /server/api
+    // fetches -- same convention as /server/api/events and files).
+    const toolCallsBox = document.getElementById("runningToolCalls");
+    const toolCallsList = document.getElementById("toolCallsList");
+    let _toolCallsInFlight = false;
+    const _TOOL_CALLS_INTERVAL = 1000;
+
+    function _escapeHtml(text) {
+      const div = document.createElement("div");
+      div.textContent = String(text);
+      return div.innerHTML;
+    }
+
+    function _argSummary(args) {
+      if (!args || typeof args !== "object") return "";
+      const parts = [];
+      for (const [key, value] of Object.entries(args)) {
+        const text = String(value);
+        parts.push(`${key}: ${text.length > 60 ? text.slice(0, 60) + "…" : text}`);
+      }
+      return parts.join(", ");
+    }
+
+    function _renderToolCalls(calls) {
+      if (!calls || calls.length === 0) {
+        toolCallsBox.hidden = true;
+        toolCallsList.innerHTML = "";
+        return;
+      }
+      toolCallsBox.hidden = false;
+      // Rebuild the list; durations tick on every poll. All
+      // interpolated text is HTML-escaped: tool arguments can carry
+      // arbitrary content from the conversation.
+      const html = calls.map((call) => {
+        const args = _argSummary(call.arguments);
+        const id = _escapeHtml(call.tool_call_id);
+        const name = _escapeHtml(call.tool_name);
+        const agent =
+          call.agent_id && call.agent_id !== "root"
+            ? ` · ${_escapeHtml(call.agent_id)}`
+            : "";
+        const status = call.status === "killed" ? " · killed" : "";
+        const duration =
+          typeof call.duration_s === "number" ? call.duration_s.toFixed(1) : call.duration_s;
+        return `
+          <div class="tool-call-row" data-id="${id}">
+            <div class="tool-call-info">
+              <span class="tool-call-name">${name}</span>
+              <span class="tool-call-meta">${duration}s${agent}${status}</span>
+              ${args ? `<div class="tool-call-args">${_escapeHtml(args)}</div>` : ""}
+            </div>
+            <button class="tool-call-kill"
+                    data-id="${id}"
+                    data-name="${name}"
+                    ${call.status === "killed" ? "disabled" : ""}>Kill</button>
+          </div>`;
+      }).join("");
+      toolCallsList.innerHTML = html;
+      toolCallsList.querySelectorAll(".tool-call-kill").forEach((btn) => {
+        btn.onclick = () => killToolCall(btn.dataset.id, btn.dataset.name);
+      });
+    }
+
+    async function pollToolCalls() {
+      if (_toolCallsInFlight) return;
+      _toolCallsInFlight = true;
+      try {
+        const resp = await fetch("/server/api/tool-calls");
+        if (!resp.ok) return;
+        const data = await resp.json();
+        _renderToolCalls(data.tool_calls || []);
+      } catch (e) {
+        // Ignore polling errors; next tick retries.
+      } finally {
+        _toolCallsInFlight = false;
+      }
+    }
+
+    async function killToolCall(toolCallId, toolName) {
+      // Optional free-text reason. Cancel aborts the kill; OK with
+      // blank text kills without a reason.
+      let reason = null;
+      const input = prompt(`Kill "${toolName}"? Optional reason for the model:`);
+      if (input === null) return;
+      if (input.trim() !== "") reason = input.trim();
+      try {
+        const resp = await fetch(`/server/api/tool-calls/${encodeURIComponent(toolCallId)}/kill`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reason: reason }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          // 404: the call finished between listing and click -- benign.
+          showSystemMsg(`Kill ${toolName}: ${data.error || resp.status}`);
+        } else if (data.killed) {
+          showSystemMsg(`Killed ${toolName}${reason ? ` (${reason})` : ""}`);
+        } else {
+          showSystemMsg(`${toolName} already finished`);
+        }
+      } catch (e) {
+        showSystemMsg(`Kill ${toolName} failed`);
+      }
+      await pollToolCalls();
+    }
+
+    let _toolCallsTimer = null;
+    function _scheduleToolCallsPoll() {
+      _toolCallsTimer = setTimeout(async () => {
+        await pollToolCalls();
+        _scheduleToolCallsPoll();
+      }, _TOOL_CALLS_INTERVAL);
+    }
+
+    function startToolCallsPolling() {
+      _scheduleToolCallsPoll();
     }
 
     let _statusInFlight = false;
@@ -804,5 +928,6 @@
     });
     _scheduleLoad();
     _scheduleStatusPoll();
+    startToolCallsPolling();
   </script>
 {% endblock extra_js %}

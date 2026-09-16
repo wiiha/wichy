@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
 from wichy.helpers.interaction_provider import get_interaction_provider
 from wichy.helpers.verification_provider import get_verification_provider
+from wichy.tools import kill_registry
 from wichy.tools.base import BaseTool
 from wichy.tools.task.base import (
     get_task_agent,
@@ -353,6 +354,49 @@ def register_routes(bp: Blueprint):
                 "filename": entry.context_file.name,
                 "entries": read_jsonl_entries(entry.context_file),
             }
+        )
+
+    # -----------------------------------------------------------------------
+    # Tool-call kill registry (process-global; NOT session-gated)
+    # -----------------------------------------------------------------------
+    # These routes read the kill registry directly, like /sub-agents/*, so
+    # they work in BOTH server mode and REPL-companion mode (where no
+    # ChatSession is registered). They deliberately carry no
+    # require_active_root_agent guard.
+
+    @bp.route("/tool-calls", methods=["GET"])
+    def get_tool_calls():
+        return jsonify(
+            {
+                "tool_calls": kill_registry.list_in_flight(),
+                "killed": kill_registry.list_killed_ids(),
+            }
+        )
+
+    @bp.route("/tool-calls/<tool_call_id>/kill", methods=["POST"])
+    def kill_tool_call(tool_call_id: str):
+        if not kill_registry.call_exists(tool_call_id):
+            return jsonify({"error": "unknown tool call id"}), 404
+
+        data = request.get_json(silent=True) or {}
+        reason = data.get("reason")
+        if reason is not None and not isinstance(reason, str):
+            return jsonify({"error": "reason must be a string"}), 400
+        # A blank reason carries no information; normalize to None so
+        # the registry record, the API response, and the LLM-facing
+        # kill notice (which omits empty reasons) all agree.
+        if isinstance(reason, str) and reason.strip() == "":
+            reason = None
+
+        killed = kill_registry.request_kill(tool_call_id, reason)
+        if killed:
+            return jsonify({"status": "ok", "killed": True, "reason": reason})
+
+        # The call finished between the call_exists check and now (or was
+        # killed earlier and already unregistered): race-tolerant no-op,
+        # not an error -- the user's intent is already satisfied.
+        return jsonify(
+            {"status": "ok", "killed": False, "note": "call already finished"}
         )
 
     # -----------------------------------------------------------------------

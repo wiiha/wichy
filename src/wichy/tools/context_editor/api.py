@@ -269,6 +269,53 @@ def register_routes(bp: Blueprint):
         agent.steer(role, content)
         return jsonify({"status": "injected"})
 
+    @bp.route("/api/tool-calls", methods=["GET"])
+    def list_tool_calls():
+        """List in-flight tool calls (process-global kill registry).
+
+        Mirrors the server API's /server/api/tool-calls: both read the
+        same in-process registry, so the editor works in REPL-companion
+        mode too.
+        """
+        from wichy.tools import kill_registry
+
+        return jsonify(
+            {
+                "tool_calls": kill_registry.list_in_flight(),
+                "killed": kill_registry.list_killed_ids(),
+            }
+        )
+
+    @bp.route("/api/tool-calls/<tool_call_id>/kill", methods=["POST"])
+    def kill_tool_call(tool_call_id: str):
+        """Force-stop a running tool call (best-effort, non-blocking).
+
+        Mirrors the server API's kill route with identical semantics:
+        404 for ids the registry never saw; 200 with ``killed: false``
+        when the call already finished (race-tolerant).
+        """
+        from wichy.tools import kill_registry
+
+        if not kill_registry.call_exists(tool_call_id):
+            return jsonify({"error": "unknown tool call id"}), 404
+
+        data = request.get_json(silent=True) or {}
+        reason = data.get("reason")
+        if reason is not None and not isinstance(reason, str):
+            return jsonify({"error": "reason must be a string"}), 400
+        # A blank reason carries no information; normalize to None so
+        # the registry record, this response, and the LLM-facing kill
+        # notice (which omits empty reasons) all agree.
+        if isinstance(reason, str) and reason.strip() == "":
+            reason = None
+
+        killed = kill_registry.request_kill(tool_call_id, reason)
+        if killed:
+            return jsonify({"status": "ok", "killed": True, "reason": reason})
+        return jsonify(
+            {"status": "ok", "killed": False, "note": "call already finished"}
+        )
+
     @bp.route("/api/task-agents/<agent_id>/context", methods=["GET"])
     def get_task_agent_context(agent_id: str):
         """Read-only view of a task agent's context messages."""

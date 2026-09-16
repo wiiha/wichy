@@ -96,6 +96,20 @@
     --status-action-text: #991b1b;
     --status-action-bg: rgba(254, 226, 226, 0.7);
 
+  --toolcalls-bg: rgba(255, 255, 255, 0.92);
+  --toolcalls-border: #e5e7eb;
+  --toolcalls-title: #6b7280;
+  --toolcall-name-text: #1f2937;
+  --toolcall-meta-text: #9ca3af;
+  --toolcall-args-text: #6b7280;
+  --toolcall-args-bg: #f9fafb;
+  --kill-btn-bg: #fee2e2;
+  --kill-btn-text: #991b1b;
+  --kill-btn-border: #fca5a5;
+  --kill-btn-hover-bg: #fecaca;
+  --kill-btn-disabled-bg: #f3f4f6;
+  --kill-btn-disabled-text: #9ca3af;
+
   --timestamp: #9ca3af;
   --empty: #9ca3af;
 }
@@ -188,6 +202,20 @@
     --status-user-bg: rgba(6, 78, 59, 0.5);
     --status-action-text: #fca5a5;
     --status-action-bg: rgba(127, 29, 29, 0.6);
+
+  --toolcalls-bg: rgba(17, 24, 39, 0.92);
+  --toolcalls-border: #374151;
+  --toolcalls-title: #9ca3af;
+  --toolcall-name-text: #e5e7eb;
+  --toolcall-meta-text: #6b7280;
+  --toolcall-args-text: #9ca3af;
+  --toolcall-args-bg: #1f2937;
+  --kill-btn-bg: rgba(127, 29, 29, 0.6);
+  --kill-btn-text: #fca5a5;
+  --kill-btn-border: #7f1d1d;
+  --kill-btn-hover-bg: rgba(153, 27, 27, 0.8);
+  --kill-btn-disabled-bg: #1f2937;
+  --kill-btn-disabled-text: #4b5563;
 
   --timestamp: #71717a;
   --empty: #52525b;
@@ -736,4 +764,96 @@ button[data-theme-toggle] {
 }
 .header-title {
   margin: 0;
+}
+
+/* ============================================
+   RUNNING TOOL CALLS (kill registry card)
+   ============================================ */
+.tool-calls {
+  position: absolute;
+  top: 0.5rem;
+  right: 1rem;
+  min-width: 16rem;
+  max-width: 24rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 0.6rem;
+  background: var(--toolcalls-bg);
+  border: 1px solid var(--toolcalls-border);
+  backdrop-filter: blur(4px);
+  z-index: 5;
+  font-family: system-ui, sans-serif;
+  font-size: 0.85em;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.tool-calls-title {
+  font-size: 0.75em;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--toolcalls-title);
+  margin-bottom: 0.35rem;
+}
+
+.tool-calls-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.tool-call-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.tool-call-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.tool-call-name {
+  font-weight: 600;
+  color: var(--toolcall-name-text);
+}
+
+.tool-call-meta {
+  display: block;
+  font-size: 0.85em;
+  color: var(--toolcall-meta-text);
+}
+
+.tool-call-args {
+  margin-top: 0.15rem;
+  padding: 0.2rem 0.4rem;
+  border-radius: 0.3rem;
+  background: var(--toolcall-args-bg);
+  color: var(--toolcall-args-text);
+  font-family: ui-monospace, monospace;
+  font-size: 0.8em;
+  overflow-wrap: break-word;
+}
+
+.tool-call-kill {
+  flex-shrink: 0;
+  padding: 0.15rem 0.6rem;
+  font-size: 0.85em;
+  border-radius: 999px;
+  border: 1px solid var(--kill-btn-border);
+  background: var(--kill-btn-bg);
+  color: var(--kill-btn-text);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.tool-call-kill:hover {
+  background: var(--kill-btn-hover-bg);
+}
+
+.tool-call-kill:disabled {
+  background: var(--kill-btn-disabled-bg);
+  color: var(--kill-btn-disabled-text);
+  border-color: var(--toolcalls-border);
+  cursor: default;
 }

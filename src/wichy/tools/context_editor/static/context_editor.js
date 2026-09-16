@@ -213,7 +213,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     startTaskAgentsPolling();
-    setupTaskAgentModalListeners();});
+    setupTaskAgentModalListeners();
+    startToolCallsPolling();});
 
 async function fetchStatus() {
     try {
@@ -648,6 +649,97 @@ function renderTaskAgents(agents) {
             openAgentContextModal(id);
         });
     });
+}
+
+// ============================================================================
+// Running Tool Calls Panel (kill registry, own-prefix mirror)
+// ============================================================================
+
+const TOOL_CALLS_POLL_INTERVAL = 2000;
+let toolCallsInterval = null;
+
+function startToolCallsPolling() {
+    fetchToolCalls();
+    toolCallsInterval = setInterval(fetchToolCalls, TOOL_CALLS_POLL_INTERVAL);
+}
+
+function _argSummary(args) {
+    if (!args || typeof args !== 'object') return '';
+    const parts = [];
+    for (const [key, value] of Object.entries(args)) {
+        const text = String(value);
+        parts.push(`${key}: ${text.length > 40 ? text.slice(0, 40) + '…' : text}`);
+    }
+    return parts.join(', ');
+}
+
+async function fetchToolCalls() {
+    try {
+        const resp = await fetch('/tools/context/api/tool-calls');
+        if (!resp.ok) throw new Error('Failed to fetch tool calls');
+        const data = await resp.json();
+        renderToolCalls(data.tool_calls || []);
+    } catch (err) {
+        console.error('Tool calls poll error:', err);
+    }
+}
+
+function renderToolCalls(calls) {
+    const emptyEl = document.getElementById('tool-calls-empty');
+    const listEl = document.getElementById('tool-calls-list');
+    if (!calls.length) {
+        emptyEl.classList.remove('hidden');
+        listEl.classList.add('hidden');
+        listEl.innerHTML = '';
+        return;
+    }
+    emptyEl.classList.add('hidden');
+    listEl.classList.remove('hidden');
+    listEl.innerHTML = calls.map(call => `
+        <div class="tc-card" data-id="${escapeHtml(call.tool_call_id)}">
+            <div class="tc-card-header">
+                <span class="tc-name">${escapeHtml(call.tool_name)}</span>
+                <span class="tc-meta">${escapeHtml(call.duration_s)}s${call.agent_id && call.agent_id !== 'root' ? ' · ' + escapeHtml(call.agent_id) : ''}${call.status === 'killed' ? ' · killed' : ''}</span>
+            </div>
+            ${_argSummary(call.arguments) ? `<div class="tc-card-args">${escapeHtml(_argSummary(call.arguments))}</div>` : ''}
+            <div class="tc-card-actions">
+                <button class="btn btn-danger btn-sm tc-btn-kill"
+                        data-id="${escapeHtml(call.tool_call_id)}"
+                        data-name="${escapeHtml(call.tool_name)}"
+                        ${call.status === 'killed' ? 'disabled' : ''}>Kill</button>
+            </div>
+        </div>
+    `).join('');
+    listEl.querySelectorAll('.tc-btn-kill').forEach(btn => {
+        btn.addEventListener('click', () => killToolCallFromEditor(btn.dataset.id, btn.dataset.name));
+    });
+}
+
+async function killToolCallFromEditor(toolCallId, toolName) {
+    // Optional free-text reason. Cancel aborts the kill; OK with
+    // blank text kills without a reason.
+    let reason = null;
+    const input = prompt(`Kill "${toolName}"? Optional reason for the model:`);
+    if (input === null) return;
+    if (input.trim() !== '') reason = input.trim();
+    try {
+        const resp = await fetch(`/tools/context/api/tool-calls/${encodeURIComponent(toolCallId)}/kill`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reason: reason })
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+            alert(`Kill ${toolName}: ${data.error || resp.status}`);
+        } else if (data.killed) {
+            // Status will flip on the next poll.
+        } else {
+            alert(`${toolName} already finished`);
+        }
+    } catch (err) {
+        alert(`Kill ${toolName} failed`);
+    }
+    fetchToolCalls();
 }
 
 // ---------------------------------------------------------------------------
