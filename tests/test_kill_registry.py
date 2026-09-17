@@ -474,3 +474,33 @@ class TestKillDeliveryRegression:
         ), "first shot arrived too early -- delay missing"
         worker.join(timeout=5)
         finish_call("call-1")
+
+
+class TestReentrantLock:
+    """The registry lock is reentrant: the REPL SIGINT handler runs on
+    the main thread, which may itself be inside a locked registry op
+    when the signal arrives -- a plain Lock would self-deadlock there."""
+
+    def test_kill_all_in_flight_from_inside_locked_section(self):
+        register("call-1", "glob", {}, agent_id="root")
+        result: dict = {}
+
+        def under_lock():
+            with kill_registry._LOCK:
+                # Signal handler path: request_kill + kill_all both take
+                # _LOCK again on this same thread.
+                result["kill"] = kill_registry.kill_all_in_flight("self")
+
+        threading.Thread(target=under_lock, daemon=True).start()
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and "kill" not in result:
+            time.sleep(0.01)
+        assert "kill" in result, "reentrant lock path deadlocked"
+        assert was_killed("call-1")
+        finish_call("call-1")
+
+    def test_request_kill_from_inside_locked_section(self):
+        register("call-1", "glob", {}, agent_id="root")
+        with kill_registry._LOCK:
+            assert request_kill("call-1", "self") is True
+        finish_call("call-1")

@@ -231,7 +231,10 @@ class KillRecord:
 # Registry state
 # ---------------------------------------------------------------------------
 
-_LOCK = threading.Lock()
+# Reentrant: the REPL SIGINT handler (main thread) kills in-flight
+# calls even if the signal lands while that same thread is inside a
+# locked registry op; a plain Lock would self-deadlock there.
+_LOCK = threading.RLock()
 _REGISTRY: Dict[str, KillRecord] = {}
 _KILLED_HISTORY: Deque[Dict[str, Any]] = deque(maxlen=KILLED_HISTORY_MAX)
 #: Bounded ring of recently finished (NOT killed) call ids, so the kill
@@ -348,7 +351,7 @@ def get_record(tool_call_id: str) -> Optional[KillRecord]:
 #: ``task`` tool call. Signature: (agent_id_of_task_agent, reason) -> None.
 #: The task module installs it at import time so the registry (stdlib-only)
 #: never imports wichy.tools.task (which would create a cycle).
-_TASK_AGENT_STOPPER_LOCK = threading.Lock()
+_TASK_AGENT_STOPPER_LOCK = threading.RLock()
 _task_agent_stopper: Optional[Any] = None
 
 
