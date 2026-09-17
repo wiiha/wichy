@@ -505,9 +505,11 @@ async function deleteMessage(index) {
 
 function escapeHtml(text) {
     if (text === null || text === undefined) return '';
+    // Quotes included: interpolated values land inside attribute
+    // contexts (title="..."), not just element text.
     const div = document.createElement('div');
     div.textContent = String(text);
-    return div.innerHTML;
+    return div.innerHTML.replaceAll('"', '&quot;').replaceAll("'", '&#39;');
 }
 
 function setSyncState(state) {
