@@ -33,7 +33,11 @@ from wichy.tools.kill_registry import (
     request_kill,
     was_killed,
 )
-from wichy.tools.task.base import TaskAgent, TaskAgentDefinitionBase
+from wichy.tools.task.base import (
+    _TASK_KILLED_RESULT,
+    TaskAgent,
+    TaskAgentDefinitionBase,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -390,3 +394,69 @@ class TestRealTaskToolPath:
             ), "outer validate_and_execute did not swap in the kill string"
             assert "e2e stop" in result["res"]
             assert list_in_flight() == []
+
+
+class TestKillDuringLLMRound:
+    """Kill arriving while the agent is inside an LLM call.
+
+    The bottom-of-loop stop check cannot fire while the thread blocks
+    on the LLM socket; without a check right after the round, the agent
+    would run another full tools round before noticing the kill.
+    """
+
+    def test_kill_mid_llm_round_stops_before_next_tool_round(self):
+        tool = SlowTool()
+        agent = _make_agent([lambda: tool])
+        result: dict = {}
+
+        llm_started = threading.Event()
+        kill_fired = threading.Event()
+
+        def mock_llm_call(*a, **kw):
+            # Simulate the kill landing while the thread blocks here.
+            llm_started.set()
+            if kill_fired.wait(timeout=5):
+                agent._stop_event.set()
+                agent._killed.set()
+            return _llm_response(tool_calls=[_tool_call_item()], content="round 1 done")
+
+        with patch("wichy.tools.task.base.call", side_effect=mock_llm_call):
+            run = threading.Thread(
+                target=lambda: result.update(res=agent.run()), daemon=True
+            )
+            run.start()
+            assert llm_started.wait(timeout=5)
+            kill_fired.set()
+            run.join(timeout=10)
+
+        assert not run.is_alive(), "agent hung after mid-round kill"
+        # Fast-exit BEFORE _handle_tools ran the tool again.
+        assert result["res"] == _TASK_KILLED_RESULT
+
+    def test_kill_in_final_llm_round_suppresses_content(self):
+        agent = _make_agent([])
+        result: dict = {}
+
+        llm_started = threading.Event()
+        kill_fired = threading.Event()
+
+        def mock_llm_call(*a, **kw):
+            llm_started.set()
+            if kill_fired.wait(timeout=5):
+                agent._stop_event.set()
+                agent._killed.set()
+            return _llm_response(tool_calls=None, content="final answer")
+
+        with patch("wichy.tools.task.base.call", side_effect=mock_llm_call):
+            run = threading.Thread(
+                target=lambda: result.update(res=agent.run()), daemon=True
+            )
+            run.start()
+            assert llm_started.wait(timeout=5)
+            kill_fired.set()
+            run.join(timeout=10)
+
+        assert not run.is_alive()
+        assert (
+            result["res"] == _TASK_KILLED_RESULT
+        ), "final-round content must not be returned after a kill"

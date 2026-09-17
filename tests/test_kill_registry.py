@@ -240,8 +240,9 @@ class TestAsyncRaiseDelivery:
                 while True:
                     pass
             except ToolKilledError:
+                # Delivery proven by reaching this handler; do not
+                # re-raise (would leak an unhandled thread exception).
                 killed_event.set()
-                raise
 
         worker = threading.Thread(target=busy_loop, daemon=True)
         worker.start()
@@ -397,8 +398,13 @@ class TestKillDeliveryRegression:
             record = register("call-1", "glob", {}, agent_id="root")
             # Arm the monitor exactly like a cross-thread kill would.
             kill_registry._start_async_raise_monitor(record, 5.0)
-            time.sleep(0.3)  # let the monitor take its delayed first shot
-            first_loop_done.set()
+            try:
+                time.sleep(0.3)  # let the monitor take its delayed first shot
+                first_loop_done.set()
+            except ToolKilledError:
+                # Expected: this thread armed the monitor itself; the
+                # first shot lands here after the sleep returns.
+                first_loop_done.set()
 
         t1 = threading.Thread(target=first_call, daemon=True)
         t1.start()
@@ -447,7 +453,7 @@ class TestKillDeliveryRegression:
             except ToolKilledError:
                 hit_time.append(time.monotonic())
                 hit_event.set()
-                raise
+                # Swallow: delivery timing is already captured above.
 
         worker = threading.Thread(target=busy_loop, daemon=True)
         worker.start()

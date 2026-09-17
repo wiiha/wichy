@@ -482,6 +482,15 @@ class TaskAgent(AgentCore):
             )
 
             while True:
+                # Kill / stop arriving during the previous LLM round:
+                # the bottom-of-loop check only runs after tool
+                # handling, so a kill mid-LLM-call would otherwise let
+                # the agent run another full tools round.
+                if self._stop_event.is_set():
+                    if self._killed.is_set():
+                        return _TASK_KILLED_RESULT
+                    return self._gen_summary()
+
                 # Guard: if max turns reached and assistant emitted tools, do not execute them
                 if (
                     self._max_turns is not None
@@ -585,6 +594,13 @@ class TaskAgent(AgentCore):
                         ),
                     },
                 )
+
+            # Kill / stop arriving during the FINAL LLM round: fast-exit
+            # instead of returning a response the user already stopped.
+            if self._stop_event.is_set():
+                if self._killed.is_set():
+                    return _TASK_KILLED_RESULT
+                return self._gen_summary()
 
             # Append assistant message with reasoning if present
             entry = {"role": ROLE_ASSISTANT, "content": response.message.content}

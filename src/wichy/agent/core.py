@@ -161,19 +161,21 @@ class AgentCore(ABC):
                     result = tool.validate_and_execute(**args)
                     break
 
-            # Emit kill event if this call was force-stopped by the
-            # user: the UI status pill shows "killed by user". Lazy
-            # import: wichy.tools package init pulls task tools which
-            # import agent.core (circular otherwise).
-            from wichy.tools.kill_registry import killed_reason, was_killed
+            # Kill event from the executing thread's finalize handoff
+            # (record-identity): the record is already popped here, so
+            # an id-based lookup would misfire on re-emitted ids.
+            from wichy.tools.kill_registry import (
+                last_call_kill_reason,
+                last_call_was_killed,
+            )
 
-            if was_killed(tool_call_id):
+            if last_call_was_killed():
                 self._emit_event(
                     "tool_call_killed",
                     {
                         "tool_name": name,
                         "tool_call_id": tool_call_id,
-                        "reason": killed_reason(tool_call_id),
+                        "reason": last_call_kill_reason(),
                         "agent_id": self.agent_id,
                     },
                 )

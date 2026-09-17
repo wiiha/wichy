@@ -128,7 +128,31 @@ class BaseTool(ABC, metaclass=ToolMeta):
         }
 
     def validate_and_execute(self, **kwargs) -> str:
-        """Validate parameters using Pydantic model and execute."""
+        """Validate parameters and execute; never lets a kill exception escape.
+
+        Kill-exception containment: the impl completes its kill
+        bookkeeping in a guarded tail; this backstop converts any
+        delivery popping outside those guards. Only converts when THIS
+        thread's call was kill-marked; an unrelated re-delivery (e.g. an
+        inner tool's straggler surfacing here) becomes a neutral retry
+        hint so nesting never mis-attributes a kill.
+        """
+        try:
+            # Clear any stale finalize handoff left on this thread.
+            kill_registry.mark_last_call_killed(False, None)
+            return self._validate_and_execute_impl(**kwargs)
+        except kill_registry.ToolKilledError:
+            if kill_registry.last_call_was_killed():
+                return format_tool_killed(
+                    self.name, kill_registry.last_call_kill_reason()
+                )
+            return format_error(
+                f"{self.name}: result was lost to a force-stop re-delivery; "
+                "retry the tool call if it is still needed"
+            )
+
+    def _validate_and_execute_impl(self, **kwargs) -> str:
+        """Register the call, run execute(), finalize the kill state."""
         # This will raise ValidationError if params are invalid
         # and also catch errors that are not handled by the tool
         # itself.
@@ -136,6 +160,11 @@ class BaseTool(ABC, metaclass=ToolMeta):
         final_args: Dict[str, Any] = {}
         execution_error: Optional[Exception] = None
         killed = False
+        # None-init: a straggler re-delivery may land in this prologue,
+        # before the record exists.
+        record: Optional[kill_registry.KillRecord] = None
+        tool_call_id: Optional[str] = None
+        previous_record: Optional[kill_registry.KillRecord] = None
 
         # Kill-registry bookkeeping: the call id and agent id arrive as
         # hidden kwargs from AgentCore._tool_call (same convention as
@@ -207,9 +236,12 @@ class BaseTool(ABC, metaclass=ToolMeta):
                     start_time = time.time()
                     # Pre-start kill: the call was killed while blocked
                     # on hooks / verification -- never run execute().
-                    if kill_registry.was_killed(tool_call_id):
+                    # Record-identity check: never trusts the id, so a
+                    # provider re-emitting a previously killed
+                    # tool_call_id cannot flip this fresh call.
+                    if kill_registry.record_is_killed(record):
                         res = format_tool_killed(
-                            self.name, kill_registry.killed_reason(tool_call_id)
+                            self.name, kill_registry.record_kill_reason(record)
                         )
                         user_console.print(
                             f"[yellow bold]⨯[/yellow bold] tool {self.name} killed before start"
@@ -242,11 +274,11 @@ class BaseTool(ABC, metaclass=ToolMeta):
                     # A pre-start kill already printed its banner and
                     # set killed; this check only handles the
                     # mid-execution case.
-                    if not killed and kill_registry.was_killed(tool_call_id):
+                    if not killed and kill_registry.record_is_killed(record):
                         execution_error = None
                         killed = True
                         res = format_tool_killed(
-                            self.name, kill_registry.killed_reason(tool_call_id)
+                            self.name, kill_registry.record_kill_reason(record)
                         )
                         user_console.print(
                             f"[yellow bold]⨯[/yellow bold] tool {self.name} killed by user"
@@ -326,29 +358,27 @@ class BaseTool(ABC, metaclass=ToolMeta):
                 res = format_error(f"{self.name}: {type(e).__name__}: {e}")
                 user_console.print(f"[red bold]✗[/red bold] tool {self.name} failed")
         finally:
-            # Containment backstop: a kill exception straggling into
-            # this tail (after both except suites completed) must
-            # never escape validate_and_execute -- convert it to the
-            # kill string. finish_call runs first no matter what so
-            # the record never leaks. The kill lookup happens BEFORE
-            # finish_call pops the record (the live record is the
-            # authoritative source; only afterwards the history
-            # fallback answers), and the whole tail is exception-safe:
-            # a straggler landing mid-tail is swallowed and converted
-            # by this same try/except, never escaping to the caller.
-            # The thread-local record slot is restored FIRST so a
-            # straggler or nested frames never see a stale record.
-            kill_registry.set_current_record(previous_record)
-            try:
-                was_kill = kill_registry.was_killed(tool_call_id)
-                reason = kill_registry.killed_reason(tool_call_id)
-            except BaseException:
-                was_kill = False
-                reason = None
-            kill_registry.finish_call(tool_call_id)
-            if was_kill:
+            # Straggler-safe tail: a kill re-delivery consumes itself on
+            # landing, so retrying the ops is enough. finish_call runs
+            # first (record must never leak); the kill flag is read from
+            # the record object AFTER the pop, so a mark landing at any
+            # point up to this read is still honored.
+            killed_flag = False
+            kill_reason = None
+            for _attempt in range(3):
                 try:
-                    res = format_tool_killed(self.name, reason)
+                    kill_registry.set_current_record(previous_record)
+                    kill_registry.finish_call(tool_call_id)
+                    killed_flag = kill_registry.record_is_killed(record)
+                    kill_reason = kill_registry.record_kill_reason(record)
+                    kill_registry.mark_last_call_killed(killed_flag, kill_reason)
+                    break
+                except kill_registry.ToolKilledError:
+                    killed_flag = False
+                    kill_reason = None
+            if killed_flag:
+                try:
+                    res = format_tool_killed(self.name, kill_reason)
                     execution_error = None
                 except BaseException:
                     pass

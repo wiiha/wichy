@@ -484,13 +484,16 @@ def kill_calls_for_agent(agent_id: str, reason: Optional[str] = None) -> List[st
 
 
 def was_killed(tool_call_id: str) -> bool:
-    """True if a kill was requested for this call (executing thread).
+    """True if a kill was requested for this call id.
 
-    Also True when the id is only in the killed history: a call may
-    finish (and unregister) between the kill request and this check on
-    a different thread, but the executing thread itself calls this
-    after execute() returns while its record is still live -- the
-    history lookup is a belt-and-braces fallback.
+    ID-BASED query: consults the live record first, then the killed
+    history once the record is popped. Used after a call is gone
+    (race-tolerant API responses, tests). It must NOT decide a call's
+    RESULT string or kill event: ids are LLM-assigned and can recur, so
+    the history fallback would misfire on a fresh call whose provider
+    re-emitted a previously killed tool_call_id. Result-string and
+    kill-event decisions read the record OBJECT instead (see
+    ``record_is_killed`` and ``mark_last_call_killed``).
     """
     with _LOCK:
         record = _REGISTRY.get(tool_call_id)
@@ -503,7 +506,7 @@ def was_killed(tool_call_id: str) -> bool:
 
 
 def killed_reason(tool_call_id: str) -> Optional[str]:
-    """Return the user-given kill reason for a call, if any."""
+    """Return the user-given kill reason for a call id, if any."""
     with _LOCK:
         record = _REGISTRY.get(tool_call_id)
         if record is not None:
@@ -512,6 +515,47 @@ def killed_reason(tool_call_id: str) -> Optional[str]:
             if entry["tool_call_id"] == tool_call_id:
                 return entry.get("reason")
     return None
+
+
+def record_is_killed(record: Optional[KillRecord]) -> bool:
+    """Identity-based kill check for a record captured at register time.
+
+    Answers ONLY for the exact record object: it never sees a previous
+    call that shared the id, and never flips a fresh successful call
+    into a kill because a provider re-emitted a killed tool_call_id.
+    This is the API for deciding a call's RESULT string.
+    """
+    return record is not None and record.kill_requested.is_set()
+
+
+def record_kill_reason(record: Optional[KillRecord]) -> Optional[str]:
+    """User-given kill reason from a record captured at register time."""
+    return record.reason if record is not None else None
+
+
+# Same-thread finalize handoff: finish_call pops the record before
+# AgentCore._tool_call inspects the outcome, so an id-based lookup there
+# would fall through to the killed history and misfire on re-emitted
+# tool_call_ids. validate_and_execute records the outcome on the
+# executing thread; _tool_call reads it back right after the call.
+_LAST_FINALIZE = threading.local()
+
+
+def mark_last_call_killed(killed: bool, reason: Optional[str] = None) -> None:
+    """Record (executing thread) whether the just-finished call was killed."""
+    _LAST_FINALIZE.last = (bool(killed), reason)
+
+
+def last_call_was_killed() -> bool:
+    """True if the calling thread's most recent call was kill-marked."""
+    last = getattr(_LAST_FINALIZE, "last", None)
+    return bool(last and last[0])
+
+
+def last_call_kill_reason() -> Optional[str]:
+    """Reason recorded by the calling thread's most recent call, if killed."""
+    last = getattr(_LAST_FINALIZE, "last", None)
+    return last[1] if last else None
 
 
 # ---------------------------------------------------------------------------
@@ -706,6 +750,13 @@ def repl_interrupt_guard(
     per-process()-call and must not leak). Signal handlers can only be
     installed from the main thread; using this guard off the main thread
     degrades to a no-op that still runs the body.
+
+    NOTE: this only works where the terminal generates SIGINT at all
+    (ordinary terminals, ``stty isig``). IDE debug terminals commonly
+    run raw mode (``-isig``), where Ctrl+C becomes a stdin byte instead
+    of a signal and no handler can see it -- the UI Kill buttons
+    (chat / context editor, via the registry-backed API) are the
+    fallback there.
     """
 
     import contextlib
