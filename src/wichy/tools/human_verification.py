@@ -9,6 +9,7 @@ from wichy.config.settings import settings
 from wichy.console import user_console
 from wichy.helpers.needs_user_attention import needs_user_attention
 from wichy.helpers.verification_provider import get_verification_provider
+from wichy.tools import kill_registry
 
 PIPELINE_MODE = False
 
@@ -121,7 +122,23 @@ def require_human_verification(func: Callable) -> Callable:
 
             needs_user_attention()
             while True:
-                line = prompt_session.prompt("Proceed? (y/n): ")
+                try:
+                    line = prompt_session.prompt("Proceed? (y/n): ")
+                except KeyboardInterrupt:
+                    # Ctrl+C at the prompt: prompt_toolkit owns SIGINT
+                    # here, so the kill guard cannot see it. Deny
+                    # instead of silently abandoning the in-flight call
+                    # (a PermissionError becomes a normal tool result).
+                    rec = kill_registry.current_record()
+                    if rec is not None:
+                        user_console.print(
+                            "[yellow]Abandoned at the verification prompt "
+                            "before execution; nothing was run.[/yellow]"
+                        )
+                    raise PermissionError(
+                        "User aborted the verification prompt (Ctrl+C); "
+                        "nothing was executed"
+                    ) from None
                 response = str(line).strip().lower()
                 if response.startswith("y"):
                     return func(*args, **kwargs)

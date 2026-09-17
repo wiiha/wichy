@@ -268,3 +268,45 @@ class TestUnwrappedReplPathsGuarded:
 
         repl.root_agent.reset_context.assert_called_once()
         assert guard_depth["on_reset"], "reset_context ran outside the guard"
+
+
+class TestVerificationPromptCtrlC:
+    """Ctrl+C at the y/n verification prompt denies the action (with a
+    printed notice) instead of silently abandoning the in-flight call."""
+
+    def test_ctrl_c_at_prompt_denies_instead_of_abandoning(self):
+        import wichy.tools.human_verification as hv
+        from wichy.tools.kill_registry import finish_call, register
+
+        registered = {}
+
+        @hv.require_human_verification
+        def do_it(self):
+            return "ran"
+
+        calls = {"prompt": 0}
+
+        def fake_prompt(*a, **kw):
+            calls["prompt"] += 1
+            if calls["prompt"] == 1:
+                raise KeyboardInterrupt()
+            return "y"
+
+        session = MagicMock()
+        session.prompt.side_effect = fake_prompt
+
+        # In-flight call record, as validate_and_execute would have made.
+        registered["rec"] = register("call-v1", "bash", {"command": "x"})
+
+        with patch.object(hv, "prompt_session", session):
+            with patch.object(hv.settings, "skip_human_verification", False):
+                with patch.object(hv, "in_pipeline_mode", return_value=False):
+                    with patch.object(hv, "needs_user_attention"):
+                        try:
+                            do_it(None)
+                            outcome = "ran"
+                        except PermissionError as e:
+                            outcome = str(e)
+
+        finish_call("call-v1")
+        assert "aborted the verification prompt" in outcome, outcome
