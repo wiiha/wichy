@@ -293,15 +293,10 @@ class TaskAgent(AgentCore):
     def pre_register(self) -> str:
         """Insert this agent into the running registry BEFORE run().
 
-        The kill cascade locates a task agent by registry id. If a kill
-        of the enclosing `task` call lands while the agent is still
-        being constructed (before run() inserts it), the cascade would
-        be a silent no-op; pre-registering closes that window. run()
-        re-inserts the same id idempotently and removes it in its
-        finally. Returns the agent_id.
-
-        Only the spawning thread (the `task` tool call's thread) may
-        call this -- the entry is replaced by run() itself.
+        The kill cascade locates a task agent by registry id, so a kill of
+        the enclosing `task` call during construction would otherwise be a
+        silent no-op. run() re-inserts the same id and removes it in its
+        finally. Returns the agent_id; only the spawning thread may call it.
         """
         agent_id = str(self.context.custom_suffix)
         with _TASK_AGENT_REGISTRY_LOCK:
@@ -315,10 +310,8 @@ class TaskAgent(AgentCore):
         with _TASK_AGENT_REGISTRY_LOCK:
             _TASK_AGENT_REGISTRY[agent_id] = self
 
-        # Ambient agent-id stack: inner tool calls executed on this
-        # thread inherit this agent_id when no explicit one is passed,
-        # so a cascade kill of this task agent can find and kill every
-        # in-flight inner call (push/pop MUST pair in try/finally).
+        # Ambient agent-id stack: inner calls on this thread inherit this
+        # agent_id, so a cascade kill finds them (pop must pair in finally).
         kill_registry.push_agent_id(agent_id)
 
         try:
@@ -536,12 +529,9 @@ class TaskAgent(AgentCore):
                 if self._stop_event.is_set():
                     self._drain_steer_queue()
                     if self._killed.is_set():
-                        # Cascade kill: fast-exit without the summary
-                        # LLM call. Inner calls were already killed
-                        # (kill_calls_for_agent), so their kill-string
-                        # results are in context; the outer task call
-                        # result gets swapped for the kill notice by
-                        # validate_and_execute.
+                        # Cascade kill: skip the summary LLM call. Inner calls
+                        # are already killed, so their kill strings are in
+                        # context; the outer result is swapped by the caller.
                         return _TASK_KILLED_RESULT
                     return self._gen_summary()
                 self._drain_steer_queue()

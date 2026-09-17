@@ -141,13 +141,8 @@ class AgentCore(ABC):
         can_query_results = any(t.name == "query_result" for t in tools)
         args["_can_query_results"] = can_query_results
 
-        # Kill-registry plumbing: hidden kwargs, same convention as
-        # _can_query_results (stripped before pydantic validation by
-        # validate_and_execute). The call id is coalesced ONCE so a
-        # provider returning a falsy id still gets one consistent id
-        # for both the registry and the post-execution kill event.
-        # Lazy import: wichy.tools package init pulls task tools which
-        # import agent.core (circular otherwise).
+        # Hidden kill-registry kwargs, same convention as _can_query_results.
+        # Lazy import: wichy.tools pulls task tools which import agent.core.
         from wichy.tools.kill_registry import generate_tool_call_id
 
         tool_call_id = item.id or generate_tool_call_id()
@@ -161,9 +156,8 @@ class AgentCore(ABC):
                     result = tool.validate_and_execute(**args)
                     break
 
-            # Kill event from the executing thread's finalize handoff
-            # (record-identity): the record is already popped here, so
-            # an id-based lookup would misfire on re-emitted ids.
+            # Kill event from the executing thread's finalize handoff. The
+            # record is already popped, so this cannot be an id lookup.
             from wichy.tools.kill_registry import (
                 last_call_kill_reason,
                 last_call_was_killed,

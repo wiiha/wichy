@@ -359,9 +359,8 @@ def register_routes(bp: Blueprint):
     # -----------------------------------------------------------------------
     # Tool-call kill registry (process-global; NOT session-gated)
     # -----------------------------------------------------------------------
-    # These routes read the kill registry directly, like /sub-agents/*, so
-    # they work in BOTH server mode and REPL-companion mode (where no
-    # ChatSession is registered). They deliberately carry no
+    # These routes read the registry directly, so they work in both server and
+    # REPL-companion mode (where no ChatSession is registered). Hence no
     # require_active_root_agent guard.
 
     @bp.route("/tool-calls", methods=["GET"])
@@ -442,12 +441,9 @@ def register_routes(bp: Blueprint):
         if tool is None:
             return jsonify({"error": "tool not found"}), 404
 
-        # TODO/FIXME: The "verified" flag is a cooperative signal only. A
-        # malicious caller can simply set it to true. This is sufficient for a
-        # trusted custom frontend that takes responsibility for approval, but it
-        # does not protect against a hostile client. A real solution requires
-        # an authentication/authorization model with per-tool permissions or
-        # a two-step verification flow through ServerVerificationProvider.
+        # The "verified" flag is a cooperative signal, not authentication: a
+        # hostile caller can set it. Sufficient for a trusted frontend that
+        # takes responsibility for approval.
         if _tool_requires_verification(tool) and not verified:
             return (
                 jsonify(
@@ -461,19 +457,10 @@ def register_routes(bp: Blueprint):
         try:
             if verified:
                 # Bypass the human-verification decorator by temporarily
-                # disabling interactive verification. We still run the full
-                # validate_and_execute pipeline (validation, pre/post hooks,
-                # result offloading) so that tool behavior is consistent with
-                # agent-driven execution.
-                #
-                # FIXME/TEMPORARY SIDE EFFECT: this is a process-global flag.
-                # If the manually executed tool is a task agent (or any tool
-                # that calls other tools), those nested tool calls will also
-                # skip verification while the flag is set. In practice this is
-                # acceptable for trusted callers that have already verified the
-                # top-level call, but it is not a fine-grained authorization
-                # model and should be replaced with per-call or per-tool
-                # permission tracking.
+                # disabling interactive verification, while still running the
+                # full validate_and_execute pipeline. NOTE: the flag is
+                # process-global, so nested tool calls of a task agent also
+                # skip verification while it is set.
                 from wichy.config.settings import settings
 
                 previous_skip = settings.skip_human_verification

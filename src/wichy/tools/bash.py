@@ -175,10 +175,9 @@ def is_destructive_command(*args, **kwargs) -> bool:
     """
     Determine if a bash command is destructive and requires verification.
 
-    This function is designed to be used as a predicate for the
-    @require_human_verification decorator. It accepts *args, **kwargs
-    to match the decorator's calling convention, and extracts the
-    'command' parameter from kwargs.
+    Predicate for the @require_human_verification decorator. Accepts
+    *args/**kwargs to match the decorator's calling convention and reads
+    the 'command' parameter from kwargs.
 
     Args:
         *args: Variable positional arguments (ignored, for compatibility)
@@ -317,11 +316,9 @@ Usage notes:
     ) -> str:
         """Execute the given command.
 
-        Runs the command in its own session (process group) so a
-        force-kill of this tool call can SIGKILL the whole tree
-        (children like ``find`` do not survive), then waits with a
-        timeout. The subprocess handle is registered with the kill
-        registry right after spawn.
+        Runs the command in its own process group, so a force-kill of this
+        call can SIGKILL the whole tree. The subprocess handle is registered
+        with the kill registry right after spawn.
         """
         from wichy.tools.kill_registry import current_record
 
@@ -343,11 +340,9 @@ Usage notes:
         except Exception as e:
             return format_error(f"command execution failed: {e}")
 
-        # Register the process with this call's kill record: a kill
-        # request then SIGKILLs the process group and the blocked
-        # communicate() below returns promptly. If a kill already
-        # arrived between registration and spawn, set_process fires
-        # the kill immediately (closing the race).
+        # Register the process with this call's kill record: a kill request
+        # then SIGKILLs the process group and the blocked communicate() below
+        # returns promptly.
         record = current_record()
         if record is not None:
             record.set_process(proc)

@@ -195,13 +195,9 @@ assistant: "I'm going to use the Task tool to launch the greeting-responder agen
             max_turns=max_turns,
         )
 
-        # Kill-cascade wiring: pre-register the agent so a kill landing
-        # during construction (before run() starts) still finds it,
-        # then attach it to THIS call's kill record so a kill of the
-        # `task` call cascades into it (request_stop + kill of its
-        # in-flight calls). If a kill already arrived, both paths fire
-        # the cascade immediately -- the agent's fast-exit then observes
-        # it before the first LLM round.
+        # Kill-cascade wiring: pre-register the agent so a kill landing during
+        # construction still finds it, then attach it to this call's record so
+        # killing the `task` call cascades into it.
         record = current_record()
         agent_id = sa.pre_register()
         if record is not None:

@@ -1,47 +1,27 @@
 """Process-global registry of in-flight tool calls, with kill support.
 
-This module is the single source of truth for "which tool calls are
-currently executing" across the whole wichy process. It exists so that
-the user can force-stop ("kill") a running tool call without stopping
-the agent or the wichy instance itself -- e.g. a glob search over the
-whole filesystem or a long-running bash command.
+The single source of truth for which tool calls are currently executing, so
+the user can force-stop a running call without stopping the agent or the
+wichy instance itself.
 
-Design overview:
+- ``register`` is called by ``BaseTool.validate_and_execute`` before
+  ``execute()`` starts; ``finish_call`` removes the entry.
+- ``request_kill`` marks the record, then delivers by the best available
+  mechanism: a registered ``Popen`` handle gets SIGKILL on the whole process
+  group (children included), pure-Python tools get ``ToolKilledError`` raised
+  into their thread and re-delivered by a monitor thread for up to ~10s
+  (15s for ``task`` entries, where the backstop is last resort).
+- The executing thread never kills itself: it observes the mark after
+  ``execute()`` returns and swaps the result for the kill string.
+- Killing a finished call is a race-tolerant no-op (the API answers 200).
 
-- ``register(tool_call_id, ...)`` is called by
-  ``BaseTool.validate_and_execute`` before ``execute()`` starts and the
-  entry is removed when the call finishes, via ``finish_call``.
-- ``request_kill(tool_call_id, reason)`` is called from another thread
-  (Flask request thread, REPL main thread via SIGINT, or the cascade
-  kill). It marks the record first, then delivers the kill by the best
-  available mechanism:
-  - subprocess tools (bash) register a ``Popen`` handle: the whole
-    process group receives SIGKILL, so children like ``find`` do not
-    survive; the blocked ``communicate()`` in the tool thread then
-    returns promptly.
-  - pure-Python tools get ``ToolKilledError`` raised into their thread
-    via ``PyThreadState_SetAsyncExc``, re-delivered by a small monitor
-    daemon thread every 250ms for up to ~10s (15s for ``task`` tool
-    entries, where the backstop is last-resort only).
-- The executing thread never kills itself: it observes the
-  ``kill_requested`` mark after ``execute()`` returns and swaps the
-  result for the kill string built by
-  ``wichy.tools.errors.format_tool_killed``.
-- Killing an already-finished call is a race-tolerant no-op (the API
-  layer answers 200 with ``killed: false``): records are unregistered
-  when the call completes, and the last 50 killed ids are kept in a
-  bounded history for auditing.
+Kill delivery relies on the MARK, not on where the async-raised exception
+pops: when calls are nested on one thread (task agents) it may land in an
+inner handler, which converts it. The backstop is armed only cross-thread and
+only for calls without a process handle.
 
-Kill delivery correctness relies on the MARK, not on where the
-async-raised exception actually pops: the exception may land in an
-inner tool call's exception handler when calls are nested on one
-thread (task agents), where the ``was_killed`` check converts it. The
-backstop is armed only cross-thread and only for calls without a
-process handle.
-
-All registry state is guarded by a single lock. The lock is ONLY held
-for dict/list operations, never during I/O, process kills, or
-async-raise deliveries.
+Registry state is guarded by one lock, held only for dict/list operations,
+never during I/O, process kills, or async-raise deliveries.
 """
 
 from __future__ import annotations
@@ -63,11 +43,8 @@ from typing import Any, Deque, Dict, List, Optional
 #: Cap for the recently-killed history.
 KILLED_HISTORY_MAX = 50
 
-#: Cap for the recently-finished (NOT killed) call history. The kill
-#: API uses it to answer a race-tolerant 200 (``killed: false``)
-#: instead of 404 when a call finished normally between the client's
-#: listing and its kill request -- a kill click on a stale UI card is
-#: normal operation, not an unknown id.
+#: Cap for the recently-finished (NOT killed) call history, consulted by
+#: the kill API so a stale kill request answers 200 ``killed: false``.
 FINISHED_HISTORY_MAX = 200
 
 #: Interval between async-raise re-deliveries in the monitor loop.
@@ -77,11 +54,9 @@ _ASYNC_RAISE_INTERVAL_S = 0.25
 #: (the exception then stays armed until the next bytecode boundary).
 _ASYNC_RAISE_GRACE_S = 10.0
 
-#: Longer grace for ``task`` tool entries: the async-raise backstop is
-#: last-resort only there (the cascade kill relies on request_stop +
-#: inner-call kills + the agent's fast-exit first, because the raise
-#: may otherwise be swallowed by an inner tool's exception handler and
-#: the agent loop would continue).
+#: Longer grace for ``task`` tool entries: the cascade kill is tried
+#: first, and a raw raise into a task frame may be swallowed by an
+#: inner tool's exception handler.
 _TASK_ASYNC_RAISE_GRACE_S = 15.0
 
 
@@ -176,21 +151,17 @@ class KillRecord:
             reason = self.reason
         if already_requested:
             # Late-attach recovery: fire the full cascade, not just the
-            # stopper. No inner call can exist yet (the agent has not
-            # started), but kill_calls_for_agent is cheap and idempotent
-            # and makes this path future-proof against reordering.
+            # stopper (no inner call exists yet, but the call is idempotent).
             _stop_task_agent(agent_id, reason)
             kill_calls_for_agent(agent_id, reason)
 
     def kill_process_group(self) -> bool:
         """SIGKILL the whole process group of the stored Popen handle.
 
-        Returns True if a kill was attempted, False if there is no
-        process handle or the child was already reaped (its pid may
-        have been recycled -- killing by pid then risks hitting an
-        unrelated process group, so we refuse).
-        ``ProcessLookupError`` is swallowed: the race between process
-        death and killpg is normal operation.
+        Returns True if a kill was attempted, False if there is no process
+        handle or the child was already reaped (its pid may have been
+        recycled). ``ProcessLookupError`` is swallowed: the race between
+        process death and killpg is normal operation.
         """
         with _LOCK:
             process = self._process
@@ -237,21 +208,16 @@ class KillRecord:
 _LOCK = threading.RLock()
 _REGISTRY: Dict[str, KillRecord] = {}
 _KILLED_HISTORY: Deque[Dict[str, Any]] = deque(maxlen=KILLED_HISTORY_MAX)
-#: Bounded ring of recently finished (NOT killed) call ids, so the kill
-#: API can answer race-tolerant 200s instead of 404 for calls the
-#: registry saw finish normally (stale UI kill clicks).
+#: Bounded ring of recently finished (NOT killed) call ids, so a stale
+#: kill click answers 200 instead of 404.
 _FINISHED_HISTORY: Deque[str] = deque(maxlen=FINISHED_HISTORY_MAX)
-#: Ambient agent-id stack: set by validate_and_execute so nested
-#: registrations (task agents running tools on the same thread) inherit
-#: the enclosing task agent's agent_id. Only manipulated by the
-#: executing thread; push/pop MUST be paired in try/finally, since a
-#: leaked entry would mis-attribute every later call on that thread.
+#: Ambient agent-id stack for nested registrations on one thread; only the
+#: executing thread manipulates it, and push/pop must pair in try/finally.
 _AGENT_ID_STACK = threading.local()
 
-#: Current in-flight record for THIS thread's innermost validate_and_execute.
-#: Lets a tool's execute() attach metadata to its own call record (the
-#: task tool attaches its spawned task agent; the bash tool attaches its
-#: Popen handle) without the hidden-kwargs plumbing reaching pydantic.
+#: Current in-flight record for THIS thread's innermost call. Lets a tool's
+#: execute() attach metadata (spawned task agent, Popen handle) to its own
+#: record without exposing the hidden kwargs to pydantic.
 _CURRENT_RECORD = threading.local()
 
 
@@ -348,9 +314,7 @@ def get_record(tool_call_id: str) -> Optional[KillRecord]:
 # ---------------------------------------------------------------------------
 
 #: Optional callback invoked by request_kill when the killed record is a
-#: ``task`` tool call. Signature: (agent_id_of_task_agent, reason) -> None.
-#: The task module installs it at import time so the registry (stdlib-only)
-#: never imports wichy.tools.task (which would create a cycle).
+#: ``task`` tool call, installed by the task module to avoid an import cycle.
 _TASK_AGENT_STOPPER_LOCK = threading.RLock()
 _task_agent_stopper: Optional[Any] = None
 
@@ -399,18 +363,11 @@ def request_kill(tool_call_id: str, reason: Optional[str] = None) -> bool:
     Returns True if the call was in-flight and got marked (kill armed),
     False if the id was unknown. NEVER raises.
 
-    Delivery is idempotent: a repeat request on an already-marked call
-    only updates the reason and never re-arms or re-kills. Delivery
-    order for a first request:
-    1. Mark the record (so the executing thread's was_killed check
-       wins even if every delivery mechanism fails).
-    2. If a Popen handle exists: kill the process group (bash path);
-       the blocked communicate() returns promptly. Calls WITH a
-       process handle never arm the async-raise backstop -- the
-       process death (or natural completion) is what unblocks them.
-    3. Otherwise (pure-Python): arm the async-raise monitor loop in a
-       small daemon thread -- but only when requested from another
-       thread; a self-kill is honored via the mark alone.
+    Delivery is idempotent: a repeat request on an already-marked call only
+    updates the reason. A first request marks the record (so the executing
+    thread's kill check wins even if every delivery mechanism fails), then
+    kills the process group if a Popen handle exists, otherwise arms the
+    async-raise monitor for pure-Python calls on another thread.
     """
     with _LOCK:
         record = _REGISTRY.get(tool_call_id)
@@ -427,10 +384,8 @@ def request_kill(tool_call_id: str, reason: Optional[str] = None) -> bool:
     # Outside the lock: side effects. Repeat requests do nothing here.
     if already_marked:
         return True
-    # Cascade first: killing a `task` call must stop its agent and every
-    # in-flight inner call BEFORE the async-raise backstop is armed --
-    # the thread unwinds through the inner handlers first, and the
-    # backstop (longer grace for task entries) is last-resort only.
+    # Cascade first, before arming the async-raise backstop: the thread
+    # unwinds through the inner handlers, and the backstop is last resort.
     if task_agent_id is not None:
         _stop_task_agent(task_agent_id, reason)
         kill_calls_for_agent(task_agent_id, reason)
@@ -489,14 +444,12 @@ def kill_calls_for_agent(agent_id: str, reason: Optional[str] = None) -> List[st
 def was_killed(tool_call_id: str) -> bool:
     """True if a kill was requested for this call id.
 
-    ID-BASED query: consults the live record first, then the killed
-    history once the record is popped. Used after a call is gone
-    (race-tolerant API responses, tests). It must NOT decide a call's
-    RESULT string or kill event: ids are LLM-assigned and can recur, so
-    the history fallback would misfire on a fresh call whose provider
-    re-emitted a previously killed tool_call_id. Result-string and
-    kill-event decisions read the record OBJECT instead (see
-    ``record_is_killed`` and ``mark_last_call_killed``).
+    ID-BASED query: consults the live record first, then the killed history
+    once the record is popped. Used after a call is gone (race-tolerant API
+    responses, tests). It must NOT decide a call's RESULT string or kill
+    event: ids are LLM-assigned and can recur, so the history fallback would
+    misfire on a fresh call that re-emitted a previously killed id. Those
+    decisions read the record OBJECT instead (see ``record_is_killed``).
     """
     with _LOCK:
         record = _REGISTRY.get(tool_call_id)
@@ -536,11 +489,9 @@ def record_kill_reason(record: Optional[KillRecord]) -> Optional[str]:
     return record.reason if record is not None else None
 
 
-# Same-thread finalize handoff: finish_call pops the record before
-# AgentCore._tool_call inspects the outcome, so an id-based lookup there
-# would fall through to the killed history and misfire on re-emitted
-# tool_call_ids. validate_and_execute records the outcome on the
-# executing thread; _tool_call reads it back right after the call.
+# Finalize handoff: finish_call pops the record before AgentCore._tool_call
+# inspects the outcome, so an id-based lookup there could consult the killed
+# history instead. The outcome is recorded on the executing thread instead.
 _LAST_FINALIZE = threading.local()
 
 
@@ -646,22 +597,17 @@ def is_in_flight(tool_call_id: str) -> bool:
 def _async_raise(thread_ident: int, exc: type[BaseException]) -> bool:
     """Raise ``exc`` inside the thread identified by ``thread_ident``.
 
-    Uses ``PyThreadState_SetAsyncExc``: the exception is delivered at
-    the next bytecode boundary of the target thread. Returns True if
-    the call succeeded.
+    Uses ``PyThreadState_SetAsyncExc``: the exception is delivered at the next
+    bytecode boundary of the target thread. Returns True if the call succeeded.
 
-    IMPORTANT: this is the nuclear option. The delivered exception may
-    land anywhere in the target thread's Python frames -- including an
-    inner tool call's exception handler (task-agent nesting on one
-    thread), where it gets converted to a kill-string result and the
-    agent loop would continue. Kill correctness therefore relies on
-    the kill_requested MARK first and the was_killed swap in
-    validate_and_execute, not on where exactly this exception pops.
+    This is the nuclear option. The exception may land anywhere in the target
+    thread's frames -- including an inner tool call's exception handler
+    (nested task agents share one thread). Kill correctness therefore relies
+    on the kill mark and the kill swap in validate_and_execute, not on where
+    the exception pops.
 
-    Never call with the CURRENT thread's ident: a self-interrupt would
-    pop inside the caller's own frame (e.g. the kill machinery)
-    instead of inside execute(). The executing thread observes the
-    kill_requested mark instead.
+    Never call with the CURRENT thread's ident: a self-interrupt would pop
+    inside the caller's own frame instead of inside execute().
     """
     if not thread_ident:
         return False
@@ -678,21 +624,16 @@ def _async_raise(thread_ident: int, exc: type[BaseException]) -> bool:
 
 
 def _start_async_raise_monitor(record: KillRecord, grace_s: float) -> None:
-    """Spawn the monitor daemon that re-delivers async-raise until the
-    call finishes or the grace period expires.
+    """Spawn the monitor daemon that re-delivers async-raise until the call
+    finishes or the grace period expires.
 
-    The first delivery is delayed by one interval: the request_kill
-    caller may share the thread with the record (self-kill case) and
-    must be out of the request_kill frame before the exception lands,
-    otherwise it pops inside our own kill machinery instead of inside
-    execute().
+    The first delivery is delayed by one interval, so the request_kill caller
+    (which may share the thread with the record) is out of its frame before
+    the exception lands.
 
-    The monitor is bound to the record OBJECT, not the call id: ids
-    get re-used (synthetic ids, test resets), and a stale monitor must
-    never fire into a fresh record's thread. A stale monitor finds its
-    record gone from the registry and exits without raising. The
-    target thread's liveness is also checked per delivery: idents are
-    recycled, thread objects are not.
+    The monitor is bound to the record OBJECT, not the call id: ids get
+    re-used, and a stale monitor must never fire into a fresh record's thread.
+    Thread liveness is checked per delivery, since idents are recycled.
     """
 
     def _monitor() -> None:
@@ -736,30 +677,19 @@ def repl_interrupt_guard(
     """Context manager: SIGINT while tools run kills them instead of
     interrupting the whole turn.
 
-    Installed around ``root_agent.process()`` in the REPL: Ctrl+C is the
-    single user's only way to say "stop what you're doing" while the
-    agent runs a long tool call (the motivating case: a whole-filesystem
-    ``find``). The handler:
+    Installed around ``root_agent.process()`` in the REPL. The handler kills
+    every in-flight tool call and swallows the signal (the killed calls return
+    kill strings and the agent continues); if none are in flight it re-raises
+    KeyboardInterrupt, preserving the pre-existing REPL behavior. Never raises.
 
-    1. If any tool call is in flight: kill ALL of them and swallow the
-       signal (the killed calls return crafted kill strings and the
-       agent continues its turn). Never raises.
-    2. If none are in flight: re-raise KeyboardInterrupt inside the
-       handler, preserving the pre-existing REPL behavior (abandon the
-       turn; the existing ``except KeyboardInterrupt`` catches it).
+    The previous handler is always restored on exit (other libraries install
+    SIGINT handlers too, and the guard must not leak). Signal handlers can
+    only be installed from the main thread; off the main thread this degrades
+    to a no-op that still runs the body.
 
-    The previous handler is always restored on exit (prompt_toolkit and
-    other libraries also install SIGINT handlers; the guard is
-    per-process()-call and must not leak). Signal handlers can only be
-    installed from the main thread; using this guard off the main thread
-    degrades to a no-op that still runs the body.
-
-    NOTE: this only works where the terminal generates SIGINT at all
-    (ordinary terminals, ``stty isig``). IDE debug terminals commonly
-    run raw mode (``-isig``), where Ctrl+C becomes a stdin byte instead
-    of a signal and no handler can see it -- the UI Kill buttons
-    (chat / context editor, via the registry-backed API) are the
-    fallback there.
+    Only works where the terminal emits SIGINT at all; in raw-mode IDE debug
+    terminals (``stty -isig``) Ctrl+C is a stdin byte, and the UI Kill buttons
+    are the only fallback.
     """
 
     import contextlib

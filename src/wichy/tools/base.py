@@ -44,9 +44,7 @@ class BaseTool(ABC, metaclass=ToolMeta):
     the user.
     """
     #: True for the task tool: its kill record gets the longer async-raise
-    #: backstop grace period because the cascade (request_stop + inner
-    #: kills + agent fast-exit) is tried first and the raw raise into a
-    #: task frame may be swallowed by an inner tool's handler.
+    #: grace, because the cascade kill is tried first.
     is_task_agent_tool: bool = False
     parameters_model: Type[ParametersModel]
     # -------------------------------------------------------------------------
@@ -56,12 +54,9 @@ class BaseTool(ABC, metaclass=ToolMeta):
     # Default is False (offloading disabled)
     enable_result_offload: bool = False
 
-    # Safe-by-default: tools exposed via the external server API require an
-    # explicit caller verification flag before they can be executed. Each tool
-    # class must opt out by setting this to False if it is safe to run without
-    # additional confirmation (e.g. read-only tools). Tools that omit this
-    # attribute inherit True, so unknown / dynamically loaded tools (such as
-    # MCP tools) are treated as requiring verification.
+    # Tools exposed via the server API need an explicit caller verification
+    # flag. A tool opts out by setting this to False when it is safe to run
+    # unattended. Unknown / dynamically loaded tools inherit True.
     needs_verification_in_api: bool = True
 
     @abstractmethod
@@ -160,26 +155,21 @@ class BaseTool(ABC, metaclass=ToolMeta):
         final_args: Dict[str, Any] = {}
         execution_error: Optional[Exception] = None
         killed = False
-        # None-init: a straggler re-delivery may land in this prologue,
-        # before the record exists.
+        # None-init: a straggler re-delivery may land in this prologue.
         record: Optional[kill_registry.KillRecord] = None
         tool_call_id: Optional[str] = None
         previous_record: Optional[kill_registry.KillRecord] = None
 
-        # Kill-registry bookkeeping: the call id and agent id arrive as
-        # hidden kwargs from AgentCore._tool_call (same convention as
+        # Call id and agent id arrive as hidden kwargs (like
         # _can_query_results) and must not reach pydantic validation.
-        # Synthetic ids cover executions never routed through
-        # _tool_call (task agents, manual invocations).
         tool_call_id = kwargs.pop("_tool_call_id", None) or (
             kill_registry.generate_tool_call_id()
         )
         agent_id = kwargs.pop("_agent_id", None) or (
             kill_registry.current_agent_id() or "root"
         )
-        # Register before validation starts so a kill can arrive at any
-        # point of this call's life (hooks / verification included); a
-        # pre-execute kill is honored by the skip check further down.
+        # Register before validation starts, so a kill can arrive at any point
+        # of this call's life (hooks / verification included).
         record = kill_registry.register(
             tool_call_id=tool_call_id,
             tool_name=self.name,
@@ -193,11 +183,9 @@ class BaseTool(ABC, metaclass=ToolMeta):
         previous_record = kill_registry.current_record()
         kill_registry.set_current_record(record)
 
-        # try/finally: the record MUST leave the registry no matter how
-        # this method ends. The finally body is tiny on purpose -- an
-        # async-kill straggler landing inside it would escape both
-        # except handlers, so only the registry pop (plus its bounded
-        # history bookkeeping) may happen there.
+        # try/finally: the record MUST leave the registry however this method
+        # ends. The finally body stays tiny -- an async-kill straggler landing
+        # there would escape both except handlers.
         try:
             try:
                 validated_params = self.parameters_model(**kwargs)
@@ -234,11 +222,9 @@ class BaseTool(ABC, metaclass=ToolMeta):
                         final_args = validated_params.model_dump()
 
                     start_time = time.time()
-                    # Pre-start kill: the call was killed while blocked
-                    # on hooks / verification -- never run execute().
-                    # Record-identity check: never trusts the id, so a
-                    # provider re-emitting a previously killed
-                    # tool_call_id cannot flip this fresh call.
+                    # Pre-start kill: never run execute(). The check reads the
+                    # record object, so a re-emitted tool_call_id cannot flip
+                    # this fresh call.
                     if kill_registry.record_is_killed(record):
                         res = format_tool_killed(
                             self.name, kill_registry.record_kill_reason(record)
@@ -252,9 +238,8 @@ class BaseTool(ABC, metaclass=ToolMeta):
                         try:
                             res = self.execute(**final_args)
                         except Exception as e:
-                            # A force-kill delivers ToolKilledError
-                            # here; any other exception is a genuine
-                            # tool failure. Either way the kill mark
+                            # A force-kill delivers ToolKilledError here; any
+                            # other exception is a genuine failure. The kill mark
                             # decides the final result below.
                             execution_error = e
                             res = format_error(f"{self.name}: {type(e).__name__}: {e}")
@@ -266,14 +251,10 @@ class BaseTool(ABC, metaclass=ToolMeta):
                     end_time = time.time()
                     execution_time = end_time - start_time
 
-                    # Killed mid-execute: swap in the kill string,
-                    # discard partial output, and treat this as NOT an
-                    # error (the user stopped the call; the tool did
-                    # not fail). The swap precedes the offload block so
-                    # the nudge is never offloaded out of context.
-                    # A pre-start kill already printed its banner and
-                    # set killed; this check only handles the
-                    # mid-execution case.
+                    # Killed mid-execute: swap in the kill string and drop the
+                    # partial output (the user stopped the call, the tool did
+                    # not fail). This precedes the offload block so the nudge is
+                    # never offloaded out of context.
                     if not killed and kill_registry.record_is_killed(record):
                         execution_error = None
                         killed = True
@@ -290,12 +271,8 @@ class BaseTool(ABC, metaclass=ToolMeta):
                         char_count // 4
                     )  # rough estimate: 1 token ≈ 4 chars
 
-                    # Build success message with timing and size info.
-                    # A killed call is never reported as "completed":
-                    # the user stopped it, the tool did not succeed.
-                    # Re-check the record: a kill landing after the swap
-                    # above but before this print must not produce a
-                    # green "completed" line; the tail re-checks too.
+                    # A kill landing after the swap above but before this print
+                    # must not produce a green "completed" line.
                     late_kill = (
                         not execution_error
                         and not killed
@@ -341,10 +318,7 @@ class BaseTool(ABC, metaclass=ToolMeta):
                     # ---------------------------------------------------------------------
                     # Result offload check
                     # ---------------------------------------------------------------------
-                    # Only consider offloading if execution was
-                    # successful AND the call was not killed (the
-                    # kill nudge must stay in context, never be
-                    # offloaded away).
+                    # Never offload a killed call: its nudge must stay in context.
                     if not execution_error and not killed:
                         # Lazy import to avoid circular import with result_offload module
                         from wichy.result_offload import get_result_store, result_or_ref
@@ -370,11 +344,8 @@ class BaseTool(ABC, metaclass=ToolMeta):
                 res = format_error(f"{self.name}: {type(e).__name__}: {e}")
                 user_console.print(f"[red bold]✗[/red bold] tool {self.name} failed")
         finally:
-            # Straggler-safe tail: a kill re-delivery consumes itself on
-            # landing, so retrying the ops is enough. finish_call runs
-            # first (record must never leak); the kill flag is read from
-            # the record object AFTER the pop, so a mark landing at any
-            # point up to this read is still honored.
+            # Straggler-safe tail: a re-delivered kill consumes itself on
+            # landing, so retrying the ops is enough.
             killed_flag = False
             kill_reason = None
             for _attempt in range(3):

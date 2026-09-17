@@ -64,11 +64,9 @@ def format_error_with_context(context: str, message: str) -> str:
 def format_tool_killed(tool_name: str, reason: Optional[str] = None) -> str:
     """Format the result string returned for a force-killed tool call.
 
-    A kill is not an error: it is the user explicitly stopping a tool
-    execution mid-flight. The string follows the bracket-header
-    convention (like ``[RESULT_OFFLOADED]``) so the LLM reliably
-    notices it, states what happened, and nudges the agent to consider
-    WHY the user killed it before continuing.
+    A kill is not an error: the user stopped the execution mid-flight. The
+    string follows the bracket-header convention (like ``[RESULT_OFFLOADED]``)
+    so the LLM notices it and reconsiders its approach.
 
     Args:
         tool_name: Name of the tool that was killed.
@@ -77,10 +75,6 @@ def format_tool_killed(tool_name: str, reason: Optional[str] = None) -> str:
 
     Returns:
         The crafted kill result string.
-
-    Example:
-        >>> "[TOOL_KILLED]" in format_tool_killed("bash")
-        True
     """
     lines = [
         "[TOOL_KILLED]",
