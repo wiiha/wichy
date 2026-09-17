@@ -1,5 +1,7 @@
+import os
 import re
 import shlex
+import signal
 import subprocess
 from typing import Optional
 
@@ -374,8 +376,15 @@ Usage notes:
             except subprocess.TimeoutExpired:
                 # Unkillable process: report what we have.
                 output = ""
+            # Zombie/handle hygiene: an unkillable process or a dead
+            # shell leaves Popen unreaped here (returncode None);
+            # reap without blocking.
+            _reap(proc)
             return self._format_output(output, proc.returncode, timed_out=True)
         except Exception as e:
+            # Non-timeout communicate failure: the child may still run;
+            # kill the group and reap before reporting the error.
+            _reap_after_kill(proc)
             return format_error(f"command execution failed: {e}")
         return self._format_output(output, proc.returncode, timed_out=False)
 
@@ -401,3 +410,22 @@ Usage notes:
 # Set the custom verification predicate on the execute method
 # The decorator copies attributes, so we need to set on the wrapper
 BashTool.execute._should_verify = is_destructive_command  # type: ignore[attr-defined]
+
+
+def _reap(proc: subprocess.Popen) -> None:
+    """Reap a child without blocking (zombie/handle hygiene)."""
+    try:
+        proc.wait(timeout=0)
+    except subprocess.TimeoutExpired:
+        pass
+    except Exception:
+        pass
+
+
+def _reap_after_kill(proc: subprocess.Popen) -> None:
+    """SIGKILL the group (best effort), then reap without blocking."""
+    try:
+        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, Exception):
+        pass
+    _reap(proc)

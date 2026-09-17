@@ -14,6 +14,7 @@ Covers:
 import subprocess
 import threading
 import time
+from unittest.mock import patch
 
 import pytest
 
@@ -215,3 +216,42 @@ class TestKillRegistryIntegration:
                 break
             time.sleep(0.2)
         assert check.strip() == "0", f"lingering sleeps after timeout: {check}"
+
+
+class TestProcessHygiene:
+    """Failed communicate paths must not leak an unreaped child."""
+
+    def test_commute_failure_kills_group_and_reaps(self, bash_tool):
+        class FakeProc:
+            def __init__(self):
+                self.pid = 4242
+                self.returncode = None
+                self.killed_group = False
+                self.reaped = False
+
+            def communicate(self, timeout=None):
+                raise RuntimeError("pipe exploded")
+
+            def wait(self, timeout=None):
+                # Simulate SIGKILL taking effect: the reap observes it.
+                self.returncode = -9
+                self.reaped = True
+                return self.returncode
+
+        proc = FakeProc()
+
+        def fake_killpg(pgid, sig):
+            proc.killed_group = True
+
+        def fake_popen(*a, **kw):
+            return proc
+
+        with patch("wichy.tools.bash.subprocess.Popen", side_effect=fake_popen):
+            with patch("wichy.tools.bash.os.killpg", side_effect=fake_killpg):
+                with patch("wichy.tools.bash.os.getpgid", return_value=12345):
+                    out = bash_tool.execute(command="echo hi", timeout=5)
+
+        assert out.startswith("error:"), out
+        assert proc.killed_group, "group not killed on communicate failure"
+        assert proc.reaped, "child not reaped"
+        assert proc.returncode == -9
