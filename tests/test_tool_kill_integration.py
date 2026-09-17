@@ -375,3 +375,51 @@ class TestFinallyTailSafety:
             ):
                 with pytest.raises(RuntimeError, match="registry lock exploded"):
                     tool.validate_and_execute(_tool_call_id="call-f1", _agent_id="root")
+
+
+class TestBannerNoCompletedOnLateKill:
+    """A kill landing between the mid-execute swap and the banner print
+    must not produce a green "completed" line for a killed call."""
+
+    def test_late_kill_never_prints_completed(self):
+        import wichy.tools.base as base_module
+        from wichy.tools.kill_registry import request_kill
+
+        tool = InstantTool()
+        result: dict = {}
+        printed: list = []
+
+        # Fire the kill right AFTER the mid-execute swap check read the
+        # flag (False) and before the banner decision: the banner
+        # re-check must catch it.
+        original_check = base_module.kill_registry.record_is_killed
+        calls = {"n": 0}
+
+        def check_spy(rec):
+            calls["n"] += 1
+            result = original_check(rec)
+            # 1: pre-start check, 2: mid-execute swap check. Fire the
+            # kill just after the swap check read False, before the
+            # banner decision.
+            if calls["n"] == 2 and not result:
+                request_kill("call-b1", "late")
+            return result
+
+        original_print = base_module.user_console.print
+
+        def print_spy(*a, **kw):
+            printed.append(str(a[0] if a else ""))
+            return original_print(*a, **kw)
+
+        with _patch_hooks():
+            with patch.object(base_module.kill_registry, "record_is_killed", check_spy):
+                with patch.object(base_module.user_console, "print", print_spy):
+                    result["res"] = tool.validate_and_execute(
+                        _tool_call_id="call-b1", _agent_id="root"
+                    )
+
+        assert result["res"].startswith("[TOOL_KILLED]")
+        banners = [p for p in printed if "completed" in p]
+        assert banners == [], f"green banner printed: {banners}"
+        killed_notices = [p for p in printed if "killed by user" in p]
+        assert killed_notices, "kill notice never printed"

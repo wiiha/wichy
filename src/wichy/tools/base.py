@@ -293,7 +293,19 @@ class BaseTool(ABC, metaclass=ToolMeta):
                     # Build success message with timing and size info.
                     # A killed call is never reported as "completed":
                     # the user stopped it, the tool did not succeed.
-                    if not execution_error and not killed:
+                    # Re-check the record: a kill landing after the swap
+                    # above but before this print must not produce a
+                    # green "completed" line; the tail re-checks too.
+                    late_kill = (
+                        not execution_error
+                        and not killed
+                        and (kill_registry.record_is_killed(record))
+                    )
+                    if late_kill:
+                        user_console.print(
+                            f"[yellow bold]⨯[/yellow bold] tool {self.name} killed by user"
+                        )
+                    elif not execution_error and not killed:
                         msg = f"[green bold]✓[/green bold] tool {self.name} completed"
                         size_info = f" [dim]({char_count} chars, ~{token_estimate} tokens)[/dim]"
                         if execution_time > 3:
