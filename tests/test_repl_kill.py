@@ -14,9 +14,11 @@ import os
 import signal
 import threading
 import time
+from unittest.mock import MagicMock, patch
 
 import pytest
 
+import wichy.repl as repl_module
 from wichy.tools import kill_registry
 from wichy.tools.kill_registry import _reset_for_tests, repl_interrupt_guard
 
@@ -176,3 +178,93 @@ class TestReplNotice:
             args = fake_console.print.call_args.args
             assert "Killed 1 running tool call(s):" in args[0]
             assert "bash(...)" in args[0]
+
+
+class TestUnwrappedReplPathsGuarded:
+    """Ctrl+C during /btw, /reset (summary), /compact must behave like
+    the main process() path: kill running tools instead of a raw
+    KeyboardInterrupt escaping the REPL loop."""
+
+    def _make_repl_with_btw(self):
+        """Minimal REPL instance with a stubbed root agent."""
+        repl = object.__new__(repl_module.Repl)
+        repl.root_agent = MagicMock()
+        repl.root_agent.agent_has_first_initiative = False
+        repl.root_agent.context.return_value = []
+        repl._print_killed_notice = MagicMock()
+        return repl
+
+    def test_btw_process_runs_inside_guard(self):
+        repl = self._make_repl_with_btw()
+        repl._print_btw_prompt = MagicMock()
+
+        guard_calls = []
+        original_guard = repl_module.kill_registry.repl_interrupt_guard
+
+        def spy_guard(**kw):
+            guard_calls.append(kw)
+            return original_guard(**kw)
+
+        with patch.object(
+            repl_module.kill_registry, "repl_interrupt_guard", side_effect=spy_guard
+        ):
+            with patch.object(repl_module, "strip_thinking_content", lambda s: s):
+                with patch.object(
+                    repl_module,
+                    "RootAgent",
+                    return_value=MagicMock(process=MagicMock(return_value="btw resp")),
+                ):
+                    repl._run_btw("what?", "test/model", [])
+
+        assert len(guard_calls) == 1, "/btw LLM call ran outside the guard"
+        assert guard_calls[0].get("on_kill") is repl._print_killed_notice
+
+    def test_reset_context_runs_inside_guard(self):
+        # Drive the real run() loop: the prompt raises
+        # ContextResetException (as /reset does), and reset_context runs
+        # inside the guard on the exception path.
+        repl = self._make_repl_with_btw()
+        repl._print_user_prompt = MagicMock()
+        repl._print_separator = MagicMock()
+        repl.cmd_checker = MagicMock()
+        repl.cmd_checker.check_command.return_value = None
+        repl.prompt_session = MagicMock()
+        repl._print_assistant_response = MagicMock()
+
+        calls = {"n": 0}
+        reset_event = threading.Event()
+        guard_depth = {"on_reset": False}
+
+        def prompt_side_effect(*a, **kw):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise repl_module.ContextResetException(strategy=MagicMock())
+            reset_event.set()
+            raise EOFError()  # exit the loop
+
+        repl.prompt_session.prompt.side_effect = prompt_side_effect
+
+        guard_calls = []
+        original_guard = repl_module.kill_registry.repl_interrupt_guard
+
+        def spy_guard(**kw):
+            guard_calls.append(kw)
+            return original_guard(**kw)
+
+        def reset_side_effect(*a, **kw):
+            # Runs on the exception path; must be inside the guard, so
+            # the guard entry must already have happened.
+            guard_depth["on_reset"] = len(guard_calls) > 0
+            return None
+
+        repl.root_agent.reset_context.side_effect = reset_side_effect
+
+        with patch.object(
+            repl_module.kill_registry, "repl_interrupt_guard", side_effect=spy_guard
+        ):
+            # EOFError at the prompt makes run() exit cleanly.
+            with pytest.raises(SystemExit):
+                repl.run()
+
+        repl.root_agent.reset_context.assert_called_once()
+        assert guard_depth["on_reset"], "reset_context ran outside the guard"

@@ -99,7 +99,10 @@ class Repl:
                 result = strip_thinking_content(result)
                 self._print_assistant_response(result)
             except ContextResetException as e:
-                self.root_agent.reset_context(strategy=e.strategy)
+                with kill_registry.repl_interrupt_guard(
+                    on_kill=self._print_killed_notice
+                ):
+                    self.root_agent.reset_context(strategy=e.strategy)
                 continue
             except ContextDropException:
                 self.root_agent.drop_last_context_entry()
@@ -220,7 +223,8 @@ class Repl:
         # process() appends the user message, calls the LLM, and returns the
         # response content. Tools are possibly available and will be handled
         # as expected by the root agent process method.
-        response = btw_agent.process(question)
+        with kill_registry.repl_interrupt_guard(on_kill=self._print_killed_notice):
+            response = btw_agent.process(question)
         response = strip_thinking_content(response)
 
         self._print_btw_prompt()
