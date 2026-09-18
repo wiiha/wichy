@@ -68,8 +68,38 @@ def test_insert_at_beginning(insert_lines_tool, temp_workspace):
 
 
 def test_insert_at_end(insert_lines_tool, temp_workspace):
-    """Test inserting content at the end (offset exceeds file length)."""
+    """Inserting at offset == line count appends.
+
+    This is the legitimate append point and must keep working; the old version
+    of this test used offset=10 on a 3-line file, which asserted the adjacent
+    behaviour of silently appending while reporting line 10.
+    """
     test_file = os.path.join(temp_workspace, "test.txt")
+
+    result = insert_lines_tool.execute(
+        file_path=test_file,
+        offset=3,  # == len(lines) for the 3-line fixture
+        content="last line\n",
+    )
+
+    assert "Inserted content after line 3" in result
+
+    with open(test_file, "r") as f:
+        content = f.read()
+
+    expected = "line 1\nline 2\nline 3\nlast line\n"
+    assert content == expected
+
+
+def test_insert_beyond_end_is_rejected(insert_lines_tool, temp_workspace):
+    """offset past EOF must be rejected, not silently appended.
+
+    Previously this returned "Inserted content after line 10" for a 3-line
+    file.
+    """
+    test_file = os.path.join(temp_workspace, "test.txt")
+    with open(test_file) as f:
+        before = f.read()
 
     result = insert_lines_tool.execute(
         file_path=test_file,
@@ -77,13 +107,25 @@ def test_insert_at_end(insert_lines_tool, temp_workspace):
         content="last line\n",
     )
 
-    assert "Inserted content after line 10" in result
+    assert result.startswith("error:")
+    assert "beyond the end of the file" in result
 
-    with open(test_file, "r") as f:
-        content = f.read()
+    with open(test_file) as f:
+        assert f.read() == before  # file untouched
 
-    expected = "line 1\nline 2\nline 3\nlast line\n"
-    assert content == expected
+
+def test_insert_beyond_end_error_is_guiding(insert_lines_tool, temp_workspace):
+    """The rejection must say how to append, and name the real line count."""
+    test_file = os.path.join(temp_workspace, "test.txt")
+
+    result = insert_lines_tool.execute(
+        file_path=test_file,
+        offset=99,
+        content="x\n",
+    )
+
+    assert "offset=3 to append" in result
+    assert "3 line(s)" in result
 
 
 def test_insert_multiple_lines(insert_lines_tool, temp_workspace):

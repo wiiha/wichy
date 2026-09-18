@@ -12,7 +12,7 @@ import io
 import fcntl
 from pathlib import Path
 from contextlib import contextmanager
-from typing import Iterator
+from typing import Generator
 
 
 class FileLockError(Exception):
@@ -91,7 +91,7 @@ class FileLock:
                 time.sleep(0.1)
 
     @contextmanager
-    def acquire(self, timeout: float = 10.0) -> Iterator[None]:
+    def acquire(self, timeout: float = 10.0) -> Generator[None, None, None]:
         """
         Acquire exclusive lock. Blocks until available or timeout expires.
 

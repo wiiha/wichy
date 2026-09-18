@@ -185,3 +185,94 @@ def test_replace_multiline_content(replace_text_tool, temp_workspace):
 
     expected = "line 1\nlines 2-3 replaced\nline 2\n"
     assert content == expected
+
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+#: Hard address-space cap for the child process. The pre-fix failure is
+#: unbounded ALLOCATION (`find("", start)` returns `start`, `start += 0`), not a
+#: CPU spin, so an in-process guard would be OOM-killed and take the pytest
+#: runner down with it -- it cannot fail cleanly.
+_EMPTY_MATCH_MEMORY_CAP = 512 * 1024 * 1024
+
+
+def _run_replace_in_capped_child(tmp_path, old_content, new_content, count=1):
+    """Run one replace_text call in a memory-capped child; return (status, out).
+
+    Status is "OK", "SIGNALLED" or "MEMORY" -- the latter two mean the
+    unbounded loop is back.
+    """
+    import subprocess
+    import sys
+    import textwrap
+
+    script = textwrap.dedent(f"""
+        import resource, sys
+        resource.setrlimit(
+            resource.RLIMIT_AS,
+            ({_EMPTY_MATCH_MEMORY_CAP}, {_EMPTY_MATCH_MEMORY_CAP}),
+        )
+        sys.path.insert(0, {REPO_ROOT!r})
+        from wichy.tools.replace_text import ReplaceTextTool
+        try:
+            r = ReplaceTextTool().execute(
+                file_path={str(tmp_path)!r},
+                old_content={old_content!r},
+                new_content={new_content!r},
+                count={count},
+            )
+        except MemoryError:
+            print("STATUS:MEMORY")
+        else:
+            print("STATUS:OK")
+            print("RESULT:" + r.replace(chr(10), " "))
+        """)
+    proc = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, timeout=60
+    )
+    if proc.stdout.startswith("STATUS:"):
+        status, _, result = proc.stdout.partition("\n")
+        return status.split(":", 1)[1], result
+    return f"SIGNALLED(rc={proc.returncode})", proc.stderr[-200:]
+
+
+def test_replace_empty_old_content_is_rejected(temp_workspace):
+    """An empty search string must be rejected, not looped."""
+    test_file = os.path.join(temp_workspace, "test.txt")
+    before = open(test_file).read()
+
+    status, result = _run_replace_in_capped_child(test_file, "", "X")
+
+    assert status == "OK", f"empty old_content looped again: {status} {result}"
+    assert "error:" in result, result
+    assert "must not be empty" in result, result
+    assert open(test_file).read() == before
+
+
+def test_replace_empty_old_content_fails_loudly_not_silently(temp_workspace):
+    """The rejection must name the tool argument and suggest the fix.
+
+    A tool error is guidance, not just a diagnosis.
+    """
+    test_file = os.path.join(temp_workspace, "test.txt")
+
+    status, result = _run_replace_in_capped_child(test_file, "", "X")
+
+    assert status == "OK"
+    assert test_file in result, result
+    assert "Provide the exact text to replace" in result, result
+
+
+def test_replace_normal_use_terminates_in_capped_child(temp_workspace):
+    """Control: a normal edit must succeed in the same capped child.
+
+    Proves the cap and harness do not themselves cause the pass.
+    """
+    test_file = os.path.join(temp_workspace, "test.txt")
+
+    status, result = _run_replace_in_capped_child(test_file, "line 1\n", "LINE 1\n")
+
+    assert status == "OK", f"{status} {result}"
+    assert "Replaced 1 occurrence(s)" in result, result
+    with open(test_file) as f:
+        assert f.read().startswith("LINE 1\n")

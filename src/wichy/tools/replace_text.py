@@ -13,6 +13,7 @@ from pydantic import Field
 
 from wichy.tools.base import BaseTool, ParametersModel
 from wichy.tools.errors import format_error_with_context
+from wichy.tools.file_safety import atomic_write, file_lock
 
 
 class ReplaceTextParameters(ParametersModel):
@@ -67,71 +68,83 @@ class ReplaceTextTool(BaseTool):
         new_content: str = kwargs["new_content"]
         count: int = kwargs.get("count", 1)
         encoding: str = kwargs.get("encoding", "utf-8")
-        # Validate file exists
-        if not os.path.isfile(file_path):
-            return format_error_with_context(file_path, "File not found")
 
-        # Read file content
-        try:
-            with open(file_path, "r", encoding=encoding) as f:
-                original_content = f.read()
-        except Exception as e:
-            return format_error_with_context(file_path, f"Failed to read file: {e}")
-
-        # Find all occurrences
-        occurrences = []
-        search_start = 0
-        while True:
-            idx = original_content.find(old_content, search_start)
-            if idx == -1:
-                break
-            occurrences.append(idx)
-            search_start = idx + len(old_content)
-
-        total_occurrences = len(occurrences)
-
-        if total_occurrences == 0:
+        if old_content == "":
             return format_error_with_context(
                 file_path,
-                "old_content not found. Make sure the content matches exactly (including whitespace and newlines).",
+                "old_content must not be empty. Provide the exact text to replace.",
             )
 
-        # Determine which occurrences to replace
-        if count <= 0:
-            # Replace all
-            indices_to_replace = occurrences
-        else:
-            # Replace specific occurrence (1-indexed)
-            if count > total_occurrences:
+        # Whole body under the per-path lock: the read-compute-write cycle must
+        # not interleave with another edit of this file in the same batch.
+        with file_lock(file_path):
+            # Validate file exists
+            if not os.path.isfile(file_path):
+                return format_error_with_context(file_path, "File not found")
+
+            # Read file content
+            try:
+                with open(file_path, "r", encoding=encoding) as f:
+                    original_content = f.read()
+            except Exception as e:
+                return format_error_with_context(file_path, f"Failed to read file: {e}")
+
+            # Find all occurrences
+            occurrences = []
+            search_start = 0
+            while True:
+                idx = original_content.find(old_content, search_start)
+                if idx == -1:
+                    break
+                occurrences.append(idx)
+                search_start = idx + len(old_content)
+
+            total_occurrences = len(occurrences)
+
+            if total_occurrences == 0:
                 return format_error_with_context(
                     file_path,
-                    f"Only found {total_occurrences} occurrence(s), cannot replace occurrence #{count} (count out of range)",
+                    "old_content not found. Make sure the content matches exactly (including whitespace and newlines).",
                 )
-            indices_to_replace = [occurrences[count - 1]]
 
-        # Perform replacement from end to start to preserve indices
-        new_file_content = original_content
-        for idx in reversed(indices_to_replace):
-            new_file_content = (
-                new_file_content[:idx]
-                + new_content
-                + new_file_content[idx + len(old_content) :]
+            # Determine which occurrences to replace
+            if count <= 0:
+                # Replace all
+                indices_to_replace = occurrences
+            else:
+                # Replace specific occurrence (1-indexed)
+                if count > total_occurrences:
+                    return format_error_with_context(
+                        file_path,
+                        f"Only found {total_occurrences} occurrence(s), cannot replace occurrence #{count} (count out of range)",
+                    )
+                indices_to_replace = [occurrences[count - 1]]
+
+            # Perform replacement from end to start to preserve indices
+            new_file_content = original_content
+            for idx in reversed(indices_to_replace):
+                new_file_content = (
+                    new_file_content[:idx]
+                    + new_content
+                    + new_file_content[idx + len(old_content) :]
+                )
+
+            # create diff that will be part of result message
+            diff = difflib.unified_diff(
+                original_content.splitlines(keepends=True),
+                new_file_content.splitlines(keepends=True),
+                fromfile="old",
+                tofile="new",
             )
+            txt_diff = "".join(diff)
 
-        # create diff that will be part of result message
-        diff = difflib.unified_diff(
-            original_content.splitlines(keepends=True),
-            new_file_content.splitlines(keepends=True),
-            fromfile="old",
-            tofile="new",
-        )
-        txt_diff = "".join(diff)
-        # Write back to file
-        try:
-            with open(file_path, "w", encoding=encoding) as f:
-                f.write(new_file_content)
-        except Exception as e:
-            return format_error_with_context(file_path, f"Failed to write file: {e}")
+            # Write back to file
+            try:
+                atomic_write(file_path, new_file_content, encoding)
+            except Exception as e:
+                return format_error_with_context(
+                    file_path, f"Failed to write file: {e}"
+                )
 
         num_replacements = len(indices_to_replace)
         result_msg = f"Replaced {num_replacements} occurrence(s) in {file_path}"

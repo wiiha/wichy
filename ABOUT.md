@@ -188,7 +188,7 @@ from wichy.tools.my_tool import MyTool  # auto-registers on import
 | `read_file`       | `ReadFileTool`      | Read file contents; supports images via base64 multimodal conversion, offset/limit, non-printable chars         |
 | `write_file`      | `WriteFileTool`     | Write or create files; auto-creates parent dirs                                                                 |
 | `replace_text`    | `ReplaceTextTool`   | Targeted before/after string replacement; occurrence control                                                    |
-| `insert_lines`    | `InsertLinesTool`   | Insert content at 1-indexed line offset; appends at EOF if offset exceeds file length                           |
+| `insert_lines`    | `InsertLinesTool`   | Insert content at 1-indexed line offset; rejects an offset past EOF instead of silently appending               |
 | `list_files`      | `ListFilesTool`     | Directory listing                                                                                               |
 | `glob`            | `GlobTool`          | Pattern-based file matching; sorted newest-first; venv-excluded                                                 |
 | `search_in_files` | `SearchInFilesTool` | Ripgrep-powered regex search; `content`/`files_with_matches`/`count` modes; oversize guard; per-line truncation |

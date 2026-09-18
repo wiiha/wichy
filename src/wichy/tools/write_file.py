@@ -1,4 +1,3 @@
-import os
 from typing import Any
 
 from pydantic import Field
@@ -6,6 +5,7 @@ from pydantic import Field
 from wichy.helpers.string import truncate_to_len
 from wichy.tools.base import BaseTool, ParametersModel
 from wichy.tools.errors import format_error
+from wichy.tools.file_safety import atomic_write, file_lock
 
 
 class WriteFileParameters(ParametersModel):
@@ -37,12 +37,11 @@ Usage:
         path: str = kwargs["path"]
         content: str = kwargs["content"]
         try:
-            parent_dir_path = os.path.dirname(path)
-            if parent_dir_path != "":
-                os.makedirs(parent_dir_path, exist_ok=True)
-
-            with open(path, "w") as f:
-                f.write(content)
+            with file_lock(path):
+                # Missing parent dirs are created by atomic_write, as before.
+                # encoding omitted: atomic_write uses the platform default,
+                # matching the previous open(path, "w").
+                atomic_write(path, content)
             return f"Successfully wrote to {path}"
         except Exception as e:
             return format_error(f"Failed to write to {path}: {e}")
