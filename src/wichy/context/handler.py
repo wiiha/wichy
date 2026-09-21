@@ -246,10 +246,16 @@ class ContextHandler:
         Args:
             new_object (dict): Must contain at least ``role`` and ``content`` keys.
         """
+        # The lock spans both the in-memory append and the disk write. Releasing
+        # it in between lets tick() read the file before this line lands, then
+        # rewrite the file from its own snapshot and rebuild self.context
+        # without this message -- the message reaches disk but drops out of
+        # memory. Distinct paths must not serialise on each other; same-path
+        # readers and writers must.
         with self._lock:
             new_object.setdefault("_tick", 0)
             self.context.append(new_object)
-        self._write_line(new_object, entry_type=MESSAGE_TYPE)
+            self._write_line(new_object, entry_type=MESSAGE_TYPE)
 
     def add(self, role, content):
         """
@@ -301,9 +307,11 @@ class ContextHandler:
         """
         log_object = {**data, "type": LOG_TYPE, "timestamp": datetime.now().isoformat()}
         log_object.setdefault("_tick", 0)
+        # Same reason as append(): write under the lock, so tick() cannot
+        # rebuild self.logs from a file that lacks this entry.
         with self._lock:
             self.logs.append(log_object)
-        self._write_line(log_object, entry_type=None)  # type already set in dict
+            self._write_line(log_object, entry_type=None)  # type already set in dict
 
     def drop(self, n: int = 1):
         """
