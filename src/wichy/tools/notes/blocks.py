@@ -232,24 +232,37 @@ def unique_slug_for_title(title: str) -> str:
 
 
 def _markdown_document(slug: str, raw: str) -> BlockDocument:
-    """Wrap raw markdown as a read-only document with one synthetic block.
+    """Wrap a legacy markdown file as a read-only document with one synthetic block.
 
-    The whole markdown body becomes one ``paragraph`` so the browser can render
-    it without a parser. ``meta.version`` is 1 because a markdown document has
-    no versions to count: nothing can write to it.
+    The file's frontmatter is parsed and stripped, and only the BODY becomes the
+    synthetic block's text. Keeping the fence would be wrong twice over: the
+    conversion step would see ``---`` and produce delimiter blocks for the
+    frontmatter, and export would then emit a second frontmatter block on top of
+    the one it regenerates.
+
+    The title and timestamps come from that metadata, so a legacy note keeps the
+    name the user gave it rather than being labelled with its slug.
+
+    ``meta.version`` is 1 because a markdown document has no versions to count:
+    nothing can write to it.
     """
+    from wichy.skills.skill import parse_markdown_frontmatter
+
+    metadata, body = parse_markdown_frontmatter(raw)
     return BlockDocument(
         meta=DocumentMeta(
-            title=slug,
+            title=str(metadata.get("title") or slug),
             slug=slug,
             version=1,
+            created=str(metadata.get("created") or "") or now_iso(),
+            updated=str(metadata.get("updated") or "") or now_iso(),
             last_author="user",
         ),
         blocks=[
             Block(
                 id=new_block_id(),
                 type="paragraph",
-                data={"text": raw},
+                data={"text": body},
                 meta=BlockMeta(author="user", touched_by=["user"]),
             )
         ],

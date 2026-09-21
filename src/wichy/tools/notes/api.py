@@ -1,258 +1,851 @@
-"""API endpoints for the notes and scratchpad tool."""
+"""HTTP API for block notes, revisions, and change notification.
 
-import re
-from datetime import datetime, timezone
-from pathlib import Path
+Routes live on the notes blueprint, so every path here is served under
+``/tools/notes``.
 
-from flask import Blueprint, jsonify, request
+Two rules apply to almost every route and are enforced in one place each rather
+than per handler:
 
-from wichy.skills.skill import parse_markdown_frontmatter
+- **A slug is validated before use.** The path segment comes straight from a URL,
+  and nothing before this point rejects a dot, a slash or whitespace. An invalid
+  slug is a 400, not a 404, because it names no document and never could.
+- **A ``markdown``-format document refuses block-level writes with a 409.** A
+  block write against a legacy ``.md`` would materialise a ``.json`` beside it and
+  give one slug two live documents. The same message is used everywhere so the
+  browser and the agent tools cannot disagree about what happened.
 
-from . import get_notes_dir, get_scratchpad_slug, set_scratchpad_slug
+Change notification is the other half: the browser posts the ops a user made, the
+server injects a summary into the agent's context, and the agent's own edits are
+queued back for the browser to poll. Agent-authored ops are never injected back
+into the agent's own context, or a turn would be reacting to itself.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Callable, Iterable, Mapping
+
+from flask import Blueprint, Response, jsonify, request
+
+from wichy.tools.notes import (
+    get_scratchpad_state,
+    set_scratchpad_state,
+)
+from wichy.tools.notes.blocks import (
+    FORMAT_EDITORJS,
+    FORMAT_MARKDOWN,
+    MARKDOWN_WRITE_REFUSED,
+    BlockNotFoundError,
+    DocumentDeletionError,
+    DocumentNotFoundError,
+    InvalidDocumentError,
+    InvalidSlugError,
+    MarkdownDocumentError,
+    StaleVersionError,
+    create_document,
+    delete_block,
+    delete_document_files,
+    generate_slug,
+    insert_block,
+    list_documents,
+    load_document,
+    locked_document,
+    make_unique_slug,
+    merged_blocks,
+    move_block,
+    read_blocks,
+    rename_document_files,
+    replace_block,
+    resolve_format,
+    slug_exists,
+)
+from wichy.tools.notes.markdown import (
+    count_blocks,
+    export_legacy,
+    export_markdown,
+    lossy_features,
+    markdown_to_blocks,
+)
+from wichy.tools.notes.models import (
+    Author,
+    BlockDataError,
+    BlockDocument,
+    is_valid_slug,
+    now_iso,
+)
+from wichy.tools.notes.revisions import (
+    RevisionNotFoundError,
+    count_revisions,
+    get_revision,
+    read_revisions,
+    revert_document,
+)
+
+#: Message for a slug that names no document at all.
+NOT_FOUND = "Note not found"
+
+
+def _error(message: str, status: int):
+    """A JSON error response.
+
+    Errors carry a message rather than a bare code, because the browser shows it
+    and the agent reads it: "invalid slug" without saying what a valid slug looks
+    like leaves both guessing.
+    """
+    return jsonify({"error": message}), status
+
+
+def _validate_slug(slug: str):
+    """Return None if ``slug`` is usable, else a 400 response."""
+    if not is_valid_slug(slug):
+        return _error(
+            f"Invalid slug '{slug}'. Slugs may contain only lowercase letters, "
+            "digits and hyphens, and must start and end with a letter or digit.",
+            400,
+        )
+    return None
+
+
+def _build_document(
+    slug: str,
+    title: str,
+    raw_blocks: Iterable[Mapping[str, Any]],
+) -> BlockDocument:
+    """Create a block document that KEEPS the given slug.
+
+    ``create_document`` allocates a free slug, which is right for a new note and
+    wrong for a conversion: the ``.md`` being converted already occupies the slug,
+    so the allocator would move the document to ``<slug>-1`` and the converted
+    note would become a different document from the one the user asked for.
+
+    The document is therefore built here and written under ``slug`` directly.
+
+    Args:
+        slug: The slug the document must have.
+        title: Its title.
+        raw_blocks: Block mappings.
+
+    Returns:
+        The stored document.
+
+    Raises:
+        BlockDataError: A block's data does not match its type's schema.
+        ValueError: The title is empty.
+    """
+    from wichy.tools.notes.blocks import (
+        get_doc_lock,
+        make_block,
+        save_document,
+        set_doc_version,
+    )
+    from wichy.tools.notes.models import BlockDocument, DocumentMeta
+    from wichy.tools.notes.revisions import append_entry, baseline_entry
+
+    if not title or not title.strip():
+        raise ValueError("A document needs a title.")
+
+    stamp = now_iso()
+    document = BlockDocument(
+        meta=DocumentMeta(
+            title=title.strip(),
+            slug=slug,
+            version=1,
+            created=stamp,
+            updated=stamp,
+            last_author="system",
+        )
+    )
+    for raw in raw_blocks:
+        document.blocks.append(
+            make_block(
+                str(raw.get("type", "")),
+                raw.get("data"),
+                author="system",
+                block_id=raw.get("id"),
+                document=document,
+            )
+        )
+
+    with get_doc_lock(slug):
+        entry = baseline_entry(document)
+        # Document first, then the entry: a crash in between leaves a gap in the
+        # ids rather than an id the counter will hand out again.
+        save_document(document)
+        set_doc_version(slug, document.meta.version)
+        append_entry(slug, entry)
+    return document
+
+
+def _move_marker(old_slug: str, new_slug: str) -> None:
+    """Repoint the scratchpad marker after a rename.
+
+    Without this the marker would name a slug that no longer exists, so the agent
+    tools would be aiming at a document that is gone. Both ``primary`` and the
+    pinned list are rewritten: the pinned list is presentation state, but leaving
+    a stale entry in it would render a marker for a document that is not there.
+    """
+    state = get_scratchpad_state()
+    primary = new_slug if state["primary"] == old_slug else state["primary"]
+    pinned = [new_slug if entry == old_slug else entry for entry in state["pinned"]]
+    if primary != state["primary"] or pinned != state["pinned"]:
+        set_scratchpad_state(primary, pinned)
+
+
+def _apply_locked(
+    slug: str,
+    expected_version: int | None,
+    author: Author,
+    mutate: Callable[[BlockDocument], None],
+    **kwargs: Any,
+):
+    """Run ``mutate`` inside the document lock and report what happened.
+
+    Every mutating route funnels through here so that slug validation, the
+    markdown refusal, the version check and the error mapping are identical
+    everywhere. A route that forgot one of them would be a hole nothing else
+    closes.
+
+    Args:
+        slug: The document slug from the URL.
+        expected_version: The caller's version, or None to skip the check.
+        author: Who is making the change.
+        mutate: Called with the open document; may raise BlockNotFoundError.
+        **kwargs: Passed through to the lock (summary, extra_ops).
+
+    Returns:
+        ``(document, error_response)``; exactly one is None.
+    """
+    invalid = _validate_slug(slug)
+    if invalid is not None:
+        return None, invalid
+
+    try:
+        with locked_document(
+            slug, expected_version, author=author, **kwargs
+        ) as document:
+            mutate(document)
+        return load_document(slug), None
+    except InvalidSlugError as e:
+        return None, _error(str(e), 400)
+    except DocumentNotFoundError:
+        return None, _error(NOT_FOUND, 404)
+    except MarkdownDocumentError:
+        return None, _error(MARKDOWN_WRITE_REFUSED, 409)
+    except StaleVersionError as e:
+        return None, _error(str(e), 409)
+    except BlockNotFoundError as e:
+        return None, _error(str(e), 404)
+    except BlockDataError as e:
+        return None, _error(str(e), 400)
+    except (InvalidDocumentError, ValueError) as e:
+        return None, _error(str(e), 400)
+
+
+def _document_payload(document, fmt: str) -> dict:
+    """The wire form of a document: meta, blocks and format."""
+    return {
+        "meta": document.meta.model_dump(mode="json"),
+        "blocks": [block.model_dump(mode="json") for block in document.blocks],
+        "format": fmt,
+    }
 
 
 def register_routes(bp: Blueprint):
     """Register all API routes on the given blueprint."""
 
-    def _generate_slug(title: str) -> str:
-        """Generate a slug from a title.
-
-        Lowercase, replace spaces with hyphens, strip non-alphanumeric
-        characters except hyphens.
-        """
-        slug = title.lower().replace(" ", "-")
-        slug = re.sub(r"[^a-z0-9-]", "", slug)
-        slug = slug.strip("-")
-        return slug
-
-    def _slug_exists(slug: str) -> bool:
-        """Check if a note with the given slug already exists."""
-        notes_dir = Path(get_notes_dir())
-        return (notes_dir / f"{slug}.md").exists()
-
-    def _make_unique_slug(base_slug: str) -> str:
-        """Return a slug that's guaranteed not to conflict with existing notes."""
-        slug = base_slug
-        counter = 1
-        while _slug_exists(slug):
-            slug = f"{base_slug}-{counter}"
-            counter += 1
-        return slug
-
-    def _write_note(slug: str, title: str, content: str, created: str) -> str:
-        """Write a note file and return the updated timestamp."""
-        notes_dir = Path(get_notes_dir())
-        updated = datetime.now(timezone.utc).isoformat()
-        file_path = notes_dir / f"{slug}.md"
-        file_content = f"---\ntitle: {title}\ncreated: {created}\nupdated: {updated}\n---\n{content}"
-        with open(file_path, "w") as f:
-            f.write(file_content)
-        return updated
-
-    def _read_note(slug: str) -> dict | None:
-        """Read a note file and return its data, or None if not found.
-
-        Raises on I/O or parse errors so callers can distinguish a missing
-        note from an unreadable one; route handlers catch and surface these.
-        """
-        notes_dir = Path(get_notes_dir())
-        file_path = notes_dir / f"{slug}.md"
-        if not file_path.exists():
-            return None
-        try:
-            with open(file_path, "r") as f:
-                raw = f.read()
-            metadata, body = parse_markdown_frontmatter(raw)
-        except (OSError, UnicodeDecodeError, ValueError) as e:
-            # Corrupt or unreadable note: propagate instead of masquerading
-            # as "not found", which would invite the caller to overwrite it.
-            raise RuntimeError(
-                f"Note '{slug}' exists but could not be read: {e}"
-            ) from e
-        return {
-            "slug": slug,
-            "title": metadata.get("title", slug),
-            "content": body,
-            "created": metadata.get("created", ""),
-            "updated": metadata.get("updated", ""),
-        }
-
     # -------------------------------------------------------------------------
-    # Routes
+    # Documents
     # -------------------------------------------------------------------------
 
     @bp.route("/api/notes")
     def list_notes():
-        """List all notes (excluding the scratchpad marker)."""
+        """List every document, one row per slug."""
         try:
-            notes_dir = Path(get_notes_dir())
-            notes = []
-            for file_path in notes_dir.glob("*.md"):
-                # Skip .scratchpad marker file
-                if file_path.name == ".scratchpad":
-                    continue
-                slug = file_path.stem  # filename without .md
-                try:
-                    with open(file_path, "r") as f:
-                        raw = f.read()
-                    metadata, _ = parse_markdown_frontmatter(raw)
-                    notes.append(
-                        {
-                            "slug": slug,
-                            "title": metadata.get("title", slug),
-                            "created": metadata.get("created", ""),
-                            "updated": metadata.get("updated", ""),
-                        }
-                    )
-                except Exception:
-                    # Skip files that can't be read
-                    continue
-            return jsonify({"notes": notes})
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
+            return jsonify({"notes": list_documents()})
+        except OSError as e:
+            return _error(f"Could not list notes: {e}", 500)
 
     @bp.route("/api/notes", methods=["POST"])
     def create_note():
-        """Create a new note."""
+        """Create a document.
+
+        A body of markdown is converted to blocks on the way in, so the browser's
+        "new note" path does not have to know the conversion rules.
+        """
+        data = request.get_json(silent=True) or {}
+        title = str(data.get("title") or "").strip()
+        if not title:
+            return _error("A document needs a title.", 400)
+
         try:
-            data = request.get_json() or {}
-            title = data.get("title", "")
-            content = data.get("content", "")
+            raw_blocks = data.get("blocks")
+            if raw_blocks is None:
+                # No blocks given: start from the markdown content if there is
+                # any, otherwise an empty document.
+                raw_blocks = markdown_to_blocks(str(data.get("content") or ""))
+            document = create_document(title, raw_blocks, author="user")
+        except BlockDataError as e:
+            return _error(str(e), 400)
+        except ValueError as e:
+            return _error(str(e), 400)
+        except OSError as e:
+            return _error(f"Could not create the note: {e}", 500)
 
-            if not title:
-                return jsonify({"error": "title is required"}), 400
+        return (
+            jsonify(
+                {
+                    "slug": document.meta.slug,
+                    "title": document.meta.title,
+                    "version": document.meta.version,
+                    "created": document.meta.created,
+                    "updated": document.meta.updated,
+                    "format": FORMAT_EDITORJS,
+                }
+            ),
+            201,
+        )
 
-            base_slug = _generate_slug(title)
-            slug = _make_unique_slug(base_slug)
-
-            # Check for exact duplicate (title results in exact slug with no suffix)
-            if slug == base_slug and _slug_exists(slug):
-                return jsonify({"error": "A note with this title already exists"}), 409
-
-            created = datetime.now(timezone.utc).isoformat()
-            updated = _write_note(slug, title, content, created)
-
-            return (
-                jsonify(
-                    {
-                        "slug": slug,
-                        "title": title,
-                        "created": created,
-                        "updated": updated,
-                    }
-                ),
-                201,
+    @bp.route("/api/notes/scratchpad")
+    def scratchpad_status():
+        """The pinned scratchpad's primary slug and title, plus the pinned list."""
+        try:
+            state = get_scratchpad_state()
+            primary = state["primary"]
+            title = None
+            if primary and resolve_format(primary) is not None:
+                title = load_document(primary).meta.title
+            return jsonify(
+                {"primary": primary, "title": title, "pinned": state["pinned"]}
             )
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
+        except (InvalidSlugError, InvalidDocumentError) as e:
+            return _error(str(e), 500)
+        except OSError as e:
+            return _error(f"Could not read the scratchpad marker: {e}", 500)
 
     @bp.route("/api/notes/<slug>")
     def get_note(slug: str):
-        """Read a specific note by slug."""
+        """Read one document. A legacy ``.md`` is served as a markdown document."""
+        invalid = _validate_slug(slug)
+        if invalid is not None:
+            return invalid
+
         try:
-            note = _read_note(slug)
-            if note is None:
-                return jsonify({"error": "Note not found"}), 404
-            return jsonify(note)
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
+            document, fmt = load_document(slug, with_format=True)
+        except InvalidSlugError as e:
+            return _error(str(e), 400)
+        except DocumentNotFoundError:
+            return _error(NOT_FOUND, 404)
+        except (InvalidDocumentError, OSError) as e:
+            return _error(f"Note '{slug}' exists but could not be read: {e}", 500)
+
+        return jsonify(_document_payload(document, fmt))
 
     @bp.route("/api/notes/<slug>", methods=["PUT"])
     def update_note(slug: str):
-        """Update an existing note."""
+        """Replace a block document's whole block list, or rename it.
+
+        A ``markdown`` document is refused: it has no block-level write path, and
+        writing one would create a ``.json`` beside the ``.md``.
+        """
+        invalid = _validate_slug(slug)
+        if invalid is not None:
+            return invalid
+
+        data = request.get_json(silent=True) or {}
+        expected = data.get("version")
+        if expected is None:
+            return _error("A version is required to update a document.", 400)
+
         try:
-            existing = _read_note(slug)
-            if existing is None:
-                return jsonify({"error": "Note not found"}), 404
+            current, fmt = load_document(slug, with_format=True)
+        except InvalidSlugError as e:
+            return _error(str(e), 400)
+        except DocumentNotFoundError:
+            return _error(NOT_FOUND, 404)
+        except (InvalidDocumentError, OSError) as e:
+            return _error(f"Note '{slug}' could not be read: {e}", 500)
 
-            data = request.get_json() or {}
-            new_title = data.get("title", existing["title"])
-            new_content = data.get("content", existing["content"])
+        if fmt == FORMAT_MARKDOWN:
+            return _error(MARKDOWN_WRITE_REFUSED, 409)
 
-            # Determine new slug if title changed
-            new_slug = _generate_slug(new_title)
-            if new_slug != slug:
-                # Title changed — need to check for conflicts
-                if _slug_exists(new_slug):
-                    return (
-                        jsonify({"error": "A note with this title already exists"}),
-                        409,
-                    )
-                new_slug = _make_unique_slug(new_slug)
+        meta = data.get("meta") or {}
+        new_title = (meta.get("title") or "").strip()
+        incoming = data.get("blocks")
+        renaming = bool(new_title) and new_title != current.meta.title
 
-            # If slug changed, delete old file and write new one
-            if new_slug != slug:
-                old_path = Path(get_notes_dir()) / f"{slug}.md"
-                if old_path.exists():
-                    old_path.unlink()
-                created = datetime.now(timezone.utc).isoformat()
-                updated = _write_note(new_slug, new_title, new_content, created)
-            else:
-                # Same slug — rewrite with updated timestamp
-                created = existing["created"]
-                updated = _write_note(slug, new_title, new_content, existing["created"])
+        # A rename moves every file for the slug, which has to happen before the
+        # document is written under its new name. It is done here rather than
+        # through a second locked write: one request is one transaction, so a
+        # title change and a block change in one PUT must produce ONE revision
+        # and ONE version bump.
+        target_slug = slug
+        if renaming:
+            target_slug = make_unique_slug(generate_slug(new_title))
+            if target_slug != slug:
+                try:
+                    rename_document_files(slug, target_slug)
+                except DocumentNotFoundError:
+                    return _error(NOT_FOUND, 404)
+                except (InvalidSlugError, ValueError) as e:
+                    return _error(str(e), 409)
+                _move_marker(slug, target_slug)
 
-            return jsonify(
-                {
-                    "slug": new_slug,
-                    "title": new_title,
-                    "created": created,
-                    "updated": updated,
-                }
-            )
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
+        def mutate(document):
+            if renaming:
+                document.meta.title = new_title
+                document.meta.slug = target_slug
+            if incoming is not None:
+                document.blocks = merged_blocks(document, incoming, "user")
+
+        document, error = _apply_locked(target_slug, expected, "user", mutate)
+        if error is not None:
+            return error
+        return jsonify(
+            {
+                "slug": target_slug,
+                "version": document.meta.version,
+                "updated": document.meta.updated,
+            }
+        )
 
     @bp.route("/api/notes/<slug>", methods=["DELETE"])
     def delete_note(slug: str):
-        """Delete a note by slug."""
+        """Delete every file for a slug, and clear the marker if it pointed here."""
+        invalid = _validate_slug(slug)
+        if invalid is not None:
+            return invalid
+
+        if not slug_exists(slug):
+            return _error(NOT_FOUND, 404)
+
         try:
-            notes_dir = Path(get_notes_dir())
-            file_path = notes_dir / f"{slug}.md"
-            if not file_path.exists():
-                return jsonify({"error": "Note not found"}), 404
+            delete_document_files(slug)
+        except DocumentDeletionError as e:
+            return _error(str(e), 500)
+        except InvalidSlugError as e:
+            return _error(str(e), 400)
+        except OSError as e:
+            return _error(f"Could not delete the note: {e}", 500)
 
-            # Check if this was the scratchpad
-            current_scratchpad = get_scratchpad_slug()
-            if current_scratchpad == slug:
-                set_scratchpad_slug(None)
+        # A marker left pointing at a deleted slug would aim the agent tools at a
+        # document that no longer exists.
+        state = get_scratchpad_state()
+        if state["primary"] == slug or slug in state["pinned"]:
+            primary = None if state["primary"] == slug else state["primary"]
+            pinned = [entry for entry in state["pinned"] if entry != slug]
+            set_scratchpad_state(primary, pinned)
 
-            file_path.unlink()
-            return jsonify({"success": True})
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
+        return jsonify({"success": True})
 
-    @bp.route("/api/notes/set-scratchpad", methods=["POST"])
-    def set_scratchpad():
-        """Set or clear the scratchpad note."""
+    # -------------------------------------------------------------------------
+    # Conversion and export
+    # -------------------------------------------------------------------------
+
+    @bp.route("/api/notes/<slug>/conversion-preview")
+    def conversion_preview(slug: str):
+        """What a conversion would produce, and what it would lose."""
+        invalid = _validate_slug(slug)
+        if invalid is not None:
+            return invalid
+
         try:
-            data = request.get_json() or {}
-            slug = data.get("slug")
+            document, fmt = load_document(slug, with_format=True)
+        except InvalidSlugError as e:
+            return _error(str(e), 400)
+        except DocumentNotFoundError:
+            return _error(NOT_FOUND, 404)
+        except (InvalidDocumentError, OSError) as e:
+            return _error(f"Note '{slug}' could not be read: {e}", 500)
 
-            if not slug:
-                # Clear the scratchpad marker
-                set_scratchpad_slug(None)
-                return jsonify({"slug": None})
+        if fmt == FORMAT_EDITORJS:
+            # Already converted: report the document's own state, never the
+            # stale backup's, so the UI does not offer conversion.
+            return jsonify(
+                {"lossy_features": [], "blocks_estimate": len(document.blocks)}
+            )
 
-            # Verify the note exists
-            if not _slug_exists(slug):
-                return jsonify({"error": "Note not found"}), 404
+        body = document.blocks[0].data.get("text", "") if document.blocks else ""
+        return jsonify(
+            {
+                "lossy_features": lossy_features(body),
+                "blocks_estimate": count_blocks(body),
+            }
+        )
 
-            set_scratchpad_slug(slug)
-            return jsonify({"slug": slug})
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
+    @bp.route("/api/notes/<slug>/convert", methods=["POST"])
+    def convert_note(slug: str):
+        """Convert a legacy markdown note to a block document.
 
-    @bp.route("/api/scratchpad-status")
-    def scratchpad_status():
-        """Get the current scratchpad status."""
+        The ``.md`` is kept as a backup and becomes inert afterwards. Re-running
+        this is a 409 rather than a re-conversion, so a slug can never hold two
+        live documents.
+        """
+        invalid = _validate_slug(slug)
+        if invalid is not None:
+            return invalid
+
+        if resolve_format(slug) == FORMAT_EDITORJS:
+            return _error(
+                "This note is already a block document; converting it again would "
+                "create a second document for the same slug.",
+                409,
+            )
+        if resolve_format(slug) is None:
+            return _error(NOT_FOUND, 404)
+
         try:
-            slug = get_scratchpad_slug()
-            title = None
-            if slug:
-                note = _read_note(slug)
-                if note:
-                    title = note.get("title")
-            return jsonify({"slug": slug, "title": title})
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
+            legacy = load_document(slug)
+        except (DocumentNotFoundError, InvalidDocumentError, OSError) as e:
+            return _error(f"Note '{slug}' could not be read: {e}", 500)
+
+        body = legacy.blocks[0].data.get("text", "") if legacy.blocks else ""
+        blocks = markdown_to_blocks(body)
+        title = legacy.meta.title or slug
+
+        # The converted document must KEEP the slug it was asked for, so it is the
+        # same document before and after conversion rather than a new one. The
+        # create path allocates a unique slug, which here collides with the very
+        # ``.md`` being converted, so the document is built directly under the
+        # intended slug instead of being created and then renamed.
+        try:
+            document = _build_document(slug, title, blocks)
+        except (BlockDataError, ValueError) as e:
+            return _error(str(e), 400)
+        except OSError as e:
+            return _error(f"Could not convert '{slug}': {e}", 500)
+
+        return jsonify(
+            {
+                "slug": slug,
+                "format": FORMAT_EDITORJS,
+                "converted_blocks": len(document.blocks),
+            }
+        )
+
+    @bp.route("/api/notes/<slug>/export")
+    def export_note(slug: str):
+        """Export as markdown. Read-only: no revision, no version bump."""
+        invalid = _validate_slug(slug)
+        if invalid is not None:
+            return invalid
+
+        try:
+            document, fmt = load_document(slug, with_format=True)
+        except InvalidSlugError as e:
+            return _error(str(e), 400)
+        except DocumentNotFoundError:
+            return _error(NOT_FOUND, 404)
+        except (InvalidDocumentError, OSError) as e:
+            return _error(f"Note '{slug}' could not be read: {e}", 500)
+
+        if fmt == FORMAT_MARKDOWN:
+            body = document.blocks[0].data.get("text", "") if document.blocks else ""
+            text = export_legacy(
+                body,
+                document.meta.title,
+                document.meta.created,
+                document.meta.updated,
+            )
+        else:
+            text = export_markdown(document)
+
+        disposition = "attachment" if request.args.get("download") == "1" else "inline"
+        return Response(
+            text,
+            mimetype="text/markdown",
+            headers={
+                "Content-Disposition": f'{disposition}; filename="{slug}.md"',
+            },
+        )
+
+    # -------------------------------------------------------------------------
+    # Pinning
+    # -------------------------------------------------------------------------
+
+    @bp.route("/api/notes/<slug>/pin", methods=["POST"])
+    def pin_note(slug: str):
+        """Pin a document as the scratchpad, or unpin it.
+
+        Pinning a legacy ``.md`` is allowed: it becomes the scratchpad and the
+        agent tools then refuse with the markdown message. Refusing to pin it
+        would give the user no way to reach a note they can still read.
+        """
+        invalid = _validate_slug(slug)
+        if invalid is not None:
+            return invalid
+
+        if resolve_format(slug) is None:
+            return _error(NOT_FOUND, 404)
+
+        data = request.get_json(silent=True) or {}
+        pinned = bool(data.get("pinned", True))
+        state = get_scratchpad_state()
+
+        if pinned:
+            entries = list(state["pinned"])
+            if slug not in entries:
+                entries.append(slug)
+            set_scratchpad_state(slug, entries)
+        else:
+            primary = None if state["primary"] == slug else state["primary"]
+            entries = [entry for entry in state["pinned"] if entry != slug]
+            set_scratchpad_state(primary, entries)
+
+        fresh = get_scratchpad_state()
+        return jsonify({"primary": fresh["primary"], "pinned": fresh["pinned"]})
+
+    # -------------------------------------------------------------------------
+    # Blocks
+    # -------------------------------------------------------------------------
+
+    @bp.route("/api/notes/<slug>/blocks")
+    def get_blocks(slug: str):
+        """Read blocks, optionally filtered by type or index range."""
+        invalid = _validate_slug(slug)
+        if invalid is not None:
+            return invalid
+
+        try:
+            document, fmt = load_document(slug, with_format=True)
+        except InvalidSlugError as e:
+            return _error(str(e), 400)
+        except DocumentNotFoundError:
+            return _error(NOT_FOUND, 404)
+        except (InvalidDocumentError, OSError) as e:
+            return _error(f"Note '{slug}' could not be read: {e}", 500)
+
+        block_type = request.args.get("type")
+        start = request.args.get("start", type=int)
+        end = request.args.get("end", type=int)
+
+        try:
+            selected = read_blocks(
+                document, block_type=block_type, start=start, end=end
+            )
+        except ValueError as e:
+            return _error(str(e), 400)
+
+        return jsonify(
+            {
+                "version": document.meta.version,
+                "format": fmt,
+                "blocks": [block.model_dump(mode="json") for block in selected],
+            }
+        )
+
+    @bp.route("/api/notes/<slug>/blocks/<block_id>", methods=["PATCH"])
+    def patch_block(slug: str, block_id: str):
+        """Replace one block's data, keeping its id."""
+        data = request.get_json(silent=True) or {}
+        expected = data.get("version")
+        if expected is None:
+            return _error("A version is required to update a block.", 400)
+        block_type = data.get("block_type")
+        if not block_type:
+            return _error("block_type is required.", 400)
+        if "data" not in data:
+            return _error("data is required.", 400)
+
+        def mutate(document):
+            replace_block(
+                document,
+                block_id,
+                data=data.get("data") or {},
+                author="user",
+                block_type=block_type,
+            )
+
+        document, error = _apply_locked(slug, expected, "user", mutate)
+        if error is not None:
+            return error
+        return jsonify(
+            {
+                "version": document.meta.version,
+                "block": document.get_block(block_id).model_dump(mode="json"),
+            }
+        )
+
+    @bp.route("/api/notes/<slug>/blocks", methods=["POST"])
+    def add_block(slug: str):
+        """Insert a new block, after an anchor or at the end."""
+        data = request.get_json(silent=True) or {}
+        expected = data.get("version")
+        if expected is None:
+            return _error("A version is required to add a block.", 400)
+        block_type = data.get("block_type")
+        if not block_type:
+            return _error("block_type is required.", 400)
+
+        created: dict = {}
+
+        def mutate(document):
+            block = insert_block(
+                document,
+                block_type=block_type,
+                data=data.get("data") or {},
+                author="user",
+                after_block_id=data.get("after_block_id"),
+            )
+            created["block"] = block
+
+        document, error = _apply_locked(slug, expected, "user", mutate)
+        if error is not None:
+            return error
+        return (
+            jsonify(
+                {
+                    "version": document.meta.version,
+                    "block": document.get_block(created["block"].id).model_dump(
+                        mode="json"
+                    ),
+                }
+            ),
+            201,
+        )
+
+    @bp.route("/api/notes/<slug>/blocks/<block_id>", methods=["DELETE"])
+    def remove_block(slug: str, block_id: str):
+        """Delete one block."""
+        expected = request.args.get("version", type=int)
+        if expected is None:
+            return _error("A version is required to delete a block.", 400)
+
+        def mutate(document):
+            delete_block(document, block_id)
+
+        document, error = _apply_locked(slug, expected, "user", mutate)
+        if error is not None:
+            return error
+        return jsonify({"version": document.meta.version, "deleted": block_id})
+
+    @bp.route("/api/notes/<slug>/blocks/<block_id>/move", methods=["POST"])
+    def reorder_block(slug: str, block_id: str):
+        """Move one block to a new position."""
+        data = request.get_json(silent=True) or {}
+        expected = data.get("version")
+        if expected is None:
+            return _error("A version is required to move a block.", 400)
+
+        def mutate(document):
+            move_block(document, block_id, after_block_id=data.get("after_block_id"))
+
+        document, error = _apply_locked(slug, expected, "user", mutate)
+        if error is not None:
+            return error
+        return jsonify({"version": document.meta.version, "block_id": block_id})
+
+    # -------------------------------------------------------------------------
+    # Revisions
+    # -------------------------------------------------------------------------
+
+    @bp.route("/api/notes/<slug>/revisions")
+    def list_revisions(slug: str):
+        """Read a document's revisions, newest first."""
+        invalid = _validate_slug(slug)
+        if invalid is not None:
+            return invalid
+
+        if resolve_format(slug) is None:
+            return _error(NOT_FOUND, 404)
+
+        try:
+            revisions = read_revisions(
+                slug,
+                limit=request.args.get("limit", type=int),
+                since_id=request.args.get("since_id", type=int),
+                author=request.args.get("author"),
+            )
+        except InvalidSlugError as e:
+            return _error(str(e), 400)
+        except OSError as e:
+            return _error(f"Could not read revisions: {e}", 500)
+
+        return jsonify({"revisions": revisions, "total": count_revisions(slug)})
+
+    @bp.route("/api/notes/<slug>/revisions/<int:revision_id>")
+    def show_revision(slug: str, revision_id: int):
+        """One revision by id."""
+        invalid = _validate_slug(slug)
+        if invalid is not None:
+            return invalid
+
+        try:
+            return jsonify({"revision": get_revision(slug, revision_id)})
+        except RevisionNotFoundError as e:
+            return _error(str(e), 404)
+        except InvalidSlugError as e:
+            return _error(str(e), 400)
+        except OSError as e:
+            return _error(f"Could not read revisions: {e}", 500)
+
+    @bp.route("/api/notes/<slug>/revisions/<int:revision_id>/revert", methods=["POST"])
+    def revert(slug: str, revision_id: int):
+        """Restore the state as of before ``revision_id``, as a new revision."""
+        invalid = _validate_slug(slug)
+        if invalid is not None:
+            return invalid
+
+        data = request.get_json(silent=True) or {}
+        expected = data.get("version")
+        if expected is None:
+            return _error("A version is required to revert.", 400)
+
+        # The format is checked before the revision is looked up. A markdown note
+        # keeps no revision log, so a lookup-first order would answer 404 ("no such
+        # revision") for a document that is present and readable, hiding the real
+        # reason: a markdown document has no block-level write path at all.
+        try:
+            _document, fmt = load_document(slug, with_format=True)
+        except InvalidSlugError as e:
+            return _error(str(e), 400)
+        except DocumentNotFoundError:
+            return _error(NOT_FOUND, 404)
+        except (InvalidDocumentError, OSError) as e:
+            return _error(f"Note '{slug}' could not be read: {e}", 500)
+        if fmt == FORMAT_MARKDOWN:
+            return _error(MARKDOWN_WRITE_REFUSED, 409)
+
+        try:
+            document, _entry = revert_document(
+                slug, revision_id, expected_version=expected
+            )
+        except RevisionNotFoundError as e:
+            return _error(str(e), 404)
+        except InvalidSlugError as e:
+            return _error(str(e), 400)
+        except DocumentNotFoundError:
+            return _error(NOT_FOUND, 404)
+        except MarkdownDocumentError:
+            return _error(MARKDOWN_WRITE_REFUSED, 409)
+        except StaleVersionError as e:
+            return _error(str(e), 409)
+        except OSError as e:
+            return _error(f"Could not revert: {e}", 500)
+
+        return jsonify(
+            {
+                "slug": slug,
+                "version": document.meta.version,
+                "updated": document.meta.updated,
+            }
+        )
+
+    # -------------------------------------------------------------------------
+    # Settings for the frontend
+    # -------------------------------------------------------------------------
+
+    @bp.route("/api/notes/settings")
+    def notes_settings():
+        """The intervals and mode the frontend needs, so they are not hardcoded."""
+        from wichy.config import settings as app_settings
+
+        return jsonify(
+            {
+                "poll_interval_ms": app_settings.notes_poll_interval_ms,
+                "change_debounce_ms": app_settings.notes_change_debounce_ms,
+                "save_debounce_ms": app_settings.notes_save_debounce_ms,
+                "notification_mode": app_settings.notification_default_mode,
+            }
+        )
+
+
+__all__ = ["register_routes"]
