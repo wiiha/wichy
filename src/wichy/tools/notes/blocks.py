@@ -22,7 +22,7 @@ import re
 import threading
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Generator, Iterable, Literal, Mapping, overload
+from typing import Any, Callable, Generator, Iterable, Literal, Mapping, overload
 
 from wichy.tools.file_safety import atomic_write
 from wichy.tools.notes.models import (
@@ -338,9 +338,28 @@ def save_document(document: BlockDocument) -> None:
     )
 
 
+def block_snapshot_of(document: BlockDocument) -> list[dict[str, Any]]:
+    """Ordered ``{id, type, data}`` view of a document, for diffing.
+
+    Kept here rather than imported from ``revisions`` because ``revisions``
+    imports this module; a module-scope import in this direction would be
+    circular.
+    """
+    return [
+        {"id": block.id, "type": block.type, "data": dict(block.data)}
+        for block in document.blocks
+    ]
+
+
 @contextmanager
 def locked_document(
-    slug: str, expected_version: int | None = None
+    slug: str,
+    expected_version: int | None = None,
+    *,
+    author: Author,
+    summary: str | None = None,
+    extra_ops: Iterable[Mapping[str, Any]] = (),
+    on_commit: Callable[[BlockDocument, dict], None] | None = None,
 ) -> Generator[BlockDocument, None, None]:
     """Hold the document lock across a read, an optional version check and a write.
 
@@ -352,6 +371,21 @@ def locked_document(
         slug: A valid slug naming an ``editorjs`` document.
         expected_version: The version the caller believes is current. A
             mismatch raises before the body runs.
+        author: Who is making the change. Required, and not defaulted on
+            purpose: every mutation must record exactly one revision entry, and
+            a default would let a caller omit it and silently break that. The
+            entry is diffed from the document as loaded to the document as left
+            by the body, so one request is one version bump is one entry by
+            construction rather than by each caller remembering to record one.
+        summary: Override the generated revision summary.
+        extra_ops: Additional ops to include in the recorded entry, for changes
+            the block diff cannot express -- notably a revert, whose marker
+            records that the change was a deliberate rollback.
+        on_commit: Called with the finished document and the revision entry
+            about to be written, after the body returns but before either is
+            persisted, so state that must be committed together with the version
+            bump can be. A raise from it aborts the write and the append, so
+            nothing is recorded.
 
     Yields:
         The loaded document.
@@ -392,14 +426,49 @@ def locked_document(
             ):
                 raise StaleVersionError(expected_version, document.meta.version)
 
+            # Captured before the body runs, so the recorded entry describes
+            # what this request actually changed.
+            before = block_snapshot_of(document)
+
             yield document
 
             # One bump for the whole body, whatever it touched. Reached only if
             # the body completed: a raise at the yield skips it, so a rejected
             # change leaves the document untouched.
             document.meta.version += 1
+            document.meta.last_author = author
+
+            from wichy.tools.notes.revisions import (
+                append_entry,
+                diff_ops,
+                prepare_revision,
+            )
+
+            # The entry is allocated here rather than by the caller, so "one
+            # mutation is one version bump is one revision" holds by
+            # construction. Diffed inside the lock, and one body cannot record
+            # two entries.
+            entry = prepare_revision(
+                document,
+                author=author,
+                ops=[*extra_ops, *diff_ops(before, block_snapshot_of(document))],
+                summary=summary,
+            )
+            if on_commit is not None:
+                # Runs before the write, so anything it changes in meta lands in
+                # the same atomic write as the version bump. A raise here aborts
+                # without writing, and without appending the entry either.
+                on_commit(document, entry)
+
+            # Order matters. The document (carrying the advanced counter) is
+            # written FIRST, then the entry is appended. A crash in between then
+            # leaves the counter ahead of the log -- a gap, which is recoverable.
+            # The reverse order would leave an entry whose id the counter will
+            # hand out again, producing duplicate ids that no reader can
+            # disambiguate.
             save_document(document)
             set_doc_version(slug, document.meta.version)
+            append_entry(slug, entry)
         finally:
             held.discard(slug)
 
@@ -456,11 +525,24 @@ def create_document(
     # serialise. The allocation lock is held across the choice AND the write, so
     # a name cannot be claimed by two creators. It is always taken before the
     # document lock and never after, so the two cannot deadlock.
+    #
+    # Revision 1 is written here as a full snapshot. Without it the log would
+    # begin with a change from an unknown baseline, so replay could never
+    # rebuild the document and a revert to the beginning would have nothing to
+    # restore.
+    from wichy.tools.notes.revisions import append_entry as append_revision
+    from wichy.tools.notes.revisions import baseline_entry
+
     with _SLUG_ALLOCATION_LOCK:
         document.meta.slug = make_unique_slug(document.meta.slug)
         with get_doc_lock(document.meta.slug):
+            # Same order as locked_document: write the document first, then
+            # append. A crash in between must not leave an entry with an id the
+            # counter will hand out again.
+            entry = baseline_entry(document)
             save_document(document)
             set_doc_version(document.meta.slug, document.meta.version)
+            append_revision(document.meta.slug, entry)
     return document
 
 
