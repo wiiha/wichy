@@ -255,7 +255,7 @@ class TestBlockCrud:
     def test_replace_keeps_block_id(self, notes_dir):
         document = self._doc()
         block_id = document.blocks[0].id
-        with locked_document(document.meta.slug, 1) as doc:
+        with locked_document(document.meta.slug, 1, author="user") as doc:
             replace_block(doc, block_id, data={"text": "changed"}, author="agent")
 
         reloaded = load_document(document.meta.slug)
@@ -265,7 +265,7 @@ class TestBlockCrud:
     def test_insert_generates_a_new_id(self, notes_dir):
         document = self._doc()
         existing = {b.id for b in document.blocks}
-        with locked_document(document.meta.slug, 1) as doc:
+        with locked_document(document.meta.slug, 1, author="user") as doc:
             inserted = insert_block(
                 doc, block_type="todo", data={"text": "new"}, author="agent"
             )
@@ -276,7 +276,7 @@ class TestBlockCrud:
     def test_insert_after_anchor_places_correctly(self, notes_dir):
         document = self._doc()
         anchor = document.blocks[0].id
-        with locked_document(document.meta.slug, 1) as doc:
+        with locked_document(document.meta.slug, 1, author="user") as doc:
             insert_block(
                 doc,
                 block_type="todo",
@@ -290,7 +290,7 @@ class TestBlockCrud:
     def test_insert_after_missing_anchor_is_rejected(self, notes_dir):
         document = self._doc()
         with pytest.raises(BlockNotFoundError):
-            with locked_document(document.meta.slug, 1) as doc:
+            with locked_document(document.meta.slug, 1, author="user") as doc:
                 insert_block(
                     doc,
                     block_type="todo",
@@ -302,7 +302,7 @@ class TestBlockCrud:
     def test_delete_removes_block(self, notes_dir):
         document = self._doc()
         first = document.blocks[0].id
-        with locked_document(document.meta.slug, 1) as doc:
+        with locked_document(document.meta.slug, 1, author="user") as doc:
             delete_block(doc, first)
         reloaded = load_document(document.meta.slug)
         assert [b.type for b in reloaded.blocks] == ["header"]
@@ -310,13 +310,13 @@ class TestBlockCrud:
     def test_delete_missing_block_is_rejected(self, notes_dir):
         document = self._doc()
         with pytest.raises(BlockNotFoundError):
-            with locked_document(document.meta.slug, 1) as doc:
+            with locked_document(document.meta.slug, 1, author="user") as doc:
                 delete_block(doc, "blk-nope")
 
     def test_move_reorders(self, notes_dir):
         document = self._doc()
         first, second = document.blocks[0].id, document.blocks[1].id
-        with locked_document(document.meta.slug, 1) as doc:
+        with locked_document(document.meta.slug, 1, author="user") as doc:
             move_block(doc, first, after_block_id=second)
         reloaded = load_document(document.meta.slug)
         assert [b.id for b in reloaded.blocks] == [second, first]
@@ -324,7 +324,7 @@ class TestBlockCrud:
     def test_move_to_end(self, notes_dir):
         document = self._doc()
         first, second = document.blocks[0].id, document.blocks[1].id
-        with locked_document(document.meta.slug, 1) as doc:
+        with locked_document(document.meta.slug, 1, author="user") as doc:
             move_block(doc, first, after_block_id=None)
         reloaded = load_document(document.meta.slug)
         assert [b.id for b in reloaded.blocks] == [second, first]
@@ -333,14 +333,14 @@ class TestBlockCrud:
         document = self._doc()
         first = document.blocks[0].id
         with pytest.raises(ValueError):
-            with locked_document(document.meta.slug, 1) as doc:
+            with locked_document(document.meta.slug, 1, author="user") as doc:
                 move_block(doc, first, after_block_id=first)
 
     def test_replace_rejects_invalid_data_and_leaves_document_intact(self, notes_dir):
         document = self._doc()
         first = document.blocks[0].id
         with pytest.raises(BlockDataError):
-            with locked_document(document.meta.slug, 1) as doc:
+            with locked_document(document.meta.slug, 1, author="user") as doc:
                 replace_block(doc, first, data={"nope": 1}, author="agent")
 
         # The rejection happened before the body completed, so the version must
@@ -357,11 +357,11 @@ class TestBlockCrud:
         # as having touched this block before the agent ever sees it.
         assert load_document(document.meta.slug).blocks[0].meta.touched_by == ["user"]
 
-        with locked_document(document.meta.slug, 1) as doc:
+        with locked_document(document.meta.slug, 1, author="user") as doc:
             replace_block(doc, first, data={"text": "a"}, author="agent")
-        with locked_document(document.meta.slug, 2) as doc:
+        with locked_document(document.meta.slug, 2, author="user") as doc:
             replace_block(doc, first, data={"text": "b"}, author="user")
-        with locked_document(document.meta.slug, 3) as doc:
+        with locked_document(document.meta.slug, 3, author="user") as doc:
             replace_block(doc, first, data={"text": "c"}, author="agent")
 
         block = load_document(document.meta.slug).blocks[0]
@@ -439,7 +439,7 @@ class TestVersioning:
             ],
         )
         ids = [b.id for b in document.blocks]
-        with locked_document(document.meta.slug, 1) as doc:
+        with locked_document(document.meta.slug, 1, author="user") as doc:
             for block_id in ids:
                 replace_block(doc, block_id, data={"text": "x"}, author="user")
 
@@ -451,11 +451,11 @@ class TestVersioning:
         document = create_document(
             "Stale", [{"type": "paragraph", "data": {"text": "a"}}]
         )
-        with locked_document(document.meta.slug, 1) as doc:
+        with locked_document(document.meta.slug, 1, author="user") as doc:
             replace_block(doc, doc.blocks[0].id, data={"text": "b"}, author="user")
 
         with pytest.raises(StaleVersionError) as err:
-            with locked_document(document.meta.slug, 1) as doc:
+            with locked_document(document.meta.slug, 1, author="user") as doc:
                 replace_block(doc, doc.blocks[0].id, data={"text": "c"}, author="user")
         assert err.value.expected == 1
         assert err.value.actual == 2
@@ -470,7 +470,7 @@ class TestVersioning:
         )
         before = document.meta.updated
         time.sleep(0.01)
-        with locked_document(document.meta.slug, 1) as doc:
+        with locked_document(document.meta.slug, 1, author="user") as doc:
             replace_block(doc, doc.blocks[0].id, data={"text": "b"}, author="user")
         assert load_document(document.meta.slug).meta.updated > before
 
@@ -489,7 +489,7 @@ class TestVersioning:
         outcome: list[str] = []
 
         def first():
-            with locked_document(document.meta.slug, 1) as doc:
+            with locked_document(document.meta.slug, 1, author="user") as doc:
                 entered.set()
                 release.wait(timeout=5)
                 replace_block(
@@ -503,7 +503,7 @@ class TestVersioning:
             # exclusion: if the lock were absent this would proceed immediately.
             blocked.set()
             try:
-                with locked_document(document.meta.slug, 1) as doc:
+                with locked_document(document.meta.slug, 1, author="user") as doc:
                     replace_block(
                         doc, doc.blocks[0].id, data={"text": "second"}, author="user"
                     )
@@ -533,18 +533,18 @@ class TestVersioning:
     def test_markdown_document_refuses_block_writes(self, notes_dir):
         (notes_dir / "legacy.md").write_text("# Legacy\n\nbody\n", encoding="utf-8")
         with pytest.raises(MarkdownDocumentError) as err:
-            with locked_document("legacy", 1):
+            with locked_document("legacy", 1, author="user"):
                 pass
         assert str(err.value) == MARKDOWN_WRITE_REFUSED
 
     def test_missing_document_is_not_found(self, notes_dir):
         with pytest.raises(DocumentNotFoundError):
-            with locked_document("nope", 1):
+            with locked_document("nope", 1, author="user"):
                 pass
 
     def test_invalid_slug_is_rejected_before_any_io(self, notes_dir):
         with pytest.raises(InvalidSlugError):
-            with locked_document("bad.slug", 1):
+            with locked_document("bad.slug", 1, author="user"):
                 pass
 
 
@@ -600,7 +600,7 @@ class TestSlugIdentity:
         backup = notes_dir / "preserve.md"
         backup.write_text("markdown body", encoding="utf-8")
 
-        with locked_document("preserve", 1) as doc:
+        with locked_document("preserve", 1, author="user") as doc:
             replace_block(doc, doc.blocks[0].id, data={"text": "edited"}, author="user")
 
         # Byte-identical, and the edit landed in the .json.
@@ -609,7 +609,7 @@ class TestSlugIdentity:
 
     def test_a_json_only_mutation_creates_no_md(self, notes_dir):
         create_document("No Backup", [{"type": "paragraph", "data": {"text": "x"}}])
-        with locked_document("no-backup", 1) as doc:
+        with locked_document("no-backup", 1, author="user") as doc:
             replace_block(doc, doc.blocks[0].id, data={"text": "y"}, author="user")
         assert not (notes_dir / "no-backup.md").exists()
 
@@ -1096,8 +1096,8 @@ class TestNestedLockIsRefused:
         """The lock is re-entrant, so a nested body would be silently clobbered."""
         create_document("Nest", [{"type": "paragraph", "data": {"text": "x"}}])
         with pytest.raises(ValueError) as err:
-            with locked_document("nest", 1):
-                with locked_document("nest", 1):
+            with locked_document("nest", 1, author="user"):
+                with locked_document("nest", 1, author="user"):
                     pass
         assert "already open" in str(err.value)
 
@@ -1105,11 +1105,11 @@ class TestNestedLockIsRefused:
         """A failed body must not leave the slug permanently 'open'."""
         create_document("Release", [{"type": "paragraph", "data": {"text": "x"}}])
         with pytest.raises(ValueError):
-            with locked_document("release", 1):
+            with locked_document("release", 1, author="user"):
                 raise ValueError("boom")
 
         # Usable again afterwards.
-        with locked_document("release", 1) as doc:
+        with locked_document("release", 1, author="user") as doc:
             replace_block(doc, doc.blocks[0].id, data={"text": "y"}, author="user")
         assert load_document("release").meta.version == 2
 
@@ -1121,7 +1121,7 @@ class TestNestedLockIsRefused:
 
         def run(version: int) -> None:
             try:
-                with locked_document("threads", version) as doc:
+                with locked_document("threads", version, author="user") as doc:
                     seen.append(version)
                     replace_block(
                         doc,
