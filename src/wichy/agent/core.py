@@ -6,10 +6,21 @@ shared functionality between RootAgent and TaskAgent.
 """
 
 import json
+import threading
 import time
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
+from contextlib import contextmanager
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    Generator,
+    List,
+    Optional,
+    Tuple,
+)
 
 from wichy.agent.loop_detector import LoopDetector, compute_signature
 from wichy.config import settings
@@ -24,6 +35,83 @@ from wichy.helpers.multimodal import (
 if TYPE_CHECKING:
     from wichy.llm_backend import Message, called_tool
     from wichy.tools.base import BaseTool
+
+
+#: Observers notified when an agent turn starts and ends. A turn observer is a
+#: pair of callables ``(on_start, on_end)``. Both take the agent instance.
+#: Features subscribe here rather than editing agent code, so adding a feature
+#: never means touching this module.
+_TurnObserver = Tuple[Callable[["AgentCore"], None], Callable[["AgentCore"], None]]
+
+#: Process-wide observer list. Registration happens at import/setup time, well
+#: before any turn runs. Mutations take _observers_lock and rebind the list
+#: rather than mutating in place, so a concurrent reader always sees a
+#: consistent list without needing the lock.
+_turn_observers: List[_TurnObserver] = []
+_observers_lock = threading.Lock()
+
+
+def _snapshot_observers() -> List[_TurnObserver]:
+    """Return the current observer list.
+
+    Registration rebinds rather than appends, so this read is atomic without a
+    lock and cannot observe a half-built list.
+
+    Returns:
+        The registered observer pairs.
+    """
+    return _turn_observers
+
+
+def on_turn_started(observer: Callable[["AgentCore"], None]) -> None:
+    """Register a callback fired when any agent turn begins.
+
+    Args:
+        observer: Called with the agent instance, before the turn body runs.
+    """
+    global _turn_observers
+    with _observers_lock:
+        _turn_observers = _turn_observers + [(observer, lambda agent: None)]
+
+
+def on_turn_ended(observer: Callable[["AgentCore"], None]) -> None:
+    """Register a callback fired when any agent turn ends, however it ended.
+
+    The callback runs from a ``finally``, so it fires on success, on a raised
+    exception, and on cancellation. Use it for anything that must be released
+    or reported when a turn is over.
+
+    Args:
+        observer: Called with the agent instance, after the turn body exits.
+    """
+    global _turn_observers
+    with _observers_lock:
+        _turn_observers = _turn_observers + [(lambda agent: None, observer)]
+
+
+def observe_turns(
+    on_start: Callable[["AgentCore"], None],
+    on_end: Callable[["AgentCore"], None],
+) -> None:
+    """Register a matched pair of turn callbacks in one call.
+
+    Prefer this over separate :func:`on_turn_started` / :func:`on_turn_ended`
+    calls, so a start can never be registered without its matching end.
+
+    Args:
+        on_start: Called before the turn body runs.
+        on_end: Called after the turn body exits, successfully or not.
+    """
+    global _turn_observers
+    with _observers_lock:
+        _turn_observers = _turn_observers + [(on_start, on_end)]
+
+
+def clear_turn_observers() -> None:
+    """Remove every turn observer. Used for test isolation and re-setup."""
+    global _turn_observers
+    with _observers_lock:
+        _turn_observers = []
 
 
 class AgentCore(ABC):
@@ -46,6 +134,47 @@ class AgentCore(ABC):
 
         # Loop detection — each agent instance gets its own detector
         self.loop_detector = LoopDetector()
+
+    @contextmanager
+    def turn_scope(self) -> Generator[None, None, None]:
+        """Frame one turn: notify turn observers, then guarantee an end notice.
+
+        Wrap the body of a turn in this. The end notification is in a
+        ``finally``, so a caller that needs "is this agent working" gets a
+        correct answer even when the turn raises.
+
+        Observer callbacks are isolated: one raising cannot break the turn or
+        stop the other observers from running. They are for observation only,
+        so a broken observer must never be able to break the agent.
+
+        Yields:
+            None. The wrapped body's return value is unaffected.
+        """
+        observers = _snapshot_observers()
+        self._notify_turn_observers(observers, index=0)
+        try:
+            yield
+        finally:
+            self._notify_turn_observers(observers, index=1)
+
+    def _notify_turn_observers(
+        self, observers: List[_TurnObserver], index: int
+    ) -> None:
+        """Fire the *index*-th callable of each observer pair, ignoring errors.
+
+        Args:
+            observers: The snapshot taken when the turn started, so a turn
+                observes a stable set even if registration happens mid-turn.
+            index: 0 for the start callback, 1 for the end callback.
+        """
+        for pair in observers:
+            callback = pair[index]
+            try:
+                callback(self)
+            except Exception as e:
+                # Deliberately swallowed and reported, never raised: a broken
+                # observer must not take down a turn in progress.
+                print(f"[wichy] turn observer failed: {e}")
 
     def _emit_event(self, event_type: str, payload: Dict[str, Any]) -> None:
         """Hook for subclasses to emit events. Default does nothing."""

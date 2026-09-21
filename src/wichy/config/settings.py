@@ -144,6 +144,28 @@ class Settings(BaseSettings):
     result_offload_max_validation_retries: int = 2
 
     # -------------------------------------------------------------------------
+    # Notes / Block Editor Configuration
+    # -------------------------------------------------------------------------
+
+    # How often the browser polls for agent-applied document changes (ms)
+    notes_poll_interval_ms: int = 2000
+
+    # Quiet period before a browser edit is auto-notified to the agent (ms)
+    notes_change_debounce_ms: int = 1000
+
+    # Quiet period before a browser edit is auto-saved (ms)
+    notes_save_debounce_ms: int = 2000
+
+    # Initial change-notification mode; "auto" or a manual mode
+    notification_default_mode: str = "auto"
+
+    # Revision entries written before the log is rotated
+    notes_revisions_max_count: int = 500
+
+    # Rotated revision logs kept after rotation (count-based, not age-based)
+    notes_revisions_retention: int = 5
+
+    # -------------------------------------------------------------------------
     # Loop Detection Configuration
     # -------------------------------------------------------------------------
 

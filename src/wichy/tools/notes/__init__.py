@@ -29,6 +29,12 @@ def register(app):
     # because the easymde dir uses the same root as the blueprint's __file__)
     bp.static_folder = _get_easymde_dir()
 
+    # Subscribe the busy indicator to agent turn boundaries. Done here because
+    # registration happens at app setup in every mode, before any turn starts.
+    from .busy import install_busy_observer
+
+    install_busy_observer()
+
     # Import and register API routes on this blueprint
     from . import api
 

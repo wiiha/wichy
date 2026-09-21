@@ -230,6 +230,14 @@ class RootAgent(AgentCore):
         )
 
     def process(self, line: str) -> str:
+        # Generic turn framing: notify observers that a turn is starting, and
+        # guarantee an end notification whatever the outcome. The finally is
+        # the point -- an error path must still close the turn, or anything
+        # watching turn state stays stuck "in flight" forever.
+        with self.turn_scope():
+            return self._process_turn(line)
+
+    def _process_turn(self, line: str) -> str:
         HookExecutor.run_context_hooks(
             HookType.PRE_USER_MESSAGE,
             root_agent=self,
