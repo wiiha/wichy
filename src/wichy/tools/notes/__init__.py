@@ -56,36 +56,91 @@ def get_notes_dir():
     return str(notes_dir)
 
 
-def get_scratchpad_slug():
-    """Read the current scratchpad slug from the marker file.
+def get_scratchpad_state() -> dict:
+    """Read the scratchpad marker.
+
+    The marker has two fields:
+
+    - ``primary`` -- the one agent scratchpad. This is the only field that
+      decides which document the agent tools edit; a marker listing several
+      pinned documents does not make several of them editable.
+    - ``pinned`` -- presentation state for the sidebar's pinned marker.
+
+    A legacy ``{"slug": ...}`` marker is still read, so an existing pin keeps
+    working across the upgrade.
 
     Returns:
-        str or None: The slug string if the marker file exists and is valid,
-                     None otherwise.
+        dict: ``{"primary": str | None, "pinned": list[str]}``. An absent or
+        unreadable marker reads as unpinned, which is the normal state.
     """
     marker_path = settings.scratchpad_marker_path
     if marker_path.exists():
         try:
             with open(marker_path, "r") as f:
                 data = json.load(f)
-            if isinstance(data, dict) and "slug" in data:
-                return data["slug"]
+            if isinstance(data, dict):
+                if "primary" in data:
+                    primary = data["primary"]
+                else:
+                    # Legacy marker: a single slug, or an explicit null.
+                    primary = data.get("slug")
+                pinned = data.get("pinned")
+                return {
+                    "primary": primary or None,
+                    "pinned": (
+                        [s for s in pinned if s] if isinstance(pinned, list) else []
+                    ),
+                }
         except (json.JSONDecodeError, IOError):
             pass
-    return None
+    return {"primary": None, "pinned": []}
 
 
-def set_scratchpad_slug(slug: str | None) -> None:
-    """Write the scratchpad slug to the marker file.
+def get_scratchpad_slug():
+    """Read the primary scratchpad slug from the marker file.
+
+    Returns:
+        str or None: The slug string if the marker file exists and is valid,
+                     None otherwise.
+    """
+    return get_scratchpad_state()["primary"]
+
+
+def set_scratchpad_state(primary: str | None, pinned: list[str] | None = None) -> None:
+    """Write the scratchpad marker.
+
+    Clearing writes explicit nulls rather than deleting the file, matching how
+    the marker has always been cleared, so a cleared pin is distinguishable
+    from a marker that was never written.
 
     The notes directory must already exist (call get_notes_dir() first).
 
     Args:
-        slug: The slug string to persist, or None to clear.
+        primary: The slug to pin, or None to clear.
+        pinned: The pinned-display list. Entries are de-duplicated, and the
+            primary slug is always included so the sidebar marker and the
+            agent's actual target cannot disagree.
     """
     marker_path = settings.scratchpad_marker_path
+    entries: list[str] = []
+    for slug in list(pinned or []) + ([primary] if primary else []):
+        if slug and slug not in entries:
+            entries.append(slug)
     try:
         with open(marker_path, "w") as f:
-            json.dump({"slug": slug}, f)
+            json.dump({"primary": primary, "pinned": entries}, f)
     except IOError:
         pass
+
+
+def set_scratchpad_slug(slug: str | None) -> None:
+    """Set or clear the primary scratchpad, replacing the pinned list.
+
+    This is the single-slug entry point. It resets ``pinned`` to match, rather
+    than preserving a list it knows nothing about: there is exactly one
+    scratchpad, and clearing must leave no slug claiming to be one.
+
+    Args:
+        slug: The slug string to persist, or None to clear.
+    """
+    set_scratchpad_state(slug)
