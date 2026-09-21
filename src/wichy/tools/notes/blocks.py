@@ -72,6 +72,15 @@ class DocumentNotFoundError(LookupError):
     """No document exists for the requested slug."""
 
 
+class DocumentExistsError(FileExistsError):
+    """A document already exists where a new one was about to be written.
+
+    Distinct from a generic ``FileExistsError`` so a caller can answer with a
+    conflict rather than a server fault. Raised from inside the document lock,
+    which is what makes the "does it exist" test and the write one step.
+    """
+
+
 class InvalidSlugError(ValueError):
     """A slug was not valid, so it cannot name a document."""
 

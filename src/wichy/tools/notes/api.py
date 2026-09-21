@@ -36,6 +36,7 @@ from wichy.tools.notes.blocks import (
     MARKDOWN_WRITE_REFUSED,
     BlockNotFoundError,
     DocumentDeletionError,
+    DocumentExistsError,
     DocumentNotFoundError,
     InvalidDocumentError,
     InvalidSlugError,
@@ -73,6 +74,7 @@ from wichy.tools.notes.models import (
     now_iso,
 )
 from wichy.tools.notes.revisions import (
+    IncompleteHistoryError,
     RevisionNotFoundError,
     count_revisions,
     get_revision,
@@ -92,6 +94,21 @@ def _error(message: str, status: int):
     like leaves both guessing.
     """
     return jsonify({"error": message}), status
+
+
+def _json_body() -> dict | None:
+    """The request body as a dict, or None if it is not a JSON object.
+
+    A JSON body may be an array, a string or a bare number; ``request.get_json``
+    returns whatever was sent. Every caller then indexes it as an object, so a
+    non-object body would raise ``AttributeError`` and escape as an HTML 500 --
+    which the browser cannot parse and which hides the real problem, that the
+    request was malformed. This returns None instead, so the route can answer 400.
+    """
+    body = request.get_json(silent=True)
+    if body is None:
+        return {}
+    return body if isinstance(body, dict) else None
 
 
 def _validate_slug(slug: str):
@@ -133,6 +150,7 @@ def _build_document(
     """
     from wichy.tools.notes.blocks import (
         get_doc_lock,
+        notes_dir as _notes_dir,
         make_block,
         save_document,
         set_doc_version,
@@ -166,6 +184,14 @@ def _build_document(
         )
 
     with get_doc_lock(slug):
+        # Re-checked under the lock, which is the only check that counts: two
+        # concurrent converts would otherwise both pass the caller's test, both
+        # write, and both append a revision with id 1.
+        if (_notes_dir() / f"{slug}.json").exists():
+            raise DocumentExistsError(
+                "This note is already a block document; converting it again would "
+                "create a second document for the same slug."
+            )
         entry = baseline_entry(document)
         # Document first, then the entry: a crash in between leaves a gap in the
         # ids rather than an id the counter will hand out again.
@@ -218,12 +244,18 @@ def _apply_locked(
     if invalid is not None:
         return None, invalid
 
+    written: dict[str, BlockDocument] = {}
     try:
         with locked_document(
             slug, expected_version, author=author, **kwargs
         ) as document:
             mutate(document)
-        return load_document(slug), None
+            # Captured from INSIDE the lock. Re-reading after the block exits
+            # would race: a concurrent writer could bump the version again, so
+            # the response would report a version this request did not produce,
+            # and a concurrent delete would turn a successful write into a 404.
+            written["document"] = document
+        return written["document"], None
     except InvalidSlugError as e:
         return None, _error(str(e), 400)
     except DocumentNotFoundError:
@@ -236,8 +268,18 @@ def _apply_locked(
         return None, _error(str(e), 404)
     except BlockDataError as e:
         return None, _error(str(e), 400)
-    except (InvalidDocumentError, ValueError) as e:
+    except InvalidDocumentError as e:
+        # A stored document that cannot be parsed is the server's problem, not
+        # the caller's: the request itself may have been perfectly well formed.
+        return None, _error(f"Note '{slug}' could not be read: {e}", 500)
+    except (ValueError, AttributeError, TypeError) as e:
+        # A malformed body reaches deep enough to raise one of these: a non-list
+        # `blocks`, a non-dict block entry, a string where an object belongs.
+        # All are the caller's mistake, so they map to 400 rather than escaping
+        # as an HTML 500 the browser cannot read.
         return None, _error(str(e), 400)
+    except OSError as e:
+        return None, _error(f"Could not write the note: {e}", 500)
 
 
 def _document_payload(document, fmt: str) -> dict:
@@ -271,13 +313,17 @@ def register_routes(bp: Blueprint):
         A body of markdown is converted to blocks on the way in, so the browser's
         "new note" path does not have to know the conversion rules.
         """
-        data = request.get_json(silent=True) or {}
+        data = _json_body()
+        if data is None:
+            return _error("The request body must be a JSON object.", 400)
         title = str(data.get("title") or "").strip()
         if not title:
             return _error("A document needs a title.", 400)
 
         try:
             raw_blocks = data.get("blocks")
+            if raw_blocks is not None and not isinstance(raw_blocks, list):
+                return _error("blocks must be a list.", 400)
             if raw_blocks is None:
                 # No blocks given: start from the markdown content if there is
                 # any, otherwise an empty document.
@@ -285,7 +331,7 @@ def register_routes(bp: Blueprint):
             document = create_document(title, raw_blocks, author="user")
         except BlockDataError as e:
             return _error(str(e), 400)
-        except ValueError as e:
+        except (ValueError, AttributeError, TypeError) as e:
             return _error(str(e), 400)
         except OSError as e:
             return _error(f"Could not create the note: {e}", 500)
@@ -334,7 +380,7 @@ def register_routes(bp: Blueprint):
             return _error(str(e), 400)
         except DocumentNotFoundError:
             return _error(NOT_FOUND, 404)
-        except (InvalidDocumentError, OSError) as e:
+        except (InvalidDocumentError, UnicodeDecodeError, OSError) as e:
             return _error(f"Note '{slug}' exists but could not be read: {e}", 500)
 
         return jsonify(_document_payload(document, fmt))
@@ -350,7 +396,11 @@ def register_routes(bp: Blueprint):
         if invalid is not None:
             return invalid
 
-        data = request.get_json(silent=True) or {}
+        data = _json_body()
+
+        if data is None:
+
+            return _error("The request body must be a JSON object.", 400)
         expected = data.get("version")
         if expected is None:
             return _error("A version is required to update a document.", 400)
@@ -361,22 +411,34 @@ def register_routes(bp: Blueprint):
             return _error(str(e), 400)
         except DocumentNotFoundError:
             return _error(NOT_FOUND, 404)
-        except (InvalidDocumentError, OSError) as e:
+        except (InvalidDocumentError, UnicodeDecodeError, OSError) as e:
             return _error(f"Note '{slug}' could not be read: {e}", 500)
 
         if fmt == FORMAT_MARKDOWN:
             return _error(MARKDOWN_WRITE_REFUSED, 409)
 
-        meta = data.get("meta") or {}
-        new_title = (meta.get("title") or "").strip()
+        meta = data.get("meta")
+        if meta is not None and not isinstance(meta, dict):
+            return _error("meta must be an object.", 400)
+        raw_title = (meta or {}).get("title")
+        if raw_title is not None and not isinstance(raw_title, str):
+            return _error("meta.title must be a string.", 400)
+        new_title = (raw_title or "").strip()
         incoming = data.get("blocks")
+        if incoming is not None and not isinstance(incoming, list):
+            return _error("blocks must be a list.", 400)
         renaming = bool(new_title) and new_title != current.meta.title
 
-        # A rename moves every file for the slug, which has to happen before the
-        # document is written under its new name. It is done here rather than
-        # through a second locked write: one request is one transaction, so a
-        # title change and a block change in one PUT must produce ONE revision
-        # and ONE version bump.
+        # The version is checked BEFORE anything is renamed. Renaming moves the
+        # document's files and repoints the marker, so doing it first would leave
+        # a request that is about to be rejected having already moved the
+        # document -- a 409 that changed the world is worse than no check at all.
+        if expected != current.meta.version:
+            return _error(
+                f"Version mismatch: expected {expected}, found {current.meta.version}",
+                409,
+            )
+
         target_slug = slug
         if renaming:
             target_slug = make_unique_slug(generate_slug(new_title))
@@ -387,6 +449,8 @@ def register_routes(bp: Blueprint):
                     return _error(NOT_FOUND, 404)
                 except (InvalidSlugError, ValueError) as e:
                     return _error(str(e), 409)
+                except OSError as e:
+                    return _error(f"Could not rename the note: {e}", 500)
                 _move_marker(slug, target_slug)
 
         def mutate(document):
@@ -453,7 +517,7 @@ def register_routes(bp: Blueprint):
             return _error(str(e), 400)
         except DocumentNotFoundError:
             return _error(NOT_FOUND, 404)
-        except (InvalidDocumentError, OSError) as e:
+        except (InvalidDocumentError, UnicodeDecodeError, OSError) as e:
             return _error(f"Note '{slug}' could not be read: {e}", 500)
 
         if fmt == FORMAT_EDITORJS:
@@ -483,13 +547,17 @@ def register_routes(bp: Blueprint):
         if invalid is not None:
             return invalid
 
-        if resolve_format(slug) == FORMAT_EDITORJS:
+        # Resolved ONCE and kept, so a file appearing between two checks cannot
+        # make the route read a block document and treat its first block as
+        # markdown. The authoritative re-check happens under the lock below.
+        resolved = resolve_format(slug)
+        if resolved == FORMAT_EDITORJS:
             return _error(
                 "This note is already a block document; converting it again would "
                 "create a second document for the same slug.",
                 409,
             )
-        if resolve_format(slug) is None:
+        if resolved is None:
             return _error(NOT_FOUND, 404)
 
         try:
@@ -508,6 +576,8 @@ def register_routes(bp: Blueprint):
         # intended slug instead of being created and then renamed.
         try:
             document = _build_document(slug, title, blocks)
+        except DocumentExistsError as e:
+            return _error(str(e), 409)
         except (BlockDataError, ValueError) as e:
             return _error(str(e), 400)
         except OSError as e:
@@ -534,7 +604,7 @@ def register_routes(bp: Blueprint):
             return _error(str(e), 400)
         except DocumentNotFoundError:
             return _error(NOT_FOUND, 404)
-        except (InvalidDocumentError, OSError) as e:
+        except (InvalidDocumentError, UnicodeDecodeError, OSError) as e:
             return _error(f"Note '{slug}' could not be read: {e}", 500)
 
         if fmt == FORMAT_MARKDOWN:
@@ -576,7 +646,11 @@ def register_routes(bp: Blueprint):
         if resolve_format(slug) is None:
             return _error(NOT_FOUND, 404)
 
-        data = request.get_json(silent=True) or {}
+        data = _json_body()
+
+        if data is None:
+
+            return _error("The request body must be a JSON object.", 400)
         pinned = bool(data.get("pinned", True))
         state = get_scratchpad_state()
 
@@ -610,7 +684,7 @@ def register_routes(bp: Blueprint):
             return _error(str(e), 400)
         except DocumentNotFoundError:
             return _error(NOT_FOUND, 404)
-        except (InvalidDocumentError, OSError) as e:
+        except (InvalidDocumentError, UnicodeDecodeError, OSError) as e:
             return _error(f"Note '{slug}' could not be read: {e}", 500)
 
         block_type = request.args.get("type")
@@ -635,7 +709,9 @@ def register_routes(bp: Blueprint):
     @bp.route("/api/notes/<slug>/blocks/<block_id>", methods=["PATCH"])
     def patch_block(slug: str, block_id: str):
         """Replace one block's data, keeping its id."""
-        data = request.get_json(silent=True) or {}
+        data = _json_body()
+        if data is None:
+            return _error("The request body must be a JSON object.", 400)
         expected = data.get("version")
         if expected is None:
             return _error("A version is required to update a block.", 400)
@@ -667,7 +743,9 @@ def register_routes(bp: Blueprint):
     @bp.route("/api/notes/<slug>/blocks", methods=["POST"])
     def add_block(slug: str):
         """Insert a new block, after an anchor or at the end."""
-        data = request.get_json(silent=True) or {}
+        data = _json_body()
+        if data is None:
+            return _error("The request body must be a JSON object.", 400)
         expected = data.get("version")
         if expected is None:
             return _error("A version is required to add a block.", 400)
@@ -720,7 +798,9 @@ def register_routes(bp: Blueprint):
     @bp.route("/api/notes/<slug>/blocks/<block_id>/move", methods=["POST"])
     def reorder_block(slug: str, block_id: str):
         """Move one block to a new position."""
-        data = request.get_json(silent=True) or {}
+        data = _json_body()
+        if data is None:
+            return _error("The request body must be a JSON object.", 400)
         expected = data.get("version")
         if expected is None:
             return _error("A version is required to move a block.", 400)
@@ -784,7 +864,11 @@ def register_routes(bp: Blueprint):
         if invalid is not None:
             return invalid
 
-        data = request.get_json(silent=True) or {}
+        data = _json_body()
+
+        if data is None:
+
+            return _error("The request body must be a JSON object.", 400)
         expected = data.get("version")
         if expected is None:
             return _error("A version is required to revert.", 400)
@@ -799,7 +883,7 @@ def register_routes(bp: Blueprint):
             return _error(str(e), 400)
         except DocumentNotFoundError:
             return _error(NOT_FOUND, 404)
-        except (InvalidDocumentError, OSError) as e:
+        except (InvalidDocumentError, UnicodeDecodeError, OSError) as e:
             return _error(f"Note '{slug}' could not be read: {e}", 500)
         if fmt == FORMAT_MARKDOWN:
             return _error(MARKDOWN_WRITE_REFUSED, 409)
@@ -810,6 +894,12 @@ def register_routes(bp: Blueprint):
             )
         except RevisionNotFoundError as e:
             return _error(str(e), 404)
+        except IncompleteHistoryError as e:
+            # The history does not reach back far enough to rebuild the state
+            # exactly. Reported as a conflict with the request rather than a
+            # server fault, because a revert built on a partial history would
+            # silently drop blocks the log never saw.
+            return _error(str(e), 409)
         except InvalidSlugError as e:
             return _error(str(e), 400)
         except DocumentNotFoundError:
@@ -818,6 +908,8 @@ def register_routes(bp: Blueprint):
             return _error(MARKDOWN_WRITE_REFUSED, 409)
         except StaleVersionError as e:
             return _error(str(e), 409)
+        except BlockDataError as e:
+            return _error(str(e), 400)
         except OSError as e:
             return _error(f"Could not revert: {e}", 500)
 

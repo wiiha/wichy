@@ -163,6 +163,10 @@ class TestUpdate:
         )
         assert response.status_code == 200
         assert response.get_json()["version"] == 2
+        # Read back: a route that bumped the version and discarded the payload
+        # would satisfy the assertions above.
+        after = client.get(f"{PREFIX}/api/notes/updatable").get_json()
+        assert after["blocks"][0]["data"]["text"] == "changed"
 
     def test_put_requires_a_version(self, client):
         create(client, "NoVer", "x")
@@ -239,9 +243,17 @@ class TestUpdate:
         )
         assert response.status_code == 200
         assert response.get_json()["version"] == 2
-        # Baseline + exactly one edit entry.
+
+        # Both halves of the request landed, and they landed together.
+        after = client.get(f"{PREFIX}/api/notes/both-renamed").get_json()
+        assert after["meta"]["title"] == "Both Renamed"
+        assert after["blocks"][0]["data"]["text"] == "changed"
+
+        # Baseline + exactly ONE entry, and that entry records the block edit.
         revisions = client.get(f"{PREFIX}/api/notes/both-renamed/revisions").get_json()
         assert revisions["total"] == 2
+        ops = revisions["revisions"][0]["ops"]
+        assert [op["op"] for op in ops] == ["update"]
 
 
 class TestDelete:
@@ -1040,10 +1052,18 @@ class TestNotesJs:
         assert "pinned: true" in source
         assert "pinned: false" in source
 
-    def test_it_reads_the_primary_field_not_the_old_slug_field(self):
-        """The marker's field is `primary`; `slug` was the legacy name."""
+    def test_it_reads_the_primary_field_and_never_the_legacy_slug_field(self):
+        """The marker's field is `primary`; `slug` was the legacy name.
+
+        A presence check alone cannot catch this: the file also carries several
+        legitimate `data.slug` reads from the document routes, so the assertion
+        has to target the scratchpad responses specifically.
+        """
         source = self._source()
         assert "data.primary" in source
+        # The scratchpad payload never carries `slug`, so a read of it would
+        # silently yield undefined and the pin marker would never update.
+        assert "statusData.slug" not in source
 
     def test_it_is_wrapped_in_an_iife(self):
         """Top-level let/const would collide with a second script on the page."""
@@ -1058,3 +1078,529 @@ class TestNotesJs:
             if stripped.startswith(("let ", "const ")):
                 # The wrapper means indented declarations are the only ones left.
                 assert line.startswith((" ", "\t")), f"file-scope declaration: {line}"
+
+
+# ---------------------------------------------------------------------------
+# Defects and gaps found in review
+# ---------------------------------------------------------------------------
+
+
+class TestRejectionLeavesTheDocumentAlone:
+    """A rejected request must not change anything -- including its revision log.
+
+    Asserting only the status code cannot detect a route that moves files or
+    writes an entry and then reports a conflict.
+    """
+
+    def _snapshot(self, client, slug):
+        document = client.get(f"{PREFIX}/api/notes/{slug}").get_json()
+        revisions = client.get(f"{PREFIX}/api/notes/{slug}/revisions").get_json()
+        return document["meta"]["version"], revisions["total"], document["blocks"]
+
+    @pytest.mark.parametrize(
+        "method,route,extra,payload",
+        [
+            (
+                "patch",
+                "/blocks/{bid}",
+                "",
+                {"version": 99, "block_type": "paragraph", "data": {"text": "x"}},
+            ),
+            (
+                "post",
+                "/blocks",
+                "",
+                {"version": 99, "block_type": "paragraph", "data": {"text": "x"}},
+            ),
+            ("post", "/blocks/{bid}/move", "", {"version": 99}),
+            ("delete", "/blocks/{bid}", "?version=99", None),
+        ],
+    )
+    def test_a_stale_block_write_changes_nothing(
+        self, client, method, route, extra, payload
+    ):
+        create(client, "Untouched", "original")
+        before = self._snapshot(client, "untouched")
+        block = client.get(f"{PREFIX}/api/notes/untouched/blocks").get_json()["blocks"][
+            0
+        ]
+        path = f"{PREFIX}/api/notes/untouched{route.format(bid=block['id'])}{extra}"
+        response = getattr(client, method)(path, json=payload)
+        assert response.status_code == 409
+        assert self._snapshot(client, "untouched") == before
+
+    def test_a_rejected_revert_changes_nothing(self, client):
+        create(client, "NoRevert", "original")
+        before = self._snapshot(client, "norevert")
+        response = client.post(
+            f"{PREFIX}/api/notes/norevert/revisions/1/revert", json={"version": 99}
+        )
+        assert response.status_code == 409
+        assert self._snapshot(client, "norevert") == before
+
+    def test_a_rejected_put_rename_does_not_move_the_document(self, client, notes_dir):
+        """A 409 that has already renamed the file is worse than no check.
+
+        The rename moves the document's files, so it must happen only after the
+        version has been confirmed.
+        """
+        create(client, "Original Name", "x")
+
+        response = client.put(
+            f"{PREFIX}/api/notes/original-name",
+            json={"version": 99, "meta": {"title": "Renamed Anyway"}},
+        )
+        assert response.status_code == 409
+        # Nothing moved.
+        assert (notes_dir / "original-name.json").exists()
+        assert not (notes_dir / "renamed-anyway.json").exists()
+        assert client.get(f"{PREFIX}/api/notes/original-name").status_code == 200
+
+    def test_a_rejected_put_rename_does_not_repoint_the_marker(self, client):
+        create(client, "Pinned One", "x")
+        client.post(f"{PREFIX}/api/notes/pinned-one/pin", json={"pinned": True})
+        client.put(
+            f"{PREFIX}/api/notes/pinned-one",
+            json={"version": 99, "meta": {"title": "Moved Anyway"}},
+        )
+        assert (
+            client.get(f"{PREFIX}/api/notes/scratchpad").get_json()["primary"]
+            == "pinned-one"
+        )
+
+    def test_an_invalid_block_leaves_the_version_and_log_alone(self, client):
+        create(client, "BadBlock", "a")
+        block = client.get(f"{PREFIX}/api/notes/badblock/blocks").get_json()["blocks"][
+            0
+        ]
+        before = self._snapshot(client, "badblock")
+        response = client.patch(
+            f"{PREFIX}/api/notes/badblock/blocks/{block['id']}",
+            json={"version": 1, "block_type": "header", "data": {"text": "no level"}},
+        )
+        assert response.status_code == 400
+        assert self._snapshot(client, "badblock") == before
+
+
+class TestMalformedBodies:
+    """A bad request body is a 400, never an HTML 500 the browser cannot read."""
+
+    @pytest.mark.parametrize(
+        "method,route,payload",
+        [
+            ("post", "/api/notes", {"title": "X", "blocks": "not a list"}),
+            ("post", "/api/notes", {"title": "X", "blocks": [123]}),
+            (
+                "post",
+                "/api/notes",
+                {"title": "X", "blocks": [{"type": "paragraph", "data": "nope"}]},
+            ),
+            ("put", "/api/notes/{slug}", {"version": 1, "blocks": "not a list"}),
+            ("put", "/api/notes/{slug}", {"version": 1, "blocks": [123]}),
+            ("put", "/api/notes/{slug}", {"version": 1, "meta": "not an object"}),
+            ("put", "/api/notes/{slug}", {"version": 1, "meta": {"title": 123}}),
+            (
+                "patch",
+                "/api/notes/{slug}/blocks/blk-x",
+                {"version": 1, "block_type": "paragraph", "data": "nope"},
+            ),
+            (
+                "post",
+                "/api/notes/{slug}/blocks",
+                {"version": 1, "block_type": "paragraph", "data": 5},
+            ),
+            ("post", "/api/notes/{slug}/revisions/1/revert", {"version": "not an int"}),
+        ],
+    )
+    def test_a_malformed_body_is_a_json_error_not_a_crash(
+        self, client, method, route, payload
+    ):
+        create(client, "Body Target", "a")
+        block = client.get(f"{PREFIX}/api/notes/body-target/blocks").get_json()[
+            "blocks"
+        ][0]
+        path = f"{PREFIX}{route}".replace("{slug}", "body-target").replace(
+            "blk-x", block["id"]
+        )
+        response = getattr(client, method)(path, json=payload)
+        # Any 4xx is acceptable; an unhandled exception (500 with an HTML body)
+        # is not, because the browser parses the response as JSON.
+        assert (
+            400 <= response.status_code < 500
+        ), f"{method.upper()} {route} -> {response.status_code}"
+        assert "error" in response.get_json()
+
+    def test_a_json_array_body_is_rejected_cleanly(self, client):
+        create(client, "ArrayBody", "a")
+        block = client.get(f"{PREFIX}/api/notes/arraybody/blocks").get_json()["blocks"][
+            0
+        ]
+        response = client.patch(
+            f"{PREFIX}/api/notes/arraybody/blocks/{block['id']}", json=[1, 2]
+        )
+        assert 400 <= response.status_code < 500
+        assert "error" in response.get_json()
+
+
+class TestHostileSlugs:
+    @pytest.mark.parametrize(
+        "slug",
+        [
+            "..",
+            "..%2f..",
+            "%2e%2e",
+            "BAD",
+            "a-",
+            "-a",
+            "caf\u00e9",
+            "a.b",
+            "a b",
+            "\u2026",
+        ],
+    )
+    def test_a_hostile_slug_is_refused_and_touches_nothing(
+        self, client, notes_dir, slug
+    ):
+        create(client, "Guard", "x")
+        before = sorted(p.name for p in notes_dir.iterdir())
+
+        response = client.get(f"{PREFIX}/api/notes/{slug}")
+
+        assert response.status_code in (400, 404), response.status_code
+        if response.status_code == 400:
+            assert "error" in response.get_json()
+        # Nothing was created or removed outside the notes directory.
+        assert sorted(p.name for p in notes_dir.iterdir()) == before
+
+    def test_traversal_cannot_escape_the_notes_directory(
+        self, client, notes_dir, tmp_path
+    ):
+        secret = tmp_path / "outside.json"
+        secret.write_text('{"blocks": []}', encoding="utf-8")
+        for slug in ["..", "../outside", "..%2Foutside", "%2e%2e"]:
+            response = client.get(f"{PREFIX}/api/notes/{slug}")
+            assert response.status_code in (400, 404)
+        # The file outside the notes directory is untouched and unserved.
+        assert secret.exists()
+
+
+class TestDeleteClearsEveryMarkerReference:
+    def test_delete_clears_a_pinned_entry_that_is_not_the_primary(self, client):
+        """The pinned list is presentation state, but a stale entry points at nothing."""
+        create(client, "First Doc", "x")
+        create(client, "Second Doc", "x")
+        client.post(f"{PREFIX}/api/notes/first-doc/pin", json={"pinned": True})
+        client.post(f"{PREFIX}/api/notes/second-doc/pin", json={"pinned": True})
+        state = client.get(f"{PREFIX}/api/notes/scratchpad").get_json()
+        assert state["primary"] == "second-doc"
+        assert "first-doc" in state["pinned"]
+
+        client.delete(f"{PREFIX}/api/notes/first-doc")
+
+        after = client.get(f"{PREFIX}/api/notes/scratchpad").get_json()
+        assert after["primary"] == "second-doc"
+        assert "first-doc" not in after["pinned"]
+
+    def test_delete_of_the_primary_leaves_other_pins(self, client):
+        create(client, "Pin A", "x")
+        create(client, "Pin B", "x")
+        client.post(f"{PREFIX}/api/notes/pin-a/pin", json={"pinned": True})
+        client.post(f"{PREFIX}/api/notes/pin-b/pin", json={"pinned": True})
+
+        client.delete(f"{PREFIX}/api/notes/pin-b")
+
+        after = client.get(f"{PREFIX}/api/notes/scratchpad").get_json()
+        assert after["primary"] is None
+        assert after["pinned"] == ["pin-a"]
+
+
+class TestCorruptStoredFiles:
+    def test_a_corrupt_json_is_reported_not_served(self, client, notes_dir):
+        (notes_dir / "broken.json").write_text("{not json", encoding="utf-8")
+        response = client.get(f"{PREFIX}/api/notes/broken")
+        assert response.status_code == 500
+        assert "error" in response.get_json()
+
+    def test_a_corrupt_json_does_not_break_the_list(self, client, notes_dir):
+        create(client, "Good", "x")
+        (notes_dir / "broken.json").write_text("{not json", encoding="utf-8")
+        response = client.get(f"{PREFIX}/api/notes")
+        assert response.status_code == 200
+        slugs = {row["slug"] for row in response.get_json()["notes"]}
+        assert "good" in slugs
+        # The unreadable one is skipped rather than taking the list down.
+        assert "broken" not in slugs
+
+    def test_a_non_utf8_markdown_file_is_reported_not_crashed(self, client, notes_dir):
+        (notes_dir / "binary.md").write_bytes(b"\xff\xfe\x00\x01")
+        response = client.get(f"{PREFIX}/api/notes/binary")
+        assert response.status_code in (400, 500)
+        assert "error" in response.get_json()
+
+
+class TestRenameCollision:
+    def test_renaming_onto_a_taken_title_does_not_steal_it(self, client, notes_dir):
+        create(client, "Alpha", "a")
+        create(client, "Beta", "b")
+
+        body = client.get(f"{PREFIX}/api/notes/alpha").get_json()
+        response = client.put(
+            f"{PREFIX}/api/notes/alpha",
+            json={"version": body["meta"]["version"], "meta": {"title": "Beta"}},
+        )
+        assert response.status_code == 200
+        # The rename takes a free slug rather than overwriting the occupant.
+        assert response.get_json()["slug"] == "beta-1"
+        assert (
+            client.get(f"{PREFIX}/api/notes/beta").get_json()["meta"]["title"] == "Beta"
+        )
+        assert client.get(f"{PREFIX}/api/notes/alpha").status_code == 404
+
+    def test_renaming_to_the_same_title_is_a_no_op_rename(self, client):
+        create(client, "Same Title", "a")
+        body = client.get(f"{PREFIX}/api/notes/same-title").get_json()
+        response = client.put(
+            f"{PREFIX}/api/notes/same-title",
+            json={"version": body["meta"]["version"], "meta": {"title": "Same Title"}},
+        )
+        assert response.status_code == 200
+        assert response.get_json()["slug"] == "same-title"
+
+
+class TestExportPositiveControls:
+    """The "export does not change X" tests need to prove an export happened."""
+
+    def _export(self, client, slug):
+        response = client.get(f"{PREFIX}/api/notes/{slug}/export")
+        assert response.status_code == 200
+        assert response.mimetype == "text/markdown"
+        return response.get_data(as_text=True)
+
+    def test_export_returns_the_body_and_bumps_nothing(self, client):
+        body = create(client, "ExportCtl", "# H\n\ntext")
+        text = self._export(client, "exportctl")
+        assert "# H" in text  # positive control: a real export happened
+
+        after = client.get(f"{PREFIX}/api/notes/exportctl").get_json()
+        assert after["meta"]["version"] == body["version"]
+        assert after["meta"]["updated"] == body["updated"]
+        revisions = client.get(f"{PREFIX}/api/notes/exportctl/revisions").get_json()
+        assert revisions["total"] == 1
+
+    def test_a_control_write_does_change_updated(self, client):
+        """Proves the export assertions above are not vacuous."""
+        create(client, "Stamp", "a")
+        before = client.get(f"{PREFIX}/api/notes/stamp").get_json()["meta"]["updated"]
+        assert before  # the document really has a timestamp
+        block = client.get(f"{PREFIX}/api/notes/stamp/blocks").get_json()["blocks"][0]
+        client.patch(
+            f"{PREFIX}/api/notes/stamp/blocks/{block['id']}",
+            json={"version": 1, "block_type": "paragraph", "data": {"text": "b"}},
+        )
+        after = client.get(f"{PREFIX}/api/notes/stamp").get_json()["meta"]["updated"]
+        assert after != before
+
+    def test_a_markdown_export_is_the_body_plus_frontmatter_exactly(
+        self, client, notes_dir
+    ):
+        make_legacy(notes_dir, "exact", body="# Heading\n\ntext\n")
+        text = self._export(client, "exact")
+        # Split off the frontmatter block and compare the remainder exactly:
+        # a suffix check cannot catch an implementation that appends more.
+        head, _, tail = text.partition("---\n")[2].partition("---\n")
+        assert head
+        assert tail == "# Heading\n\ntext\n"
+
+
+class TestEachBlockRouteIsOneTransaction:
+    @pytest.mark.parametrize(
+        "method,route,payload",
+        [
+            (
+                "patch",
+                "/blocks/{bid}",
+                {"version": 1, "block_type": "paragraph", "data": {"text": "x"}},
+            ),
+            (
+                "post",
+                "/blocks",
+                {"version": 1, "block_type": "todo", "data": {"text": "x"}},
+            ),
+            ("delete", "/blocks/{bid}?version=1", None),
+            ("post", "/blocks/{bid}/move", {"version": 1}),
+        ],
+    )
+    def test_each_block_route_bumps_once_and_logs_once(
+        self, client, method, route, payload
+    ):
+        create(client, "PerRouteAll", "a\n\nb")
+        block = client.get(f"{PREFIX}/api/notes/perrouteall/blocks").get_json()[
+            "blocks"
+        ][0]
+        path = f"{PREFIX}/api/notes/perrouteall{route.format(bid=block['id'])}"
+        response = getattr(client, method)(path, json=payload)
+        assert response.status_code in (200, 201)
+
+        after = client.get(f"{PREFIX}/api/notes/perrouteall").get_json()
+        assert after["meta"]["version"] == 2
+        revisions = client.get(f"{PREFIX}/api/notes/perrouteall/revisions").get_json()
+        assert revisions["total"] == 2
+
+
+class TestMarkdownWritesTouchNothing:
+    @pytest.mark.parametrize(
+        "method,path,payload",
+        [
+            (
+                "put",
+                "/api/notes/{slug}",
+                {
+                    "version": 1,
+                    "blocks": [{"type": "paragraph", "data": {"text": "x"}}],
+                },
+            ),
+            (
+                "post",
+                "/api/notes/{slug}/blocks",
+                {"version": 1, "block_type": "paragraph", "data": {"text": "x"}},
+            ),
+            (
+                "patch",
+                "/api/notes/{slug}/blocks/blk-1",
+                {"version": 1, "block_type": "paragraph", "data": {"text": "x"}},
+            ),
+            ("post", "/api/notes/{slug}/blocks/blk-1/move", {"version": 1}),
+        ],
+    )
+    def test_a_refused_markdown_write_creates_no_json_and_leaves_the_md(
+        self, client, notes_dir, method, path, payload
+    ):
+        make_legacy(notes_dir)
+        original = (notes_dir / "legacy.md").read_bytes()
+
+        response = getattr(client, method)(
+            f"{PREFIX}{path.format(slug='legacy')}", json=payload
+        )
+
+        assert response.status_code == 409
+        # Refused means refused: no `.json` materialised, and the `.md` is intact
+        # byte for byte. A route that wrote first and refused afterwards would
+        # still return 409.
+        assert not (notes_dir / "legacy.json").exists()
+        assert (notes_dir / "legacy.md").read_bytes() == original
+
+
+class TestConvertIsAtomic:
+    def test_converting_twice_in_one_request_still_yields_one_document(
+        self, client, notes_dir
+    ):
+        """The existence check is repeated under the lock, so a second write cannot happen."""
+        make_legacy(notes_dir, "once", title="Once")
+        assert client.post(f"{PREFIX}/api/notes/once/convert").status_code == 200
+        assert client.post(f"{PREFIX}/api/notes/once/convert").status_code == 409
+
+        # Exactly one baseline revision: a second write would have appended a
+        # second entry with the same id.
+        revisions = client.get(f"{PREFIX}/api/notes/once/revisions").get_json()
+        assert revisions["total"] == 1
+        ids = [r["id"] for r in revisions["revisions"]]
+        assert len(ids) == len(set(ids))
+
+    def test_a_converted_document_is_not_the_markdown_fallback(self, client, notes_dir):
+        """A 200 from the old slug is not proof: the `.md` alone would answer too."""
+        make_legacy(notes_dir)
+        client.post(f"{PREFIX}/api/notes/legacy/convert")
+        body = client.get(f"{PREFIX}/api/notes/legacy").get_json()
+        assert body["format"] == "editorjs"
+        assert not (notes_dir / "legacy-1.json").exists()
+
+
+class TestRejectedSlugDoesNotDelete:
+    def test_a_dotted_slug_is_refused_rather_than_deleting_the_file(
+        self, client, notes_dir
+    ):
+        (notes_dir / "my.note.md").write_text("body", encoding="utf-8")
+        response = client.delete(f"{PREFIX}/api/notes/my.note")
+        assert response.status_code == 400
+        assert (notes_dir / "my.note.md").exists()
+
+
+class TestUnhandledRevertErrors:
+    def test_a_revert_on_a_pruned_history_is_a_conflict_not_a_crash(
+        self, client, monkeypatch
+    ):
+        """An incomplete log cannot rebuild the state, so the revert must not run."""
+        monkeypatch.setattr(settings, "notes_revisions_max_count", 1)
+        monkeypatch.setattr(settings, "notes_revisions_retention", 0)
+        create(client, "Pruned", "a")
+        for _ in range(3):
+            body = client.get(f"{PREFIX}/api/notes/pruned").get_json()
+            block = client.get(f"{PREFIX}/api/notes/pruned/blocks").get_json()[
+                "blocks"
+            ][0]
+            client.patch(
+                f"{PREFIX}/api/notes/pruned/blocks/{block['id']}",
+                json={
+                    "version": body["meta"]["version"],
+                    "block_type": "paragraph",
+                    "data": {"text": "x"},
+                },
+            )
+        version = client.get(f"{PREFIX}/api/notes/pruned").get_json()["meta"]["version"]
+        response = client.post(
+            f"{PREFIX}/api/notes/pruned/revisions/1/revert", json={"version": version}
+        )
+        # 409 (cannot rebuild exactly) is acceptable; an HTML 500 is not.
+        assert response.status_code in (404, 409)
+        assert "error" in response.get_json()
+
+
+class TestSettingsAndSessions:
+    def test_the_list_row_matches_the_documented_shape(self, client):
+        create(client, "Row", "x")
+        row = client.get(f"{PREFIX}/api/notes").get_json()["notes"][0]
+        assert set(row) == {"slug", "title", "version", "updated", "format"}
+
+
+class TestTheResponseReportsThisRequestsOwnWrite:
+    """The response must carry the version this request produced.
+
+    The document is captured from inside the lock. Re-reading it after the lock
+    is released would race a concurrent writer, so the response could report a
+    version this request did not create -- or 404 after a concurrent delete.
+
+    Made deterministic rather than left to a race: any read that happens outside
+    the lock is made to return a different version, which is what a concurrent
+    writer would produce.
+    """
+
+    def test_a_write_response_does_not_reflect_a_later_read(self, client, monkeypatch):
+        body = create(client, "OwnWrite", "a")
+        block = client.get(f"{PREFIX}/api/notes/ownwrite/blocks").get_json()["blocks"][
+            0
+        ]
+
+        real_load = api.load_document
+
+        def bumping_load(slug, **kwargs):
+            """Stand in for a concurrent writer having bumped the version."""
+            document = real_load(slug, **kwargs)
+            document.meta.version += 100
+            return document
+
+        # Only the ROUTE's own reads are intercepted. Those inside the lock are
+        # taken from the yielded document, not by calling this.
+        monkeypatch.setattr(api, "load_document", bumping_load)
+
+        response = client.patch(
+            f"{PREFIX}/api/notes/ownwrite/blocks/{block['id']}",
+            json={
+                "version": body["version"],
+                "block_type": "paragraph",
+                "data": {"text": "changed"},
+            },
+        )
+        assert response.status_code == 200
+        # 2 is what this request produced. 102 would mean the response came from
+        # a read taken after the lock was released.
+        assert response.get_json()["version"] == 2

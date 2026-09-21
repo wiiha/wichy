@@ -154,7 +154,7 @@
                     const statusResp = await fetch('/tools/notes/api/notes/scratchpad', { credentials: 'same-origin' });
                     if (statusResp.ok) {
                         const statusData = await statusResp.json();
-                        newScratchpadSlug = statusData.slug;
+                        newScratchpadSlug = statusData.primary;
                     }
                 } catch (e) {}
 
@@ -199,7 +199,7 @@
                 const statusResp = await fetch('/tools/notes/api/notes/scratchpad', { credentials: 'same-origin' });
                 if (statusResp.ok) {
                     const statusData = await statusResp.json();
-                    scratchpadSlug = statusData.slug;
+                    scratchpadSlug = statusData.primary;
                 }
             } catch (e) {
                 console.error('Failed to refresh scratchpad status:', e);
