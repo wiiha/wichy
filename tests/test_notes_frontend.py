@@ -941,20 +941,23 @@ class TestTheQueueControl:
         for action in actions:
             assert f'data-action="{action}"' in body, f"data-action={action} missing"
 
-    def test_clearing_is_offered_only_when_something_is_queued(self):
-        source = self.script()
-        body = source[source.index("function updateQueueIndicator") :]
-        body = body[: body.index("    /**\n     * Apply queued agent changes")]
-        assert '[data-action="clear-changes"]' in body
-        assert 'clear.classList.toggle("hidden", empty)' in body
+    def test_the_clear_control_is_gone(self):
+        """It discarded the queue while the sent snapshot still lagged.
 
-    def test_the_toolbar_handles_send_and_clear_before_the_slug_guard(self):
+        The next edit then recomputed the identical ops, so the control did
+        nothing except lie about it. The queue is derived from the snapshot, so
+        the honest fix was to remove it rather than to fake it.
+        """
+        source = self.script()
+        assert "clear-changes" not in source
+        assert "clear-changes" not in template()
+
+    def test_the_toolbar_handles_send_before_the_slug_guard(self):
         """A queue control that no-ops when no note is open is dead code."""
         source = self.script()
         body = source[source.index("function initToolbar") :]
         body = body[: body.index("function askToConvert")]
         assert 'action === "send-changes"' in body
-        assert 'action === "clear-changes"' in body
 
 
 class TestTheLegacyMarkdownPage:
@@ -1274,15 +1277,317 @@ class TestTheConflictedReloadRespectsDirtyBlocks:
 
     def test_the_confirmation_precedes_the_reload(self):
         branch = self.conflicted_branch()
-        assert branch.index("window.confirm") < branch.index("await open(slug)")
+        assert branch.index("window.confirm") < branch.index("await open(targetSlug)")
 
     def test_declining_does_not_reload(self):
         branch = self.conflicted_branch()
         refusal = branch[branch.index("if (!ok)") :]
         assert "return;" in refusal
-        assert refusal.index("return;") < branch.index("await open(slug)")
+        assert refusal.index("return;") < branch.index("await open(targetSlug)")
 
     def test_a_clean_document_reloads_without_asking(self):
         """The question is only worth asking when there is something to lose."""
         branch = self.conflicted_branch()
         assert branch.index("if (dirty.size") < branch.index("window.confirm")
+
+
+# ---------------------------------------------------------------------------
+# Stage 7: editor lifecycle
+# ---------------------------------------------------------------------------
+
+
+class TestTheOpenEpoch:
+    """Every async continuation must abandon work for a document no longer open.
+
+    `slug` and `version` are module-level and were re-read after every await, and
+    nothing cancelled the poll timer on a switch. A poll started on note A could
+    therefore apply A's ops into B's editor, ack under B's slug, and adopt A's
+    version.
+    """
+
+    def script(self) -> str:
+        return (STATIC / "notes_blocks.js").read_text(encoding="utf-8")
+
+    def poll_body(self) -> str:
+        source = self.script()
+        body = source[source.index("async function poll") :]
+        return body[: body.index("function ackableVersion")]
+
+    def test_the_epoch_exists(self):
+        assert "let openEpoch = 0;" in self.script()
+
+    def test_open_bumps_before_its_first_await(self):
+        source = self.script()
+        body = source[source.index("async function open") :]
+        body = body[: body.index("function toEditorBlock")]
+        assert body.index("++openEpoch") < body.index("await fetchJson")
+
+    def test_open_abandons_when_superseded(self):
+        source = self.script()
+        body = source[source.index("async function open") :]
+        body = body[: body.index("function toEditorBlock")]
+        assert "epoch !== openEpoch" in body
+
+    def test_the_poll_captures_both_the_epoch_and_the_slug(self):
+        body = self.poll_body()
+        assert "const epoch = openEpoch;" in body
+        assert "const targetSlug = slug;" in body
+
+    def test_the_poll_rechecks_after_its_fetch(self):
+        body = self.poll_body()
+        fetch_at = body.index("const body = await fetchJson")
+        after = body[fetch_at:]
+        assert "epoch !== openEpoch || slug !== targetSlug" in after[:400]
+
+    def test_no_ack_is_sent_for_a_superseded_poll(self):
+        """The ack is the irreversible half: it discards server-side state."""
+        body = self.poll_body()
+        ack_at = body.index("/api/changes/ack")
+        guard = body.rindex("epoch !== openEpoch", 0, ack_at)
+        assert guard < ack_at
+
+    def test_no_version_is_adopted_for_a_superseded_poll(self):
+        body = self.poll_body()
+        adopt_at = body.index("version = body.version;")
+        guard = body.rindex("epoch !== openEpoch", 0, adopt_at)
+        assert guard < adopt_at
+
+    def test_a_poll_started_on_another_note_uses_the_captured_slug(self):
+        """`slug` in the request could otherwise be a different document."""
+        body = self.poll_body()
+        assert "encodeURIComponent(targetSlug)" in body
+        assert "encodeURIComponent(slug)" not in body
+
+    def test_the_auto_send_rechecks_the_epoch(self):
+        body = self.poll_body()
+        send_at = body.index("await sendPendingOps(targetSlug)")
+        assert "epoch !== openEpoch" in body[send_at : send_at + 300]
+
+
+class TestEditorInitFailureFallsBack:
+    """A throwing tool constructor must not leave a broken editor.
+
+    `new EditorJS(...)` and `await editor.isReady` were outside any try/catch, so
+    a failure left a half-built instance assigned with the markdown node already
+    hidden: an empty box and no explanation.
+    """
+
+    def script(self) -> str:
+        return (STATIC / "notes_blocks.js").read_text(encoding="utf-8")
+
+    def test_the_construction_is_guarded(self):
+        source = self.script()
+        body = source[source.index("async function open") :]
+        body = body[: body.index("function toEditorBlock")]
+        assert "try {" in body
+        assert "new window.EditorJS" in body[body.index("try {") :]
+
+    def test_a_failure_clears_the_editor_and_shows_the_fallback(self):
+        source = self.script()
+        body = source[source.index("async function open") :]
+        body = body[: body.index("function toEditorBlock")]
+        catch = body[body.index("} catch (e) {") :]
+        assert "editor = null;" in catch
+        assert 'showEditorFor("markdown")' in catch
+
+    def test_a_failure_says_what_happened(self):
+        source = self.script()
+        body = source[source.index("async function open") :]
+        body = body[: body.index("function toEditorBlock")]
+        catch = body[body.index("} catch (e) {") :]
+        assert "setStatus(" in catch
+
+    def test_a_superseded_editor_is_destroyed(self):
+        """Two editors on one holder would stack."""
+        source = self.script()
+        body = source[source.index("async function open") :]
+        body = body[: body.index("function toEditorBlock")]
+        after_ready = body[body.index("await editor.isReady") :]
+        assert "editor.destroy()" in after_ready
+
+
+class TestSwitchingNotesClearsConflictState:
+    def script(self) -> str:
+        return (STATIC / "notes_blocks.js").read_text(encoding="utf-8")
+
+    def test_destroy_clears_the_tracked_conflicts(self):
+        source = self.script()
+        body = source[source.index("async function destroyEditor") :]
+        body = body[: body.index("async function currentBlocks")]
+        assert "pendingConflicts = [];" in body
+
+    def test_destroy_hides_the_banner(self):
+        source = self.script()
+        body = source[source.index("async function destroyEditor") :]
+        body = body[: body.index("async function currentBlocks")]
+        assert "hideConflict();" in body
+
+    def test_open_clears_conflicts_before_building(self):
+        """Scoped to the SUCCESS path: the failure branch clears them too, so a
+        whole-function search would pass on the branch that returns early."""
+        source = self.script()
+        body = source[source.index("async function open") :]
+        body = body[: body.index("new window.EditorJS")]
+        success = body[body.index("slug = nextSlug;") :]
+        assert "pendingConflicts = [];" in success
+        assert "hideConflict();" in success
+
+
+class TestOpenFailureResetsLocalState:
+    """A failed open left the editor pointing at the PREVIOUS document.
+
+    The sidebar had already marked the new note active, so every toolbar action
+    then targeted the wrong note while the user looked at the new one.
+    """
+
+    def script(self) -> str:
+        return (STATIC / "notes_blocks.js").read_text(encoding="utf-8")
+
+    def failure_branch(self) -> str:
+        source = self.script()
+        body = source[source.index("async function open") :]
+        body = body[: body.index("slug = nextSlug;")]
+        return body[body.index("if (document_.error)") :]
+
+    def test_it_clears_the_slug(self):
+        """Scoped to the failure branch, which returns before the success path
+        assigns `slug = nextSlug`."""
+        branch = self.failure_branch()
+        assert "slug = null;" in branch
+        assert "slug = nextSlug" not in branch
+
+    def test_it_clears_the_version(self):
+        branch = self.failure_branch()
+        assert "version = 0;" in branch
+        assert "version = document_.meta.version" not in branch
+
+    def test_it_says_so(self):
+        assert "setStatus(" in self.failure_branch()
+
+
+class TestThePollStopsOnADeadSlug:
+    def test_a_404_holds_a_status_and_stops_mutating(self):
+        source = (STATIC / "notes_blocks.js").read_text(encoding="utf-8")
+        body = source[source.index("async function poll") :]
+        body = body[: body.index("function ackableVersion")]
+        error_branch = body[body.index("if (body.error)") :]
+        assert "404" in error_branch
+        assert "holdStatus(" in error_branch
+        assert "return;" in error_branch
+        # It must return before the changes are applied.
+        assert error_branch.index("return;") < body.index("applyAgentChanges")
+
+
+class TestConcurrentSendsAreCoalesced:
+    """Two overlapping sends posted the same diff twice.
+
+    The toolbar click and the poll's auto-send could both read the same pending
+    ops. On a 503 both retried, so the op reached the agent's context twice.
+    """
+
+    def script(self) -> str:
+        return (STATIC / "notes_blocks.js").read_text(encoding="utf-8")
+
+    def test_an_in_flight_set_exists(self):
+        assert "const sendInFlight = new Set();" in self.script()
+
+    def test_a_second_send_for_the_same_slug_is_refused(self):
+        source = self.script()
+        body = source[source.index("async function sendPendingOps") :]
+        body = body[: body.index("async function postPendingOps")]
+        assert "sendInFlight.has(targetSlug)" in body
+
+    def test_the_flag_is_cleared_on_every_exit_path(self):
+        """A leaked flag would block all later sends for that note."""
+        source = self.script()
+        body = source[source.index("async function sendPendingOps") :]
+        body = body[: body.index("async function postPendingOps")]
+        assert "finally {" in body
+        assert "sendInFlight.delete(targetSlug)" in body
+
+    def test_the_poll_skips_a_send_already_in_flight(self):
+        source = self.script()
+        body = source[source.index("async function poll") :]
+        body = body[: body.index("function ackableVersion")]
+        assert "!sendInFlight.has(targetSlug)" in body
+
+
+class TestUndoFlushesThePendingSave:
+    """Undo rebuilt the editor, discarding an armed debounced save.
+
+    Edits typed within the save debounce were dropped silently: the timer was
+    cleared by the rebuild and the text had never been PUT anywhere.
+    """
+
+    def script(self) -> str:
+        return (STATIC / "notes_blocks.js").read_text(encoding="utf-8")
+
+    def undo_body(self) -> str:
+        source = self.script()
+        body = source[source.index("async function undoLastAgentEdit") :]
+        return body[: body.index("async function poll")]
+
+    def test_the_armed_timer_is_flushed(self):
+        body = self.undo_body()
+        assert "if (saveTimer)" in body
+        assert "clearTimeout(saveTimer)" in body
+        assert "await save()" in body
+
+    def test_the_flush_precedes_any_request(self):
+        body = self.undo_body()
+        assert body.index("await save()") < body.index("fetchJson(")
+
+    def test_a_409_refreshes_the_version_and_invites_a_retry(self):
+        body = self.undo_body()
+        assert "409" in body
+        assert "refreshVersion()" in body
+        assert "Try the undo again" in body
+
+
+class TestPinFollowThrough:
+    """Pressing Pin in the block toolbar appeared to do nothing."""
+
+    def script(self) -> str:
+        return (STATIC / "notes_blocks.js").read_text(encoding="utf-8")
+
+    def pin_body(self) -> str:
+        source = self.script()
+        body = source[source.index("async function togglePin") :]
+        return body[: body.index("async function removeDocument")]
+
+    def test_a_successful_pin_announces_the_change(self):
+        body = self.pin_body()
+        assert 'new CustomEvent("wichy:scratchpad-changed")' in body
+
+    def test_the_sidebar_listens(self):
+        source = (STATIC / "notes.js").read_text(encoding="utf-8")
+        assert '"wichy:scratchpad-changed"' in source
+        assert "refreshScratchpadState" in source
+
+    def test_a_read_failure_is_retried_before_deciding(self):
+        """A failed read used to be read as "not pinned", flipping the pin."""
+        body = self.pin_body()
+        assert body.count("fetchJson(") >= 2
+        assert "Could not read the current pin state" in body
+
+    def test_a_failed_post_says_so(self):
+        body = self.pin_body()
+        assert "Could not update the pin" in body
+
+
+class TestRenamesAreFollowed:
+    """A rename stranded the open editor on a slug that no longer existed.
+
+    notes.js updated `currentSlug` but never re-announced the note, so the block
+    editor kept polling and saving under the dead slug: 404s at best, and a
+    document that silently stopped persisting.
+    """
+
+    def script(self) -> str:
+        return (STATIC / "notes.js").read_text(encoding="utf-8")
+
+    def test_a_rename_re_announces_the_document(self):
+        source = self.script()
+        body = source[source.index("async function saveNote") :]
+        body = body[: body.index("async function createNewNote")]
+        assert "announceNoteOpened(data.slug)" in body

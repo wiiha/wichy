@@ -100,6 +100,11 @@
         // Delete button
         btnDelete.addEventListener('click', deleteCurrentNote);
 
+        // The block editor owns its own Pin control, and the pinned marker is
+        // this file's to render. Without a shared signal, pressing Pin there
+        // appeared to do nothing until the next poll.
+        window.addEventListener("wichy:scratchpad-changed", refreshScratchpadState);
+
         // Warn before leaving with unsaved changes
         window.addEventListener('beforeunload', (e) => {
             if (isDirty) {
@@ -524,9 +529,14 @@
             // Reload note list (title may have changed)
             await loadNotes();
 
-            // Update current slug if it changed
+            // Update current slug if it changed, and tell the block editor.
+            // Without the announcement the editor kept polling, saving and
+            // queueing under the DEAD slug: its poll 404ed silently and every
+            // later save failed, while the user saw a note that simply stopped
+            // persisting.
             if (data.slug && data.slug !== currentSlug) {
                 currentSlug = data.slug;
+                announceNoteOpened(data.slug);
             }
 
         } catch (e) {
@@ -741,6 +751,28 @@
 
     function clearNoteError() {
         showNoteError('');
+    }
+
+    /**
+     * Re-read the scratchpad state and re-render what depends on it.
+     *
+     * Called when another control changes the pin, and by the poll. The read is
+     * retried once: a single failure used to leave `scratchpadSlug` at its old
+     * value, which renders the wrong marker rather than no marker.
+     */
+    async function refreshScratchpadState() {
+        try {
+            const resp = await fetch('/tools/notes/api/notes/scratchpad', { credentials: 'same-origin' });
+            if (!resp.ok) {
+                return;
+            }
+            const data = await resp.json();
+            scratchpadSlug = data.primary;
+            renderNotesList(noteSearch.value.trim());
+            updatePinButton();
+        } catch (e) {
+            console.error('Failed to refresh scratchpad state:', e);
+        }
     }
 
     function updatePinButton() {

@@ -39,6 +39,18 @@
     const NOTIFICATION_MODE = SETTINGS.notification_mode || "auto";
     const AUTO_SEND = NOTIFICATION_MODE === "auto";
 
+    /**
+     * Bumped every time a document is opened.
+     *
+     * Every async worker captures it on entry and re-checks it after each await.
+     * Without it, a note switch mid-flight let the OLD note's continuation run
+     * against the NEW note's state: `slug` and `version` are module-level and
+     * were re-read after the awaits, so a poll started on note A applied A's ops
+     * into B's editor, acked under B's slug, and adopted A's version. Nothing
+     * cancelled the timer, and nothing compared the slug it started with to the
+     * one it now had.
+     */
+    let openEpoch = 0;
     /** The editor instance, or null when no block document is open. */
     let editor = null;
     /** The open document's slug, or null. */
@@ -70,6 +82,13 @@
     let pendingOps = new Map();
     /** The version to send with pendingOps for a given slug. */
     let pendingVersion = new Map();
+    /**
+     * Slugs with a send currently in flight.
+     *
+     * A per-slug flag rather than one global boolean: sending note A must not
+     * block note B's send, and the ops are keyed by slug anyway.
+     */
+    const sendInFlight = new Set();
     let changeTimer = null;
     let saveTimer = null;
     let pollTimer = null;
@@ -187,6 +206,11 @@
         agentCreated = new Set();
         agentChangeTimes = new Map();
         sentSnapshot = new Map();
+        // The conflicted marks live in the DOM, which the next render replaces,
+        // but the tracked ops and the banner do not: left behind, a new document
+        // would show a banner describing conflicts in the old one.
+        pendingConflicts = [];
+        hideConflict();
         updateQueueIndicator();
     }
 
@@ -435,11 +459,30 @@
         if (!ops || !ops.length) {
             return false;
         }
+        if (sendInFlight.has(targetSlug)) {
+            // The toolbar click and the poll's auto-send can both reach here with
+            // the same pending set, which posted the same diff twice: two
+            // identical notifications in the agent's context for one edit. The
+            // first send deletes the queue when it succeeds, so the second saw
+            // nothing to send and was harmless -- but on a 503 both retried, and
+            // the op was delivered twice.
+            return false;
+        }
         if (targetSlug !== slug) {
             // The user switched documents; the ops stay parked for that slug and
             // are sent when it is reopened.
             return false;
         }
+        sendInFlight.add(targetSlug);
+        try {
+            return await postPendingOps(targetSlug, ops);
+        } finally {
+            sendInFlight.delete(targetSlug);
+        }
+    }
+
+    /** The send itself, so the in-flight guard wraps every exit path. */
+    async function postPendingOps(targetSlug, ops) {
         const result = await fetchJson(`${PREFIX}/api/changes`, {
             method: "POST",
             body: JSON.stringify({
@@ -496,7 +539,6 @@
      */
     function updateQueueIndicator() {
         const button = document.querySelector('[data-action="send-changes"]');
-        const clear = document.querySelector('[data-action="clear-changes"]');
         const count = document.getElementById("queued-count");
         if (!button) {
             return;
@@ -505,10 +547,6 @@
         const distinct = new Set(ops.map((entry) => entry.block_id)).size;
         const empty = distinct === 0;
         button.classList.toggle("hidden", empty);
-        if (clear) {
-            // The escape hatch is offered only when there is something to discard.
-            clear.classList.toggle("hidden", empty);
-        }
         if (count) {
             count.textContent = String(distinct);
         }
@@ -1024,6 +1062,15 @@
         if (!slug) {
             return;
         }
+        // A save is armed by the debounce and this function rebuilds the editor
+        // on success, which clears that timer: edits typed in the last couple of
+        // seconds were silently dropped by an undo. Persist them first, so the
+        // revert lands on top of what the user actually wrote.
+        if (saveTimer) {
+            clearTimeout(saveTimer);
+            saveTimer = null;
+            await save();
+        }
         const listed = await fetchJson(
             `${PREFIX}/api/notes/${slug}/revisions?author=agent&limit=1`
         );
@@ -1052,6 +1099,15 @@
             { method: "POST", body: JSON.stringify({ version }) }
         );
         if (result.error) {
+            if (String(result.error).includes("409")) {
+                // The document moved on since this editor last knew its version.
+                // Refresh and tell the user to try again, as save() does --
+                // before, this path only said "could not undo", with no way
+                // forward and no hint that retrying would work.
+                await refreshVersion();
+                setStatus("The note changed. Try the undo again.");
+                return;
+            }
             setStatus("Could not undo that edit.");
             return;
         }
@@ -1068,18 +1124,41 @@
         if (!slug) {
             return;
         }
+        // Captured once, and re-checked after every await. Every value this
+        // function reads (slug, version, the editor) is module-level and can be
+        // replaced by an open() while one of these awaits is outstanding.
+        const epoch = openEpoch;
+        const targetSlug = slug;
         // Retry anything still parked, in both modes: in auto mode this is the
         // retry after a 503, and in on-demand mode it is a no-op because the ops
         // are waiting for the user, not for the network. The queue is only sent
         // on demand there, so sendPendingOps is not called for it.
-        if (AUTO_SEND && (pendingOps.get(slug) || []).length) {
-            await sendPendingOps(slug);
+        if (
+            AUTO_SEND &&
+            (pendingOps.get(targetSlug) || []).length &&
+            !sendInFlight.has(targetSlug)
+        ) {
+            await sendPendingOps(targetSlug);
+            if (epoch !== openEpoch || slug !== targetSlug) {
+                return;
+            }
         }
 
         const body = await fetchJson(
-            `${PREFIX}/api/changes/pending?slug=${encodeURIComponent(slug)}`
+            `${PREFIX}/api/changes/pending?slug=${encodeURIComponent(targetSlug)}`
         );
+        if (epoch !== openEpoch || slug !== targetSlug) {
+            return;
+        }
         if (body.error) {
+            if (String(body.error).includes("404")) {
+                // The document was renamed or deleted from under this editor.
+                // Continuing to poll a slug that no longer exists would 404 on
+                // every cycle forever, and every toolbar action would target a
+                // dead name. Stop mutating state and say what happened.
+                holdStatus("This note no longer exists here. Reopen it from the list.");
+                return;
+            }
             return;
         }
 
@@ -1101,18 +1180,27 @@
                 }
             }
             setStatus("Many changes arrived. Reloading the document.");
-            await open(slug);
+            await open(targetSlug);
             return;
         }
 
         if (body.changes && body.changes.length) {
             const applied = await applyAgentChanges(body.changes);
+            if (epoch !== openEpoch || slug !== targetSlug) {
+                // The user switched notes while these ops were being written into
+                // the editor. Acknowledge NOTHING and adopt NOTHING: the ops were
+                // applied to a document that is no longer open.
+                return;
+            }
             const ackUpTo = ackableVersion(body.changes, applied);
             if (ackUpTo > 0) {
                 await fetchJson(`${PREFIX}/api/changes/ack`, {
                     method: "POST",
-                    body: JSON.stringify({ slug, up_to_version: ackUpTo }),
+                    body: JSON.stringify({ slug: targetSlug, up_to_version: ackUpTo }),
                 });
+            }
+            if (epoch !== openEpoch || slug !== targetSlug) {
+                return;
             }
             // Adopt the version those ops produced. The agent's write moved the
             // document on, and acknowledging is exactly "I am now based on this
@@ -1131,7 +1219,7 @@
                     "Agent is working. Your edits will appear in its next thinking " +
                         "step -- this may redirect its attention."
                 );
-            } else if ((pendingOps.get(slug) || []).length && !AUTO_SEND) {
+            } else if ((pendingOps.get(targetSlug) || []).length && !AUTO_SEND) {
                 setStatus("Edits queued for next turn.");
             } else {
                 setStatus("");
@@ -1183,13 +1271,32 @@
 
     /** Open a block document, replacing whatever is currently loaded. */
     async function open(nextSlug) {
+        // Bumped FIRST, before any await, so a fetch already in flight for the
+        // previous document can tell it has been superseded.
+        const epoch = ++openEpoch;
         const document_ = await fetchJson(`${PREFIX}/api/notes/${nextSlug}`);
+        if (epoch !== openEpoch) {
+            // A newer open replaced this one while its fetch was in flight.
+            return;
+        }
         if (document_.error) {
+            // The sidebar has already marked the new note active, so local state
+            // still pointing at the PREVIOUS document would make every toolbar
+            // action target the wrong note. Clear it and say so.
+            slug = null;
+            version = 0;
+            editor = null;
+            pendingConflicts = [];
+            hideConflict();
             setStatus("Could not open the document.");
             return;
         }
         slug = nextSlug;
         version = document_.meta.version;
+        // Cleared before the rebuild: a banner left up from the previous document
+        // would name conflicts in a note the user is no longer looking at.
+        pendingConflicts = [];
+        hideConflict();
         showEditorFor(document_.format);
         // Updated for EVERY format, before any early return. A markdown document
         // is exactly the one "Convert to blocks" is for, so setting this only on
@@ -1203,13 +1310,35 @@
         }
 
         await destroyEditor();
-        editor = new window.EditorJS({
-            holder: blocksNode,
-            tools: toolsConfig(),
-            data: { blocks: document_.blocks.map(toEditorBlock) },
-            onChange: onChange,
-        });
-        await editor.isReady;
+        try {
+            editor = new window.EditorJS({
+                holder: blocksNode,
+                tools: toolsConfig(),
+                data: { blocks: document_.blocks.map(toEditorBlock) },
+                onChange: onChange,
+            });
+            await editor.isReady;
+        } catch (e) {
+            // A throwing tool constructor would otherwise leave a half-built
+            // editor assigned, with the markdown node already hidden: the user
+            // sees an empty box and no explanation. Fall back to the markdown
+            // view and say what happened.
+            editor = null;
+            showEditorFor("markdown");
+            setStatus("The block editor failed to start. Showing the raw note instead.");
+            return;
+        }
+        if (epoch !== openEpoch) {
+            // A newer open started while this editor was initialising. Drop this
+            // one rather than leaving two editors attached to one holder.
+            try {
+                editor.destroy();
+            } catch (e) {
+                // A partially initialised editor has nothing to detach.
+            }
+            editor = null;
+            return;
+        }
         // What the server now knows about, taken from the document just loaded
         // rather than from the editor: a save round-trip would rewrite the
         // document before the user changed anything.
@@ -1261,15 +1390,6 @@
             if (action === "send-changes") {
                 if (slug) {
                     await sendPendingOps(slug);
-                }
-                return;
-            }
-            if (action === "clear-changes") {
-                if (slug) {
-                    pendingOps.delete(slug);
-                    pendingVersion.delete(slug);
-                    updateQueueIndicator();
-                    holdStatus("Queued changes cleared.");
                 }
                 return;
             }
@@ -1376,12 +1496,30 @@
     }
 
     async function togglePin() {
-        const state = await fetchJson(`${PREFIX}/api/notes/scratchpad`);
-        const isPinned = !state.error && state.primary === slug;
-        await fetchJson(`${PREFIX}/api/notes/${slug}/pin`, {
+        let state = await fetchJson(`${PREFIX}/api/notes/scratchpad`);
+        if (state.error) {
+            // A failed read used to be read as "not pinned", so the POST below
+            // would FLIP the pin instead of setting it: the user asked to pin and
+            // got an unpin. Retry once, then refuse rather than guess.
+            state = await fetchJson(`${PREFIX}/api/notes/scratchpad`);
+        }
+        if (state.error) {
+            setStatus("Could not read the current pin state. Try again.");
+            return;
+        }
+        const isPinned = state.primary === slug;
+        const result = await fetchJson(`${PREFIX}/api/notes/${slug}/pin`, {
             method: "POST",
             body: JSON.stringify({ pinned: !isPinned }),
         });
+        if (result.error) {
+            setStatus("Could not update the pin.");
+            return;
+        }
+        // The sidebar's pinned marker is notes.js's to own, and it only ever
+        // refreshes on its own poll: without this the pin POST appeared to do
+        // nothing at all.
+        window.dispatchEvent(new CustomEvent("wichy:scratchpad-changed"));
     }
 
     async function removeDocument() {
