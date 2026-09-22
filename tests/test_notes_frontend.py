@@ -471,3 +471,49 @@ class TestAccessibility:
         marker = marker[: marker.index(">")]
         assert 'role="dialog"' in marker
         assert 'aria-modal="true"' in marker
+
+
+class TestAgentChangeVisualization:
+    """An agent edit must be visible on the block, not only counted."""
+
+    def script(self) -> str:
+        return (STATIC / "notes_blocks.js").read_text(encoding="utf-8")
+
+    def test_the_touched_blocks_are_actually_marked(self):
+        """Recording the ids is not showing them."""
+        source = self.script()
+        assert "function markAgentBlocks()" in source
+        assert "markAgentBlocks();" in source
+        assert 'classList.add("agent-touched")' in source
+
+    def test_the_flash_is_separate_from_the_mark(self):
+        """The mark must outlive the animation."""
+        source = self.script()
+        assert 'classList.add("agent-flash")' in source
+        assert 'classList.remove("agent-flash")' in source
+
+    def test_marking_matches_on_id_not_index(self):
+        """Indices shift as blocks are added or removed."""
+        source = self.script()
+        body = source[source.index("function markAgentBlocks()") :]
+        body = body[: body.index("function showConflict")]
+        assert "dataset.blockId" in body
+        assert "agentTouched.has(id)" in body
+
+    def test_each_rendered_block_carries_its_id(self):
+        """The mark has nothing to match on without it."""
+        source = self.script()
+        assert "function stampBlockIds()" in source
+        assert "dataset.blockId = block.id" in source
+
+    def test_ids_are_restamped_after_a_save(self):
+        """The editor re-renders blocks that were added or moved."""
+        source = self.script()
+        save_body = source[source.index("async function save()") :]
+        save_body = save_body[: save_body.index("function scheduleSave")]
+        assert "stampBlockIds()" in save_body
+
+    def test_the_mark_carries_a_tooltip(self):
+        """A border alone does not say what happened."""
+        source = self.script()
+        assert "Changed by the agent" in source

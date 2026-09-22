@@ -148,6 +148,9 @@
         }
         version = result.version;
         dirty = new Set();
+        // The editor may have re-rendered after adding or moving a block, so the
+        // ids the agent mark matches on are refreshed with every save.
+        await stampBlockIds();
         setStatus("");
     }
 
@@ -208,6 +211,7 @@
         for (const op of untouched) {
             agentTouched.add(op.block_id);
         }
+        markAgentBlocks();
         if (untouched.length) {
             setStatus(`Agent updated ${untouched.length} block(s).`);
         }
@@ -217,6 +221,32 @@
             // conflict and leaves the choice to them.
             showConflict();
         }
+    }
+
+    /**
+     * Mark the blocks the agent changed, and briefly flash them.
+     *
+     * The mark is applied to the rendered block by matching its data id, not by
+     * index: indices shift as blocks are added or removed, so an index-based
+     * mark would land on the wrong block after any edit.
+     */
+    function markAgentBlocks() {
+        if (!blocksNode) {
+            return;
+        }
+        blocksNode.querySelectorAll(".ce-block").forEach((element) => {
+            const id = element.querySelector("[data-block-id]")?.dataset.blockId;
+            if (id && agentTouched.has(id)) {
+                element.classList.add("agent-touched");
+                // The flash is a separate class so the mark survives its end.
+                element.classList.add("agent-flash");
+                element.title = "Changed by the agent";
+                window.setTimeout(() => element.classList.remove("agent-flash"), 2000);
+            } else {
+                element.classList.remove("agent-touched");
+                element.removeAttribute("title");
+            }
+        });
     }
 
     function showConflict() {
@@ -285,6 +315,29 @@
             onChange: onChange,
         });
         await editor.isReady;
+        await stampBlockIds();
+    }
+
+    /**
+     * Write each block's id into the DOM.
+     *
+     * Editor.js has no attribute for it, and the agent-change mark has to match
+     * a rendered block to its op. Re-run after every save, because the editor
+     * re-renders blocks that were added or moved.
+     */
+    async function stampBlockIds() {
+        if (!editor || !blocksNode) {
+            return;
+        }
+        const blocks = await currentBlocks();
+        const rendered = blocksNode.querySelectorAll(".ce-block");
+        rendered.forEach((element, index) => {
+            const block = blocks[index];
+            const target = element.querySelector("[contenteditable]") || element;
+            if (block && block.id) {
+                target.dataset.blockId = block.id;
+            }
+        });
     }
 
     /**
