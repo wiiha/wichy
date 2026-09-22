@@ -1591,3 +1591,95 @@ class TestRenamesAreFollowed:
         body = source[source.index("async function saveNote") :]
         body = body[: body.index("async function createNewNote")]
         assert "announceNoteOpened(data.slug)" in body
+
+
+class TestTheQuietPeriodIsStatedInPlainWords:
+    """The comment must name the value, not cite a document nobody can read.
+
+    A commit replaced the old citation with nothing, leaving the 1000 ms quiet
+    period documented only in the Python settings -- so a reader of the script
+    had no idea how long a burst is held for.
+    """
+
+    def script(self) -> str:
+        return (STATIC / "notes_blocks.js").read_text(encoding="utf-8")
+
+    def test_the_debounce_comment_names_the_value(self):
+        source = self.script()
+        body = source[source.index("Restart the change-notify debounce") :]
+        body = body[: body.index("function scheduleChangeNotify")]
+        assert "1000 ms" in body
+
+    def test_it_says_the_value_is_configurable(self):
+        source = self.script()
+        body = source[source.index("Restart the change-notify debounce") :]
+        body = body[: body.index("function scheduleChangeNotify")]
+        assert "configurable" in body
+
+    def test_it_names_no_document_or_internal_identifier(self):
+        """SPEC.md is never committed, so a citation to it dangles."""
+        source = self.script()
+        body = source[source.index("Restart the change-notify debounce") :]
+        body = body[: body.index("function scheduleChangeNotify")]
+        assert "INV-" not in body
+        assert "SPEC.md" not in body
+
+    def test_the_stated_value_matches_the_setting_default(self):
+        """A comment naming the wrong number is worse than no comment."""
+        from wichy.config import settings
+
+        source = self.script()
+        body = source[source.index("Restart the change-notify debounce") :]
+        body = body[: body.index("function scheduleChangeNotify")]
+        assert f"{settings.notes_change_debounce_ms} ms" in body
+
+
+class TestTheTodoCheckboxAnnouncesItsChange:
+    """A toggled checkbox is a real edit and must reach the server.
+
+    The checkbox edits `data` without touching the contenteditable, so the
+    editor's mutation observer never sees it. The tool tried to announce it
+    through `api.blocks.blockDidMutated`, which does not exist on the API surface
+    a tool receives (it is an internal BlockManager method), so the guard was
+    always false and the call never ran: the change event never fired, the save
+    debounce never started, and the toggle was silently unsaved.
+    """
+
+    def custom_blocks(self) -> str:
+        return (STATIC / "editorjs" / "custom-blocks.js").read_text(encoding="utf-8")
+
+    def test_it_uses_the_block_wrapper_the_editor_hands_it(self):
+        source = self.custom_blocks()
+        assert "this.block = block" in source
+
+    def test_it_calls_dispatch_change(self):
+        source = self.custom_blocks()
+        assert "this.block?.dispatchChange" in source
+        assert "this.block.dispatchChange()" in source
+
+    def test_the_nonexistent_api_method_is_not_called(self):
+        """The comment above the call names it to explain why; the CODE must not.
+
+        Asserted on the call sites, not the whole file: a mention inside a
+        comment is the explanation, and banning the word outright would make the
+        reason unwritable.
+        """
+        source = self.custom_blocks()
+        for line in source.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("//") or stripped.startswith("*"):
+                continue
+            assert "blockDidMutated" not in stripped, stripped
+
+    def test_dispatch_change_is_what_the_vendored_tools_use(self):
+        """Checked against the bundle, so the call is not another guess."""
+        quote = (STATIC / "editorjs" / "quote.umd.js").read_text(encoding="utf-8")
+        assert "dispatchChange" in quote
+
+    def test_the_todo_constructor_accepts_the_block_wrapper(self):
+        source = self.custom_blocks()
+        # Scoped to the todo block's constructor, not any constructor.
+        todo_at = source.index("cdx-todo")
+        constructor = source.rindex("constructor(", 0, todo_at)
+        header = source[constructor:todo_at]
+        assert "block" in header

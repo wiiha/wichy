@@ -1610,3 +1610,92 @@ class TestTheResponseReportsThisRequestsOwnWrite:
         # 2 is what this request produced. 102 would mean the response came from
         # a read taken after the lock was released.
         assert response.get_json()["version"] == 2
+
+
+class TestTheRoutesWithoutAFrontendCaller:
+    """The block routes and the single-revision route are API surface, not UI.
+
+    The shipped frontend reaches documents by `data-action` on the toolbar and
+    the block editor's own save; the five `/blocks` routes, `GET /revisions/<id>`
+    and `GET /settings` have no caller in it. They are the contract for a
+    non-browser client, and the agent tools perform the same operations
+    in-process, so they are kept and covered rather than deleted as unused.
+    """
+
+    def test_every_block_route_answers(self, client):
+        create(client, "Surface", "a\n\nb")
+        block = client.get(f"{PREFIX}/api/notes/surface/blocks").get_json()["blocks"][0]
+        block_id = block["id"]
+
+        read = client.get(f"{PREFIX}/api/notes/surface/blocks")
+        assert read.status_code == 200
+
+        added = client.post(
+            f"{PREFIX}/api/notes/surface/blocks",
+            json={
+                "version": read.get_json()["version"],
+                "block_type": "paragraph",
+                "data": {"text": "added"},
+            },
+        )
+        assert added.status_code == 201
+
+        patched = client.patch(
+            f"{PREFIX}/api/notes/surface/blocks/{block_id}",
+            json={
+                "version": added.get_json()["version"],
+                "block_type": "paragraph",
+                "data": {"text": "patched"},
+            },
+        )
+        assert patched.status_code == 200
+
+        moved = client.post(
+            f"{PREFIX}/api/notes/surface/blocks/{block_id}/move",
+            json={"version": patched.get_json()["version"]},
+        )
+        assert moved.status_code == 200
+
+        removed = client.delete(
+            f"{PREFIX}/api/notes/surface/blocks/{block_id}"
+            f"?version={moved.get_json()['version']}"
+        )
+        assert removed.status_code == 200
+
+    def test_the_single_revision_route_answers(self, client):
+        create(client, "RevOne", "x")
+        listed = client.get(f"{PREFIX}/api/notes/revone/revisions").get_json()
+        revision_id = listed["revisions"][0]["id"]
+        response = client.get(f"{PREFIX}/api/notes/revone/revisions/{revision_id}")
+        assert response.status_code == 200
+        # Wrapped under "revision", so the body is a named object rather than a
+        # bare entry that a future field could collide with.
+        assert response.get_json()["revision"]["id"] == revision_id
+
+    def test_an_unknown_revision_is_404(self, client):
+        create(client, "RevMissing", "x")
+        assert (
+            client.get(f"{PREFIX}/api/notes/revmissing/revisions/999").status_code
+            == 404
+        )
+
+    def test_the_settings_route_matches_the_injected_template_values(self):
+        """Two producers of the same settings must not drift."""
+        from flask import Flask
+
+        from wichy.config import settings as app_settings
+        from wichy.tools.notes import api as notes_api
+
+        app = Flask(__name__)
+        app.config["TESTING"] = True
+        bp = Blueprint("notes", __name__, url_prefix=PREFIX)
+        notes_api.register_routes(bp)
+        app.register_blueprint(bp)
+
+        with app.test_client() as client:
+            body = client.get(f"{PREFIX}/api/notes/settings").get_json()
+
+        assert body["poll_interval_ms"] == app_settings.notes_poll_interval_ms
+        assert body["change_debounce_ms"] == app_settings.notes_change_debounce_ms
+        assert body["save_debounce_ms"] == app_settings.notes_save_debounce_ms
+        assert body["notification_mode"] == app_settings.notification_default_mode

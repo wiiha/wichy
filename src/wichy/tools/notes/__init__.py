@@ -119,12 +119,27 @@ def get_scratchpad_slug() -> str | None:
     return primary if isinstance(primary, str) else None
 
 
+class MarkerWriteError(OSError):
+    """The scratchpad marker could not be written.
+
+    Raised rather than swallowed: a failed pin that reports success leaves the
+    sidebar and the agent tools disagreeing about what is pinned, which is worse
+    than an error the user can see and retry.
+    """
+
+
 def set_scratchpad_state(primary: str | None, pinned: list[str] | None = None) -> None:
-    """Write the scratchpad marker.
+    """Write the scratchpad marker atomically.
 
     Clearing writes explicit nulls rather than deleting the file, matching how
     the marker has always been cleared, so a cleared pin is distinguishable
     from a marker that was never written.
+
+    Written to a temporary file and renamed into place, the same way documents
+    are: a plain `open(..., "w")` truncates first, so a crash (or two concurrent
+    pins) mid-write left a truncated marker. A truncated marker does not raise --
+    it parses as garbage and reads as UNPINNED, so the agent silently loses its
+    scratchpad.
 
     The notes directory must already exist (call get_notes_dir() first).
 
@@ -133,17 +148,29 @@ def set_scratchpad_state(primary: str | None, pinned: list[str] | None = None) -
         pinned: The pinned-display list. Entries are de-duplicated, and the
             primary slug is always included so the sidebar marker and the
             agent's actual target cannot disagree.
+
+    Raises:
+        MarkerWriteError: The marker could not be written. The previous marker is
+            left intact.
     """
     marker_path = settings.scratchpad_marker_path
     entries: list[str] = []
     for slug in list(pinned or []) + ([primary] if primary else []):
         if slug and slug not in entries:
             entries.append(slug)
+    payload = json.dumps({"primary": primary, "pinned": entries})
+    tmp_path = marker_path.with_suffix(".tmp")
     try:
-        with open(marker_path, "w") as f:
-            json.dump({"primary": primary, "pinned": entries}, f)
-    except IOError:
-        pass
+        tmp_path.write_text(payload, encoding="utf-8")
+        # os.replace is atomic on POSIX: a reader sees either the old marker or
+        # the new one, never a half-written file.
+        os.replace(tmp_path, marker_path)
+    except OSError as e:
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise MarkerWriteError(f"Could not write the scratchpad marker: {e}") from e
 
 
 def set_scratchpad_slug(slug: str | None) -> None:

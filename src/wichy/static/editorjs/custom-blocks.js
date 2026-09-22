@@ -169,12 +169,20 @@
             };
         }
 
-        constructor({ data, readOnly }) {
+        constructor({ data, readOnly, block }) {
             this.data = {
                 text: (data && data.text) || "",
                 checked: Boolean(data && data.checked),
             };
             this.readOnly = readOnly;
+            // The Block wrapper Editor.js hands every block tool. Tunes use it
+            // to announce a change (the vendored quote tool calls
+            // `this.block.dispatchChange()`), and a checkbox is the one control
+            // this tool has that edits data WITHOUT touching the contenteditable
+            // -- so without this the mutation observer never fires, no change
+            // event reaches the page, and the save debounce never starts. A
+            // toggled todo was silently unsaved.
+            this.block = block;
         }
 
         render() {
@@ -194,9 +202,12 @@
             box.addEventListener("change", () => {
                 this.data.checked = box.checked;
                 label.textContent = box.checked ? "[TODO checked]" : "[TODO unchecked]";
-                // Tell the editor something changed, so the save debounce starts.
-                if (typeof this.api?.blocks?.blockDidMutated === "function") {
-                    this.api.blocks.blockDidMutated(box);
+                // Tell the editor something changed, so the save debounce
+                // starts. `api.blocks` exposes no `blockDidMutated` (it is an
+                // internal BlockManager method), so the guard that used to be
+                // here was always false and the call never happened.
+                if (typeof this.block?.dispatchChange === "function") {
+                    this.block.dispatchChange();
                 }
             });
 

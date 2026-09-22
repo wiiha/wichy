@@ -398,10 +398,12 @@
     /**
      * Restart the change-notify debounce.
      *
+     * A burst of keystrokes becomes one notification, not one per key: edits are
+     * held for a 1000 ms quiet period (configurable via the notes settings, which
+     * the page reads from its injected JSON) before they are sent to the agent.
+     *
      * Separate from the save debounce and shorter by default: saving is the
-     * editor's own durability, notifying is what the agent sees. The quiet period
-     * exists so a burst of keystrokes is one message, not one message per key;
-     * the interval is configurable and read from the page's settings.
+     * editor's own durability, notifying is what the agent sees.
      */
     function scheduleChangeNotify() {
         if (changeTimer) {

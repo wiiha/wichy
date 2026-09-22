@@ -13,6 +13,7 @@ Grouped by the decision each group defends:
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 from unittest.mock import patch
@@ -21,6 +22,7 @@ import pytest
 
 from wichy.config import settings
 from wichy.tools.notes import (
+    MarkerWriteError,
     get_scratchpad_slug,
     get_scratchpad_state,
     set_scratchpad_slug,
@@ -1710,3 +1712,77 @@ else:
         # It could not have entered before this process released the lock, which
         # means it waited at least most of the 0.8s.
         assert waited > 0.3, f"the subprocess did not wait: {waited}s"
+
+
+class TestTheMarkerIsWrittenAtomically:
+    """A torn marker reads as UNPINNED, so a failed write silently unpins.
+
+    The marker was written with a plain `open(..., "w")` under a bare
+    `except IOError: pass`. Truncate-then-write means a crash or a concurrent
+    writer can leave a partial file, and a partial marker does not raise: it
+    parses as garbage and reads as "nothing pinned", which loses the agent's
+    scratchpad with no error anywhere.
+    """
+
+    def test_a_successful_write_leaves_valid_json(self, notes_dir):
+        set_scratchpad_state("pinned-one", ["pinned-one", "other"])
+        raw = (notes_dir / ".scratchpad").read_text(encoding="utf-8")
+        assert json.loads(raw)["primary"] == "pinned-one"
+
+    def test_the_write_goes_through_a_temporary_file(self, notes_dir, monkeypatch):
+        """Not a direct truncating write: the temp+replace is the atomicity."""
+        import wichy.tools.notes as notes_pkg
+
+        written: list[str] = []
+        real_replace = os.replace
+
+        def watching_replace(src, dst):
+            written.append(str(src))
+            return real_replace(src, dst)
+
+        monkeypatch.setattr(notes_pkg.os, "replace", watching_replace)
+        set_scratchpad_state("atomic")
+        assert written, "the marker was not moved into place atomically"
+        assert written[0].endswith(".tmp")
+
+    def test_a_failed_write_leaves_the_previous_marker_intact(
+        self, notes_dir, monkeypatch
+    ):
+        """The old pin survives, rather than being truncated to nothing."""
+        import wichy.tools.notes as notes_pkg
+
+        set_scratchpad_state("original", ["original"])
+
+        def exploding_replace(src, dst):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(notes_pkg.os, "replace", exploding_replace)
+        with pytest.raises(MarkerWriteError):
+            set_scratchpad_state("replacement", ["replacement"])
+
+        # The previous marker is still there and still parses.
+        assert get_scratchpad_state()["primary"] == "original"
+
+    def test_a_failed_write_does_not_leave_the_temp_file_behind(
+        self, notes_dir, monkeypatch
+    ):
+        import wichy.tools.notes as notes_pkg
+
+        def exploding_replace(src, dst):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(notes_pkg.os, "replace", exploding_replace)
+        with pytest.raises(MarkerWriteError):
+            set_scratchpad_state("replacement")
+        assert not list(notes_dir.glob("*.tmp")), "a temp file was left behind"
+
+    def test_the_failure_is_not_swallowed(self, notes_dir, monkeypatch):
+        """The old code caught IOError and did nothing at all."""
+        import wichy.tools.notes as notes_pkg
+
+        def exploding_replace(src, dst):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(notes_pkg.os, "replace", exploding_replace)
+        with pytest.raises(MarkerWriteError):
+            set_scratchpad_state("anything")

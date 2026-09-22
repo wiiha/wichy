@@ -27,6 +27,7 @@ from typing import Any, Callable, Iterable, Mapping
 from flask import Blueprint, Response, jsonify, request
 
 from wichy.tools.notes import (
+    MarkerWriteError,
     get_scratchpad_state,
     set_scratchpad_state,
 )
@@ -291,6 +292,10 @@ def _move_marker(old_slug: str, new_slug: str) -> None:
     primary = new_slug if state["primary"] == old_slug else state["primary"]
     pinned = [new_slug if entry == old_slug else entry for entry in state["pinned"]]
     if primary != state["primary"] or pinned != state["pinned"]:
+        # Deliberately NOT caught here. A rename that could not repoint the
+        # marker has left the pin naming a slug that no longer exists, and the
+        # caller must fail the request rather than return a slug whose scratchpad
+        # the agent tools can no longer find.
         set_scratchpad_state(primary, pinned)
 
 
@@ -362,6 +367,11 @@ def _apply_locked(
         # All are the caller's mistake, so they map to 400 rather than escaping
         # as an HTML 500 the browser cannot read.
         return None, _error(str(e), 400)
+    except MarkerWriteError as e:
+        # Before the OSError clause, because MarkerWriteError IS an OSError: the
+        # generic message would hide that it was the scratchpad marker, not the
+        # document, and the two call for different recovery.
+        return None, _error(str(e), 500)
     except OSError as e:
         return None, _error(f"Could not write the note: {e}", 500)
 
@@ -376,7 +386,17 @@ def _document_payload(document, fmt: str) -> dict:
 
 
 def register_routes(bp: Blueprint):
-    """Register all API routes on the given blueprint."""
+    """Register all API routes on the given blueprint.
+
+    Some routes here have no caller in the shipped frontend: the five
+    ``/blocks`` routes, ``GET /revisions/<id>``, and ``GET /settings``. The block
+    routes exist because the agent tools reach the same operations in-process
+    rather than over HTTP, and the settings route because the template injects
+    the same values as JSON. They are kept, with tests, as the API's own surface
+    rather than deleted as unused code: they are the documented contract for a
+    non-browser client, and removing them would make the HTTP API an incomplete
+    mirror of what a document supports.
+    """
 
     # -------------------------------------------------------------------------
     # Documents
@@ -588,11 +608,21 @@ def register_routes(bp: Blueprint):
         # A marker left pointing at a deleted slug would aim the agent tools at a
         # document that no longer exists.
         state = get_scratchpad_state()
+        marker_error = None
         if state["primary"] == slug or slug in state["pinned"]:
             primary = None if state["primary"] == slug else state["primary"]
             pinned = [entry for entry in state["pinned"] if entry != slug]
-            set_scratchpad_state(primary, pinned)
+            try:
+                set_scratchpad_state(primary, pinned)
+            except MarkerWriteError as e:
+                # The note IS deleted. The marker could not be repointed, so the
+                # sidebar would keep showing a pin for something gone -- worth
+                # telling the caller, but not worth reporting the delete as
+                # having failed.
+                marker_error = str(e)
 
+        if marker_error is not None:
+            return jsonify({"success": True, "marker_error": marker_error})
         return jsonify({"success": True})
 
     # -------------------------------------------------------------------------
@@ -754,15 +784,21 @@ def register_routes(bp: Blueprint):
         pinned = bool(data.get("pinned", True))
         state = get_scratchpad_state()
 
-        if pinned:
-            entries = list(state["pinned"])
-            if slug not in entries:
-                entries.append(slug)
-            set_scratchpad_state(slug, entries)
-        else:
-            primary = None if state["primary"] == slug else state["primary"]
-            entries = [entry for entry in state["pinned"] if entry != slug]
-            set_scratchpad_state(primary, entries)
+        try:
+            if pinned:
+                entries = list(state["pinned"])
+                if slug not in entries:
+                    entries.append(slug)
+                set_scratchpad_state(slug, entries)
+            else:
+                primary = None if state["primary"] == slug else state["primary"]
+                entries = [entry for entry in state["pinned"] if entry != slug]
+                set_scratchpad_state(primary, entries)
+        except MarkerWriteError as e:
+            # The pin did not take. Saying so is the point: a silently failed
+            # write left the sidebar showing a pin the agent tools would not
+            # honour, and nothing anywhere said why.
+            return _error(str(e), 500)
 
         fresh = get_scratchpad_state()
         return jsonify({"primary": fresh["primary"], "pinned": fresh["pinned"]})
