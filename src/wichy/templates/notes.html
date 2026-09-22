@@ -62,9 +62,14 @@
         </div>
 
         {# Announced politely rather than assertively: a conflict is important but
-           must not interrupt what the user is typing. #}
+           must not interrupt what the user is typing. Keeping the local version is
+           the default and the banner is inert on its own -- only [Keep agent's]
+           discards anything. #}
         <div id="conflict-banner" class="conflict-banner hidden" role="status" aria-live="polite" tabindex="0">
-            Agent also edited this block. Your version is kept.
+            <span id="conflict-text">Agent also edited this block. Your version is kept.</span>
+            <button class="btn btn-secondary" data-conflict="mine">Keep mine</button>
+            <button class="btn btn-secondary" data-conflict="theirs">Keep agent's</button>
+            <button class="btn btn-secondary" data-conflict="compare">Compare</button>
         </div>
 
         {# The conversion confirmation. A real dialog rather than window.confirm,
@@ -85,6 +90,27 @@
                 <div class="modal-footer">
                     <button id="convert-modal-cancel" class="btn btn-secondary">Cancel</button>
                     <button id="convert-modal-confirm" class="btn btn-primary">Convert</button>
+                </div>
+            </div>
+        </div>
+
+        {# Read-only, and it resolves to neither side: the point is to help the
+           user choose, so closing it leaves the banner up. #}
+        <div id="compare-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="compare-modal-title">
+            <div class="modal-content">
+                <h3 id="compare-modal-title" class="modal-title">Compare the two versions</h3>
+                <div class="compare-grid">
+                    <div>
+                        <h4 class="compare-heading">Your version</h4>
+                        <pre id="compare-mine" class="compare-body"></pre>
+                    </div>
+                    <div>
+                        <h4 class="compare-heading">Agent's version</h4>
+                        <pre id="compare-theirs" class="compare-body"></pre>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button id="compare-modal-close" class="btn btn-secondary">Close</button>
                 </div>
             </div>
         </div>

@@ -498,35 +498,45 @@
         button.disabled = distinct === 0;
     }
 
-    /** The id at a given editor index, or null when the index is out of range. */
-    async function idAt(index) {
-        if (!editor) {
-            return null;
-        }
-        const blocks = await currentBlocks();
-        const block = blocks[index];
-        return block && block.id ? block.id : null;
-    }
-
     /**
      * Note which blocks the user touched.
      *
-     * Editor.js reports a changed block by INDEX; queued agent ops carry block
-     * IDs. The two are different namespaces, so the index is resolved to an id
-     * here. Comparing them directly would never match, and the dirty guard --
-     * the thing that stops an agent edit overwriting a block the user is still
-     * working in -- would silently do nothing.
+     * The dirty set is what stops an agent edit overwriting a block the user is
+     * still typing in, so a change event that adds nothing to it disarms that
+     * guard silently. See changedBlockIds for the event shape.
      */
     async function onChange(api, event) {
-        const index = typeof event?.block?.id === "number" ? event.block.id : null;
-        if (index !== null) {
-            const blockId = await idAt(index);
-            if (blockId) {
-                dirty.add(blockId);
-            }
+        for (const blockId of changedBlockIds(event)) {
+            dirty.add(blockId);
         }
         scheduleSave();
         scheduleChangeNotify();
+    }
+
+    /**
+     * The block ids a change event refers to.
+     *
+     * Editor.js passes `event.detail.target.id` -- a STRING block id -- and
+     * batches several events into an array when more than one block changed in
+     * the same tick. The previous code read `event.block.id` and required it to
+     * be a number, which is not the shape this editor emits, so it matched
+     * nothing and `dirty` stayed empty: the guard that stops an agent edit
+     * overwriting a block the user is still typing in never armed at all.
+     *
+     * The id is used directly rather than resolved through an index. Ids are
+     * stable across edits and indices are not, and the event already carries the
+     * id, so resolving it would only add a way to get it wrong.
+     */
+    function changedBlockIds(event) {
+        const events = Array.isArray(event) ? event : [event];
+        const ids = [];
+        for (const one of events) {
+            const id = one && one.detail && one.detail.target ? one.detail.target.id : null;
+            if (typeof id === "string" && id) {
+                ids.push(id);
+            }
+        }
+        return ids;
     }
 
     /**
@@ -575,6 +585,9 @@
             // version would discard the user's work. The banner states the
             // conflict and leaves the choice to them.
             pendingConflicts = blocked;
+            // Marked orange, and marked BEFORE the banner is shown, so the
+            // border and the banner describe the same set of blocks.
+            await markAgentBlocks();
             showConflict();
         }
     }
@@ -639,9 +652,11 @@
             return;
         }
         const blocks = editor ? await currentBlocks() : [];
+        const conflictedIds = new Set(pendingConflicts.map((op) => op.block_id));
         blocksNode.querySelectorAll(".ce-block").forEach((element, index) => {
             const block = blocks[index];
             const id = block && block.id ? block.id : null;
+            element.classList.toggle("conflicted", !!(id && conflictedIds.has(id)));
             if (id && agentTouched.has(id)) {
                 element.classList.add("agent-touched");
                 element.classList.toggle("agent-created", agentCreated.has(id));
@@ -681,11 +696,200 @@
         return `${hh}:${mm}`;
     }
 
+    /**
+     * Show the conflict banner.
+     *
+     * The banner is informational until a button is pressed: the local version
+     * stays in place and the queued agent ops stay unapplied, so merely showing
+     * it discards nothing. That is the safe default -- a user who ignores the
+     * banner keeps their own work.
+     */
     function showConflict() {
         const banner = document.getElementById("conflict-banner");
-        if (banner) {
-            banner.classList.remove("hidden");
+        if (!banner) {
+            return;
         }
+        const text = document.getElementById("conflict-text");
+        const count = new Set(pendingConflicts.map((op) => op.block_id)).size;
+        if (text) {
+            text.textContent =
+                count === 1
+                    ? "Agent also edited this block. Your version is kept."
+                    : `Agent also edited ${count} blocks. Your version is kept.`;
+        }
+        banner.classList.remove("hidden");
+    }
+
+    function hideConflict() {
+        const banner = document.getElementById("conflict-banner");
+        if (banner) {
+            banner.classList.add("hidden");
+        }
+    }
+
+    /**
+     * Resolve the conflict in favour of the local version.
+     *
+     * "Keep mine" means the agent's ops for those blocks are dropped and the
+     * document is acknowledged at the current version, so they do not come back
+     * on the next poll. Dropping them locally is not enough on its own: the ops
+     * live on the server until an ack discards them.
+     */
+    async function keepMine() {
+        pendingConflicts = [];
+        hideConflict();
+        if (!slug) {
+            return;
+        }
+        await fetchJson(`${PREFIX}/api/changes/ack`, {
+            method: "POST",
+            body: JSON.stringify({ slug, up_to_version: version }),
+        });
+        // The local blocks are what we are keeping, so they are recorded as the
+        // sent state; otherwise the next diff would describe them as new changes.
+        await resyncSnapshot();
+        setStatus("Kept your version of the blocks the agent also edited.");
+    }
+
+    /**
+     * Resolve the conflict in favour of the agent's version.
+     *
+     * This is the only action that discards local work, so the loss is stated
+     * before it happens. The whole document is re-read rather than patched: the
+     * agent's ops may have added, removed or reordered blocks as well as editing
+     * this one, and applying them piecemeal is what the dirty guard exists to
+     * avoid.
+     */
+    async function keepTheirs() {
+        if (!slug || !pendingConflicts.length) {
+            // Nothing to resolve. Without this guard a stray click would put up a
+            // confirmation promising to discard "0 blocks" and then reload the
+            // document for no reason.
+            return;
+        }
+        const count = new Set(pendingConflicts.map((op) => op.block_id)).size;
+        const confirmed = window.confirm(
+            `Discard your version of ${count} block${count === 1 ? "" : "s"} ` +
+                "and use the agent's?\n\nYour edits to " +
+                (count === 1 ? "that block" : "those blocks") +
+                " will be lost. This cannot be undone from here."
+        );
+        if (!confirmed) {
+            // Refusing issues no request and leaves the banner up, so the user can
+            // still choose one of the other actions.
+            return;
+        }
+        pendingConflicts = [];
+        hideConflict();
+        await open(slug);
+        setStatus("Replaced your version with the agent's.");
+    }
+
+    /** Show the local and agent versions of the conflicting blocks, read-only. */
+    async function compareConflict() {
+        if (!pendingConflicts.length) {
+            return;
+        }
+        const mine = document.getElementById("compare-mine");
+        const theirs = document.getElementById("compare-theirs");
+        const modal = document.getElementById("compare-modal");
+        if (!mine || !theirs || !modal) {
+            return;
+        }
+
+        const mineLines = [];
+        const theirLines = [];
+        for (const op of pendingConflicts) {
+            const id = op.block_id;
+            mineLines.push(`${id}\n${await describeBlockForCompare(id)}`);
+            theirLines.push(`${id}\n${describeOpForCompare(op)}`);
+        }
+        // textContent, not innerHTML: block data is document content and may
+        // contain markup, which must be shown rather than rendered.
+        mine.textContent = mineLines.join("\n\n");
+        theirs.textContent = theirLines.join("\n\n");
+        modal.classList.remove("hidden");
+        document.getElementById("compare-modal-close")?.focus();
+    }
+
+    /**
+     * The local content of a block, as plain text for the compare view.
+     *
+     * The block is read through `save()`, not through a `data` property: the
+     * editor's block wrapper exposes getters for id, name, holder and so on but
+     * NOT for its data, so reading `block.data` yields undefined and the local
+     * column renders empty -- which reads as "you have no version", the opposite
+     * of the truth. `save()` is async, so this returns a promise.
+     */
+    async function describeBlockForCompare(id) {
+        if (!editor) {
+            return "(not in the local document)";
+        }
+        const index = editor.blocks.getBlockIndex(id);
+        if (index === undefined) {
+            return "(not in the local document)";
+        }
+        const saved = await editor.blocks.getBlockByIndex(index).save();
+        const data = (saved && saved.data) || {};
+        const content = data.text || data.caption || "";
+        return content ? String(content) : "(no text content)";
+    }
+
+    /** The agent's content for an op, as plain text for the compare view. */
+    function describeOpForCompare(op) {
+        if (op.op === "remove") {
+            return "(the agent removed this block)";
+        }
+        const data = op.data || {};
+        const content = data.text || data.caption || "";
+        return content ? String(content) : `(${op.op} op, no text content)`;
+    }
+
+    function hideCompare() {
+        const modal = document.getElementById("compare-modal");
+        if (modal) {
+            modal.classList.add("hidden");
+        }
+    }
+
+    /** The conflict banner's three actions. */
+    function initConflictBanner() {
+        const banner = document.getElementById("conflict-banner");
+        if (!banner) {
+            return;
+        }
+        banner.addEventListener("click", async (event) => {
+            const button = event.target.closest("button[data-conflict]");
+            if (!button) {
+                return;
+            }
+            const action = button.dataset.conflict;
+            if (action === "mine") {
+                await keepMine();
+            } else if (action === "theirs") {
+                await keepTheirs();
+            } else if (action === "compare") {
+                await compareConflict();
+            }
+        });
+
+        const close = document.getElementById("compare-modal-close");
+        if (close) {
+            close.addEventListener("click", hideCompare);
+        }
+        const modal = document.getElementById("compare-modal");
+        if (modal) {
+            modal.addEventListener("click", (event) => {
+                if (event.target === modal) {
+                    hideCompare();
+                }
+            });
+        }
+        document.addEventListener("keydown", (event) => {
+            if (event.key === "Escape") {
+                hideCompare();
+            }
+        });
     }
 
     /**
@@ -1091,6 +1295,7 @@
     function init() {
         initToolbar();
         initAgentToast();
+        initConflictBanner();
         startPolling();
         // The notes list decides which document is open; it publishes the slug
         // so this script does not have to parse the DOM for it.

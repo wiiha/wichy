@@ -346,6 +346,14 @@
     border-left-style: dotted;
 }
 
+/* A block the agent changed AND the user is editing. Orange, distinct from the
+   purple used for an agent change that was applied, and the banner states the
+   situation in words so the border is never the only signal. */
+.block-editor .ce-block.conflicted {
+    border-left: 3px solid var(--accent-warning, #b26a00);
+    padding-left: 8px;
+}
+
 /* The toast. Positioned so it does not cover the block the user is editing. */
 .agent-toast {
     position: fixed;
@@ -369,6 +377,49 @@
 
 .agent-toast button {
     font-size: 12px;
+}
+
+/* The conflict banner's actions. It carries text, so it stays readable with the
+   buttons unstyled, but they are laid out so each choice is separately clickable
+   and reachable by keyboard. */
+.conflict-banner button {
+    margin-left: 8px;
+    font-size: 12px;
+}
+
+/* The compare view. Two columns side by side so the difference is read across,
+   wrapping to one column when there is not room for both. */
+.compare-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin: 12px 0;
+}
+
+@media (max-width: 640px) {
+    .compare-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.compare-heading {
+    margin: 0 0 6px;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+/* pre, not div: both sides are shown verbatim, and whitespace in a note is
+   content that wrapping would silently change. */
+.compare-body {
+    margin: 0;
+    padding: 8px;
+    border-left: 3px solid var(--border, #ccc);
+    background: var(--surface-alt, #f7f7f7);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-size: 13px;
+    min-height: 3em;
 }
 
 /* The flash on arrival draws attention to a change; someone who has asked for

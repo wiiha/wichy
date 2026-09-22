@@ -148,15 +148,28 @@ class TestBlockEditorScript:
         source = self.script()
         assert "destroy()" in source
 
-    def test_it_resolves_a_changed_index_to_a_block_id(self):
-        """Editor.js reports indices; agent ops carry ids.
+    def test_it_reads_the_block_id_from_the_change_event(self):
+        """The event carries `detail.target.id`; anything else matches nothing.
 
-        Comparing the two directly would never match, and the dirty guard would
-        silently stop protecting a block being edited.
+        This assertion used to require `idAt(index)`, reading `event.block.id`
+        and insisting it be a number. Editor.js emits neither: it passes
+        `event.detail.target.id`, a string, so the dirty set stayed empty and the
+        guard that protects a block being edited never armed.
         """
         source = self.script()
-        assert "function idAt(" in source
+        assert "one.detail.target.id" in source
+        assert "function changedBlockIds(" in source
         assert "dirty.add(blockId)" in source
+        # And the shape it used to require is gone.
+        assert "event?.block?.id" not in source
+        assert "function idAt(" not in source
+
+    def test_it_handles_a_batch_of_change_events(self):
+        """Several blocks changed in one tick arrive as an array."""
+        source = self.script()
+        body = source[source.index("function changedBlockIds") :]
+        body = body[: body.index("    /**\n     * Apply queued agent changes")]
+        assert "Array.isArray(event) ? event : [event]" in body
 
     def test_it_does_not_overwrite_a_dirty_block(self):
         source = self.script()
@@ -611,7 +624,7 @@ class TestTheBrowserSendsTheUserChanges:
         """An empty send would inject a message describing no change."""
         source = self.script()
         body = source[source.index("function updateQueueIndicator") :]
-        body = body[: body.index("async function idAt")]
+        body = body[: body.index("    /**\n     * Note which blocks the user touched.")]
         assert 'button.classList.toggle("hidden", distinct === 0);' in body
         assert "button.disabled = distinct === 0;" in body
 
@@ -770,3 +783,105 @@ class TestTheToastIsAnnouncedPolitely:
         body = template()
         for action in ("view", "dismiss", "undo"):
             assert f'data-toast="{action}"' in body
+
+
+class TestTheConflictBannerResolves:
+    """SPEC 9.3's three actions, and the rule that only one of them loses work."""
+
+    def script(self) -> str:
+        """The block editor source."""
+        return (STATIC / "notes_blocks.js").read_text(encoding="utf-8")
+
+    def test_the_banner_offers_all_three_actions(self):
+        body = template()
+        for action in ("mine", "theirs", "compare"):
+            assert f'data-conflict="{action}"' in body
+
+    def test_the_banner_is_inert_until_a_button_is_pressed(self):
+        """Showing it must not discard anything: that is the safe default."""
+        source = self.script()
+        body = source[source.index("function showConflict") :]
+        body = body[: body.index("async function keepMine")]
+        assert "classList.remove" in body or "classList.add" in body
+        # No destructive call in the display path.
+        assert "open(" not in body
+        assert "pendingOps.delete" not in body
+
+    def test_keep_mine_acknowledges_so_the_ops_do_not_return(self):
+        """Dropping them locally is not enough; they live on the server."""
+        source = self.script()
+        body = source[source.index("async function keepMine") :]
+        body = body[: body.index("async function keepTheirs")]
+        assert "/api/changes/ack" in body
+        assert "up_to_version" in body
+
+    def test_keep_theirs_confirms_before_discarding(self):
+        """It is the only action that loses local work, so it must ask first."""
+        source = self.script()
+        body = source[source.index("async function keepTheirs") :]
+        body = body[: body.index("async function compareConflict")]
+        assert "window.confirm" in body
+        assert body.index("window.confirm") < body.index("await open(slug)")
+
+    def test_refusing_keep_theirs_leaves_the_banner_up(self):
+        source = self.script()
+        body = source[source.index("async function keepTheirs") :]
+        body = body[: body.index("async function compareConflict")]
+        refused = body[body.index("if (!confirmed)") :]
+        assert "return;" in refused
+        # The banner is only hidden AFTER the confirmation, so a refusal keeps it.
+        assert body.index("hideConflict()") > body.index("if (!confirmed)")
+
+    def test_keep_theirs_does_nothing_when_there_is_no_conflict(self):
+        """A stray click must not promise to discard '0 blocks'."""
+        source = self.script()
+        body = source[source.index("async function keepTheirs") :]
+        body = body[: body.index("async function compareConflict")]
+        assert "!pendingConflicts.length" in body
+
+    def test_compare_shows_both_versions_and_resolves_neither(self):
+        source = self.script()
+        body = source[source.index("async function compareConflict") :]
+        body = body[: body.index("async function describeBlockForCompare")]
+        assert "compare-mine" in body
+        assert "compare-theirs" in body
+        # It must not hide the banner or apply either side.
+        assert "hideConflict" not in body
+        assert "keepMine" not in body and "keepTheirs" not in body
+
+    def test_compare_renders_as_text_not_markup(self):
+        """Block content is document data and may contain markup."""
+        source = self.script()
+        body = source[source.index("async function compareConflict") :]
+        body = body[: body.index("async function describeBlockForCompare")]
+        assert "mine.textContent = " in body
+        assert "theirs.textContent = " in body
+        # The assignment, not the word: the comment above it names innerHTML to
+        # explain why it is not used.
+        assert ".innerHTML = " not in body
+
+    def test_the_local_side_is_read_through_save_not_a_data_property(self):
+        """The block wrapper has no `data` getter, so block.data is undefined."""
+        source = self.script()
+        body = source[source.index("async function describeBlockForCompare") :]
+        body = body[: body.index("function describeOpForCompare")]
+        assert ".save()" in body
+        assert "block.data" not in body
+
+    def test_a_conflicted_block_gets_its_own_border_class(self):
+        source = self.script()
+        assert 'classList.toggle("conflicted"' in source
+        css = (STATIC / "notes.css").read_text(encoding="utf-8")
+        assert ".block-editor .ce-block.conflicted" in css
+
+    def test_the_conflicted_border_is_orange_not_the_agent_purple(self):
+        """The two states must be distinguishable at a glance."""
+        css = (STATIC / "notes.css").read_text(encoding="utf-8")
+        conflicted = css[css.index(".block-editor .ce-block.conflicted") :]
+        conflicted = conflicted[: conflicted.index("}")]
+        assert "warning" in conflicted
+        assert "a855f7" not in conflicted
+
+    def test_the_banner_states_the_conflict_in_words(self):
+        body = template()
+        assert "Agent also edited this block" in body
