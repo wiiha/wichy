@@ -265,6 +265,7 @@ Predefined sub-agent types:
 | `insert_block`    | `InsertBlockTool`    | Insert a new block, after an anchor or at the end                 |
 | `delete_block`    | `DeleteBlockTool`    | Delete one block by id                                            |
 | `move_block`      | `MoveBlockTool`      | Move one block to a new position                                  |
+| `notes_answer_question` | `AnswerQuestionTool` | Mark a question block answered without touching its text     |
 | `read_revisions`  | `ReadRevisionsTool`  | Read the document's revision history, newest first                |
 
 These operate on the pinned scratchpad only and take no slug. With nothing

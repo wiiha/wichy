@@ -25,6 +25,7 @@ from wichy.config import settings
 from wichy.tools.notes import set_scratchpad_state
 from wichy.tools.notes.agent_tools import (
     NO_SCRATCHPAD,
+    AnswerQuestionTool,
     DeleteBlockTool,
     InsertBlockTool,
     MoveBlockTool,
@@ -48,6 +49,7 @@ BLOCK_TOOLS = [
     InsertBlockTool,
     DeleteBlockTool,
     MoveBlockTool,
+    AnswerQuestionTool,
     ReadRevisionsTool,
 ]
 
@@ -150,6 +152,7 @@ class TestMarkdownScratchpad:
             (InsertBlockTool, {"block_type": "paragraph", "data": {"text": "x"}}),
             (DeleteBlockTool, {"block_id": "blk-x"}),
             (MoveBlockTool, {"block_id": "blk-x"}),
+            (AnswerQuestionTool, {"block_id": "blk-x"}),
             (ReadRevisionsTool, {}),
         ],
     )
@@ -738,6 +741,7 @@ class TestRegistry:
             "insert_block",
             "delete_block",
             "move_block",
+            "notes_answer_question",
             "read_revisions",
         } <= names
 
@@ -1112,3 +1116,104 @@ class TestToolOutputMatchesTheApi:
         assert body["blocks"][-1]["type"] == "decision"
         assert body["blocks"][-1]["data"]["text"] == "we chose this"
         assert body["meta"]["version"] == load_document(slug).meta.version
+
+
+class TestAnswerQuestion:
+    """Marking a question answered must not touch the question's text.
+
+    Nothing in the codebase ever set ``answered``: it was read and rendered in
+    five places and written in none, so a question block the agent had already
+    dealt with kept reading as open and kept prompting for the same answer. The
+    obvious workaround -- resending the whole block through replace_block -- is
+    also the clobbering one, because QuestionData forbids extra fields and the
+    agent would have to reproduce the user's text exactly.
+    """
+
+    @pytest.fixture
+    def with_question(self, notes_dir):
+        document = create_document(
+            "With a question",
+            [
+                {"type": "paragraph", "data": {"text": "context"}},
+                {"type": "question", "data": {"text": "Which one?", "answered": False}},
+                {"type": "todo", "data": {"text": "a task"}},
+            ],
+        )
+        set_scratchpad_state(document.meta.slug)
+        return document.meta.slug, [b.id for b in document.blocks]
+
+    def test_it_flips_the_flag(self, with_question):
+        slug, ids = with_question
+        result = run(AnswerQuestionTool, block_id=ids[1])
+        assert "answered" in result
+        stored = load_document(slug)
+        assert stored.get_block(ids[1]).data["answered"] is True
+
+    def test_the_question_text_is_untouched(self, with_question):
+        """The whole point of a narrow tool: the user's words survive."""
+        slug, ids = with_question
+        run(AnswerQuestionTool, block_id=ids[1])
+        assert load_document(slug).get_block(ids[1]).data["text"] == "Which one?"
+
+    def test_it_records_the_agent_as_the_last_writer(self, with_question):
+        slug, ids = with_question
+        run(AnswerQuestionTool, block_id=ids[1])
+        meta = load_document(slug).get_block(ids[1]).meta
+        assert meta.touched_by[-1] == "agent"
+        # The creator is still the user; only the last writer moved.
+        assert meta.author == "user"
+
+    def test_it_advances_the_version_once(self, with_question):
+        slug, ids = with_question
+        before = load_document(slug).meta.version
+        run(AnswerQuestionTool, block_id=ids[1])
+        assert load_document(slug).meta.version == before + 1
+
+    def test_the_reported_version_is_the_persisted_one(self, with_question):
+        """Reading it inside the block reports the version it replaced."""
+        slug, ids = with_question
+        result = run(AnswerQuestionTool, block_id=ids[1])
+        assert f"version {load_document(slug).meta.version}" in result
+
+    def test_it_is_idempotent_and_does_not_bump_again(self, with_question):
+        slug, ids = with_question
+        run(AnswerQuestionTool, block_id=ids[1])
+        after_first = load_document(slug).meta.version
+        result = run(AnswerQuestionTool, block_id=ids[1])
+        assert "already" in result
+        assert load_document(slug).meta.version == after_first
+
+    def test_a_non_question_block_is_refused_by_type(self, with_question):
+        slug, ids = with_question
+        result = run(AnswerQuestionTool, block_id=ids[2])
+        assert "todo" in result
+        assert "not a question" in result
+
+    def test_a_refused_type_change_writes_nothing(self, with_question):
+        slug, ids = with_question
+        before = load_document(slug).meta.version
+        run(AnswerQuestionTool, block_id=ids[2])
+        assert load_document(slug).meta.version == before
+
+    def test_an_unknown_block_is_reported(self, with_question):
+        assert "No block" in run(AnswerQuestionTool, block_id="blk-nope")
+
+    def test_an_empty_block_id_is_rejected(self, with_question):
+        assert "block_id is required" in run(AnswerQuestionTool, block_id="")
+
+    def test_the_change_is_queued_for_the_browser(self, with_question):
+        """The browser learns about it through the ordinary write path."""
+        from wichy.tools.notes.state import describe_pending
+
+        slug, ids = with_question
+        run(AnswerQuestionTool, block_id=ids[1])
+        pending = describe_pending(slug)
+        assert len(pending["changes"]) == 1
+        assert pending["changes"][0]["block_id"] == ids[1]
+        assert pending["changes"][0]["author"] == "agent"
+
+    def test_the_revision_records_the_flip(self, with_question):
+        slug, ids = with_question
+        run(AnswerQuestionTool, block_id=ids[1])
+        result = run(ReadRevisionsTool)
+        assert f"blocks: {ids[1]}" in result

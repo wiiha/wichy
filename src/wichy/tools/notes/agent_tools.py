@@ -71,6 +71,22 @@ class ScratchpadUnavailable(Exception):
     """
 
 
+class _NoChange(Exception):
+    """A write tool decided the document already holds what it was asked for.
+
+    Raised from inside a ``locked_document`` body, where returning early would
+    NOT be enough: the context manager resumes its generator after the yield, so a
+    plain ``return`` from the body still bumps the version and appends a revision
+    entry describing a change that did not happen. The agent would then hold a
+    version the browser never learns about, and its next save would be rejected
+    as stale. Raising at the yield is what skips the bump.
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.message = message
+
+
 def _scratchpad_slug() -> str:
     """Resolve the pinned scratchpad, or explain why there is none.
 
@@ -645,6 +661,94 @@ class ReadRevisionsTool(BaseTool):
         return "\n".join(lines)
 
 
+class AnswerQuestionParams(ParametersModel):
+    """Parameters for answer_question."""
+
+    block_id: str
+
+
+class AnswerQuestionTool(BaseTool):
+    """Mark a question block as answered."""
+
+    name = "notes_answer_question"
+    description = (
+        "Mark a question block in the pinned scratchpad as answered, so later "
+        "reads stop showing it as open. Flips only the answered flag: the "
+        "question text the user typed is left exactly as it is. Read the "
+        "document first to get the block id."
+    )
+    parameters_model = AnswerQuestionParams
+    needs_verification_in_api = False
+
+    def execute(self, **kwargs: Any) -> str:
+        """Mark a question answered."""
+        try:
+            slug = _scratchpad_slug()
+        except ScratchpadUnavailable as e:
+            return str(e)
+
+        block_id = str(kwargs.get("block_id") or "")
+        if not block_id:
+            return "block_id is required."
+
+        committed = None
+        try:
+            with locked_document(slug, None, author="agent") as document:
+                block = document.get_block(block_id)
+                if block is None:
+                    raise BlockNotFoundError(f"No block '{block_id}' in this document.")
+                if block.type != "question":
+                    # Raised rather than returned: a `return` inside the locked
+                    # body still runs the version bump on the way out, recording
+                    # a change that did not happen.
+                    raise _NoChange(
+                        f"Block {block_id} is a {block.type}, not a question. "
+                        "Only a question block has an answered flag."
+                    )
+                if block.data.get("answered"):
+                    raise _NoChange(f"Block {block_id} is already marked answered.")
+                # A copy, not the stored dict: replace_block validates the whole
+                # data object against the question schema, and QuestionData
+                # forbids extra fields, so the agent must not resend (and thereby
+                # risk clobbering) the text the user typed.
+                data = dict(block.data)
+                data["answered"] = True
+                replace_block(
+                    document,
+                    block_id,
+                    data=data,
+                    author="agent",
+                    block_type="question",
+                )
+                committed = document
+            new_version = committed.meta.version
+        except _NoChange as e:
+            # Nothing was written: the locked body raised before its bump ran,
+            # so the document is exactly as this call found it.
+            return e.message
+        except BlockNotFoundError:
+            return f"No block '{block_id}' in this document."
+        except BlockDataError as e:
+            return str(e)
+        except MarkdownDocumentError:
+            return MARKDOWN_WRITE_REFUSED
+        except DocumentNotFoundError:
+            return f"The pinned scratchpad '{slug}' no longer exists."
+        except (
+            InvalidDocumentError,
+            InvalidSlugError,
+            UnicodeDecodeError,
+            OSError,
+        ) as e:
+            return f"Could not read the scratchpad: {e}"
+
+        return (
+            f"Marked question block {block_id} answered (version {new_version}). "
+            "Answer the user in chat as well; this only records that the answer "
+            "happened."
+        )
+
+
 def all_tools() -> list[type[BaseTool]]:
     """Every block tool, in the order they are worth showing the agent."""
     return [
@@ -653,12 +757,14 @@ def all_tools() -> list[type[BaseTool]]:
         InsertBlockTool,
         DeleteBlockTool,
         MoveBlockTool,
+        AnswerQuestionTool,
         ReadRevisionsTool,
     ]
 
 
 __all__ = [
     "ScratchpadUnavailable",
+    "AnswerQuestionTool",
     "DeleteBlockTool",
     "InsertBlockTool",
     "MoveBlockTool",
