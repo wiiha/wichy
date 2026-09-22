@@ -67,6 +67,37 @@ _state_lock = threading.RLock()
 # -------------------------------------------------------------------------
 
 
+def forget_doc_lock(slug: str) -> None:
+    """Drop *slug*'s per-document lock entry, if no one else holds it.
+
+    For a caller that created the entry but did not commit the work it was for --
+    a rename that failed part-way. The entry is what ``has_state`` reads, so
+    leaving it behind would claim the slug forever.
+
+    Refuses to remove a lock another thread is inside: dropping it while held
+    would hand the next caller a DIFFERENT lock object for the same file, which
+    is the lost update these exist to prevent. A lock that is genuinely in use is
+    therefore kept, and the caller's slug stays claimed -- which is correct,
+    because the work is still happening.
+
+    Args:
+        slug: The document slug.
+    """
+    with _state_lock:
+        lock = doc_locks.get(slug)
+        if lock is None:
+            return
+        # acquire(blocking=False) is the only way to ask "is anyone inside this
+        # lock" without waiting. A re-entrant lock is owned by the current thread
+        # after its own acquire, so the release below balances it exactly.
+        if not lock.acquire(blocking=False):
+            return
+        try:
+            doc_locks.pop(slug, None)
+        finally:
+            lock.release()
+
+
 def get_doc_lock(slug: str) -> threading.RLock:
     """Return the per-document lock for *slug*, creating it on first use.
 

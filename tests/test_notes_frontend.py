@@ -1683,3 +1683,73 @@ class TestTheTodoCheckboxAnnouncesItsChange:
         constructor = source.rindex("constructor(", 0, todo_at)
         header = source[constructor:todo_at]
         assert "block" in header
+
+
+class TestEveryAsyncActionCarriesTheEpoch:
+    """Fixing poll() alone left every OTHER async action unguarded.
+
+    Each one captures `slug` and `version` from module state and awaits at least
+    once, so a note switch part-way through made it act on the wrong document:
+    applying the old note's ops into the new editor, PUTting the old blocks under
+    the new slug, reverting or converting a note the user had just opened.
+    """
+
+    def script(self) -> str:
+        return (STATIC / "notes_blocks.js").read_text(encoding="utf-8")
+
+    def body_of(self, name: str, until: str) -> str:
+        source = self.script()
+        body = source[source.index(f"async function {name}") :]
+        return body[: body.index(until)]
+
+    def test_apply_agent_changes_checks_before_writing(self):
+        """The check must come BEFORE the first op write, not only after.
+
+        Each op write is awaited and an `update` fires onChange, which arms the
+        save and notify debounces -- so checking afterwards is too late.
+        """
+        body = self.body_of("applyAgentChanges", "/** Apply one agent op")
+        assert "epoch !== openEpoch || slug !== targetSlug" in body
+        guard = body.index("epoch !== openEpoch || slug !== targetSlug")
+        assert guard < body.index("await applyOneOp")
+        assert guard < body.index("await resyncSnapshot")
+
+    def test_apply_agent_changes_rechecks_between_ops(self):
+        body = self.body_of("applyAgentChanges", "/** Apply one agent op")
+        loop = body[body.index("for (const op of untouched) {") :]
+        assert "epoch !== openEpoch || slug !== targetSlug" in loop[:300]
+        assert "break;" in loop[:400]
+
+    def test_refresh_version_does_not_assign_a_foreign_version(self):
+        body = self.body_of("refreshVersion", "async function save()")
+        assert "const epoch = openEpoch;" in body
+        guard = body.index("epoch !== openEpoch")
+        assert guard < body.index("version = document_.meta.version")
+
+    def test_keep_mine_puts_to_the_captured_slug(self):
+        body = self.body_of(
+            "keepMine", "/**\n     * Resolve the conflict in favour of the agent"
+        )
+        assert "const targetSlug = slug;" in body
+        assert "api/notes/${targetSlug}" in body
+        assert "api/notes/${slug}" not in body
+
+    def test_undo_reverts_the_captured_slug(self):
+        body = self.body_of("undoLastAgentEdit", "async function poll")
+        assert "const targetSlug = slug;" in body
+        assert "/revisions/${latest.id}/revert" in body
+        assert "api/notes/${targetSlug}/revisions/${latest.id}/revert" in body
+
+    def test_undo_rechecks_after_the_confirmation_dialog(self):
+        body = self.body_of("undoLastAgentEdit", "async function poll")
+        after_confirm = body[body.index("if (!confirmed)") :]
+        assert "epoch !== openEpoch" in after_confirm[:400]
+
+    def test_convert_acts_on_the_captured_slug(self):
+        """It is destructive and irreversible from the UI."""
+        body = self.body_of("convert", "async function togglePin")
+        assert "const targetSlug = slug;" in body
+        assert "conversion-preview`" in body
+        assert "api/notes/${targetSlug}/conversion-preview" in body
+        assert "api/notes/${targetSlug}/convert" in body
+        assert "api/notes/${slug}/" not in body

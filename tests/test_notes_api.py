@@ -1699,3 +1699,77 @@ class TestTheRoutesWithoutAFrontendCaller:
         assert body["change_debounce_ms"] == app_settings.notes_change_debounce_ms
         assert body["save_debounce_ms"] == app_settings.notes_save_debounce_ms
         assert body["notification_mode"] == app_settings.notification_default_mode
+
+
+class TestTheScratchpadRouteSurvivesAnUnreadablePin:
+    """The scratchpad status is the first thing the notes page polls.
+
+    A pinned file that is not UTF-8 raises UnicodeDecodeError, which is a
+    ValueError and not an OSError, so it escaped this route's clauses and the
+    page got an HTML 500: one bad pin took the whole sidebar with it. The route
+    must still report the pin; only its title is unknown.
+    """
+
+    def test_a_binary_pin_is_reported_with_no_title(self, client, notes_dir):
+        from wichy.tools.notes import set_scratchpad_state
+
+        (notes_dir / "binary.md").write_bytes(b"\xff\xfe\x00\x01")
+        set_scratchpad_state("binary")
+        response = client.get(f"{PREFIX}/api/notes/scratchpad")
+        assert response.status_code == 200
+        body = response.get_json()
+        assert body["primary"] == "binary"
+        assert body["title"] is None
+        # The pin is still listed, so the sidebar can render its row.
+        assert "binary" in body["pinned"]
+
+    def test_a_healthy_pin_still_reports_its_title(self, client, notes_dir):
+        from wichy.tools.notes import set_scratchpad_state
+
+        create(client, "Healthy", "body")
+        set_scratchpad_state("healthy")
+        body = client.get(f"{PREFIX}/api/notes/scratchpad").get_json()
+        assert body["primary"] == "healthy"
+        assert body["title"] == "Healthy"
+
+
+class TestTheAckClampHandlesAVanishedDocument:
+    """The clamp READS the document, and a read can find nothing.
+
+    The route checks `resolve_format(slug)` first and then calls
+    `current_version(slug)`, which loads the document again. A delete landing in
+    that window makes `current_version` raise `DocumentNotFoundError` -- a
+    `LookupError`, so it is not caught by the `InvalidDocumentError`/`OSError`
+    clauses and escaped as an HTML 500 the browser cannot read.
+
+    The window is driven directly, by making the FIRST check believe the document
+    exists while the file is gone. A real delete in that gap cannot be scheduled
+    from a test, and a test that deleted the file up front would be answered by
+    the format check and never reach the clamp at all.
+    """
+
+    def test_a_document_deleted_in_the_window_is_a_404_not_a_500(
+        self, client, notes_dir, monkeypatch
+    ):
+        import os
+
+        from wichy.tools.notes import api as notes_api
+        from wichy.tools.notes.blocks import FORMAT_EDITORJS
+        from wichy.tools.notes.state import peek_agent_changes, queue_agent_change
+
+        created = create(client, "Vanishing", "body")
+        slug = created["slug"]
+        queue_agent_change(slug, {"op": "update", "block_id": "blk-any", "version": 1})
+
+        # The format check passes (the document existed a moment ago)...
+        monkeypatch.setattr(notes_api, "resolve_format", lambda s: FORMAT_EDITORJS)
+        # ...and the file is gone by the time the clamp reads it.
+        os.unlink(notes_dir / f"{slug}.json")
+
+        response = client.post(
+            f"{PREFIX}/api/changes/ack", json={"slug": slug, "up_to_version": 1}
+        )
+        assert response.status_code == 404
+        assert "error" in response.get_json()
+        # And the queue was not touched by a failed ack.
+        assert peek_agent_changes(slug)

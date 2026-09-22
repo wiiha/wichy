@@ -159,7 +159,13 @@ def set_scratchpad_state(primary: str | None, pinned: list[str] | None = None) -
         if slug and slug not in entries:
             entries.append(slug)
     payload = json.dumps({"primary": primary, "pinned": entries})
-    tmp_path = marker_path.with_suffix(".tmp")
+    # A UNIQUE temp name, in the marker's own directory (required for the rename
+    # to be atomic). A fixed name made two concurrent writers interleave into one
+    # temp file, and the loser's cleanup could delete the winner's file before its
+    # rename -- reporting a spurious failure for a write that would have worked.
+    tmp_path = marker_path.with_name(
+        f"{marker_path.name}.{os.getpid()}.{id(payload)}.tmp"
+    )
     try:
         tmp_path.write_text(payload, encoding="utf-8")
         # os.replace is atomic on POSIX: a reader sees either the old marker or

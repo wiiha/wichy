@@ -1786,3 +1786,124 @@ class TestTheMarkerIsWrittenAtomically:
         monkeypatch.setattr(notes_pkg.os, "replace", exploding_replace)
         with pytest.raises(MarkerWriteError):
             set_scratchpad_state("anything")
+
+
+class TestAFailedRenameDoesNotPoisonTheTargetSlug:
+    """A rename that failed left the target slug claimed forever.
+
+    `document_lock(new_slug)` created the target's lock entry, and `get_doc_lock`
+    never removes one. A rename that then failed (no source files, an OSError
+    mid-move) left that entry behind, so `has_state(new_slug)` stayed true and
+    EVERY later rename onto that name was refused "still has state from another
+    document" -- with nothing actually renamed and no way to clear it.
+    """
+
+    def test_a_failed_rename_leaves_the_target_free(self, notes_dir):
+        from wichy.tools.notes.state import has_state
+
+        create_document("Alpha", [{"type": "paragraph", "data": {"text": "a"}}])
+        with pytest.raises(DocumentNotFoundError):
+            rename_document_files("ghost-source", "wanted-name")
+        assert has_state("wanted-name") is False
+
+    def test_a_later_rename_onto_that_slug_succeeds(self, notes_dir):
+        create_document("Alpha", [{"type": "paragraph", "data": {"text": "a"}}])
+        with pytest.raises(DocumentNotFoundError):
+            rename_document_files("ghost-source", "wanted-name")
+
+        rename_document_files("alpha", "wanted-name")
+        assert load_document("wanted-name").blocks[0].data["text"] == "a"
+
+    def test_an_oserror_mid_move_also_releases_the_target(self, notes_dir):
+        """The failure need not be 'no sources': a failing rename does it too."""
+        from wichy.tools.notes.state import has_state
+
+        create_document("Alpha", [{"type": "paragraph", "data": {"text": "a"}}])
+
+        def exploding_rename(self, target):
+            raise OSError("read-only filesystem")
+
+        with patch.object(type(notes_dir), "rename", exploding_rename):
+            with pytest.raises(OSError):
+                rename_document_files("alpha", "wanted-name")
+
+        assert has_state("wanted-name") is False
+        # And the source document is still readable under its own name.
+        assert load_document("alpha").blocks[0].data["text"] == "a"
+
+    def test_a_successful_rename_keeps_the_target_claimed(self, notes_dir):
+        """Positive control: the release must not run on success."""
+        from wichy.tools.notes.state import has_state
+
+        create_document("Alpha", [{"type": "paragraph", "data": {"text": "a"}}])
+        rename_document_files("alpha", "beta")
+        assert has_state("beta") is True
+        assert load_document("beta").blocks[0].data["text"] == "a"
+
+    def test_forget_doc_lock_refuses_to_drop_a_held_lock(self, notes_dir):
+        """Dropping a lock another thread is inside breaks mutual exclusion."""
+        from wichy.tools.notes.state import forget_doc_lock, get_doc_lock
+
+        lock = get_doc_lock("busy")
+        held = threading.Event()
+        released = threading.Event()
+
+        def hold() -> None:
+            with lock:
+                held.set()
+                released.wait(timeout=5)
+
+        thread = threading.Thread(target=hold)
+        thread.start()
+        held.wait(timeout=5)
+        try:
+            forget_doc_lock("busy")
+            # The entry survives, because someone is inside it.
+            assert get_doc_lock("busy") is lock
+        finally:
+            released.set()
+            thread.join(timeout=5)
+
+    def test_forget_doc_lock_is_harmless_for_an_unknown_slug(self, notes_dir):
+        from wichy.tools.notes.state import forget_doc_lock
+
+        forget_doc_lock("never-seen")
+
+
+class TestABoolIsNotAVersionInTheLockEither:
+    """`True == 1`, so a bool version satisfies the compare for a v1 document.
+
+    The HTTP routes narrow the type at their edge, which is what makes this
+    unreachable from a request. The narrowing is repeated here so an in-process
+    caller -- an agent tool, a test, a future route -- cannot get the same hole
+    past the compare.
+    """
+
+    def test_locked_document_refuses_a_bool_expected_version(self, notes_dir):
+        create_document("Booly", [{"type": "paragraph", "data": {"text": "x"}}])
+        with pytest.raises(StaleVersionError):
+            with locked_document("booly", True, author="user"):
+                pass
+
+    def test_the_real_version_still_matches(self, notes_dir):
+        """Positive control: the narrowing must not reject a genuine version."""
+        create_document("Booly", [{"type": "paragraph", "data": {"text": "x"}}])
+        with locked_document("booly", 1, author="user") as document:
+            replace_block(
+                document, document.blocks[0].id, data={"text": "y"}, author="user"
+            )
+        assert load_document("booly").meta.version == 2
+
+    def test_a_bool_at_a_non_one_version_is_also_refused(self, notes_dir):
+        """`True == 1` only bites at version 1; the guard must not depend on that."""
+        document = create_document(
+            "Booly Two", [{"type": "paragraph", "data": {"text": "x"}}]
+        )
+        with locked_document(document.meta.slug, None, author="user") as open_doc:
+            replace_block(
+                open_doc, open_doc.blocks[0].id, data={"text": "y"}, author="user"
+            )
+        assert load_document(document.meta.slug).meta.version == 2
+        with pytest.raises(StaleVersionError):
+            with locked_document(document.meta.slug, True, author="user"):
+                pass

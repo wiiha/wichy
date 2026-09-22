@@ -173,14 +173,31 @@ class AgentCore(ABC):
                 observes a stable set even if registration happens mid-turn.
             index: 0 for the start callback, 1 for the end callback.
         """
-        for pair in observers:
-            callback = pair[index]
-            try:
-                callback(self)
-            except Exception as e:
-                # Deliberately swallowed and reported, never raised: a broken
-                # observer must not take down a turn in progress.
-                print(f"[wichy] turn observer failed: {e}")
+        try:
+            for pair in observers:
+                callback = pair[index]
+                try:
+                    callback(self)
+                except Exception as e:
+                    # Deliberately swallowed and reported, never raised: a broken
+                    # observer must not take down a turn in progress.
+                    print(f"[wichy] turn observer failed: {e}")
+        except BaseException:
+            # A BaseException cannot be swallowed, but it must not stop the
+            # REMAINING observers from being notified either. Letting it break the
+            # loop meant that if this was an END notification, every later
+            # observer's end callback never ran -- and an observer whose start ran
+            # but whose end did not is one that counts a turn in and never out,
+            # which is how "the agent is working" stays true forever.
+            #
+            # The rest are notified first, then the exception continues outward.
+            for pair in observers[observers.index(pair) + 1 :]:
+                callback = pair[index]
+                try:
+                    callback(self)
+                except Exception as e:
+                    print(f"[wichy] turn observer failed: {e}")
+            raise
 
     def _emit_event(self, event_type: str, payload: Dict[str, Any]) -> None:
         """Hook for subclasses to emit events. Default does nothing."""

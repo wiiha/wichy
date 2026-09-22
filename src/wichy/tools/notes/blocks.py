@@ -39,6 +39,7 @@ from wichy.tools.notes.models import (
     validate_block_data,
 )
 from wichy.tools.notes.state import (
+    forget_doc_lock,
     has_state,
     clear_doc_version,
     get_doc_lock,
@@ -536,9 +537,13 @@ def locked_document(
                 raise MarkdownDocumentError(MARKDOWN_WRITE_REFUSED)
 
             document = load_document(slug)
-            if (
-                expected_version is not None
-                and document.meta.version != expected_version
+            if expected_version is not None and (
+                # `True == 1`, so a bool would satisfy this comparison for a
+                # document at version 1. The HTTP routes narrow the type at their
+                # edge; this narrowing is here so an in-process caller cannot get
+                # the same hole past the compare.
+                isinstance(expected_version, bool)
+                or document.meta.version != expected_version
             ):
                 raise StaleVersionError(expected_version, document.meta.version)
 
@@ -1075,6 +1080,9 @@ def rename_document_files(old_slug: str, new_slug: str) -> None:
     # Order is allocation -> old slug -> target slug, the same everywhere a
     # rename touches files, so two renames crossing in opposite directions
     # cannot deadlock.
+    # The allocation lock is taken by the CALLER too (the rename route needs it
+    # before it takes the old document's lock, so the two orderings agree); this
+    # is the same lock object in-process, so nesting here is free.
     with _SLUG_ALLOCATION_LOCK, _file_lock("slug-allocation"):
         # Both refusals happen HERE, before any document lock is taken and before
         # any file moves, so a refused rename leaves the operation a no-op rather
@@ -1090,26 +1098,37 @@ def rename_document_files(old_slug: str, new_slug: str) -> None:
                 f"Slug '{new_slug}' still has state from another document."
             )
 
-        with document_lock(old_slug), document_lock(new_slug):
-            sources = document_files(old_slug)
-            if not sources:
-                raise DocumentNotFoundError(f"No note found for slug '{old_slug}'.")
+        committed = False
+        try:
+            with document_lock(old_slug), document_lock(new_slug):
+                sources = document_files(old_slug)
+                if not sources:
+                    raise DocumentNotFoundError(f"No note found for slug '{old_slug}'.")
 
-            try:
-                version = current_version(old_slug)
-            except (
-                DocumentNotFoundError,
-                InvalidDocumentError,
-                MarkdownDocumentError,
-            ):
-                version = 0
-            for path in sources:
-                suffix = path.name[len(old_slug) :]
-                path.rename(directory / f"{new_slug}{suffix}")
-            # Queued ops, the lock object and the cached version all move with
-            # the document; the browser is polling under the old slug and would
-            # never see operations left behind there.
-            rename_state(old_slug, new_slug, version)
+                try:
+                    version = current_version(old_slug)
+                except (
+                    DocumentNotFoundError,
+                    InvalidDocumentError,
+                    MarkdownDocumentError,
+                ):
+                    version = 0
+                for path in sources:
+                    suffix = path.name[len(old_slug) :]
+                    path.rename(directory / f"{new_slug}{suffix}")
+                # Queued ops, the lock object and the cached version all move
+                # with the document; the browser is polling under the old slug
+                # and would never see operations left behind there.
+                rename_state(old_slug, new_slug, version)
+                committed = True
+        finally:
+            if not committed:
+                # A failed rename must not leave a lock entry claiming the target
+                # slug. `get_doc_lock` inserts one and never removes it, so
+                # leaving it behind made `has_state(new_slug)` true forever: every
+                # later rename onto that name was then refused with "still has
+                # state from another document" and nothing could ever claim it.
+                forget_doc_lock(new_slug)
 
 
 def list_documents() -> list[dict[str, Any]]:

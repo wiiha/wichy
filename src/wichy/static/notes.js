@@ -756,9 +756,10 @@
     /**
      * Re-read the scratchpad state and re-render what depends on it.
      *
-     * Called when another control changes the pin, and by the poll. The read is
-     * retried once: a single failure used to leave `scratchpadSlug` at its old
-     * value, which renders the wrong marker rather than no marker.
+     * Called when another control changes the pin. A failed read leaves the
+     * previous value in place, which renders the old marker; that is stale
+     * rather than wrong, and the poll corrects it within one interval, so this
+     * does not retry on its own.
      */
     async function refreshScratchpadState() {
         try {

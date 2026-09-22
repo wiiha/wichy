@@ -316,7 +316,15 @@
         if (!slug) {
             return;
         }
-        const document_ = await fetchJson(`${PREFIX}/api/notes/${slug}`);
+        const epoch = openEpoch;
+        const targetSlug = slug;
+        const document_ = await fetchJson(`${PREFIX}/api/notes/${targetSlug}`);
+        if (epoch !== openEpoch || slug !== targetSlug) {
+            // The user switched notes during the fetch. Assigning this version
+            // (and resyncing the snapshot from the new editor) would give the new
+            // note the OLD note's version, and every later save would 409.
+            return;
+        }
         if (!document_.error && document_.meta) {
             version = document_.meta.version;
         }
@@ -606,8 +614,17 @@
      * so the agent's own change is not then diffed back as if the user had made
      * it -- that would bounce the agent's edit straight back to it as a user edit.
      */
-    async function applyAgentChanges(changes) {
+    async function applyAgentChanges(changes, epoch, targetSlug) {
         if (!editor || !changes.length) {
+            return [];
+        }
+        // Verified BEFORE the first write, not only after the batch. Each op
+        // write is awaited, and an `update` fires the editor's onChange -- which
+        // arms the save and notify debounces. If the note were switched mid-batch
+        // the remaining ops would land in the NEW note's editor and those
+        // debounces would persist the old note's content under the new note's
+        // slug. Checking only afterwards is too late: the write already happened.
+        if (epoch !== openEpoch || slug !== targetSlug) {
             return [];
         }
 
@@ -619,6 +636,11 @@
         );
 
         for (const op of untouched) {
+            if (epoch !== openEpoch || slug !== targetSlug) {
+                // The note changed under this batch. Stop: the remaining ops
+                // belong to a document that is no longer open.
+                break;
+            }
             await applyOneOp(op);
             agentTouched.add(op.block_id);
             if (op.op === "add") {
@@ -822,9 +844,20 @@
         if (!slug || !conflictOps.length) {
             return;
         }
+        // Captured on entry: this function awaits several times, and re-reading
+        // `slug` after an await could PUT the previous note's blocks under the
+        // slug of the one the user just switched to.
+        const epoch = openEpoch;
+        const targetSlug = slug;
 
         const blocks = await currentBlocks();
-        const result = await fetchJson(`${PREFIX}/api/notes/${slug}`, {
+        if (epoch !== openEpoch || slug !== targetSlug) {
+            // The kept content belongs to a note that is no longer open, and the
+            // conflict is not ours to resolve any more.
+            pendingConflicts = conflictOps;
+            return;
+        }
+        const result = await fetchJson(`${PREFIX}/api/notes/${targetSlug}`, {
             method: "PUT",
             body: JSON.stringify({ version, blocks }),
         });
@@ -834,7 +867,11 @@
             // the kept content again on top of it.
             if (String(result.error).includes("409")) {
                 await refreshVersion();
-                const retry = await fetchJson(`${PREFIX}/api/notes/${slug}`, {
+                if (epoch !== openEpoch || slug !== targetSlug) {
+                    pendingConflicts = conflictOps;
+                    return;
+                }
+                const retry = await fetchJson(`${PREFIX}/api/notes/${targetSlug}`, {
                     method: "PUT",
                     body: JSON.stringify({ version, blocks }),
                 });
@@ -1064,6 +1101,12 @@
         if (!slug) {
             return;
         }
+        // Captured on entry. A revert is a write to a document named by slug, and
+        // this function awaits (a save, a history fetch, a confirmation dialog),
+        // so a note switch part-way through would revert the note the user just
+        // opened rather than the one they were looking at.
+        const epoch = openEpoch;
+        const targetSlug = slug;
         // A save is armed by the debounce and this function rebuilds the editor
         // on success, which clears that timer: edits typed in the last couple of
         // seconds were silently dropped by an undo. Persist them first, so the
@@ -1073,11 +1116,17 @@
             saveTimer = null;
             await save();
         }
+        if (epoch !== openEpoch || slug !== targetSlug) {
+            return;
+        }
         const listed = await fetchJson(
-            `${PREFIX}/api/notes/${slug}/revisions?author=agent&limit=1`
+            `${PREFIX}/api/notes/${targetSlug}/revisions?author=agent&limit=1`
         );
         if (listed.error) {
             setStatus("Could not read the revision history.");
+            return;
+        }
+        if (epoch !== openEpoch || slug !== targetSlug) {
             return;
         }
         const latest = (listed.revisions || [])[0];
@@ -1096,8 +1145,13 @@
         if (!confirmed) {
             return;
         }
+        // The dialog is modal but not instant, and the user can switch notes by
+        // other means while it is up.
+        if (epoch !== openEpoch || slug !== targetSlug) {
+            return;
+        }
         const result = await fetchJson(
-            `${PREFIX}/api/notes/${slug}/revisions/${latest.id}/revert`,
+            `${PREFIX}/api/notes/${targetSlug}/revisions/${latest.id}/revert`,
             { method: "POST", body: JSON.stringify({ version }) }
         );
         if (result.error) {
@@ -1116,7 +1170,7 @@
         // Reloaded rather than patched in place: a revert can restore, remove and
         // reorder blocks at once, so re-reading is the only way to be sure the
         // page matches the document.
-        await open(slug);
+        await open(targetSlug);
         hideAgentToast();
         setStatus("Undid the agent's last edit.");
     }
@@ -1187,7 +1241,7 @@
         }
 
         if (body.changes && body.changes.length) {
-            const applied = await applyAgentChanges(body.changes);
+            const applied = await applyAgentChanges(body.changes, epoch, targetSlug);
             if (epoch !== openEpoch || slug !== targetSlug) {
                 // The user switched notes while these ops were being written into
                 // the editor. Acknowledge NOTHING and adopt NOTHING: the ops were
@@ -1468,10 +1522,16 @@
     }
 
     async function convert() {
+        // Captured on entry: converting is destructive and irreversible from the
+        // UI, and this function awaits a preview, a confirmation dialog and the
+        // conversion itself -- so a note switch part-way through would convert a
+        // DIFFERENT note from the one the user was shown a preview of.
+        const epoch = openEpoch;
+        const targetSlug = slug;
         // The preview comes first so the user can back out before anything is
         // written: conversion cannot be undone from the UI.
         const preview = await fetchJson(
-            `${PREFIX}/api/notes/${slug}/conversion-preview`
+            `${PREFIX}/api/notes/${targetSlug}/conversion-preview`
         );
         if (preview.error) {
             setStatus("Could not preview the conversion.");
@@ -1484,14 +1544,17 @@
                 return;
             }
         }
-        const result = await fetchJson(`${PREFIX}/api/notes/${slug}/convert`, {
+        if (epoch !== openEpoch || slug !== targetSlug) {
+            return;
+        }
+        const result = await fetchJson(`${PREFIX}/api/notes/${targetSlug}/convert`, {
             method: "POST",
         });
         if (result.error) {
             setStatus("Could not convert this note.");
             return;
         }
-        await open(slug);
+        await open(targetSlug);
         setStatus(
             `Converted ${result.converted_blocks} blocks. Original markdown kept as backup.`
         );

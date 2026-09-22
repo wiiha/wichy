@@ -459,17 +459,28 @@ def register_routes(bp: Blueprint):
         """The pinned scratchpad's primary slug and title, plus the pinned list."""
         try:
             state = get_scratchpad_state()
-            primary = state["primary"]
-            title = None
-            if primary and resolve_format(primary) is not None:
-                title = load_document(primary).meta.title
-            return jsonify(
-                {"primary": primary, "title": title, "pinned": state["pinned"]}
-            )
-        except (InvalidSlugError, InvalidDocumentError) as e:
-            return _error(str(e), 500)
         except OSError as e:
             return _error(f"Could not read the scratchpad marker: {e}", 500)
+
+        primary = state["primary"]
+        title = None
+        if primary and resolve_format(primary) is not None:
+            # Scoped tightly, and NOT fatal. This route is what the notes page
+            # polls first, so one unreadable pinned file used to take the whole
+            # sidebar down with an HTML 500: a non-UTF-8 file raises
+            # UnicodeDecodeError, which is a ValueError and not an OSError, so it
+            # escaped every clause here. The pin is still reported; only its
+            # title is unknown.
+            try:
+                title = load_document(primary).meta.title
+            except (
+                InvalidSlugError,
+                InvalidDocumentError,
+                UnicodeDecodeError,
+                OSError,
+            ):
+                title = None
+        return jsonify({"primary": primary, "title": title, "pinned": state["pinned"]})
 
     @bp.route("/api/notes/<slug>")
     def get_note(slug: str):
@@ -1150,6 +1161,10 @@ def register_routes(bp: Blueprint):
         # silently accepting a different number would hide that.
         try:
             current = current_version(slug)
+        except DocumentNotFoundError:
+            # Deleted between the format check above and this read. A 404, not a
+            # 500: the slug simply names nothing any more.
+            return _error(NOT_FOUND, 404)
         except (
             InvalidDocumentError,
             InvalidSlugError,
@@ -1173,11 +1188,13 @@ def register_routes(bp: Blueprint):
 
     @bp.route("/api/changes", methods=["POST"])
     def post_changes():
-        """Accept the user's ops: queue them for the browser and inject a summary.
+        """Accept the user's ops and inject a summary into the agent's context.
 
-        Ops authored by the agent are filtered out before injection. Without that
-        a turn would be handed a description of its own edits and would react to
-        itself.
+        This route IS the user-to-agent channel, so authorship is stamped here
+        rather than trusted from the request; see the comment at the stamp. Agent
+        ops never arrive here, because the browser does not post back what the
+        agent just sent it -- so a turn is never handed a description of its own
+        edits.
         """
         data = _json_body()
         if data is None:
