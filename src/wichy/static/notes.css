@@ -258,3 +258,88 @@
 .btn-block {
   width: 100%;
 }
+
+/* ---------------------------------------------------------------------------
+   Toolbar, block editor and status (block editor feature)
+
+   A plain button row above the layout. Buttons use the shared .btn variants
+   rather than .btn-block, which is width:100% and would stretch each one across
+   the row.
+   --------------------------------------------------------------------------- */
+
+.toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 8px 0 12px;
+    border-bottom: 1px solid var(--border, #ddd);
+    margin-bottom: 12px;
+}
+
+.toolbar .btn {
+    width: auto;
+}
+
+.editor-status {
+    margin-left: auto;
+    font-size: 13px;
+    color: var(--text-muted, #666);
+    /* The region is announced politely, so it must not shift the layout as the
+       message appears and disappears. */
+    min-height: 1.2em;
+}
+
+/* The block editor's holder. Editor.js fills it; the height is left to grow so
+   a long document scrolls with the page rather than inside a fixed box. */
+.block-editor {
+    min-height: 200px;
+    outline: none;
+    padding: 4px 0;
+}
+
+.block-editor.hidden {
+    display: none;
+}
+
+/* A conflict is stated in text, not by colour alone, and the block it refers to
+   is marked with a border that also has a non-colour cue in the banner text. */
+.conflict-banner {
+    padding: 8px 12px;
+    margin-bottom: 12px;
+    border-left: 4px solid var(--accent-warning, #b26a00);
+    background: var(--surface-warning, #fff7e6);
+    font-size: 14px;
+}
+
+.conflict-banner.hidden {
+    display: none;
+}
+
+/* Blocks the agent changed, until the user acknowledges them. */
+.block-editor .agent-touched {
+    border-left: 3px solid #a855f7;
+    padding-left: 8px;
+}
+
+/* The flash on arrival draws attention to a change; someone who has asked for
+   reduced motion gets the mark without the animation. */
+@media (prefers-reduced-motion: no-preference) {
+    @keyframes wichy-agent-flash {
+        from {
+            background-color: rgba(168, 85, 247, 0.18);
+        }
+        to {
+            background-color: transparent;
+        }
+    }
+
+    .block-editor .agent-flash {
+        animation: wichy-agent-flash 2s ease-out;
+    }
+}
+
+[data-theme="dark"] .conflict-banner {
+    background: var(--surface-warning-dark, #3a2f1a);
+    color: var(--text, #eee);
+}

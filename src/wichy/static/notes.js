@@ -269,12 +269,32 @@
         });
     }
 
+    /** Tell the block editor which document is open. */
+    function announceNoteOpened(slug) {
+        document.dispatchEvent(
+            new CustomEvent('wichy:note-opened', { detail: { slug: slug } })
+        );
+    }
+
+    /** Enable the toolbar controls that need an open document. */
+    function setToolbarEnabled(enabled) {
+        const toolbar = document.getElementById('toolbar');
+        if (!toolbar) {
+            return;
+        }
+        toolbar.querySelectorAll('button[data-action]').forEach((button) => {
+            button.disabled = !enabled;
+        });
+    }
+
     async function selectNote(slug) {
         // Cancel any pending debounce
         clearTimeout(saveTimer);
         saveTimer = null;
 
         currentSlug = slug;
+        announceNoteOpened(slug);
+        setToolbarEnabled(true);
 
         noNoteSelected.classList.add('hidden');
         noteEditor.classList.remove('hidden');
@@ -439,6 +459,7 @@
                 pollTimer = null;
             }
             currentSlug = null;
+            setToolbarEnabled(false);
             isDirty = false;
             setDirtyState(false);
             clearTimeout(saveTimer);

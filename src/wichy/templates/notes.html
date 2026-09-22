@@ -29,6 +29,25 @@
             </nav>
         </header>
 
+        {# A plain button row. `data-action` is what the page script binds to, so
+           a new control needs no change to the binding list. Every control is
+           `disabled` rather than hidden when it does not apply: a control that
+           appears and disappears moves the others, and with no note open there
+           is no state to test anyway. #}
+        <div id="toolbar" class="toolbar" role="toolbar" aria-label="Document actions">
+            <button class="btn btn-secondary" data-action="export" disabled>Export</button>
+            <button class="btn btn-secondary" data-action="convert" disabled>Convert to blocks</button>
+            <button class="btn btn-secondary" data-action="pin" disabled>Pin as Scratchpad</button>
+            <button class="btn btn-danger" data-action="delete" disabled>Delete</button>
+            <span id="editor-status" class="editor-status" role="status" aria-live="polite"></span>
+        </div>
+
+        {# Announced politely rather than assertively: a conflict is important but
+           must not interrupt what the user is typing. #}
+        <div id="conflict-banner" class="conflict-banner hidden" role="status" aria-live="polite" tabindex="0">
+            Agent also edited this block. Your version is kept.
+        </div>
+
         <div class="main-layout">
             <aside class="sidebar">
                 <div class="sidebar-section">
