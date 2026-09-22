@@ -408,9 +408,15 @@ class TestBlockCrud:
             "t2",
             "t3",
         ]
+        # Inclusive: start=1, end=2 names the second and third todos.
         assert [
             b.data["text"]
             for b in read_blocks(document, block_type="todo", start=1, end=2)
+        ] == ["t2", "t3"]
+        # A single index selects exactly one block.
+        assert [
+            b.data["text"]
+            for b in read_blocks(document, block_type="todo", start=1, end=1)
         ] == ["t2"]
 
     @pytest.mark.parametrize(

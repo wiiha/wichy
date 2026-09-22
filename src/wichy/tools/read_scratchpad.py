@@ -20,6 +20,7 @@ from wichy.tools.base import BaseTool, ParametersModel
 from wichy.tools.notes import get_scratchpad_slug
 from wichy.tools.notes.blocks import (
     FORMAT_MARKDOWN,
+    MARKDOWN_WRITE_REFUSED,
     DocumentNotFoundError,
     InvalidDocumentError,
     InvalidSlugError,
@@ -81,12 +82,11 @@ class ReadScratchpadTool(BaseTool):
             return f"The pinned scratchpad '{slug}' could not be read: {e}"
 
         if fmt == FORMAT_MARKDOWN:
+            # The same sentence every block tool returns, so the agent reads one
+            # state from one message. The content still follows, because a note
+            # the agent cannot edit is often still a note it should read.
             body = document.blocks[0].data.get("text", "") if document.blocks else ""
-            return (
-                f"# Scratchpad: {document.meta.title}\n\n"
-                f"This note is still markdown; convert it to blocks in the notes UI "
-                f"before block tools can edit it.\n\n---\n\n{body}"
-            )
+            return f"{MARKDOWN_WRITE_REFUSED}\n\n{body}"
 
         lines = [
             f"# Scratchpad: {document.meta.title}",

@@ -2,6 +2,7 @@
 
 import json
 import os
+from typing import Any
 
 from flask import Blueprint, render_template
 
@@ -56,7 +57,7 @@ def get_notes_dir():
     return str(notes_dir)
 
 
-def get_scratchpad_state() -> dict:
+def get_scratchpad_state() -> dict[str, Any]:
     """Read the scratchpad marker.
 
     The marker has two fields:
@@ -96,14 +97,17 @@ def get_scratchpad_state() -> dict:
     return {"primary": None, "pinned": []}
 
 
-def get_scratchpad_slug():
+def get_scratchpad_slug() -> str | None:
     """Read the primary scratchpad slug from the marker file.
 
     Returns:
-        str or None: The slug string if the marker file exists and is valid,
-                     None otherwise.
+        The slug if the marker names one, else None. None is the ordinary state
+        rather than an error: the pin is cleared on every CLI start.
     """
-    return get_scratchpad_state()["primary"]
+    primary = get_scratchpad_state()["primary"]
+    # Narrowed here rather than trusted: the marker is a file a user can edit, so
+    # a hand-written `{"primary": 5}` must read as unpinned, not as a slug.
+    return primary if isinstance(primary, str) else None
 
 
 def set_scratchpad_state(primary: str | None, pinned: list[str] | None = None) -> None:

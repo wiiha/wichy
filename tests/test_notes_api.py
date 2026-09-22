@@ -535,9 +535,15 @@ class TestBlocks:
         body = client.get(f"{PREFIX}/api/notes/filt/blocks?type=header").get_json()
         assert [b["data"]["text"] for b in body["blocks"]] == ["H", "H2"]
 
-    def test_filter_by_range(self, client):
+    def test_filter_by_range_is_inclusive(self, client):
+        """start and end both name blocks to include."""
         create(client, "Range", "a\n\nb\n\nc")
         body = client.get(f"{PREFIX}/api/notes/range/blocks?start=1&end=2").get_json()
+        assert len(body["blocks"]) == 2
+
+    def test_a_single_index_selects_one_block(self, client):
+        create(client, "OneIdx", "a\n\nb\n\nc")
+        body = client.get(f"{PREFIX}/api/notes/oneidx/blocks?start=1&end=1").get_json()
         assert len(body["blocks"]) == 1
 
     def test_an_invalid_range_is_400(self, client):

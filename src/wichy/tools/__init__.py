@@ -34,6 +34,14 @@ from wichy.result_offload import QueryResultTool
 
 from wichy.tools.list_files import ListFilesTool
 from wichy.tools.read_file import ReadFileTool
+from wichy.tools.notes.agent_tools import (
+    DeleteBlockTool,
+    InsertBlockTool,
+    MoveBlockTool,
+    ReadBlocksTool,
+    ReadRevisionsTool,
+    ReplaceBlockTool,
+)
 from wichy.tools.read_scratchpad import ReadScratchpadTool
 from wichy.tools.registry import (
     clear_registry,
@@ -48,7 +56,6 @@ from wichy.tools.search_ddg import WebSearchTool
 from wichy.tools.task_tool import TaskAgentTool
 from wichy.tools.todo import TodoTool
 from wichy.tools.write_file import WriteFileTool
-from wichy.tools.write_scratchpad import WriteScratchpadTool
 
 # Note: The tool classes imported above are automatically registered via the
 # ToolMeta metaclass when they are defined. The registry functions below
@@ -94,12 +101,17 @@ __all__ = [
     "ListFilesTool",
     "ReadFileTool",
     "ReadScratchpadTool",
+    "ReadBlocksTool",
+    "ReplaceBlockTool",
+    "InsertBlockTool",
+    "DeleteBlockTool",
+    "MoveBlockTool",
+    "ReadRevisionsTool",
     "ReplaceTextTool",
     "WebSearchTool",
     "TaskAgentTool",
     "TodoTool",
     "WriteFileTool",
-    "WriteScratchpadTool",
     "SkillDiscoveryTool",
     "SkillFileTool",
     "SkillInfoTool",

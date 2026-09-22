@@ -754,15 +754,17 @@ def read_blocks(
 ) -> list[Block]:
     """Select blocks by type and/or index range.
 
-    The range is half-open, ``[start, end)``, applied after type filtering, so
-    ``read_blocks(doc, block_type="todo", start=0, end=2)`` means "the first two
-    todos" rather than "todos among the first two blocks".
+    Both bounds are INCLUSIVE, applied after type filtering, so
+    ``read_blocks(doc, block_type="todo", start=0, end=1)`` means "the first two
+    todos" rather than "the first one". Inclusive is what the tool schema
+    documents, and a caller who reads a block and edits it by index should not
+    have to know which end is which.
 
     Args:
         document: The document to read.
         block_type: Keep only blocks of this type.
-        start: First index to keep, or None for the beginning.
-        end: Index to stop before, or None for the end.
+        start: First index to keep, or None for the beginning. Inclusive.
+        end: Last index to keep, or None for the end. Inclusive.
 
     Returns:
         The selected blocks, in document order.
@@ -783,7 +785,10 @@ def read_blocks(
         for block in document.blocks
         if block_type is None or block.type == block_type
     ]
-    return selected[start:end]
+    # Inclusive at both ends: `end` names the last block to include, so the
+    # slice runs to end + 1. None on either side means unbounded there.
+    stop = None if end is None else end + 1
+    return selected[start:stop]
 
 
 def merged_blocks(

@@ -257,10 +257,21 @@ Predefined sub-agent types:
 
 #### Notes & Scratchpad
 
-| Tool               | Class                 | Description                                          |
-| ------------------ | --------------------- | ---------------------------------------------------- |
-| `read_scratchpad`  | `ReadScratchpadTool`  | Read the pinned scratchpad note                      |
-| `write_scratchpad` | `WriteScratchpadTool` | Save a markdown scratchpad note; auto-pins as active |
+| Tool              | Class                | Description                                                       |
+| ----------------- | -------------------- | ----------------------------------------------------------------- |
+| `read_scratchpad` | `ReadScratchpadTool` | Read the pinned scratchpad document with block ids and metadata   |
+| `read_blocks`     | `ReadBlocksTool`     | Read blocks by type, single id, or index range                    |
+| `replace_block`   | `ReplaceBlockTool`   | Replace one block's content, keeping its id                       |
+| `insert_block`    | `InsertBlockTool`    | Insert a new block, after an anchor or at the end                 |
+| `delete_block`    | `DeleteBlockTool`    | Delete one block by id                                            |
+| `move_block`      | `MoveBlockTool`      | Move one block to a new position                                  |
+| `read_revisions`  | `ReadRevisionsTool`  | Read the document's revision history, newest first                |
+
+These operate on the pinned scratchpad only and take no slug. With nothing
+pinned every one of them returns "No scratchpad is pinned. Pin a note in the
+notes UI first." and writes nothing; with a markdown-format scratchpad they
+return the conversion message instead, because a block write would otherwise
+give one slug two live documents.
 
 #### Skills Tools
 
