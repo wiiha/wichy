@@ -34,6 +34,7 @@
     // ---------------------------------------------------------------------------
 
     document.addEventListener('DOMContentLoaded', () => {
+        initSidebar();
         init();
 
         // New note button
@@ -259,7 +260,27 @@
                 </div>
             `;
 
-            item.addEventListener('click', () => selectNote(note.slug));
+            // A markdown note gets an inline convert control, so converting does
+            // not require opening the note first. Built as a real button rather
+            // than embedded in the innerHTML above, because the click handler
+            // must be attached and the row's own handler must not fire.
+            if (note.format === 'markdown') {
+                const convertButton = document.createElement('button');
+                convertButton.className = 'btn btn-secondary btn-sm note-item-convert';
+                convertButton.type = 'button';
+                convertButton.dataset.convertSlug = note.slug;
+                convertButton.textContent = 'Convert';
+                item.appendChild(convertButton);
+            }
+
+            item.addEventListener('click', (event) => {
+                // The convert control acts on its own; selecting the note as
+                // well would be a second, unasked-for action.
+                if (event.target.closest('[data-convert-slug]')) {
+                    return;
+                }
+                selectNote(note.slug);
+            });
             item.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                     selectNote(note.slug);
@@ -267,6 +288,31 @@
             });
             notesList.appendChild(item);
         });
+    }
+
+    /** Convert a markdown note from its sidebar row. */
+    async function convertFromRow(button) {
+        const slug = button.dataset.convertSlug;
+        if (!slug) {
+            return;
+        }
+        button.disabled = true;
+        try {
+            const resp = await fetch(`/tools/notes/api/notes/${slug}/convert`, {
+                method: 'POST',
+                credentials: 'same-origin',
+            });
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({}));
+                alert('Could not convert this note: ' + (err.error || resp.status));
+                button.disabled = false;
+                return;
+            }
+            await loadNotes();
+        } catch (e) {
+            console.error('Failed to convert note:', e);
+            button.disabled = false;
+        }
     }
 
     /** Tell the block editor which document is open. */
@@ -532,6 +578,24 @@
     // ---------------------------------------------------------------------------
     // Helpers
     // ---------------------------------------------------------------------------
+
+    /**
+     * Wire the sidebar's delegated handlers once, before any row exists.
+     *
+     * Delegation rather than a handler per row: the list is re-rendered on every
+     * refresh, so per-row handlers would be re-created (and leaked) each time.
+     */
+    function initSidebar() {
+        if (!notesList) {
+            return;
+        }
+        notesList.addEventListener('click', (event) => {
+            const button = event.target.closest('[data-convert-slug]');
+            if (button) {
+                convertFromRow(button);
+            }
+        });
+    }
 
     function restartSaveTimer() {
         clearTimeout(saveTimer);

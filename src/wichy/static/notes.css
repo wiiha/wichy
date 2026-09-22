@@ -343,3 +343,32 @@
     background: var(--surface-warning-dark, #3a2f1a);
     color: var(--text, #eee);
 }
+
+/* The conversion dialog's feature list. Given a visible marker per item rather
+   than colour alone, so the warning is legible without relying on hue. */
+#convert-modal-features {
+    margin: 0 0 12px 0;
+    padding-left: 20px;
+    max-height: 40vh;
+    overflow-y: auto;
+}
+
+#convert-modal-features li {
+    margin-bottom: 4px;
+    list-style: disc;
+}
+
+/* The sidebar's per-row convert control. Sized down so it does not dominate the
+   row, and placed at the end so titles keep a consistent left edge. */
+.note-item-convert {
+    flex: 0 0 auto;
+    margin-left: auto;
+    padding: 2px 8px;
+    font-size: 12px;
+}
+
+.note-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}

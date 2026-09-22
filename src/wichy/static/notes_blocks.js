@@ -266,6 +266,11 @@
         slug = nextSlug;
         version = document_.meta.version;
         showEditorFor(document_.format);
+        // Updated for EVERY format, before any early return. A markdown document
+        // is exactly the one "Convert to blocks" is for, so setting this only on
+        // the block path left the control disabled for the only document it
+        // applies to.
+        updateConvertButton(document_.format);
 
         if (document_.format !== "editorjs") {
             await destroyEditor();
@@ -290,6 +295,20 @@
      */
     function toEditorBlock(block) {
         return { id: block.id, type: block.type, data: block.data };
+    }
+
+    /**
+     * Enable "Convert to blocks" only for a markdown note.
+     *
+     * Disabled rather than hidden: a control that appears and disappears moves
+     * the others, and with no note open there is no format to test, so a
+     * visibility rule would make the disabled state unreachable.
+     */
+    function updateConvertButton(format) {
+        const button = document.querySelector('#toolbar button[data-action="convert"]');
+        if (button) {
+            button.disabled = format !== "markdown";
+        }
     }
 
     /** The toolbar, wired to the document-level actions. */
@@ -318,6 +337,63 @@
         });
     }
 
+    /**
+     * Ask before converting, naming what will be lost.
+     *
+     * Resolves true only when the user explicitly confirms. Cancelling, or
+     * dismissing by clicking the backdrop or pressing Escape, resolves false and
+     * the caller then issues NO request -- the preview is read-only, so backing
+     * out leaves nothing behind.
+     */
+    function askToConvert(features) {
+        return new Promise((resolve) => {
+            const modal = document.getElementById("convert-modal");
+            const list = document.getElementById("convert-modal-features");
+            const confirmButton = document.getElementById("convert-modal-confirm");
+            const cancelButton = document.getElementById("convert-modal-cancel");
+            if (!modal || !list) {
+                // Without the dialog, refusing is the safe answer: converting
+                // silently would discard the features with no warning at all.
+                resolve(false);
+                return;
+            }
+
+            list.replaceChildren();
+            for (const feature of features) {
+                const item = document.createElement("li");
+                // textContent, not innerHTML: the feature names come from the
+                // document, and a note could contain markup in a table cell.
+                item.textContent = feature;
+                list.appendChild(item);
+            }
+
+            const finish = (answer) => {
+                modal.classList.add("hidden");
+                modal.removeEventListener("click", onBackdrop);
+                document.removeEventListener("keydown", onKey);
+                resolve(answer);
+            };
+            const onBackdrop = (event) => {
+                if (event.target === modal) {
+                    finish(false);
+                }
+            };
+            const onKey = (event) => {
+                if (event.key === "Escape") {
+                    finish(false);
+                }
+            };
+
+            confirmButton.onclick = () => finish(true);
+            cancelButton.onclick = () => finish(false);
+            modal.addEventListener("click", onBackdrop);
+            document.addEventListener("keydown", onKey);
+            modal.classList.remove("hidden");
+            // Focus the safe choice, so a stray Enter does not convert.
+            cancelButton.focus();
+        });
+    }
+
     async function convert() {
         // The preview comes first so the user can back out before anything is
         // written: conversion cannot be undone from the UI.
@@ -329,11 +405,7 @@
             return;
         }
         if (preview.lossy_features && preview.lossy_features.length) {
-            const proceed = window.confirm(
-                "These features become plain text and cannot be converted back:\n" +
-                    preview.lossy_features.join("\n") +
-                    "\n\nConvert anyway?"
-            );
+            const proceed = await askToConvert(preview.lossy_features);
             if (!proceed) {
                 // Cancelling must issue no request at all.
                 return;

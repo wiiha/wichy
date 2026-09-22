@@ -185,9 +185,10 @@ class TestBlockEditorScript:
         assert "poll_interval_ms" in source
 
     def test_cancelling_a_conversion_issues_no_request(self):
+        """Cancelling returns before the convert call, so nothing is requested."""
         source = self.script()
-        # The confirm guard must return before the convert call.
-        assert source.index("window.confirm") < source.index("/convert`")
+        assert source.index("await askToConvert") < source.index("/convert`")
+        assert "return;" in source
 
 
 class TestToolbarControls:
@@ -265,3 +266,121 @@ class TestStyling:
         """`.block-editor.hidden` must be explicit: a later rule could win."""
         assert ".block-editor.hidden" in self.css()
         assert ".conflict-banner.hidden" in self.css()
+
+
+class TestConversionModal:
+    """The dialog must name what will be lost, and cancel must do nothing."""
+
+    def script(self) -> str:
+        return (STATIC / "notes_blocks.js").read_text(encoding="utf-8")
+
+    def test_the_dialog_exists_in_the_template(self):
+        source = template()
+        assert 'id="convert-modal"' in source
+        assert 'id="convert-modal-features"' in source
+
+    def test_it_is_a_real_dialog_not_a_confirm(self):
+        """confirm() cannot list the features, which is the whole point.
+
+        Scoped to CONVERSION: the delete confirmation legitimately uses
+        confirm(), because a short yes/no needs no feature list.
+        """
+        source = self.script()
+        convert_body = source[source.index("async function convert()") :]
+        convert_body = convert_body[: convert_body.index("async function togglePin")]
+        assert "window.confirm" not in convert_body
+        assert "askToConvert" in convert_body
+
+    def test_it_names_each_lossy_feature(self):
+        source = self.script()
+        # Each feature becomes its own list item.
+        assert "convert-modal-features" in source
+        assert "list.appendChild(item)" in source
+
+    def test_features_are_inserted_as_text_not_markup(self):
+        """Feature names come from the document, so they must not be parsed."""
+        source = self.script()
+        assert "item.textContent = feature" in source
+
+    def test_cancelling_resolves_false(self):
+        source = self.script()
+        assert "cancelButton.onclick = () => finish(false)" in source
+
+    def test_the_backdrop_and_escape_also_cancel(self):
+        source = self.script()
+        assert "event.target === modal" in source
+        assert '"Escape"' in source
+
+    def test_cancel_is_focused_so_a_stray_enter_cannot_convert(self):
+        source = self.script()
+        assert "cancelButton.focus()" in source
+
+    def test_confirmation_is_what_issues_the_convert_request(self):
+        """The convert call must sit after the confirmation, not before."""
+        source = self.script()
+        assert source.index("await askToConvert") < source.index("/convert`")
+
+    def test_a_missing_dialog_refuses_rather_than_converting(self):
+        """Without the dialog there is no warning, so the safe answer is no."""
+        source = self.script()
+        assert "resolve(false)" in source
+
+
+class TestConvertButtonState:
+    def test_the_button_is_disabled_rather_than_hidden(self):
+        """A hidden control moves the others, and has no reachable disabled state."""
+        source = (STATIC / "notes_blocks.js").read_text(encoding="utf-8")
+        assert "updateConvertButton" in source
+        assert 'button.disabled = format !== "markdown"' in source
+
+    def test_it_is_reset_when_a_document_opens(self):
+        source = (STATIC / "notes_blocks.js").read_text(encoding="utf-8")
+        assert "updateConvertButton(document_.format)" in source
+
+
+class TestSidebarConvertControl:
+    def script(self) -> str:
+        return (STATIC / "notes.js").read_text(encoding="utf-8")
+
+    def test_a_markdown_row_gets_a_convert_control(self):
+        source = self.script()
+        assert "data-convert-slug" in source
+        assert "note.format === 'markdown'" in source
+
+    def test_handlers_are_delegated_not_per_row(self):
+        """Rows are re-rendered on every refresh, so per-row handlers leak.
+
+        Both the definition AND the call are required: a definition that is never
+        invoked would leave the control dead.
+        """
+        source = self.script()
+        assert "function initSidebar()" in source
+        assert "initSidebar();" in source
+        # And the delegation is registered on the LIST, not on each row.
+        body = source[source.index("function initSidebar()") :]
+        body = body[: body.index("function restartSaveTimer")]
+        assert "notesList.addEventListener" in body
+
+    def test_converting_from_a_row_does_not_also_select_it(self):
+        source = self.script()
+        assert "event.target.closest('[data-convert-slug]')" in source
+
+    def test_the_control_is_a_real_button(self):
+        source = self.script()
+        assert "createElement('button')" in source
+        assert "convertButton.type = 'button'" in source
+
+
+class TestConvertButtonIsEnabledForMarkdown:
+    def test_the_button_is_updated_before_any_early_return(self):
+        """A markdown document is exactly what Convert is for.
+
+        `open()` returns early for a non-block document, so setting the button
+        only on the block path left it disabled for the one format it applies to.
+        """
+        source = (STATIC / "notes_blocks.js").read_text(encoding="utf-8")
+        body = source[source.index("async function open(") :]
+        body = body[: body.index("function toEditorBlock")]
+        update_at = body.index("updateConvertButton(document_.format)")
+        return_at = body.index('if (document_.format !== "editorjs")')
+        assert update_at < return_at, "the button is set after the markdown return"

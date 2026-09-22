@@ -48,6 +48,28 @@
             Agent also edited this block. Your version is kept.
         </div>
 
+        {# The conversion confirmation. A real dialog rather than window.confirm,
+           because it has to name each feature that does not map -- a list
+           confirm() cannot show. Cancel issues no request at all. #}
+        <div id="convert-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="convert-modal-title">
+            <div class="modal-content">
+                <h3 id="convert-modal-title" class="modal-title">Convert to blocks?</h3>
+                <p class="modal-body">
+                    These features of this note have no block equivalent and will
+                    become plain text:
+                </p>
+                <ul id="convert-modal-features" class="modal-body"></ul>
+                <p class="modal-body">
+                    The original markdown is kept as a backup, but the conversion
+                    cannot be undone from here.
+                </p>
+                <div class="modal-footer">
+                    <button id="convert-modal-cancel" class="btn btn-secondary">Cancel</button>
+                    <button id="convert-modal-confirm" class="btn btn-primary">Convert</button>
+                </div>
+            </div>
+        </div>
+
         <div class="main-layout">
             <aside class="sidebar">
                 <div class="sidebar-section">
