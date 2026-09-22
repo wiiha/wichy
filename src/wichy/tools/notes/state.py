@@ -134,6 +134,68 @@ def clear_agent_changes(slug: str) -> None:
         agent_changes.pop(slug, None)
 
 
+def discard_stale_changes(slug: str, current_version: int) -> list[dict]:
+    """Drop queued operations older than *current_version*, atomically.
+
+    An operation produced at or before *current_version* has already been
+    applied, so keeping it would have the browser reapply an old state over a
+    newer one. This is the ONLY expiry for a queued operation -- nothing times
+    out on a clock, because a slow browser is not a reason to lose work.
+
+    Args:
+        slug: The document slug.
+        current_version: The version the document is now at.
+
+    Returns:
+        The operations still queued, in insertion order.
+    """
+    with _state_lock:
+        kept = [
+            op
+            for op in agent_changes.get(slug, [])
+            # Strictly newer: acking up to version V means the browser has
+            # applied everything produced at or before V, so an op whose version
+            # is V is already on screen and applying it again would revert the
+            # document to an earlier state.
+            if int(op.get("version", current_version)) > current_version
+        ]
+        if kept:
+            agent_changes[slug] = kept
+        else:
+            agent_changes.pop(slug, None)
+        return list(kept)
+
+
+def collapse_by_block(ops: list[dict]) -> list[dict]:
+    """Reduce queued operations to the latest one per block.
+
+    Several operations for one block are not a queue of independent edits: only
+    the last state of that block is meaningful, because the browser applies the
+    final content, not a replay. Collapsing here is what makes the conflict cap
+    a count of DISTINCT BLOCKS rather than of operations.
+
+    Args:
+        ops: The queued operations, oldest first.
+
+    Returns:
+        One operation per block: the last one for it, in the order the blocks
+        were first touched.
+    """
+    latest: dict[str, dict] = {}
+    order: list[str] = []
+    for op in ops:
+        key = str(op.get("block_id") or "")
+        if key not in latest:
+            order.append(key)
+        latest[key] = op
+    return [latest[key] for key in order]
+
+
+def count_distinct_blocks(ops: list[dict]) -> int:
+    """How many distinct blocks a set of operations touches."""
+    return len({str(op.get("block_id") or "") for op in ops})
+
+
 # -------------------------------------------------------------------------
 # Versions
 # -------------------------------------------------------------------------

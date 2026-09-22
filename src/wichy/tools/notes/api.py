@@ -73,6 +73,15 @@ from wichy.tools.notes.models import (
     is_valid_slug,
     now_iso,
 )
+from wichy.tools.notes.state import (
+    collapse_by_block,
+    count_distinct_blocks,
+    describe_pending,
+    discard_stale_changes,
+    get_doc_version,
+    queue_agent_change,
+    set_doc_version,
+)
 from wichy.tools.notes.revisions import (
     IncompleteHistoryError,
     RevisionNotFoundError,
@@ -84,6 +93,25 @@ from wichy.tools.notes.revisions import (
 
 #: Message for a slug that names no document at all.
 NOT_FOUND = "Note not found"
+
+#: How many distinct blocks may have queued agent ops for one document before
+#: the browser is told to re-fetch rather than apply more piecemeal. Counted by
+#: DISTINCT BLOCK, not by op: several ops on one block collapse to the latest, so
+#: an op count would flag a document the browser can still handle.
+MAX_CONFLICT_BLOCKS = 20
+
+#: Brackets around the injected change message, so the agent can tell where a
+#: notification starts and ends when several arrive in one context.
+CHANGE_MESSAGE_OPEN = "[Document changes for: {}]"
+CHANGE_MESSAGE_CLOSE = "[End document changes]"
+
+#: Verb per op kind, for the injected summary.
+_OP_VERBS = {
+    "add": "Added",
+    "update": "Updated",
+    "remove": "Deleted",
+    "move": "Moved",
+}
 
 
 def _error(message: str, status: int):
@@ -199,6 +227,29 @@ def _build_document(
         set_doc_version(slug, document.meta.version)
         append_entry(slug, entry)
     return document
+
+
+def change_message(title: str, ops: Iterable[Mapping[str, Any]]) -> str:
+    """The message injected into the agent's context when a document changes.
+
+    Names the document because the agent may have switched documents since it
+    last looked: a bare list of ops would not say which document they describe.
+
+    Args:
+        title: The document's title.
+        ops: The user's operations.
+
+    Returns:
+        The message, with one line per operation.
+    """
+    lines = [CHANGE_MESSAGE_OPEN.format(title)]
+    for op in ops:
+        verb = _OP_VERBS.get(str(op.get("op")), "Changed")
+        block_type = op.get("block_type") or "block"
+        block_id = op.get("block_id") or "?"
+        lines.append(f"- {verb} {block_type} block (id: {block_id})")
+    lines.append(CHANGE_MESSAGE_CLOSE)
+    return "\n".join(lines)
 
 
 def _move_marker(old_slug: str, new_slug: str) -> None:
@@ -920,6 +971,141 @@ def register_routes(bp: Blueprint):
                 "updated": document.meta.updated,
             }
         )
+
+    # -------------------------------------------------------------------------
+    # Change notification
+    # -------------------------------------------------------------------------
+
+    @bp.route("/api/changes/pending")
+    def pending_changes():
+        """What the browser polls for: queued agent ops, the version, and busy."""
+        slug = request.args.get("slug")
+        if not slug:
+            return _error("A slug is required.", 400)
+        invalid = _validate_slug(slug)
+        if invalid is not None:
+            return invalid
+
+        # The cache is only a fast path; the file is authoritative. A document
+        # this process has not seen yet reports its real version rather than 0,
+        # which the browser would read as "everything you have is stale".
+        # The document must exist. Reporting an empty queue for a slug that
+        # names nothing would look to the browser like "no changes" rather than
+        # "you are polling a document that is not there", and it would keep
+        # polling forever.
+        if resolve_format(slug) is None:
+            return _error(NOT_FOUND, 404)
+
+        try:
+            if get_doc_version(slug) == 0:
+                set_doc_version(slug, load_document(slug).meta.version)
+            pending = describe_pending(slug)
+        except DocumentNotFoundError:
+            return _error(NOT_FOUND, 404)
+        except (InvalidDocumentError, InvalidSlugError, OSError) as e:
+            return _error(f"Could not read pending changes: {e}", 500)
+
+        changes = collapse_by_block(pending["changes"])
+        pending["changes"] = changes
+        pending["slug"] = slug
+        # Too many distinct blocks means applying the queue piecemeal is no
+        # longer safe, so the browser is told to re-fetch instead.
+        pending["conflicted"] = count_distinct_blocks(changes) > MAX_CONFLICT_BLOCKS
+        return jsonify(pending)
+
+    @bp.route("/api/changes/ack", methods=["POST"])
+    def ack_changes():
+        """Acknowledge ops the browser has applied, dropping anything older."""
+        data = _json_body()
+        if data is None:
+            return _error("The request body must be a JSON object.", 400)
+        slug = data.get("slug")
+        if not slug or not isinstance(slug, str):
+            return _error("A slug is required.", 400)
+        invalid = _validate_slug(slug)
+        if invalid is not None:
+            return invalid
+
+        up_to = data.get("up_to_version")
+        if not isinstance(up_to, int) or isinstance(up_to, bool):
+            return _error("up_to_version must be an integer.", 400)
+
+        discard_stale_changes(slug, up_to)
+        return jsonify({"status": "ok"})
+
+    @bp.route("/api/changes", methods=["POST"])
+    def post_changes():
+        """Accept the user's ops: queue them for the browser and inject a summary.
+
+        Ops authored by the agent are filtered out before injection. Without that
+        a turn would be handed a description of its own edits and would react to
+        itself.
+        """
+        data = _json_body()
+        if data is None:
+            return _error("The request body must be a JSON object.", 400)
+        slug = data.get("slug")
+        if not slug or not isinstance(slug, str):
+            return _error("A slug is required.", 400)
+        invalid = _validate_slug(slug)
+        if invalid is not None:
+            return invalid
+
+        ops = data.get("ops")
+        if not isinstance(ops, list):
+            return _error("ops must be a list.", 400)
+        for op in ops:
+            if not isinstance(op, dict):
+                return _error("Each op must be an object.", 400)
+
+        try:
+            document = load_document(slug)
+        except DocumentNotFoundError:
+            return _error(NOT_FOUND, 404)
+        except (InvalidDocumentError, InvalidSlugError, OSError) as e:
+            return _error(f"Note '{slug}' could not be read: {e}", 500)
+
+        # The session is checked separately from the root agent so the two 503
+        # bodies stay distinct. The client branches on the STATUS CODE, so what
+        # matters is that both are 503; the body is for a human reading logs.
+        from wichy.wichy_server.api import get_active_session
+
+        session = get_active_session()
+        if session is None:
+            return _error("no active session", 503)
+        root_agent = getattr(session, "root_agent", None)
+        if root_agent is None:
+            return _error("no active root agent", 503)
+
+        version = document.meta.version
+        expected = data.get("version")
+        if expected is not None and isinstance(expected, int) and expected != version:
+            return _error(
+                f"Version mismatch: expected {expected}, found {version}", 409
+            )
+
+        # Agent-authored ops are never injected into the agent's own context.
+        user_ops = [
+            {**op, "version": version, "author": op.get("author") or "user"}
+            for op in ops
+            if op.get("author") != "agent"
+        ]
+
+        for op in user_ops:
+            queue_agent_change(slug, op)
+
+        if not user_ops:
+            return jsonify({"status": "queued", "injected": False})
+
+        message = change_message(document.meta.title, user_ops)
+        try:
+            # context.add(), not steer(): steer prints to the console on every
+            # call, and this is an automatic notification, not a user command.
+            root_agent.context.add("user", message)
+        except Exception as e:  # pragma: no cover - depends on context internals
+            return _error(f"Could not inject the change: {e}", 500)
+
+        return jsonify({"status": "queued", "injected": True})
 
     # -------------------------------------------------------------------------
     # Settings for the frontend
