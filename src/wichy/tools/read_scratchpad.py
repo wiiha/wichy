@@ -78,7 +78,16 @@ class ReadScratchpadTool(BaseTool):
                 f"The pinned scratchpad '{slug}' no longer exists. "
                 "Pin another note in the notes UI."
             )
-        except (InvalidDocumentError, InvalidSlugError, OSError) as e:
+        except (
+            InvalidDocumentError,
+            InvalidSlugError,
+            UnicodeDecodeError,
+            OSError,
+        ) as e:
+            # UnicodeDecodeError is a ValueError, not an OSError, so leaving it
+            # out made this tool raise on a non-UTF-8 file despite its documented
+            # promise never to. The message names the file, so the user can find
+            # the one that needs fixing.
             return f"The pinned scratchpad '{slug}' could not be read: {e}"
 
         if fmt == FORMAT_MARKDOWN:

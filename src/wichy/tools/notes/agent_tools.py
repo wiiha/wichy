@@ -572,7 +572,12 @@ class MoveBlockTool(BaseTool):
             return MARKDOWN_WRITE_REFUSED
         except DocumentNotFoundError:
             return f"The pinned scratchpad '{slug}' no longer exists."
-        except (InvalidDocumentError, InvalidSlugError, OSError) as e:
+        except (
+            InvalidDocumentError,
+            InvalidSlugError,
+            UnicodeDecodeError,
+            OSError,
+        ) as e:
             return f"Could not read the scratchpad: {e}"
 
         where = f"after {after}" if after else "to the end"
@@ -636,7 +641,10 @@ class ReadRevisionsTool(BaseTool):
             entries = read_revisions(
                 slug, limit=limit, since_id=kwargs.get("since_id"), author=author
             )
-        except (InvalidSlugError, OSError) as e:
+        except (InvalidSlugError, UnicodeDecodeError, OSError) as e:
+            # The revision log is read off disk as UTF-8 text: a non-UTF-8 file
+            # raises UnicodeDecodeError, and leaving it out would let a read tool
+            # raise despite promising a string result.
             return f"Could not read revisions: {e}"
 
         if not entries:

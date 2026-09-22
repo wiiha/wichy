@@ -21,6 +21,7 @@ import json
 import re
 import threading
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Generator, Iterable, Literal, Mapping, overload
 
@@ -253,19 +254,34 @@ def _markdown_document(slug: str, raw: str) -> BlockDocument:
     The title and timestamps come from that metadata, so a legacy note keeps the
     name the user gave it rather than being labelled with its slug.
 
+    A missing timestamp falls back to the FILE's modification time, not to the
+    current time. "Now" changes on every read, so a note without frontmatter
+    timestamps reported a new ``updated`` value every time it was listed: the
+    browser's poll saw it as changed on every cycle, and the export of an
+    unchanged file differed per request. The mtime is stable while the file is,
+    so GET, the list, and export stay mutually consistent.
+
     ``meta.version`` is 1 because a markdown document has no versions to count:
     nothing can write to it.
     """
     from wichy.skills.skill import parse_markdown_frontmatter
 
     metadata, body = parse_markdown_frontmatter(raw)
+    try:
+        modified = datetime.fromtimestamp(
+            legacy_path(slug).stat().st_mtime, tz=timezone.utc
+        ).isoformat()
+    except OSError:
+        # Unreadable stat: better an empty timestamp than a fabricated one that
+        # would change on the next read for the same reason.
+        modified = ""
     return BlockDocument(
         meta=DocumentMeta(
             title=str(metadata.get("title") or slug),
             slug=slug,
             version=1,
-            created=str(metadata.get("created") or "") or now_iso(),
-            updated=str(metadata.get("updated") or "") or now_iso(),
+            created=str(metadata.get("created") or "") or modified,
+            updated=str(metadata.get("updated") or "") or modified,
             last_author="user",
         ),
         blocks=[
@@ -345,13 +361,18 @@ def save_document(document: BlockDocument) -> None:
     be harmless to a re-entrant lock but would invite a caller to believe this
     function is safe to call on its own, which it is not -- an unlocked
     read-modify-write is exactly the lost update the lock exists to prevent.
+
+    Stored block data is written back AS LOADED. Only data a request supplied is
+    validated, at the point it is supplied (``replace_block``, ``insert_block``,
+    ``merged_blocks``, ``create_document``). Re-validating every block here
+    instead made a document permanently unwritable the moment one block did not
+    fit its declared type -- an older build's shape, a renamed field, a hand
+    edit -- because each later mutation would fail while blaming the caller's
+    unrelated new block, and there was no way to repair it from the UI. Data
+    nobody touched this request survives; a malformed request-touched block is
+    still refused before it can be written.
     """
     require_valid_slug(document.meta.slug)
-    for block in document.blocks:
-        # Validated here as well as at each helper, because a document can also
-        # arrive by being read back off disk: re-persisting it while changing
-        # some unrelated block must not launder invalid data into the file.
-        validate_block_data(block.type, block.data)
     document.meta.updated = now_iso()
     payload = document.model_dump(mode="json")
     atomic_write(
@@ -1023,7 +1044,18 @@ def list_documents() -> list[dict[str, Any]]:
     for slug in sorted(stems):
         try:
             document, resolved = load_document(slug, with_format=True)
-        except (DocumentNotFoundError, InvalidDocumentError, InvalidSlugError):
+        except (
+            DocumentNotFoundError,
+            InvalidDocumentError,
+            InvalidSlugError,
+            # A non-UTF-8 file raises UnicodeDecodeError, which is a ValueError
+            # and NOT an OSError, so it escaped this tuple entirely. One such file
+            # made the whole sidebar fail to load rather than costing one row:
+            # the caller's except OSError could not see it either.
+            UnicodeDecodeError,
+        ):
+            # Skipped individually: an unreadable file degrades one row, never the
+            # list.
             continue
         rows.append(
             {

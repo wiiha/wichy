@@ -652,7 +652,12 @@ def register_routes(bp: Blueprint):
 
         try:
             legacy = load_document(slug)
-        except (DocumentNotFoundError, InvalidDocumentError, OSError) as e:
+        except (
+            DocumentNotFoundError,
+            InvalidDocumentError,
+            UnicodeDecodeError,
+            OSError,
+        ) as e:
             return _error(f"Note '{slug}' could not be read: {e}", 500)
 
         body = legacy.blocks[0].data.get("text", "") if legacy.blocks else ""
@@ -930,7 +935,10 @@ def register_routes(bp: Blueprint):
             )
         except InvalidSlugError as e:
             return _error(str(e), 400)
-        except OSError as e:
+        except (UnicodeDecodeError, OSError) as e:
+            # The revision log is a file on disk too: a non-UTF-8 one raises
+            # UnicodeDecodeError, which is a ValueError and would otherwise
+            # escape as an HTML 500 the browser cannot read.
             return _error(f"Could not read revisions: {e}", 500)
 
         return jsonify({"revisions": revisions, "total": count_revisions(slug)})
@@ -948,7 +956,10 @@ def register_routes(bp: Blueprint):
             return _error(str(e), 404)
         except InvalidSlugError as e:
             return _error(str(e), 400)
-        except OSError as e:
+        except (UnicodeDecodeError, OSError) as e:
+            # The revision log is a file on disk too: a non-UTF-8 one raises
+            # UnicodeDecodeError, which is a ValueError and would otherwise
+            # escape as an HTML 500 the browser cannot read.
             return _error(f"Could not read revisions: {e}", 500)
 
     @bp.route("/api/notes/<slug>/revisions/<int:revision_id>/revert", methods=["POST"])

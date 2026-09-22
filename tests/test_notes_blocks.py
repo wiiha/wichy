@@ -1152,17 +1152,23 @@ class TestNestedLockIsRefused:
         assert len(errors) == 1
 
 
-class TestSaveRefusesInvalidStoredData:
-    def test_a_document_with_invalid_block_data_cannot_be_re_saved(self, notes_dir):
-        """Persisting must not launder data that is already invalid on disk.
+class TestStoredDataPassesThroughUnvalidated:
+    """Untouched stored data survives a save; only request data is validated.
 
-        A hand-edited or otherwise malformed document can be read back; a later
-        edit to a different block must not write the invalid data out again.
-        """
+    The previous contract was the opposite -- every block re-validated on every
+    write -- and it bricked documents: one block whose shape did not fit its
+    declared type (an older build, a renamed field, a hand edit) loaded fine but
+    made every later mutation fail with a message blaming the caller's unrelated
+    new block. `load_document` validates structure only, so such a document is
+    readable and was permanently unwritable.
+    """
+
+    def test_stored_data_that_does_not_fit_its_type_still_saves(self, notes_dir):
+        """Persisting writes back what it loaded; it does not re-judge it."""
         from wichy.tools.notes.blocks import save_document
         from wichy.tools.notes.models import BlockDocument
 
-        malformed = BlockDocument.model_validate(
+        passthrough = BlockDocument.model_validate(
             {
                 "meta": {"slug": "malformed", "title": "Malformed"},
                 "blocks": [
@@ -1170,13 +1176,13 @@ class TestSaveRefusesInvalidStoredData:
                 ],
             }
         )
-        with pytest.raises(BlockDataError):
-            save_document(malformed)
-        # Nothing was written.
-        assert not (notes_dir / "malformed.json").exists()
+        save_document(passthrough)
+        assert (notes_dir / "malformed.json").exists()
+        reloaded = load_document("malformed")
+        assert reloaded.blocks[0].data["text"] == "no level"
 
     def test_a_valid_document_saves(self, notes_dir):
-        """The positive control: the guard above must not reject good data."""
+        """The positive control: the pass-through still writes good data."""
         from wichy.tools.notes.blocks import save_document
         from wichy.tools.notes.models import BlockDocument
 
@@ -1215,3 +1221,202 @@ class TestStoredMetaIsNotInheritedByNewBlocks:
         assert merged[0].id != stored_id
         assert merged[0].meta.touched_by == ["agent"]
         assert merged[0].meta.created != stored.blocks[0].meta.created
+
+
+class TestUnreadableFilesDegradeOneRow:
+    """One unreadable file must cost one row, never the whole list.
+
+    ``UnicodeDecodeError`` is a ``ValueError``, not an ``OSError``, so it slipped
+    past every exception tuple that reads documents. A single non-UTF-8 file in
+    the notes directory made the sidebar route 500 for ALL notes, and the same
+    omission let a read tool raise despite documenting that it never does.
+    """
+
+    def test_list_skips_a_non_utf8_file(self, notes_dir):
+        create_document("Good", [{"type": "paragraph", "data": {"text": "x"}}])
+        (notes_dir / "binary.md").write_bytes(b"\xff\xfe\x00\x01")
+
+        slugs = {row["slug"] for row in list_documents()}
+        assert "good" in slugs
+        assert "binary" not in slugs
+
+    def test_the_list_is_not_empty_when_only_one_file_is_bad(self, notes_dir):
+        """Positive control: the skip must not degrade into skipping everything."""
+        create_document("Good", [{"type": "paragraph", "data": {"text": "x"}}])
+        create_document("Also Good", [{"type": "paragraph", "data": {"text": "y"}}])
+        (notes_dir / "binary.md").write_bytes(b"\xff\xfe\x00\x01")
+        assert {row["slug"] for row in list_documents()} == {"good", "also-good"}
+
+    def test_a_non_utf8_json_file_is_skipped_too(self, notes_dir):
+        """The same hole, reached through the .json branch."""
+        create_document("Good", [{"type": "paragraph", "data": {"text": "x"}}])
+        (notes_dir / "binaryjson.json").write_bytes(b"\xff\xfe\x00\x01")
+        assert {row["slug"] for row in list_documents()} == {"good"}
+
+
+class TestStoredDataPassesThroughSaves:
+    """A document whose block data does not fit its type stays writable.
+
+    This is the data-preserving half of the pass-through rule: unknown block
+    types and renamed fields survive across saves, so a document produced by
+    another build is not bricked by the first unrelated edit.
+    """
+
+    def test_a_document_with_an_unknown_block_type_still_loads_saves_and_exports(
+        self, notes_dir
+    ):
+        """An unknown type loads, survives a mutation elsewhere, and exports."""
+        from wichy.tools.notes.markdown import export_markdown
+        from wichy.tools.notes.models import BlockDocument
+
+        stored = BlockDocument.model_validate(
+            {
+                "meta": {"slug": "future", "title": "Future"},
+                "blocks": [
+                    {"id": "blk-unknown", "type": "chart", "data": {"series": [1, 2]}},
+                    {
+                        "id": "blk-known",
+                        "type": "paragraph",
+                        "data": {"text": "normal"},
+                    },
+                ],
+            }
+        )
+        (notes_dir / "future.json").write_text(
+            stored.model_dump_json(indent=2), encoding="utf-8"
+        )
+
+        with locked_document("future", None, author="user") as document:
+            replace_block(document, "blk-known", data={"text": "edited"}, author="user")
+
+        reloaded = load_document("future")
+        types = [block.type for block in reloaded.blocks]
+        assert types == ["chart", "paragraph"], "the unknown block was dropped"
+        assert reloaded.get_block("blk-known").data["text"] == "edited"
+        # Export renders the unknown block through the JSON fallback rather than
+        # raising, so the document is still readable in full.
+        assert "series" in export_markdown(reloaded)
+
+    def test_a_renamed_field_survives_an_unrelated_edit(self, notes_dir):
+        """An older build's field name must not be judged on this build's rule."""
+        from wichy.tools.notes.models import BlockDocument
+
+        stored = BlockDocument.model_validate(
+            {
+                "meta": {"slug": "oldbuild", "title": "Old"},
+                "blocks": [
+                    # `level` was renamed in this build's schema; the stored value
+                    # is a string, which HeaderData would refuse today.
+                    {
+                        "id": "blk-odd",
+                        "type": "header",
+                        "data": {"text": "T", "level": "2"},
+                    },
+                    {"id": "blk-plain", "type": "paragraph", "data": {"text": "p"}},
+                ],
+            }
+        )
+        (notes_dir / "oldbuild.json").write_text(
+            stored.model_dump_json(indent=2), encoding="utf-8"
+        )
+        with locked_document("oldbuild", None, author="user") as document:
+            replace_block(document, "blk-plain", data={"text": "p2"}, author="user")
+        assert load_document("oldbuild").get_block("blk-odd").data["level"] == "2"
+
+    def test_data_the_request_supplies_is_still_validated(self, notes_dir):
+        """The boundary, other way: the pass-through must not weaken writes."""
+        document = create_document(
+            "Strict", [{"type": "paragraph", "data": {"text": "x"}}]
+        )
+        with pytest.raises(BlockDataError):
+            with locked_document(document.meta.slug, None, author="user") as open_doc:
+                replace_block(
+                    open_doc,
+                    open_doc.blocks[0].id,
+                    data={"text": "x", "surprise": True},
+                    author="user",
+                    block_type="paragraph",
+                )
+        # And the refusal left the document untouched.
+        assert load_document(document.meta.slug).blocks[0].data == {"text": "x"}
+
+    def test_an_unknown_type_supplied_by_a_request_is_refused(self, notes_dir):
+        document = create_document(
+            "Strict", [{"type": "paragraph", "data": {"text": "x"}}]
+        )
+        with pytest.raises(BlockDataError):
+            with locked_document(document.meta.slug, None, author="user") as open_doc:
+                replace_block(
+                    open_doc,
+                    open_doc.blocks[0].id,
+                    data={"anything": 1},
+                    author="user",
+                    block_type="chart",
+                )
+
+
+class TestMarkdownTimestampsAreStable:
+    """A legacy note without frontmatter timestamps must not look changed forever.
+
+    The fallback used to be the current time, so ``updated`` differed on every
+    read: the browser's 5-second poll saw the note as modified on every cycle,
+    and the export of an unchanged file was never byte-identical between calls.
+    """
+
+    def test_two_loads_of_an_unchanged_file_agree(self, notes_dir):
+        (notes_dir / "legacy.md").write_text(
+            "---\ntitle: L\n---\nbody\n", encoding="utf-8"
+        )
+        first = load_document("legacy").meta.updated
+        second = load_document("legacy").meta.updated
+        assert first == second
+        assert first != ""
+
+    def test_created_and_updated_are_the_same_stable_value(self, notes_dir):
+        (notes_dir / "legacy.md").write_text("body only\n", encoding="utf-8")
+        meta = load_document("legacy").meta
+        assert meta.created == meta.updated
+
+    def test_a_touch_changes_it(self, notes_dir):
+        """Positive control: the value tracks the file, it is not frozen."""
+        path = notes_dir / "legacy.md"
+        path.write_text("body\n", encoding="utf-8")
+        before = load_document("legacy").meta.updated
+        assert path.stat().st_mtime >= 0
+        # Move the mtime forward explicitly, so the test does not depend on
+        # filesystem timestamp resolution.
+        import os
+
+        stat = path.stat()
+        os.utime(path, (stat.st_atime, stat.st_mtime + 10))
+        assert load_document("legacy").meta.updated != before
+
+    def test_frontmatter_timestamps_win(self, notes_dir):
+        """A note that declares its own timestamps keeps them."""
+        (notes_dir / "dated.md").write_text(
+            "---\ntitle: D\ncreated: 2020-01-01T00:00:00+00:00\n"
+            "updated: 2020-01-02T00:00:00+00:00\n---\nbody\n",
+            encoding="utf-8",
+        )
+        meta = load_document("dated").meta
+        # The frontmatter parser yields a real datetime, which stringifies in
+        # ISO form with a space separator; only the date matters here.
+        assert meta.created.startswith("2020-01-01")
+        assert meta.updated.startswith("2020-01-02")
+
+    def test_the_list_and_the_document_agree(self, notes_dir):
+        (notes_dir / "legacy.md").write_text("body\n", encoding="utf-8")
+        row = next(r for r in list_documents() if r["slug"] == "legacy")
+        assert row["updated"] == load_document("legacy").meta.updated
+
+
+class TestReadScratchpadNeverRaises:
+    def test_a_non_utf8_pinned_file_is_reported(self, notes_dir):
+        from wichy.tools.read_scratchpad import ReadScratchpadTool
+
+        (notes_dir / "binary.md").write_bytes(b"\xff\xfe\x00\x01")
+        set_scratchpad_state("binary")
+        result = ReadScratchpadTool().execute()
+        assert "could not be read" in result
+        # And it names the file, so the user can find it.
+        assert "binary" in result
