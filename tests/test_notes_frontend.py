@@ -621,12 +621,17 @@ class TestTheBrowserSendsTheUserChanges:
         assert "pendingOps.delete" not in error_branch[: error_branch.index("HTTP 409")]
 
     def test_the_send_control_is_hidden_when_nothing_is_queued(self):
-        """An empty send would inject a message describing no change."""
+        """An empty send would inject a message describing no change.
+
+        See TestTheQueueControl for the selector this visibility acts on: the
+        logic was always right, and the element it was applied to did not exist.
+        """
         source = self.script()
         body = source[source.index("function updateQueueIndicator") :]
         body = body[: body.index("    /**\n     * Note which blocks the user touched.")]
-        assert 'button.classList.toggle("hidden", distinct === 0);' in body
-        assert "button.disabled = distinct === 0;" in body
+        assert 'button.classList.toggle("hidden", empty);' in body
+        assert "button.disabled = empty;" in body
+        assert "const empty = distinct === 0;" in body
 
     def test_the_notify_runs_after_the_save(self):
         """Posting before the save raced it and every notify came back 409."""
@@ -885,3 +890,61 @@ class TestTheConflictBannerResolves:
     def test_the_banner_states_the_conflict_in_words(self):
         body = template()
         assert "Agent also edited this block" in body
+
+
+class TestTheQueueControl:
+    """On-demand mode is unusable without a control that can actually be found.
+
+    The control was looked up as `#send-changes`, an id the toolbar does not use:
+    every button there is identified by `data-action`. The lookup matched nothing,
+    the function returned early, and the queue indicator never appeared -- so
+    queued edits could not be sent by hand at all. Source guards did not catch it
+    because they asserted the visibility LOGIC, which was correct; what was wrong
+    was the selector it was applied to.
+    """
+
+    def script(self) -> str:
+        """The block editor source."""
+        return (STATIC / "notes_blocks.js").read_text(encoding="utf-8")
+
+    def test_the_queue_control_is_found_by_its_data_action(self):
+        source = self.script()
+        body = source[source.index("function updateQueueIndicator") :]
+        body = body[: body.index("    /**\n     * Apply queued agent changes")]
+        assert "document.querySelector('[data-action=\"send-changes\"]')" in body
+        assert 'document.getElementById("send-changes")' not in body
+
+    def test_the_every_selector_the_script_uses_exists_in_the_template(self):
+        """A selector naming an element that is not there fails silently.
+
+        This is the general form of the defect above: the template and the script
+        are edited in different files, and a mismatch shows up as a missing
+        control rather than an error.
+        """
+        source = self.script()
+        body = template()
+        import re
+
+        ids = set(re.findall(r'getElementById\("([^"]+)"\)', source))
+        actions = set(re.findall(r'querySelector\(.\[data-action="([^"]+)"\]', source))
+        for element_id in ids:
+            if element_id in {"notes-settings"}:
+                continue
+            assert f'id="{element_id}"' in body, f"#{element_id} is not in the template"
+        for action in actions:
+            assert f'data-action="{action}"' in body, f"data-action={action} missing"
+
+    def test_clearing_is_offered_only_when_something_is_queued(self):
+        source = self.script()
+        body = source[source.index("function updateQueueIndicator") :]
+        body = body[: body.index("    /**\n     * Apply queued agent changes")]
+        assert '[data-action="clear-changes"]' in body
+        assert 'clear.classList.toggle("hidden", empty)' in body
+
+    def test_the_toolbar_handles_send_and_clear_before_the_slug_guard(self):
+        """A queue control that no-ops when no note is open is dead code."""
+        source = self.script()
+        body = source[source.index("function initToolbar") :]
+        body = body[: body.index("function askToConvert")]
+        assert 'action === "send-changes"' in body
+        assert 'action === "clear-changes"' in body

@@ -482,20 +482,32 @@
      *
      * Hidden when there is nothing unsent, so an empty queue is never offered:
      * sending an empty op list would inject a change message describing nothing.
+     *
+     * Found by `data-action`, not by id: the toolbar identifies its buttons by
+     * `data-action`, and looking this one up as `#send-changes` matched nothing,
+     * so the function returned early and the queue control never appeared at all
+     * -- the on-demand mode had no way to send, and the queued edits were only
+     * discoverable from a status line.
      */
     function updateQueueIndicator() {
-        const button = document.getElementById("send-changes");
+        const button = document.querySelector('[data-action="send-changes"]');
+        const clear = document.querySelector('[data-action="clear-changes"]');
         const count = document.getElementById("queued-count");
         if (!button) {
             return;
         }
         const ops = slug ? pendingOps.get(slug) || [] : [];
         const distinct = new Set(ops.map((entry) => entry.block_id)).size;
-        button.classList.toggle("hidden", distinct === 0);
+        const empty = distinct === 0;
+        button.classList.toggle("hidden", empty);
+        if (clear) {
+            // The escape hatch is offered only when there is something to discard.
+            clear.classList.toggle("hidden", empty);
+        }
         if (count) {
             count.textContent = String(distinct);
         }
-        button.disabled = distinct === 0;
+        button.disabled = empty;
     }
 
     /**
