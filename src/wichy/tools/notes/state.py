@@ -149,16 +149,28 @@ def discard_stale_changes(slug: str, current_version: int) -> list[dict]:
     Returns:
         The operations still queued, in insertion order.
     """
+
+    def recorded_version(op: dict) -> int | None:
+        """An op's version, or None when it does not carry a usable one."""
+        value = op.get("version")
+        if isinstance(value, bool) or not isinstance(value, int):
+            return None
+        return value
+
     with _state_lock:
-        kept = [
-            op
-            for op in agent_changes.get(slug, [])
-            # Strictly newer: acking up to version V means the browser has
-            # applied everything produced at or before V, so an op whose version
-            # is V is already on screen and applying it again would revert the
-            # document to an earlier state.
-            if int(op.get("version", current_version)) > current_version
-        ]
+        kept = []
+        for op in agent_changes.get(slug, []):
+            version = recorded_version(op)
+            if version is None:
+                # No usable version: keep it. "I do not know when this was made"
+                # is not "the browser has already applied it", and dropping it
+                # would discard an op that was never delivered.
+                kept.append(op)
+            elif version > current_version:
+                # Strictly newer: acking up to V means the browser has applied
+                # everything produced at or before V, so an op at V is already on
+                # screen and reapplying it would revert the document.
+                kept.append(op)
         if kept:
             agent_changes[slug] = kept
         else:
@@ -253,19 +265,21 @@ def describe_pending(slug: str) -> dict:
     separately can see a version newer than the operations it was handed, and
     would then discard operations it had not applied yet.
 
-    The queue is *drained*, not peeked: a poll consumes what it is given, so a
-    dropped response costs the client nothing it cannot recover by re-fetching
-    the document.
+    The queue is PEEKED, not drained. A drain makes the response its own
+    acknowledgement: if it is lost -- tab closed, reload, a dropped connection --
+    the operations are gone with it, and the browser never learns a version
+    changed so it never re-fetches them either. The ack is what removes them, so
+    an operation survives until the browser says it has applied it.
 
     Args:
         slug: The document slug.
 
     Returns:
-        A dict with ``changes`` (the drained operations), ``version`` (the
+        A dict with ``changes`` (the pending operations), ``version`` (the
         cached version), and ``agent_busy``.
     """
     with _state_lock:
-        changes = agent_changes.pop(slug, [])
+        changes = list(agent_changes.get(slug, []))
         version = doc_versions.get(slug, 0)
         return {
             "changes": changes,

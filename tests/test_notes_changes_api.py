@@ -332,12 +332,19 @@ class TestPostChanges:
         assert ids[1] in content
         assert ids[0] not in content
 
-    def test_user_ops_are_queued_for_the_browser(self, client, doc, session):
+    def test_user_ops_are_not_echoed_back_on_the_agent_queue(
+        self, client, doc, session
+    ):
+        """The two directions are separate queues.
+
+        The browser already has its own ops. Handing them back would have it
+        reapply older data over newer local edits and mark the block as
+        agent-modified.
+        """
         slug, ids = doc
         post_changes(client, slug, [op(block_id=ids[0])])
         pending = client.get(f"{PREFIX}/api/changes/pending?slug={slug}").get_json()
-        assert len(pending["changes"]) == 1
-        assert pending["changes"][0]["block_id"] == ids[0]
+        assert pending["changes"] == []
 
     def test_no_session_is_503(self, client, doc):
         slug, ids = doc
@@ -457,8 +464,14 @@ class TestPendingChanges:
     def test_an_unknown_document_is_404(self, client):
         assert client.get(f"{PREFIX}/api/changes/pending?slug=nope").status_code == 404
 
-    def test_polling_drains_the_queue(self, client, doc):
-        """A poll consumes what it is given, so a dropped response costs nothing."""
+    def test_a_poll_does_not_consume_the_queue(self, client, doc):
+        """A lost response must not lose the agent's ops.
+
+        If the poll drained, the response would be its own acknowledgement: a
+        closed tab or a dropped connection would take the ops with it, and the
+        browser would never learn a version changed so it would never re-fetch
+        them either. The ack is what removes them.
+        """
         slug, ids = doc
         queue_agent_change(slug, op(block_id=ids[0], author="agent"))
 
@@ -466,7 +479,22 @@ class TestPendingChanges:
         second = client.get(f"{PREFIX}/api/changes/pending?slug={slug}").get_json()
 
         assert len(first["changes"]) == 1
-        assert second["changes"] == []
+        assert len(second["changes"]) == 1
+
+    def test_acking_is_what_removes_an_op(self, client, doc):
+        slug, ids = doc
+        queue_agent_change(slug, op(block_id=ids[0], author="agent", version=2))
+
+        client.post(
+            f"{PREFIX}/api/changes/ack", json={"slug": slug, "up_to_version": 2}
+        )
+
+        assert (
+            client.get(f"{PREFIX}/api/changes/pending?slug={slug}").get_json()[
+                "changes"
+            ]
+            == []
+        )
 
     def test_the_version_is_read_from_disk_on_a_cold_cache(self, client, doc):
         """A cache miss must not report version 0, which reads as 'all stale'."""
@@ -729,3 +757,243 @@ class TestInjectedMessage:
     def test_the_title_is_included_verbatim(self):
         message = api.change_message("Notes: plan", [op()])
         assert "Notes: plan" in message
+
+
+# ---------------------------------------------------------------------------
+# Defects found in review
+# ---------------------------------------------------------------------------
+
+
+class TestARenamedDocumentOnARejectedRequest:
+    """A rejection must not have moved the document.
+
+    The rename moves files, queued ops and the marker, so doing it before the
+    request is validated leaves an error response that lies: it says nothing
+    changed while the document is under a slug the caller never asked for.
+    """
+
+    def test_a_rejected_block_write_does_not_rename(self, client, notes_dir):
+        """Duplicate incoming ids are a 400 -- raised by the merge, not the store."""
+        create_document("Foo", [{"type": "paragraph", "data": {"text": "x"}}])
+        version = load_document("foo").meta.version
+
+        response = client.put(
+            f"{PREFIX}/api/notes/foo",
+            json={
+                "version": version,
+                "meta": {"title": "Bar"},
+                "blocks": [
+                    {"id": "blk-x", "type": "paragraph", "data": {"text": "a"}},
+                    {"id": "blk-x", "type": "paragraph", "data": {"text": "b"}},
+                ],
+            },
+        )
+        assert response.status_code == 400
+        # Nothing moved.
+        assert (notes_dir / "foo.json").exists()
+        assert not (notes_dir / "bar.json").exists()
+        assert client.get(f"{PREFIX}/api/notes/foo").status_code == 200
+
+    def test_a_stale_rename_does_not_move_the_document(self, client, notes_dir):
+        create_document("Stale Name", [{"type": "paragraph", "data": {"text": "x"}}])
+        response = client.put(
+            f"{PREFIX}/api/notes/stale-name",
+            json={"version": 99, "meta": {"title": "Moved Anyway"}},
+        )
+        assert response.status_code == 409
+        assert (notes_dir / "stale-name.json").exists()
+        assert not (notes_dir / "moved-anyway.json").exists()
+
+    def test_a_rejected_rename_leaves_the_marker_and_queue_alone(self, client, doc):
+        slug, ids = doc
+        client.post(f"{PREFIX}/api/notes/{slug}/pin", json={"pinned": True})
+        queue_agent_change(slug, op(block_id=ids[0], author="agent", version=2))
+
+        response = client.put(
+            f"{PREFIX}/api/notes/{slug}",
+            json={
+                "version": 99,
+                "meta": {"title": "Nope"},
+                "blocks": [
+                    {"id": "d", "type": "paragraph", "data": {"text": "a"}},
+                    {"id": "d", "type": "paragraph", "data": {"text": "b"}},
+                ],
+            },
+        )
+        assert response.status_code in (400, 409)
+
+        assert (
+            client.get(f"{PREFIX}/api/notes/scratchpad").get_json()["primary"] == slug
+        )
+        pending = client.get(f"{PREFIX}/api/changes/pending?slug={slug}").get_json()
+        assert len(pending["changes"]) == 1
+
+    def test_a_successful_rename_still_moves_everything(self, client, doc):
+        """The positive control: the guard must not block a legitimate rename."""
+        slug, ids = doc
+        client.post(f"{PREFIX}/api/notes/{slug}/pin", json={"pinned": True})
+        version = load_document(slug).meta.version
+
+        response = client.put(
+            f"{PREFIX}/api/notes/{slug}",
+            json={"version": version, "meta": {"title": "New Home"}},
+        )
+        assert response.status_code == 200
+        assert response.get_json()["slug"] == "new-home"
+        assert client.get(f"{PREFIX}/api/notes/new-home").status_code == 200
+        assert (
+            client.get(f"{PREFIX}/api/notes/scratchpad").get_json()["primary"]
+            == "new-home"
+        )
+
+
+class TestInjectionFilterIsAnAllowList:
+    """Only ops explicitly authored by the user may reach the agent's context."""
+
+    @pytest.mark.parametrize("author", ["Agent", "AGENT", "agent ", None, 1, ["agent"]])
+    def test_only_author_user_is_injected(self, client, doc, session, author):
+        slug, ids = doc
+        operation = op(block_id=ids[0])
+        operation["author"] = author
+
+        response = post_changes(client, slug, [operation])
+
+        assert response.status_code == 200
+        assert response.get_json()["injected"] is False
+        assert session.root_agent.context.injected == []
+
+    def test_a_missing_author_is_not_injected(self, client, doc, session):
+        slug, ids = doc
+        operation = op(block_id=ids[0])
+        del operation["author"]
+        assert post_changes(client, slug, [operation]).get_json()["injected"] is False
+        assert session.root_agent.context.injected == []
+
+    def test_an_explicit_user_author_is_injected(self, client, doc, session):
+        """Positive control: the allow-list must still admit the user."""
+        slug, ids = doc
+        assert (
+            post_changes(client, slug, [op(block_id=ids[0])]).get_json()["injected"]
+            is True
+        )
+        assert len(session.root_agent.context.injected) == 1
+
+
+class TestAckKeepsUnversionedOps:
+    def test_an_op_with_no_version_is_kept(self, client, doc):
+        """ "I do not know when this was made" is not "already applied"."""
+        slug, ids = doc
+        queue_agent_change(
+            slug, {"op": "update", "block_id": ids[0], "author": "agent"}
+        )
+
+        client.post(
+            f"{PREFIX}/api/changes/ack", json={"slug": slug, "up_to_version": 1}
+        )
+
+        pending = client.get(f"{PREFIX}/api/changes/pending?slug={slug}").get_json()
+        assert len(pending["changes"]) == 1
+
+    def test_an_op_with_a_null_version_is_kept(self, client, doc):
+        slug, ids = doc
+        queue_agent_change(slug, {"op": "update", "block_id": ids[0], "version": None})
+        client.post(
+            f"{PREFIX}/api/changes/ack", json={"slug": slug, "up_to_version": 5}
+        )
+        assert (
+            len(
+                client.get(f"{PREFIX}/api/changes/pending?slug={slug}").get_json()[
+                    "changes"
+                ]
+            )
+            == 1
+        )
+
+    def test_an_acked_versioned_op_is_dropped(self, client, doc):
+        """Positive control: versioned ops at or below the ack are removed."""
+        slug, ids = doc
+        queue_agent_change(slug, op(block_id=ids[0], author="agent", version=2))
+        client.post(
+            f"{PREFIX}/api/changes/ack", json={"slug": slug, "up_to_version": 2}
+        )
+        assert (
+            client.get(f"{PREFIX}/api/changes/pending?slug={slug}").get_json()[
+                "changes"
+            ]
+            == []
+        )
+
+
+class TestVersionIsRequiredAndTyped:
+    @pytest.mark.parametrize("version", ["1", 1.5, None, True])
+    def test_a_non_integer_version_is_rejected(self, client, doc, session, version):
+        """A check that silently passes for a non-int lets a stale write through."""
+        slug, ids = doc
+        response = client.post(
+            f"{PREFIX}/api/changes",
+            json={"slug": slug, "version": version, "ops": [op(block_id=ids[0])]},
+        )
+        assert response.status_code == 400
+        assert session.root_agent.context.injected == []
+
+    def test_an_integer_version_is_accepted(self, client, doc, session):
+        slug, ids = doc
+        assert (
+            post_changes(client, slug, [op(block_id=ids[0])], version=1).status_code
+            == 200
+        )
+
+
+class TestUnreadableDocumentOnTheChangeRoutes:
+    def test_post_changes_returns_json_not_a_crash(self, client, notes_dir, session):
+        (notes_dir / "broken.json").write_bytes(b"\xff\xfe\x00bad")
+        response = client.post(
+            f"{PREFIX}/api/changes", json={"slug": "broken", "version": 1, "ops": []}
+        )
+        assert response.status_code == 500
+        assert "error" in response.get_json()
+
+    def test_pending_returns_json_not_a_crash(self, client, notes_dir):
+        (notes_dir / "broken.json").write_bytes(b"\xff\xfe\x00bad")
+        response = client.get(f"{PREFIX}/api/changes/pending?slug=broken")
+        assert response.status_code == 500
+        assert "error" in response.get_json()
+
+
+class TestPendingVersionIsNotStale:
+    def test_a_concurrent_write_does_not_leave_a_permanently_stale_version(
+        self, client, doc
+    ):
+        """The warm-up runs once; a wrong value would be reported forever.
+
+        Read under the document lock, so the warm-up cannot overwrite a
+        concurrent writer's newer version -- which the browser's staleness check
+        depends on.
+        """
+        slug, ids = doc
+        from wichy.tools.notes.state import clear_doc_version
+
+        # Simulate a fresh process: cache cold, document already at version 2.
+        with locked_document(slug, 1, author="user") as document:
+            replace_block(document, ids[0], data={"text": "x"}, author="user")
+        clear_doc_version(slug)
+
+        reported = client.get(f"{PREFIX}/api/changes/pending?slug={slug}").get_json()[
+            "version"
+        ]
+        assert reported == 2
+        # And it stays correct on the next poll.
+        assert (
+            client.get(f"{PREFIX}/api/changes/pending?slug={slug}").get_json()[
+                "version"
+            ]
+            == 2
+        )
+
+
+class TestAckUnknownDocument:
+    def test_acking_an_unknown_document_is_404(self, client, doc):
+        response = client.post(
+            f"{PREFIX}/api/changes/ack", json={"slug": "nope", "up_to_version": 1}
+        )
+        assert response.status_code == 404

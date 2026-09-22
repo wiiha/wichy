@@ -497,10 +497,17 @@ class TestDescribePending:
             "agent_busy": True,
         }
 
-    def test_it_drains(self):
+    def test_it_peeks_rather_than_draining(self):
+        """The ack removes an operation, not the poll.
+
+        A drain would make the poll response its own acknowledgement, so a lost
+        response would lose the operation and the browser would never learn a
+        version changed.
+        """
         queue_agent_change("a", {"op": "update"})
-        describe_pending("a")
-        assert describe_pending("a")["changes"] == []
+        assert describe_pending("a")["changes"] == [{"op": "update"}]
+        # Still there on the next poll.
+        assert describe_pending("a")["changes"] == [{"op": "update"}]
 
     def test_unknown_slug_is_empty_and_idle(self):
         assert describe_pending("nope") == {

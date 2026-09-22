@@ -489,8 +489,17 @@ def locked_document(
             # hand out again, producing duplicate ids that no reader can
             # disambiguate.
             save_document(document)
-            set_doc_version(slug, document.meta.version)
-            append_entry(slug, entry)
+            # The document's OWN slug, not the one this body was opened under: a
+            # rename inside the body means the log has to follow the file, or the
+            # entry lands in the old slug's log and the new document's history is
+            # missing the change that renamed it.
+            final_slug = document.meta.slug
+            set_doc_version(final_slug, document.meta.version)
+            append_entry(final_slug, entry)
+            if final_slug != slug:
+                # The old slug no longer names a document, so a cached version for
+                # it would satisfy a stale check against something that is gone.
+                clear_doc_version(slug)
         finally:
             held.discard(slug)
 

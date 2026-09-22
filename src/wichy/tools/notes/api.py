@@ -75,11 +75,11 @@ from wichy.tools.notes.models import (
 )
 from wichy.tools.notes.state import (
     collapse_by_block,
+    get_doc_lock,
     count_distinct_blocks,
     describe_pending,
     discard_stale_changes,
     get_doc_version,
-    queue_agent_change,
     set_doc_version,
 )
 from wichy.tools.notes.revisions import (
@@ -245,9 +245,11 @@ def change_message(title: str, ops: Iterable[Mapping[str, Any]]) -> str:
     lines = [CHANGE_MESSAGE_OPEN.format(title)]
     for op in ops:
         verb = _OP_VERBS.get(str(op.get("op")), "Changed")
-        block_type = op.get("block_type") or "block"
+        block_type = op.get("block_type")
         block_id = op.get("block_id") or "?"
-        lines.append(f"- {verb} {block_type} block (id: {block_id})")
+        # With no type, "Changed block" reads better than "Changed block block".
+        described = f"{block_type} block" if block_type else "block"
+        lines.append(f"- {verb} {described} (id: {block_id})")
     lines.append(CHANGE_MESSAGE_CLOSE)
     return "\n".join(lines)
 
@@ -480,38 +482,39 @@ def register_routes(bp: Blueprint):
             return _error("blocks must be a list.", 400)
         renaming = bool(new_title) and new_title != current.meta.title
 
-        # The version is checked BEFORE anything is renamed. Renaming moves the
-        # document's files and repoints the marker, so doing it first would leave
-        # a request that is about to be rejected having already moved the
-        # document -- a 409 that changed the world is worse than no check at all.
-        if expected != current.meta.version:
-            return _error(
-                f"Version mismatch: expected {expected}, found {current.meta.version}",
-                409,
-            )
-
+        # Everything -- validating the incoming blocks, renaming, and the write --
+        # happens inside ONE locked body, in that order. Renaming moves the
+        # document's files, its queued ops and the marker, so a rename that
+        # happened before a request was rejected would leave the document moved
+        # under a slug the caller never asked for, with an error response that
+        # says nothing changed.
         target_slug = slug
-        if renaming:
-            target_slug = make_unique_slug(generate_slug(new_title))
-            if target_slug != slug:
-                try:
-                    rename_document_files(slug, target_slug)
-                except DocumentNotFoundError:
-                    return _error(NOT_FOUND, 404)
-                except (InvalidSlugError, ValueError) as e:
-                    return _error(str(e), 409)
-                except OSError as e:
-                    return _error(f"Could not rename the note: {e}", 500)
-                _move_marker(slug, target_slug)
+        rename_to: list[str] = []
 
         def mutate(document):
+            nonlocal target_slug
+            # Merged FIRST, so invalid incoming blocks raise before anything has
+            # been moved.
+            merged = (
+                merged_blocks(document, incoming, "user")
+                if incoming is not None
+                else None
+            )
             if renaming:
+                candidate = make_unique_slug(generate_slug(new_title))
+                if candidate != slug:
+                    rename_document_files(slug, candidate)
+                    _move_marker(slug, candidate)
+                target_slug = candidate
+                rename_to.append(candidate)
                 document.meta.title = new_title
-                document.meta.slug = target_slug
-            if incoming is not None:
-                document.blocks = merged_blocks(document, incoming, "user")
+                # The document carries its own slug, so the write lands on the
+                # renamed file rather than recreating the old one.
+                document.meta.slug = candidate
+            if merged is not None:
+                document.blocks = merged
 
-        document, error = _apply_locked(target_slug, expected, "user", mutate)
+        document, error = _apply_locked(slug, expected, "user", mutate)
         if error is not None:
             return error
         return jsonify(
@@ -997,12 +1000,23 @@ def register_routes(bp: Blueprint):
             return _error(NOT_FOUND, 404)
 
         try:
-            if get_doc_version(slug) == 0:
-                set_doc_version(slug, load_document(slug).meta.version)
-            pending = describe_pending(slug)
+            # Read the version under the document lock. Warming the cache from an
+            # unlocked read could overwrite a concurrent write's newer version,
+            # and because the warm-up only runs on a cache miss it would then
+            # report the stale value forever -- so the browser's own staleness
+            # check could never fire.
+            with get_doc_lock(slug):
+                if get_doc_version(slug) == 0:
+                    set_doc_version(slug, load_document(slug).meta.version)
+                pending = describe_pending(slug)
         except DocumentNotFoundError:
             return _error(NOT_FOUND, 404)
-        except (InvalidDocumentError, InvalidSlugError, OSError) as e:
+        except (
+            InvalidDocumentError,
+            InvalidSlugError,
+            UnicodeDecodeError,
+            OSError,
+        ) as e:
             return _error(f"Could not read pending changes: {e}", 500)
 
         changes = collapse_by_block(pending["changes"])
@@ -1030,7 +1044,15 @@ def register_routes(bp: Blueprint):
         if not isinstance(up_to, int) or isinstance(up_to, bool):
             return _error("up_to_version must be an integer.", 400)
 
-        discard_stale_changes(slug, up_to)
+        if resolve_format(slug) is None:
+            return _error(NOT_FOUND, 404)
+
+        try:
+            discard_stale_changes(slug, up_to)
+        except (TypeError, ValueError) as e:
+            # A queued op with an unusable version. Reported rather than raised,
+            # because the client cannot read an HTML 500.
+            return _error(f"Could not acknowledge changes: {e}", 400)
         return jsonify({"status": "ok"})
 
     @bp.route("/api/changes", methods=["POST"])
@@ -1062,7 +1084,12 @@ def register_routes(bp: Blueprint):
             document = load_document(slug)
         except DocumentNotFoundError:
             return _error(NOT_FOUND, 404)
-        except (InvalidDocumentError, InvalidSlugError, OSError) as e:
+        except (
+            InvalidDocumentError,
+            InvalidSlugError,
+            UnicodeDecodeError,
+            OSError,
+        ) as e:
             return _error(f"Note '{slug}' could not be read: {e}", 500)
 
         # The session is checked separately from the root agent so the two 503
@@ -1079,20 +1106,24 @@ def register_routes(bp: Blueprint):
 
         version = document.meta.version
         expected = data.get("version")
-        if expected is not None and isinstance(expected, int) and expected != version:
+        if expected is None:
+            return _error("A version is required.", 400)
+        if isinstance(expected, bool) or not isinstance(expected, int):
+            return _error("version must be an integer.", 400)
+        if expected != version:
             return _error(
                 f"Version mismatch: expected {expected}, found {version}", 409
             )
 
-        # Agent-authored ops are never injected into the agent's own context.
+        # Only ops explicitly authored by the user are injected. The filter is
+        # an allow-list, not a deny-list: a missing, null, capitalised or
+        # non-string author is not evidence of a user, and treating it as one
+        # would leak an agent-authored op into the agent's own context.
         user_ops = [
-            {**op, "version": version, "author": op.get("author") or "user"}
+            {**op, "version": version, "author": "user"}
             for op in ops
-            if op.get("author") != "agent"
+            if op.get("author") == "user"
         ]
-
-        for op in user_ops:
-            queue_agent_change(slug, op)
 
         if not user_ops:
             return jsonify({"status": "queued", "injected": False})
