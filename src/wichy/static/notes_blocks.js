@@ -445,7 +445,11 @@
             body: JSON.stringify({
                 slug: targetSlug,
                 version: pendingVersion.get(targetSlug),
-                ops: ops.map((entry) => ({ ...entry, author: "user" })),
+                // No `author` field: this route is the user-to-agent channel by
+                // contract, so the server stamps authorship itself. Sending it
+                // made the server's filter a convention a crafted request could
+                // break, in either direction.
+                ops: ops,
             }),
         });
         if (result.error) {

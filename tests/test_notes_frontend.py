@@ -564,10 +564,17 @@ class TestTheBrowserSendsTheUserChanges:
         assert 'method: "POST"' in body
         assert "/api/changes" in body
 
-    def test_the_ops_it_sends_are_authored_by_the_user(self):
-        """A missing author is not evidence of a user, and the server drops it."""
+    def test_the_ops_it_sends_carry_no_author(self):
+        """Authorship is the server's to stamp, not the client's to claim.
+
+        The browser used to send `author: "user"` per op, and the server filtered
+        on it. That made the user-to-agent direction a convention: a crafted POST
+        could forge the field either way. The field is gone, and the route itself
+        is now the statement that these are the user's edits.
+        """
         source = self.script()
-        assert 'author: "user"' in source
+        assert 'author: "user"' not in source
+        assert "author:" not in source
 
     def test_the_payload_carries_the_version_the_op_was_computed_against(self):
         """The server checks it, and a wrong version is a 409."""

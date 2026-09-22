@@ -6,6 +6,7 @@ This module owns the process-wide coordination primitives for block documents:
 - ``doc_versions`` -- slug -> current version, for fast stale-write checks
 - ``doc_locks`` -- slug -> per-document lock
 - ``agent_busy`` -- whether an agent turn is in flight
+- ``last_injected`` -- slug -> highest version already sent to the agent's context
 
 Nothing here is persisted. After a restart the browser re-fetches on its next
 poll and reconciles from disk, so losing this state is safe.
@@ -47,6 +48,15 @@ doc_locks: dict[str, threading.RLock] = {}
 # The Event carries its own synchronization, so it is not guarded by _state_lock.
 agent_busy = threading.Event()
 
+# slug -> highest document version already injected into the agent's context.
+#
+# The change-notification route is otherwise not idempotent: the browser parks
+# ops on a 503 and retries, and a retry that arrives after a lost response would
+# append a second, identical summary of the same change to the agent's context.
+# Bounded by the number of documents ever touched in this process, like the rest
+# of this module. A restart clears it, which only means one retry may duplicate.
+last_injected: dict[str, int] = {}
+
 # Guards the three containers above. Re-entrant so a caller already inside may
 # call another accessor. Never hold this across I/O.
 _state_lock = threading.RLock()
@@ -85,14 +95,27 @@ def get_doc_lock(slug: str) -> threading.RLock:
 
 
 def queue_agent_change(slug: str, op: dict) -> None:
-    """Append one agent operation to *slug*'s pending-change list.
+    """Queue one agent operation for *slug*, collapsed per block in storage.
+
+    Only the final state of a block is ever delivered -- the browser applies the
+    last content, not a replay -- so an older operation for the same block is
+    REPLACED rather than accumulated. Collapsing at write time keeps storage
+    bounded by the document's block count even when the browser never
+    acknowledges (a closed tab), instead of growing without limit. First-touch
+    order is preserved, so the browser still sees blocks in a stable order.
 
     Args:
         slug: The document slug.
         op: The operation dict. Stored as-is; the caller owns its shape.
     """
     with _state_lock:
-        agent_changes.setdefault(slug, []).append(op)
+        queue = agent_changes.setdefault(slug, [])
+        block_id = str(op.get("block_id") or "")
+        for index, existing in enumerate(queue):
+            if str(existing.get("block_id") or "") == block_id:
+                queue[index] = op
+                return
+        queue.append(op)
 
 
 def drain_agent_changes(slug: str) -> list[dict]:
@@ -209,6 +232,72 @@ def count_distinct_blocks(ops: list[dict]) -> int:
 
 
 # -------------------------------------------------------------------------
+# Injection bookkeeping
+# -------------------------------------------------------------------------
+
+
+def was_injected(slug: str, version: int) -> bool:
+    """Whether ops at *version* have already reached the agent's context.
+
+    The read-only half of the idempotency pair, kept separate from the recording
+    half so the record is only written once the injection has actually SUCCEEDED.
+    Recording first would let a failed injection suppress its own retry: the
+    client would be told the notification was a duplicate of one the agent never
+    received.
+
+    Args:
+        slug: The document slug.
+        version: The document version the ops were computed against.
+
+    Returns:
+        True when a notification at or above this version was already injected.
+    """
+    with _state_lock:
+        previous = last_injected.get(slug)
+        return previous is not None and version <= previous
+
+
+def note_injected(slug: str, version: int) -> bool:
+    """Record that *version*'s notification reached the agent's context.
+
+    A client that parks its ops on a transient failure and retries sends the same
+    version again; the agent's context must not receive the same summary twice, so
+    the highest injected version is remembered per slug and anything at or below
+    it is treated as a duplicate by ``was_injected``. A genuinely newer version
+    still injects.
+
+    Must be called only AFTER the injection succeeded.
+
+    Args:
+        slug: The document slug.
+        version: The document version the injected ops were computed against.
+
+    Returns:
+        True when this version had not been recorded before.
+    """
+    with _state_lock:
+        previous = last_injected.get(slug)
+        if previous is not None and version <= previous:
+            return False
+        last_injected[slug] = version
+        return True
+
+
+def forget_injected(slug: str) -> None:
+    """Forget the last injected version for *slug*.
+
+    Called when the slug stops naming the same document (delete, rename), so a
+    document created later under a reused name cannot inherit the dead one's
+    bookkeeping and have its first notification suppressed.
+
+    Args:
+        slug: The document slug.
+    """
+    with _state_lock:
+        last_injected.pop(slug, None)
+
+
+# -------------------------------------------------------------------------
 # Versions
 # -------------------------------------------------------------------------
 
@@ -322,6 +411,13 @@ def rename_document(old_slug: str, new_slug: str, version: int) -> None:
         doc_versions.pop(old_slug, None)
         doc_versions[new_slug] = version
 
+        # Follows the document, so the next notification under the new name is
+        # not suppressed as a repeat of one made under the old name.
+        injected = last_injected.pop(old_slug, None)
+        if injected is not None:
+            last_injected.pop(new_slug, None)
+            last_injected[new_slug] = injected
+
 
 # -------------------------------------------------------------------------
 # Busy indicator
@@ -366,4 +462,5 @@ def reset_state() -> None:
         agent_changes.clear()
         doc_versions.clear()
         doc_locks.clear()
+        last_injected.clear()
     agent_busy.clear()

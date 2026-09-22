@@ -34,9 +34,12 @@ from wichy.tools.notes.state import (
     get_doc_lock,
     get_doc_version,
     is_agent_busy,
+    forget_injected,
+    note_injected,
     peek_agent_changes,
     queue_agent_change,
     rename_document,
+    was_injected,
     reset_state,
     set_agent_busy,
     set_doc_version,
@@ -393,12 +396,13 @@ class TestDocVersions:
 
 
 class TestAgentChanges:
-    def test_queue_then_drain(self):
-        queue_agent_change("a", {"op": "update", "id": "blk-1"})
-        queue_agent_change("a", {"op": "update", "id": "blk-2"})
+    def test_queue_keeps_different_blocks(self):
+        """Ops for DIFFERENT blocks are independent edits, not repeats."""
+        queue_agent_change("a", {"op": "update", "block_id": "blk-1"})
+        queue_agent_change("a", {"op": "update", "block_id": "blk-2"})
         assert drain_agent_changes("a") == [
-            {"op": "update", "id": "blk-1"},
-            {"op": "update", "id": "blk-2"},
+            {"op": "update", "block_id": "blk-1"},
+            {"op": "update", "block_id": "blk-2"},
         ]
 
     def test_drain_clears(self):
@@ -479,6 +483,71 @@ class TestRename:
     def test_rename_creates_a_lock_when_none_existed(self):
         rename_document("old", "new", version=1)
         assert get_doc_lock("new") is not None
+
+    def test_rename_carries_the_injection_mark(self):
+        """Otherwise the new name's first real notification is suppressed.
+
+        The mark moves WITH the document: a change under the new name is a change
+        to the same document, so a version at or below the last injected one is
+        still a duplicate.
+        """
+        rename_document("old", "new", version=1)
+        note_injected("old", 7)
+        rename_document("old", "new", version=7)
+        assert was_injected("new", 7) is True
+        assert was_injected("old", 7) is False
+
+
+# -------------------------------------------------------------------------
+# Injection bookkeeping
+# -------------------------------------------------------------------------
+
+
+class TestInjectionBookkeeping:
+    """The record is per slug and per version, and it never goes backwards."""
+
+    def test_a_first_version_is_not_yet_injected(self):
+        assert was_injected("a", 1) is False
+
+    def test_a_recorded_version_reads_as_injected(self):
+        note_injected("a", 1)
+        assert was_injected("a", 1) is True
+
+    def test_a_higher_version_is_not_suppressed(self):
+        note_injected("a", 1)
+        assert was_injected("a", 2) is False
+
+    def test_a_lower_version_is_suppressed(self):
+        note_injected("a", 5)
+        assert was_injected("a", 4) is True
+
+    def test_recording_twice_reports_the_second_as_a_repeat(self):
+        assert note_injected("a", 3) is True
+        assert note_injected("a", 3) is False
+
+    def test_recording_a_lower_version_does_not_lower_the_mark(self):
+        note_injected("a", 5)
+        assert note_injected("a", 2) is False
+        assert was_injected("a", 5) is True
+
+    def test_slugs_are_independent(self):
+        note_injected("a", 5)
+        assert was_injected("b", 1) is False
+
+    def test_forget_clears_the_mark(self):
+        """A reused slug is a different document, and must not look like a repeat."""
+        note_injected("a", 5)
+        forget_injected("a")
+        assert was_injected("a", 1) is False
+
+    def test_forgetting_an_unknown_slug_is_harmless(self):
+        forget_injected("never-seen")
+        assert was_injected("never-seen", 1) is False
+
+    def test_reset_clears_the_bookkeeping(self):
+        note_injected("a", 5)
+        reset_state()
+        assert was_injected("a", 1) is False
 
 
 # -------------------------------------------------------------------------

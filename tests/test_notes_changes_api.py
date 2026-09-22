@@ -128,6 +128,17 @@ def post_changes(client, slug, ops, version=1):
     )
 
 
+def bump_to_version_2(slug, block_id):
+    """Move the document to version 2, so an op at version 2 is ackable.
+
+    An ack may no longer name a version the document has not reached, so a test
+    that acks version 2 has to put the document there first. That is also what the
+    real pipeline does: an op's version is the version of the write it came from.
+    """
+    with locked_document(slug, 1, author="user") as document:
+        replace_block(document, block_id, data={"text": "bumped"}, author="user")
+
+
 def op(kind="update", block_id="blk-a", block_type="paragraph", author="user", **extra):
     """One change operation."""
     return {
@@ -312,17 +323,16 @@ class TestPostChanges:
         assert f"Updated paragraph block (id: {ids[0]})" in content
         assert f"Added todo block (id: {ids[1]})" in content
 
-    def test_agent_authored_ops_are_never_injected(self, client, doc, session):
-        """A turn must not be handed a description of its own edits."""
-        slug, ids = doc
-        response = post_changes(client, slug, [op(block_id=ids[0], author="agent")])
-        assert response.status_code == 200
-        assert response.get_json()["injected"] is False
-        assert session.root_agent.context.injected == []
+    def test_every_op_on_this_route_is_described(self, client, doc, session):
+        """The route is the user's channel, so its whole batch is the user's.
 
-    def test_agent_ops_are_filtered_from_a_mixed_batch(self, client, doc, session):
+        Filtering by a client-supplied author field was how the guarantee used to
+        be made. It is now structural: agent-authored content never reaches this
+        route (the browser does not post back what the agent sent it), so nothing
+        arriving here is filtered out -- including an op that claims otherwise.
+        """
         slug, ids = doc
-        post_changes(
+        response = post_changes(
             client,
             slug,
             [
@@ -330,11 +340,12 @@ class TestPostChanges:
                 op(block_id=ids[1], author="user"),
             ],
         )
+        assert response.status_code == 200
+        assert response.get_json()["injected"] is True
         assert len(session.root_agent.context.injected) == 1
         content = session.root_agent.context.injected[0][1]
-        # Only the user's op is described.
+        assert ids[0] in content
         assert ids[1] in content
-        assert ids[0] not in content
 
     def test_user_ops_are_not_echoed_back_on_the_agent_queue(
         self, client, doc, session
@@ -487,6 +498,9 @@ class TestPendingChanges:
 
     def test_acking_is_what_removes_an_op(self, client, doc):
         slug, ids = doc
+        # The document must actually BE at the version being acked: an ack ahead
+        # of the document is now refused (see TestAckCannotOutpaceTheDocument).
+        bump_to_version_2(slug, ids[0])
         queue_agent_change(slug, op(block_id=ids[0], author="agent", version=2))
 
         client.post(
@@ -851,11 +865,21 @@ class TestARenamedDocumentOnARejectedRequest:
         )
 
 
-class TestInjectionFilterIsAnAllowList:
-    """Only ops explicitly authored by the user may reach the agent's context."""
+class TestInjectionAuthorshipIsStampedByTheServer:
+    """The route IS the user-to-agent channel, so the server decides authorship.
 
-    @pytest.mark.parametrize("author", ["Agent", "AGENT", "agent ", None, 1, ["agent"]])
-    def test_only_author_user_is_injected(self, client, doc, session, author):
+    This used to be a client-supplied allow-list: only ops carrying
+    ``author == "user"`` were injected. That made the guarantee conventional
+    rather than structural. A crafted POST labelled ``author: "user"`` injected
+    arbitrary text into the agent's context, and one labelled ``author: "agent"``
+    silently suppressed a genuine notification. The browser no longer sends the
+    field, and the server stamps it.
+    """
+
+    @pytest.mark.parametrize(
+        "author", ["Agent", "AGENT", "agent ", None, 1, ["agent"], "user"]
+    )
+    def test_whatever_the_client_claims_is_ignored(self, client, doc, session, author):
         slug, ids = doc
         operation = op(block_id=ids[0])
         operation["author"] = author
@@ -863,24 +887,49 @@ class TestInjectionFilterIsAnAllowList:
         response = post_changes(client, slug, [operation])
 
         assert response.status_code == 200
-        assert response.get_json()["injected"] is False
-        assert session.root_agent.context.injected == []
+        assert response.get_json()["injected"] is True
+        assert len(session.root_agent.context.injected) == 1
 
-    def test_a_missing_author_is_not_injected(self, client, doc, session):
+    def test_a_forged_user_author_cannot_smuggle_agent_content(
+        self, client, doc, session
+    ):
+        """The concrete attack: a request that lies about who wrote it.
+
+        There is no longer any field to lie about -- the op is described as the
+        user's because the route it arrived on is the user's.
+        """
+        slug, ids = doc
+        post_changes(client, slug, [op(block_id=ids[0], author="user")])
+        assert len(session.root_agent.context.injected) == 1
+
+    def test_an_agent_labelled_op_is_still_injected(self, client, doc, session):
+        """Suppression was the other half of the same hole."""
+        slug, ids = doc
+        response = post_changes(client, slug, [op(block_id=ids[0], author="agent")])
+        assert response.get_json()["injected"] is True
+        assert len(session.root_agent.context.injected) == 1
+
+    def test_an_op_with_no_author_at_all_is_injected(self, client, doc, session):
+        """The browser's actual payload: no author field."""
         slug, ids = doc
         operation = op(block_id=ids[0])
         del operation["author"]
-        assert post_changes(client, slug, [operation]).get_json()["injected"] is False
-        assert session.root_agent.context.injected == []
-
-    def test_an_explicit_user_author_is_injected(self, client, doc, session):
-        """Positive control: the allow-list must still admit the user."""
-        slug, ids = doc
-        assert (
-            post_changes(client, slug, [op(block_id=ids[0])]).get_json()["injected"]
-            is True
-        )
+        assert post_changes(client, slug, [operation]).get_json()["injected"] is True
         assert len(session.root_agent.context.injected) == 1
+
+    def test_the_injected_message_describes_the_op_on_this_route(
+        self, client, doc, session
+    ):
+        """Stamping does not alter what the agent reads, only who wrote it.
+
+        The message names the block and the verb, and carries no authorship field
+        at all, so there is nothing for a client to forge into it either.
+        """
+        slug, ids = doc
+        post_changes(client, slug, [op(block_id=ids[0], author="agent")])
+        content = session.root_agent.context.injected[0][1]
+        assert ids[0] in content
+        assert "Updated paragraph block" in content
 
 
 class TestAckKeepsUnversionedOps:
@@ -916,6 +965,7 @@ class TestAckKeepsUnversionedOps:
     def test_an_acked_versioned_op_is_dropped(self, client, doc):
         """Positive control: versioned ops at or below the ack are removed."""
         slug, ids = doc
+        bump_to_version_2(slug, ids[0])
         queue_agent_change(slug, op(block_id=ids[0], author="agent", version=2))
         client.post(
             f"{PREFIX}/api/changes/ack", json={"slug": slug, "up_to_version": 2}
@@ -1155,3 +1205,324 @@ class TestAgentWritesQueueTheirOwnOps:
 
         discard_stale_changes(slug, produced)
         assert peek_agent_changes(slug) == []
+
+
+# ---------------------------------------------------------------------------
+# Stage 4: queue and version integrity
+# ---------------------------------------------------------------------------
+
+
+class TestAckCannotOutpaceTheDocument:
+    """An ack says "I applied everything at or before V", so V must exist.
+
+    The queue keeps only ops strictly newer than the ack. Acknowledging a version
+    far beyond the document therefore discarded every queued op AND every future
+    agent op until the document version caught up -- a silent, permanent loss of
+    edits the browser never saw, triggered by a single bad number.
+    """
+
+    def test_an_ack_beyond_the_document_is_refused(self, client, doc):
+        slug, ids = doc
+        queue_agent_change(slug, op(block_id=ids[0], author="agent", version=2))
+        response = client.post(
+            f"{PREFIX}/api/changes/ack", json={"slug": slug, "up_to_version": 999999999}
+        )
+        assert response.status_code == 400
+        assert "ahead" in response.get_json()["error"]
+
+    def test_the_queue_survives_a_refused_ack(self, client, doc):
+        """A refusal must not be a partial application."""
+        slug, ids = doc
+        queue_agent_change(slug, op(block_id=ids[0], author="agent", version=2))
+        client.post(
+            f"{PREFIX}/api/changes/ack", json={"slug": slug, "up_to_version": 999999999}
+        )
+        pending = client.get(f"{PREFIX}/api/changes/pending?slug={slug}").get_json()
+        assert len(pending["changes"]) == 1
+
+    def test_an_ack_at_the_document_version_is_accepted(self, client, doc):
+        slug, ids = doc
+        response = client.post(
+            f"{PREFIX}/api/changes/ack", json={"slug": slug, "up_to_version": 1}
+        )
+        assert response.status_code == 200
+
+    def test_a_future_agent_op_is_not_lost_to_an_earlier_bad_ack(self, client, doc):
+        """The real damage: ops produced AFTER the bad ack were discarded too."""
+        slug, ids = doc
+        client.post(
+            f"{PREFIX}/api/changes/ack", json={"slug": slug, "up_to_version": 999999999}
+        )
+        queue_agent_change(slug, op(block_id=ids[0], author="agent", version=1))
+        pending = client.get(f"{PREFIX}/api/changes/pending?slug={slug}").get_json()
+        assert len(pending["changes"]) == 1
+
+
+class TestDeleteClearsPerSlugState:
+    """A deleted document's queued ops must not outlive it.
+
+    The slug is reusable -- converting keeps it, and a new note can take the old
+    name -- so a fresh document would be handed edits meant for the one that was
+    deleted.
+    """
+
+    def test_delete_clears_the_queue(self, client, doc):
+        slug, ids = doc
+        queue_agent_change(slug, op(block_id=ids[0], author="agent", version=2))
+        assert client.delete(f"{PREFIX}/api/notes/{slug}").status_code == 200
+        assert peek_agent_changes(slug) == []
+
+    def test_a_document_recreated_under_the_same_slug_starts_clean(
+        self, client, doc, notes_dir
+    ):
+        """The whole point: the new document must not inherit the dead one's edits."""
+        slug, ids = doc
+        queue_agent_change(slug, op(block_id=ids[0], author="agent", version=2))
+        client.delete(f"{PREFIX}/api/notes/{slug}")
+        create_document("Change Doc", [{"type": "paragraph", "data": {"text": "new"}}])
+        pending = client.get(f"{PREFIX}/api/changes/pending?slug={slug}").get_json()
+        assert pending["changes"] == []
+
+    def test_delete_clears_the_injection_bookkeeping(self, client, doc, session):
+        """A new document's first notification must not look like a repeat."""
+        slug, ids = doc
+        post_changes(client, slug, [op(block_id=ids[0])])
+        assert len(session.root_agent.context.injected) == 1
+        client.delete(f"{PREFIX}/api/notes/{slug}")
+        create_document("Change Doc", [{"type": "paragraph", "data": {"text": "new"}}])
+        post_changes(client, slug, [op(block_id=ids[0])])
+        assert len(session.root_agent.context.injected) == 2
+
+
+class TestCollapseInStorage:
+    """Storage is bounded by the block count, not by how long a tab stays shut.
+
+    Collapsing used to happen on the RESPONSE copy only, so a browser that never
+    acked (a closed tab) left the server accumulating one op per write forever.
+    """
+
+    def test_two_writes_to_one_block_store_one_op(self, notes_dir, doc):
+        """Each write must genuinely change the text: a no-op queues nothing.
+
+        The seed text is "one", so the values here avoid it -- writing "one" over
+        "one" produces an empty diff, and the test would then pass on a broken
+        implementation simply because only one op was ever queued.
+        """
+        slug, ids = doc
+        for text in ("first", "second"):
+            with locked_document(slug, None, author="agent") as document:
+                replace_block(
+                    document,
+                    ids[0],
+                    data={"text": text},
+                    author="agent",
+                    block_type="paragraph",
+                )
+        stored = peek_agent_changes(slug)
+        assert len(stored) == 1
+        assert stored[0]["data"]["text"] == "second"
+
+    def test_the_latest_op_for_a_block_wins(self, notes_dir, doc):
+        """Only the final state is ever delivered, so the older one is dead weight."""
+        slug, ids = doc
+        with locked_document(slug, None, author="agent") as document:
+            replace_block(
+                document,
+                ids[0],
+                data={"text": "a"},
+                author="agent",
+                block_type="paragraph",
+            )
+        with locked_document(slug, None, author="agent") as document:
+            replace_block(
+                document,
+                ids[1],
+                data={"text": "b"},
+                author="agent",
+                block_type="paragraph",
+            )
+        with locked_document(slug, None, author="agent") as document:
+            replace_block(
+                document,
+                ids[0],
+                data={"text": "c"},
+                author="agent",
+                block_type="paragraph",
+            )
+        stored = peek_agent_changes(slug)
+        assert [entry["block_id"] for entry in stored] == [ids[0], ids[1]]
+        assert stored[0]["data"]["text"] == "c"
+
+    def test_first_touch_order_is_preserved(self, notes_dir, doc):
+        slug, ids = doc
+        for block_id in (ids[1], ids[2], ids[0]):
+            with locked_document(slug, None, author="agent") as document:
+                replace_block(
+                    document,
+                    block_id,
+                    data={"text": "x"},
+                    author="agent",
+                    block_type="paragraph",
+                )
+        stored = peek_agent_changes(slug)
+        assert [entry["block_id"] for entry in stored] == [ids[1], ids[2], ids[0]]
+
+    def test_distinct_blocks_are_still_all_kept(self, notes_dir, doc):
+        slug, ids = doc
+        for block_id in ids:
+            with locked_document(slug, None, author="agent") as document:
+                replace_block(
+                    document,
+                    block_id,
+                    data={"text": "x"},
+                    author="agent",
+                    block_type="paragraph",
+                )
+        assert len(peek_agent_changes(slug)) == len(ids)
+
+    def test_the_pending_response_shape_is_unchanged(self, client, notes_dir, doc):
+        """Storage changed; the wire form must not."""
+        slug, ids = doc
+        with locked_document(slug, None, author="agent") as document:
+            replace_block(
+                document,
+                ids[0],
+                data={"text": "x"},
+                author="agent",
+                block_type="paragraph",
+            )
+        body = client.get(f"{PREFIX}/api/changes/pending?slug={slug}").get_json()
+        assert set(body) == {"changes", "version", "agent_busy", "slug", "conflicted"}
+        assert body["changes"][0]["op"] == "update"
+
+
+class TestInjectionIsIdempotent:
+    """A retried notification must not be delivered twice.
+
+    The browser parks its ops on a 503 and retries. A retry after a lost response
+    used to append a second, identical summary of the same change to the agent's
+    context, making a turn think twice as much had happened.
+    """
+
+    def test_a_retry_of_the_same_version_injects_once(self, client, doc, session):
+        slug, ids = doc
+        payload = [op(block_id=ids[0])]
+        first = post_changes(client, slug, payload)
+        second = post_changes(client, slug, payload)
+        assert first.get_json()["injected"] is True
+        assert second.get_json()["injected"] is False
+        assert second.get_json()["duplicate"] is True
+        assert len(session.root_agent.context.injected) == 1
+
+    def test_a_newer_version_still_injects(self, client, doc, session):
+        slug, ids = doc
+        post_changes(client, slug, [op(block_id=ids[0])])
+        bump_to_version_2(slug, ids[0])
+        post_changes(client, slug, [op(block_id=ids[1])], version=2)
+        assert len(session.root_agent.context.injected) == 2
+
+    def test_an_older_version_does_not_inject(self, client, doc, session):
+        """A late retry of a superseded notification is still a duplicate."""
+        slug, ids = doc
+        bump_to_version_2(slug, ids[0])
+        post_changes(client, slug, [op(block_id=ids[1])], version=2)
+        post_changes(client, slug, [op(block_id=ids[0])], version=1)
+        assert len(session.root_agent.context.injected) == 1
+
+    def test_a_failed_injection_does_not_suppress_its_retry(self, client, doc, session):
+        """Recording before the injection would lose the notification entirely.
+
+        The recording half must happen only after the inject succeeds: record
+        first, and the client is told its retry is a duplicate of a notification
+        the agent never received.
+        """
+        slug, ids = doc
+        payload = [op(block_id=ids[0])]
+
+        calls = {"n": 0}
+
+        def flaky_add(role, content):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RuntimeError("context unavailable")
+            session.root_agent.context.injected.append((role, content))
+
+        # Rebound on the INSTANCE, so the retry below uses the same object. A
+        # monkeypatch here would have to be undone between the two requests, and
+        # `monkeypatch` is the same fixture the temp-notes-directory fixture
+        # uses -- undoing it would move the notes directory out from under the
+        # retry as well.
+        session.root_agent.context.add = flaky_add
+
+        first = post_changes(client, slug, payload)
+        assert first.status_code == 500
+        assert session.root_agent.context.injected == []
+
+        # The retry must inject: the first attempt never reached the agent.
+        second = post_changes(client, slug, payload)
+        assert second.get_json()["injected"] is True
+        assert len(session.root_agent.context.injected) == 1
+
+
+class TestBoolVersionIsNotAVersion:
+    """``True == 1`` is a trap, not a version.
+
+    ``bool`` is a subclass of ``int``, so ``{"version": true}`` passed a bare
+    isinstance check and then compared equal to version 1, satisfying the
+    stale-write check on a document at version 1.
+    """
+
+    @pytest.mark.parametrize(
+        "path,method",
+        [
+            ("/api/notes/{slug}", "put"),
+            ("/api/notes/{slug}/blocks/blk-a", "patch"),
+            ("/api/notes/{slug}/blocks", "post"),
+            ("/api/notes/{slug}/blocks/blk-a/move", "post"),
+            # revert is deliberately absent: it validates the revision and the
+            # document format before it looks at the version, so a bad version is
+            # not the first thing it reports. Its guard is asserted directly in
+            # test_a_bool_version_is_rejected_on_revert.
+        ],
+    )
+    def test_a_bool_version_is_rejected_on_every_mutating_route(
+        self, client, doc, path, method
+    ):
+        slug, ids = doc
+        url = f"{PREFIX}{path.format(slug=slug)}"
+        body = {"version": True, "blocks": [], "block_type": "paragraph", "data": {}}
+        response = getattr(client, method)(url, json=body)
+        assert response.status_code == 400, f"{method} {path}"
+        assert "version" in response.get_json()["error"]
+
+    def test_a_bool_version_is_rejected_on_revert(self, client, doc):
+        """Covered separately: revert reads its revision id first by design."""
+        slug, ids = doc
+        response = client.post(
+            f"{PREFIX}/api/notes/{slug}/revisions/1/revert", json={"version": True}
+        )
+        assert response.status_code == 400
+        assert "version" in response.get_json()["error"]
+
+    def test_a_string_version_is_a_400_not_a_409(self, client, doc):
+        """A wrong TYPE is the caller's mistake; only a wrong VALUE is a conflict."""
+        slug, ids = doc
+        response = client.put(
+            f"{PREFIX}/api/notes/{slug}", json={"version": "1", "blocks": []}
+        )
+        assert response.status_code == 400
+
+    def test_a_bool_query_version_is_rejected_on_delete(self, client, doc):
+        slug, ids = doc
+        response = client.delete(
+            f"{PREFIX}/api/notes/{slug}/blocks/{ids[0]}?version=true"
+        )
+        assert response.status_code == 400
+
+    def test_a_real_version_still_works(self, client, doc):
+        """Positive control for the guard above."""
+        slug, ids = doc
+        response = client.put(
+            f"{PREFIX}/api/notes/{slug}", json={"version": 1, "blocks": []}
+        )
+        assert response.status_code == 200

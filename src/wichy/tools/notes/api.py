@@ -50,6 +50,7 @@ from wichy.tools.notes.blocks import (
     list_documents,
     load_document,
     locked_document,
+    current_version,
     make_unique_slug,
     merged_blocks,
     move_block,
@@ -74,13 +75,17 @@ from wichy.tools.notes.models import (
     now_iso,
 )
 from wichy.tools.notes.state import (
+    clear_agent_changes,
     collapse_by_block,
     get_doc_lock,
     count_distinct_blocks,
     describe_pending,
     discard_stale_changes,
+    forget_injected,
     get_doc_version,
+    note_injected,
     set_doc_version,
+    was_injected,
 )
 from wichy.tools.notes.revisions import (
     IncompleteHistoryError,
@@ -148,6 +153,27 @@ def _validate_slug(slug: str):
             400,
         )
     return None
+
+
+def _expected_version(data: dict) -> tuple[int | None, str | None]:
+    """The request's ``version``, or an error message for the caller to return.
+
+    Booleans are rejected explicitly. ``bool`` is a subclass of ``int``, so a
+    payload of ``{"version": true}`` passes a bare ``isinstance(x, int)`` check
+    and then compares equal to version 1 -- satisfying the optimistic-concurrency
+    check on a document that happens to be at version 1, or reporting a stale
+    version for the wrong reason. The same guard is applied to ``since_id`` and
+    ``up_to_version`` elsewhere for the same reason.
+
+    Returns:
+        ``(version, error)``. Exactly one is meaningful: a version, or a message.
+    """
+    expected = data.get("version")
+    if expected is None:
+        return None, "A version is required."
+    if isinstance(expected, bool) or not isinstance(expected, int):
+        return None, "version must be an integer."
+    return expected, None
 
 
 def _build_document(
@@ -454,9 +480,9 @@ def register_routes(bp: Blueprint):
         if data is None:
 
             return _error("The request body must be a JSON object.", 400)
-        expected = data.get("version")
-        if expected is None:
-            return _error("A version is required to update a document.", 400)
+        expected, version_error = _expected_version(data)
+        if version_error is not None:
+            return _error(version_error, 400)
 
         try:
             current, fmt = load_document(slug, with_format=True)
@@ -543,6 +569,16 @@ def register_routes(bp: Blueprint):
             return _error(str(e), 400)
         except OSError as e:
             return _error(f"Could not delete the note: {e}", 500)
+
+        # A deleted document's queued ops must not survive it. The slug is
+        # reusable -- converting a markdown note keeps its slug, and a later note
+        # can be created under the same name -- and `delete_document_files` only
+        # clears the version cache, so a fresh document under this name would
+        # inherit the dead one's queue on its first poll and be handed edits meant
+        # for a document that no longer exists. The injection bookkeeping goes too,
+        # so the new document's first notification is not suppressed as a repeat.
+        clear_agent_changes(slug)
+        forget_injected(slug)
 
         # A marker left pointing at a deleted slug would aim the agent tools at a
         # document that no longer exists.
@@ -766,9 +802,9 @@ def register_routes(bp: Blueprint):
         data = _json_body()
         if data is None:
             return _error("The request body must be a JSON object.", 400)
-        expected = data.get("version")
-        if expected is None:
-            return _error("A version is required to update a block.", 400)
+        expected, version_error = _expected_version(data)
+        if version_error is not None:
+            return _error(version_error, 400)
         block_type = data.get("block_type")
         if not block_type:
             return _error("block_type is required.", 400)
@@ -800,9 +836,9 @@ def register_routes(bp: Blueprint):
         data = _json_body()
         if data is None:
             return _error("The request body must be a JSON object.", 400)
-        expected = data.get("version")
-        if expected is None:
-            return _error("A version is required to add a block.", 400)
+        expected, version_error = _expected_version(data)
+        if version_error is not None:
+            return _error(version_error, 400)
         block_type = data.get("block_type")
         if not block_type:
             return _error("block_type is required.", 400)
@@ -837,8 +873,12 @@ def register_routes(bp: Blueprint):
     @bp.route("/api/notes/<slug>/blocks/<block_id>", methods=["DELETE"])
     def remove_block(slug: str, block_id: str):
         """Delete one block."""
+        # From the query string, so a bool cannot arrive here: flask's `type=int`
+        # rejects anything that is not an integer and yields None. The explicit
+        # bool check is kept anyway, so every version-bearing route applies the
+        # same rule rather than relying on that being true.
         expected = request.args.get("version", type=int)
-        if expected is None:
+        if expected is None or isinstance(expected, bool):
             return _error("A version is required to delete a block.", 400)
 
         def mutate(document):
@@ -855,9 +895,9 @@ def register_routes(bp: Blueprint):
         data = _json_body()
         if data is None:
             return _error("The request body must be a JSON object.", 400)
-        expected = data.get("version")
-        if expected is None:
-            return _error("A version is required to move a block.", 400)
+        expected, version_error = _expected_version(data)
+        if version_error is not None:
+            return _error(version_error, 400)
 
         def mutate(document):
             move_block(document, block_id, after_block_id=data.get("after_block_id"))
@@ -923,9 +963,10 @@ def register_routes(bp: Blueprint):
         if data is None:
 
             return _error("The request body must be a JSON object.", 400)
-        expected = data.get("version")
-        if expected is None:
-            return _error("A version is required to revert.", 400)
+        expected, version_error = _expected_version(data)
+        if version_error is not None:
+            return _error(version_error, 400)
+        assert expected is not None  # the helper returns a version or an error
 
         # The format is checked before the revision is looked up. A markdown note
         # keeps no revision log, so a lookup-first order would answer 404 ("no such
@@ -1047,6 +1088,29 @@ def register_routes(bp: Blueprint):
         if resolve_format(slug) is None:
             return _error(NOT_FOUND, 404)
 
+        # An ack says "I have applied everything produced at or before this
+        # version", so it can never legitimately name a version the document has
+        # not reached. The queue logic keeps only ops strictly newer than the ack,
+        # so acknowledging 999999999 discarded every queued op AND every future
+        # agent op until the document version caught up -- silent, permanent loss
+        # of edits the browser never saw. Refused rather than clamped: a client
+        # acking beyond the document has a wrong model of the version, and
+        # silently accepting a different number would hide that.
+        try:
+            current = current_version(slug)
+        except (
+            InvalidDocumentError,
+            InvalidSlugError,
+            UnicodeDecodeError,
+            OSError,
+        ) as e:
+            return _error(f"Could not read the note: {e}", 500)
+        if up_to > current:
+            return _error(
+                f"up_to_version {up_to} is ahead of the document (at {current}).",
+                400,
+            )
+
         try:
             discard_stale_changes(slug, up_to)
         except (TypeError, ValueError) as e:
@@ -1105,28 +1169,41 @@ def register_routes(bp: Blueprint):
             return _error("no active root agent", 503)
 
         version = document.meta.version
-        expected = data.get("version")
-        if expected is None:
-            return _error("A version is required.", 400)
-        if isinstance(expected, bool) or not isinstance(expected, int):
-            return _error("version must be an integer.", 400)
+        expected, version_error = _expected_version(data)
+        if version_error is not None:
+            return _error(version_error, 400)
         if expected != version:
             return _error(
                 f"Version mismatch: expected {expected}, found {version}", 409
             )
 
-        # Only ops explicitly authored by the user are injected. The filter is
-        # an allow-list, not a deny-list: a missing, null, capitalised or
-        # non-string author is not evidence of a user, and treating it as one
-        # would leak an agent-authored op into the agent's own context.
-        user_ops = [
-            {**op, "version": version, "author": "user"}
-            for op in ops
-            if op.get("author") == "user"
-        ]
+        # Authorship is stamped HERE, server-side, and the browser no longer sends
+        # the field at all. This route IS the user-to-agent channel: the browser
+        # computes the diff of the user's own edits, so every op arriving here is
+        # a user edit by construction. Trusting a client-asserted `author`
+        # allow-list made the suppression of agent ops merely conventional -- a
+        # crafted POST labelled `author: "user"` injected arbitrary text into the
+        # agent's context, and one labelled `author: "agent"` silently suppressed a
+        # genuine notification. Stamping removes both: agent-authored content
+        # reaches the agent only through the queue-and-ack direction, never here,
+        # because the browser never posts back what the agent just sent it (its
+        # sent snapshot records agent-applied content as sent).
+        user_ops = [{**op, "version": version, "author": "user"} for op in ops]
 
+        # An empty batch has nothing to describe. Injecting here would put a
+        # "[Document changes for: X]" with no lines under it into the agent's
+        # context, which reads as "something changed" while saying nothing about
+        # what -- worse than no notification at all.
         if not user_ops:
-            return jsonify({"status": "queued", "injected": False})
+            return jsonify({"status": "ok", "injected": False})
+
+        # Idempotency, not de-duplication of genuine edits: a retry of the SAME
+        # version is the same notification. A client that parked its ops on a 503
+        # and re-sends after a lost response must not append a second copy of the
+        # summary to the agent's context. Checked BEFORE and recorded AFTER the
+        # injection, so a failed injection cannot suppress its own retry.
+        if was_injected(slug, version):
+            return jsonify({"status": "ok", "injected": False, "duplicate": True})
 
         message = change_message(document.meta.title, user_ops)
         try:
@@ -1136,7 +1213,8 @@ def register_routes(bp: Blueprint):
         except Exception as e:  # pragma: no cover - depends on context internals
             return _error(f"Could not inject the change: {e}", 500)
 
-        return jsonify({"status": "queued", "injected": True})
+        note_injected(slug, version)
+        return jsonify({"status": "ok", "injected": True})
 
     # -------------------------------------------------------------------------
     # Settings for the frontend
