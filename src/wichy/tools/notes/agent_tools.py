@@ -1,7 +1,8 @@
 """The agent's block tools.
 
-Six tools that read and edit block documents, plus `read_scratchpad`, which is
-retained but reimplemented over blocks.
+Seven tools that read and edit block documents. `read_scratchpad` is a separate
+module (`wichy.tools.read_scratchpad`) with its own rendering of the same
+document.
 
 **Every tool operates on the pinned scratchpad and takes no slug.** That is not
 a limitation to work around: there is one shared document, and the agent and the
@@ -29,6 +30,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from pydantic import Field
+
 from wichy.tools.base import BaseTool, ParametersModel
 from wichy.tools.notes import get_scratchpad_slug
 from wichy.tools.notes.blocks import (
@@ -39,6 +42,8 @@ from wichy.tools.notes.blocks import (
     InvalidDocumentError,
     InvalidSlugError,
     MarkdownDocumentError,
+    StaleVersionError,
+    block_snapshot_of,
     delete_block,
     load_document,
     locked_document,
@@ -108,8 +113,17 @@ def _scratchpad_slug() -> str:
     return slug
 
 
-def _open(slug: str) -> tuple[Any, str | None]:
-    """Load the scratchpad, refusing a markdown one.
+def _open(slug: str, *, for_write: bool = True) -> tuple[Any, str | None]:
+    """Load the scratchpad.
+
+    Args:
+        slug: The scratchpad slug.
+        for_write: When true, a markdown-format scratchpad is refused, because a
+            block write against a legacy ``.md`` would materialise a ``.json``
+            beside it and give one slug two live documents. When false, the
+            markdown note is returned as its synthetic single-block document: a
+            note the agent cannot edit is still a note it should be able to read,
+            and ``read_scratchpad`` has always shown its content.
 
     Returns:
         ``(document, error)``.
@@ -124,7 +138,7 @@ def _open(slug: str) -> tuple[Any, str | None]:
     except (InvalidDocumentError, InvalidSlugError, UnicodeDecodeError, OSError) as e:
         return None, f"The pinned scratchpad '{slug}' could not be read: {e}"
 
-    if fmt == FORMAT_MARKDOWN:
+    if fmt == FORMAT_MARKDOWN and for_write:
         return None, MARKDOWN_WRITE_REFUSED
     return document, None
 
@@ -141,8 +155,15 @@ def render_block(block: Any, *, include_metadata: bool = True) -> str:
     Returns:
         The rendered block.
     """
+    # Both authorship fields, consistently labeled and with the SAME labels the
+    # read_scratchpad tool uses. `author` alone was wrong twice over: it is the
+    # CREATOR and `touch_block` never updates it, so an agent re-reading a block
+    # it had just edited was told the user wrote it. `touched_by[-1]` is the last
+    # writer, which is the one the agent actually wants.
+    last_touched = block.meta.touched_by[-1] if block.meta.touched_by else "nobody"
     header = (
-        f"[block id={block.id} type={block.type} author={block.meta.author}]"
+        f"[block id={block.id} type={block.type} "
+        f"author={block.meta.author} last-touched-by={last_touched}]"
         if include_metadata
         else ""
     )
@@ -253,13 +274,67 @@ def _parse_int(raw: Any, field: str) -> tuple[int | None, str | None]:
     return raw, None
 
 
+def _parse_expected_version(raw: Any) -> tuple[int | None, str | None]:
+    """Validate the optional ``expected_version`` argument.
+
+    Booleans are rejected explicitly, for the same reason the HTTP routes do:
+    ``bool`` is a subclass of ``int``, so ``True`` would compare equal to version
+    1 and silently satisfy the concurrency check.
+
+    Returns:
+        ``(version, error)``. Both None when the argument was omitted, which
+        means "write over whatever is current".
+    """
+    if raw is None:
+        return None, None
+    if isinstance(raw, bool) or not isinstance(raw, int):
+        return None, "expected_version must be an integer."
+    return raw, None
+
+
+#: The tail shared by every write tool's except chain. Split so the read phase and
+#: the write phase report differently: an OSError arriving AFTER the document was
+#: read is a WRITE failure, and saying "could not read" hid a half-applied write
+#: behind a message that invites a blind retry.
+def _write_error(slug: str, error: Exception) -> str:
+    """The message for a failure that happened during the write phase."""
+    return (
+        f"The write to the scratchpad '{slug}' failed mid-way ({error}). Its "
+        "result is uncertain: read the scratchpad to see the current state "
+        "before retrying."
+    )
+
+
+def _read_error(slug: str, error: Exception) -> str:
+    """The message for a failure that happened while reading the document."""
+    return f"Could not read the scratchpad '{slug}': {error}"
+
+
+def _stale_message(error: StaleVersionError) -> str:
+    """The message for a write refused because the document moved on.
+
+    Actionable rather than terse: the agent cannot fix a stale read without
+    knowing both numbers, and it can always choose to write over the current
+    state by omitting ``expected_version``.
+    """
+    return (
+        f"The note changed since you read it (you expected v{error.expected}, it "
+        f"is now v{error.actual}). Re-read the scratchpad, then retry -- or omit "
+        "expected_version to write over the current state."
+    )
+
+
 class ReadBlocksParams(ParametersModel):
     """Parameters for read_blocks."""
 
     filter_type: str | None = None
     block_id: str | None = None
-    start_index: int | None = None
-    end_index: int | None = None
+    start_index: int | None = Field(
+        default=None, description="First block to return, inclusive, 0-based."
+    )
+    end_index: int | None = Field(
+        default=None, description="Last block to return, inclusive."
+    )
     include_metadata: bool = True
 
 
@@ -306,7 +381,11 @@ class ReadBlocksTool(BaseTool):
         if filter_type and filter_type not in BLOCK_DATA_MODELS:
             return f"Unknown block type '{filter_type}'. Valid types: {VALID_TYPES}."
 
-        document, error = _open(slug)
+        # A read of a markdown scratchpad yields its content rather than the
+        # write-refusal sentence: the synthetic block view is what
+        # read_scratchpad shows, and two read tools disagreeing about whether the
+        # document is readable is worse than either answer alone.
+        document, error = _open(slug, for_write=False)
         if error is not None:
             return error
 
@@ -334,6 +413,7 @@ class ReplaceBlockParams(ParametersModel):
     block_id: str
     block_type: str
     data: dict[str, Any]
+    expected_version: int | None = None
 
 
 class ReplaceBlockTool(BaseTool):
@@ -365,9 +445,20 @@ class ReplaceBlockTool(BaseTool):
         if not isinstance(data, dict):
             return f"data must be an object. Expected {schema_summary(block_type)}."
 
+        expected, version_error = _parse_expected_version(
+            kwargs.get("expected_version")
+        )
+        if version_error is not None:
+            return version_error
+
         committed = None
         try:
-            with locked_document(slug, None, author="agent") as document:
+            with locked_document(slug, expected, author="agent") as document:
+                # Snapshot before the mutate, so an edit that changes nothing can
+                # be recognised and refused WITHOUT the version bump: an empty-op
+                # revision would move the version the browser never learns about,
+                # and its next save would be rejected as stale.
+                before = block_snapshot_of(document)
                 replace_block(
                     document,
                     block_id,
@@ -375,8 +466,16 @@ class ReplaceBlockTool(BaseTool):
                     author="agent",
                     block_type=block_type,
                 )
+                if block_snapshot_of(document) == before:
+                    raise _NoChange(
+                        f"Block {block_id} already has that content (nothing changed)."
+                    )
                 committed = document
             new_version = committed.meta.version
+        except _NoChange as e:
+            return e.message
+        except StaleVersionError as e:
+            return _stale_message(e)
         except BlockNotFoundError:
             return f"No block '{block_id}' in this document."
         except BlockDataError as e:
@@ -389,9 +488,10 @@ class ReplaceBlockTool(BaseTool):
             InvalidDocumentError,
             InvalidSlugError,
             UnicodeDecodeError,
-            OSError,
         ) as e:
-            return f"Could not read the scratchpad: {e}"
+            return _read_error(slug, e)
+        except OSError as e:
+            return _write_error(slug, e)
 
         return f"Replaced block {block_id} with {block_type} (version {new_version})."
 
@@ -402,6 +502,7 @@ class InsertBlockParams(ParametersModel):
     block_type: str
     data: dict[str, Any]
     after_block_id: str | None = None
+    expected_version: int | None = None
 
 
 class InsertBlockTool(BaseTool):
@@ -431,10 +532,16 @@ class InsertBlockTool(BaseTool):
         if not isinstance(data, dict):
             return f"data must be an object. Expected {schema_summary(block_type)}."
 
+        expected, version_error = _parse_expected_version(
+            kwargs.get("expected_version")
+        )
+        if version_error is not None:
+            return version_error
+
         created_id = None
         committed = None
         try:
-            with locked_document(slug, None, author="agent") as document:
+            with locked_document(slug, expected, author="agent") as document:
                 block = insert_block(
                     document,
                     block_type=block_type,
@@ -447,6 +554,8 @@ class InsertBlockTool(BaseTool):
             # Read after the block exits: the version bump happens on the way
             # out, so reading inside would report the version this call replaced.
             new_version = committed.meta.version
+        except StaleVersionError as e:
+            return _stale_message(e)
         except BlockDataError as e:
             return str(e)
         except BlockNotFoundError:
@@ -462,9 +571,10 @@ class InsertBlockTool(BaseTool):
             InvalidDocumentError,
             InvalidSlugError,
             UnicodeDecodeError,
-            OSError,
         ) as e:
-            return f"Could not read the scratchpad: {e}"
+            return _read_error(slug, e)
+        except OSError as e:
+            return _write_error(slug, e)
 
         where = f"after {after}" if after else "at the end"
         return (
@@ -477,6 +587,7 @@ class DeleteBlockParams(ParametersModel):
     """Parameters for delete_block."""
 
     block_id: str
+    expected_version: int | None = None
 
 
 class DeleteBlockTool(BaseTool):
@@ -501,12 +612,20 @@ class DeleteBlockTool(BaseTool):
         if not block_id:
             return "block_id is required."
 
+        expected, version_error = _parse_expected_version(
+            kwargs.get("expected_version")
+        )
+        if version_error is not None:
+            return version_error
+
         committed = None
         try:
-            with locked_document(slug, None, author="agent") as document:
+            with locked_document(slug, expected, author="agent") as document:
                 delete_block(document, block_id)
                 committed = document
             new_version = committed.meta.version
+        except StaleVersionError as e:
+            return _stale_message(e)
         except BlockNotFoundError:
             return f"No block '{block_id}' in this document."
         except MarkdownDocumentError:
@@ -517,9 +636,10 @@ class DeleteBlockTool(BaseTool):
             InvalidDocumentError,
             InvalidSlugError,
             UnicodeDecodeError,
-            OSError,
         ) as e:
-            return f"Could not read the scratchpad: {e}"
+            return _read_error(slug, e)
+        except OSError as e:
+            return _write_error(slug, e)
 
         return f"Deleted block {block_id} (version {new_version})."
 
@@ -529,6 +649,7 @@ class MoveBlockParams(ParametersModel):
 
     block_id: str
     after_block_id: str | None = None
+    expected_version: int | None = None
 
 
 class MoveBlockTool(BaseTool):
@@ -554,31 +675,36 @@ class MoveBlockTool(BaseTool):
         if not block_id:
             return "block_id is required."
 
+        expected, version_error = _parse_expected_version(
+            kwargs.get("expected_version")
+        )
+        if version_error is not None:
+            return version_error
+
         committed = None
         try:
-            with locked_document(slug, None, author="agent") as document:
+            with locked_document(slug, expected, author="agent") as document:
                 move_block(document, block_id, after_block_id=after)
                 committed = document
             new_version = committed.meta.version
+        except StaleVersionError as e:
+            return _stale_message(e)
         except BlockNotFoundError as e:
             return str(e)
         except UnicodeDecodeError as e:
             # Before the ValueError clause: a decode failure IS a ValueError, and
             # the generic clause would pass the raw codec message through.
-            return f"Could not read the scratchpad: {e}"
+            return _read_error(slug, e)
         except ValueError as e:
             return str(e)
         except MarkdownDocumentError:
             return MARKDOWN_WRITE_REFUSED
         except DocumentNotFoundError:
             return f"The pinned scratchpad '{slug}' no longer exists."
-        except (
-            InvalidDocumentError,
-            InvalidSlugError,
-            UnicodeDecodeError,
-            OSError,
-        ) as e:
-            return f"Could not read the scratchpad: {e}"
+        except (InvalidDocumentError, InvalidSlugError) as e:
+            return _read_error(slug, e)
+        except OSError as e:
+            return _write_error(slug, e)
 
         where = f"after {after}" if after else "to the end"
         return f"Moved block {block_id} {where} (version {new_version})."
@@ -629,17 +755,24 @@ class ReadRevisionsTool(BaseTool):
         if author is not None and author not in ("user", "agent", "system"):
             return "author must be one of: user, agent, system."
 
-        # The document is opened first, so a markdown-format scratchpad gets the
-        # same refusal every other block tool gives. A markdown note keeps no
-        # revision log, so without this the honest answer would be "no revisions
-        # recorded" -- true, but it would hide the real reason.
-        _document, error = _open(slug)
+        since_id = kwargs.get("since_id")
+        if since_id is not None and (
+            isinstance(since_id, bool) or not isinstance(since_id, int)
+        ):
+            # `limit` already rejected a bool; `since_id` accepted `true` and read
+            # it as id 1, which silently returned the wrong slice of history.
+            return "since_id must be an integer."
+
+        # A read, so a markdown scratchpad yields "no revisions" from a document
+        # that was actually read, not the write-refusal sentence. A legacy note
+        # keeps no revision log, so the honest answer is that there is none.
+        _document, error = _open(slug, for_write=False)
         if error is not None:
             return error
 
         try:
             entries = read_revisions(
-                slug, limit=limit, since_id=kwargs.get("since_id"), author=author
+                slug, limit=limit, since_id=since_id, author=author
             )
         except (InvalidSlugError, UnicodeDecodeError, OSError) as e:
             # The revision log is read off disk as UTF-8 text: a non-UTF-8 file
@@ -673,6 +806,7 @@ class AnswerQuestionParams(ParametersModel):
     """Parameters for answer_question."""
 
     block_id: str
+    expected_version: int | None = None
 
 
 class AnswerQuestionTool(BaseTool):
@@ -699,9 +833,15 @@ class AnswerQuestionTool(BaseTool):
         if not block_id:
             return "block_id is required."
 
+        expected, version_error = _parse_expected_version(
+            kwargs.get("expected_version")
+        )
+        if version_error is not None:
+            return version_error
+
         committed = None
         try:
-            with locked_document(slug, None, author="agent") as document:
+            with locked_document(slug, expected, author="agent") as document:
                 block = document.get_block(block_id)
                 if block is None:
                     raise BlockNotFoundError(f"No block '{block_id}' in this document.")
@@ -734,6 +874,8 @@ class AnswerQuestionTool(BaseTool):
             # Nothing was written: the locked body raised before its bump ran,
             # so the document is exactly as this call found it.
             return e.message
+        except StaleVersionError as e:
+            return _stale_message(e)
         except BlockNotFoundError:
             return f"No block '{block_id}' in this document."
         except BlockDataError as e:
@@ -746,9 +888,10 @@ class AnswerQuestionTool(BaseTool):
             InvalidDocumentError,
             InvalidSlugError,
             UnicodeDecodeError,
-            OSError,
         ) as e:
-            return f"Could not read the scratchpad: {e}"
+            return _read_error(slug, e)
+        except OSError as e:
+            return _write_error(slug, e)
 
         return (
             f"Marked question block {block_id} answered (version {new_version}). "

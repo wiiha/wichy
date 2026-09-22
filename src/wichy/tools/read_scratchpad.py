@@ -105,7 +105,17 @@ class ReadScratchpadTool(BaseTool):
         ]
         for block in document.blocks:
             touched = ",".join(block.meta.touched_by) or "nobody"
-            lines.append(f"[{block.type}] id: {block.id} (touched by: {touched})")
+            # The same two labels read_blocks uses, so the agent does not have to
+            # learn two vocabularies for one fact. `author` is the CREATOR, which
+            # nothing updates; the last entry of touched_by is who wrote it most
+            # recently.
+            last_writer = (
+                block.meta.touched_by[-1] if block.meta.touched_by else "nobody"
+            )
+            lines.append(
+                f"[{block.type}] id: {block.id} author={block.meta.author} "
+                f"last-touched-by={last_writer} (touched by: {touched})"
+            )
             lines.append(_render_data(block.data))
             lines.append("")
         return "\n".join(lines).rstrip()

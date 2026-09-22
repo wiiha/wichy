@@ -38,6 +38,8 @@ from wichy.tools.notes.blocks import (
     MARKDOWN_WRITE_REFUSED,
     create_document,
     load_document,
+    locked_document,
+    replace_block,
     revisions_path,
 )
 from wichy.tools.notes.state import reset_state
@@ -144,7 +146,6 @@ class TestMarkdownScratchpad:
     @pytest.mark.parametrize(
         "tool,kwargs",
         [
-            (ReadBlocksTool, {}),
             (
                 ReplaceBlockTool,
                 {"block_id": "blk-x", "block_type": "paragraph", "data": {"text": "x"}},
@@ -153,15 +154,36 @@ class TestMarkdownScratchpad:
             (DeleteBlockTool, {"block_id": "blk-x"}),
             (MoveBlockTool, {"block_id": "blk-x"}),
             (AnswerQuestionTool, {"block_id": "blk-x"}),
-            (ReadRevisionsTool, {}),
         ],
     )
-    def test_every_block_tool_returns_the_conversion_message(
+    def test_every_write_tool_returns_the_conversion_message(
         self, markdown_pinned, tool, kwargs
     ):
-        """read_revisions included: a markdown note keeps no revision log, and
-        "no revisions recorded" would hide the real reason."""
+        """A write against a legacy .md would give one slug two documents."""
         assert run(tool, **kwargs) == MARKDOWN_WRITE_REFUSED
+
+    def test_read_blocks_yields_the_content(self, markdown_pinned):
+        """A note the agent cannot EDIT is still one it should be able to READ.
+
+        Refusing a read with the write-refusal sentence told the agent nothing
+        about a document that is present and readable, while read_scratchpad
+        showed the same note's content -- two read tools disagreeing about
+        whether the note exists.
+        """
+        result = run(ReadBlocksTool)
+        assert result != MARKDOWN_WRITE_REFUSED
+        assert "# H" in result
+        assert "body" in result
+
+    def test_read_revisions_reports_that_there_are_none(self, markdown_pinned):
+        """A legacy note keeps no revision log, which is the honest answer.
+
+        The write-refusal sentence hid that: it named a conversion instead of the
+        real reason, and read like a failed WRITE from a read tool.
+        """
+        result = run(ReadRevisionsTool)
+        assert result != MARKDOWN_WRITE_REFUSED
+        assert "No revisions recorded" in result
 
     def test_the_message_matches_the_one_the_api_uses(self, markdown_pinned):
         """One explanation, not two: the user sees whichever surface they used."""
@@ -719,10 +741,19 @@ class TestRendering:
             render_data("quote", {"text": "one\ntwo", "caption": ""}) == "> one\n> two"
         )
 
-    def test_the_header_line_names_id_type_and_author(self, scratchpad):
+    def test_the_header_line_names_id_type_and_both_authorship_fields(self, scratchpad):
+        """`author` alone told the agent the wrong thing.
+
+        It is the CREATOR and nothing updates it, so after the agent edited a
+        block, re-reading it still said `author=user`. The header now carries the
+        last writer too, under the same label read_scratchpad uses.
+        """
         slug, ids = scratchpad
         result = run(ReadBlocksTool, block_id=ids[0])
-        assert f"[block id={ids[0]} type=header author=user]" in result
+        assert (
+            f"[block id={ids[0]} type=header author=user last-touched-by=user]"
+            in result
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1217,3 +1248,316 @@ class TestAnswerQuestion:
         run(AnswerQuestionTool, block_id=ids[1])
         result = run(ReadRevisionsTool)
         assert f"blocks: {ids[1]}" in result
+
+
+# ---------------------------------------------------------------------------
+# Stage 6: the tool layer
+# ---------------------------------------------------------------------------
+
+
+class TestExpectedVersion:
+    """A tool write can quote the version it read against.
+
+    Without it every tool write was last-writer-wins: an agent that read at v5
+    could apply its edit after the user's v6 write with no signal at all, and the
+    user's newer content was silently discarded. The lock prevented torn files,
+    never a stale-read clobber.
+    """
+
+    def test_quoting_the_current_version_is_accepted(self, scratchpad):
+        slug, ids = scratchpad
+        current = load_document(slug).meta.version
+        result = run(
+            ReplaceBlockTool,
+            block_id=ids[1],
+            block_type="paragraph",
+            data={"text": "quoted"},
+            expected_version=current,
+        )
+        assert "Replaced" in result
+        assert load_document(slug).get_block(ids[1]).data["text"] == "quoted"
+
+    def test_quoting_a_stale_version_refuses_and_names_both(self, scratchpad):
+        slug, ids = scratchpad
+        stale = load_document(slug).meta.version
+        # Someone else writes first: this is the user's edit the tool must not
+        # silently discard. ids[1] and ids[2] are the paragraph and the todo.
+        with locked_document(slug, None, author="user") as document:
+            replace_block(document, ids[1], data={"text": "user edit"}, author="user")
+
+        result = run(
+            ReplaceBlockTool,
+            block_id=ids[2],
+            block_type="todo",
+            data={"text": "agent edit", "checked": False},
+            expected_version=stale,
+        )
+        assert "changed since you read it" in result
+        assert f"v{stale}" in result
+        assert f"v{stale + 1}" in result
+        assert "re-read" in result.lower()
+
+    def test_a_refused_stale_write_changes_nothing(self, scratchpad):
+        slug, ids = scratchpad
+        stale = load_document(slug).meta.version
+        with locked_document(slug, None, author="user") as document:
+            replace_block(document, ids[1], data={"text": "user edit"}, author="user")
+        before = load_document(slug).meta.version
+
+        run(
+            ReplaceBlockTool,
+            block_id=ids[2],
+            block_type="todo",
+            data={"text": "agent edit", "checked": False},
+            expected_version=stale,
+        )
+        assert load_document(slug).meta.version == before
+        assert load_document(slug).get_block(ids[2]).data["text"] == "a task"
+
+    def test_omitting_the_version_still_writes_over_the_current_state(self, scratchpad):
+        """The documented last-writer-wins mode must keep working."""
+        slug, ids = scratchpad
+        with locked_document(slug, None, author="user") as document:
+            replace_block(document, ids[1], data={"text": "user edit"}, author="user")
+        result = run(
+            ReplaceBlockTool,
+            block_id=ids[2],
+            block_type="todo",
+            data={"text": "agent edit", "checked": False},
+        )
+        assert "Replaced" in result
+        assert load_document(slug).get_block(ids[2]).data["text"] == "agent edit"
+
+    @pytest.mark.parametrize(
+        "tool,kwargs",
+        [
+            (
+                ReplaceBlockTool,
+                {"block_id": "blk-a", "block_type": "paragraph", "data": {"text": "x"}},
+            ),
+            (InsertBlockTool, {"block_type": "paragraph", "data": {"text": "x"}}),
+            (DeleteBlockTool, {"block_id": "blk-a"}),
+            (MoveBlockTool, {"block_id": "blk-a"}),
+            (AnswerQuestionTool, {"block_id": "blk-a"}),
+        ],
+    )
+    def test_every_write_tool_accepts_the_parameter(self, scratchpad, tool, kwargs):
+        assert "expected_version" in tool.parameters_model.model_fields
+
+    def test_a_bool_expected_version_is_refused(self, scratchpad):
+        slug, ids = scratchpad
+        assert "must be an integer" in run(
+            DeleteBlockTool, block_id=ids[0], expected_version=True
+        )
+
+    def test_a_string_expected_version_is_refused(self, scratchpad):
+        slug, ids = scratchpad
+        assert "must be an integer" in run(
+            DeleteBlockTool, block_id=ids[0], expected_version="1"
+        )
+
+    def test_a_refused_type_check_writes_nothing(self, scratchpad):
+        slug, ids = scratchpad
+        before = load_document(slug).meta.version
+        run(DeleteBlockTool, block_id=ids[0], expected_version=True)
+        assert load_document(slug).meta.version == before
+
+
+class TestWriteErrorsAreNotReadErrors:
+    """An OSError after the read is a WRITE failure, and must say so.
+
+    The old tail reported every OSError as "Could not read the scratchpad",
+    because read and write shared one clause. In the append-fails case the
+    document version had already advanced with no revision entry and no queued
+    op, so the message invited a blind retry of a half-applied write.
+    """
+
+    @pytest.mark.parametrize(
+        "tool,kwargs_for",
+        [
+            (
+                ReplaceBlockTool,
+                lambda ids: {
+                    "block_id": ids[1],
+                    "block_type": "paragraph",
+                    "data": {"text": "x"},
+                },
+            ),
+            (
+                InsertBlockTool,
+                lambda ids: {"block_type": "paragraph", "data": {"text": "x"}},
+            ),
+            (DeleteBlockTool, lambda ids: {"block_id": ids[1]}),
+            (MoveBlockTool, lambda ids: {"block_id": ids[1]}),
+        ],
+    )
+    def test_a_save_failure_mentions_the_write_and_re_reading(
+        self, scratchpad, monkeypatch, tool, kwargs_for
+    ):
+        from wichy.tools.notes import blocks as blocks_mod
+
+        slug, ids = scratchpad
+        # An empty id names no block, and the refusal would arrive before the
+        # write this test is about.
+        kwargs = kwargs_for(ids)
+
+        def exploding_save(document):
+            raise OSError("disk on fire")
+
+        monkeypatch.setattr(blocks_mod, "save_document", exploding_save)
+        result = run(tool, **kwargs)
+        assert "write" in result.lower()
+        assert "uncertain" in result.lower()
+        assert "read the scratchpad" in result.lower()
+        # The old wording is gone: this was NOT a read failure.
+        assert "Could not read the scratchpad" not in result
+
+    def test_the_document_is_unchanged_after_a_refused_write(self, scratchpad):
+        slug, ids = scratchpad
+        before = load_document(slug).meta.version
+        run(
+            ReplaceBlockTool,
+            block_id="blk-nope",
+            block_type="paragraph",
+            data={"text": "x"},
+        )
+        assert load_document(slug).meta.version == before
+
+
+class TestBothAuthorshipFieldsAreReported:
+    """The two read tools must agree about who wrote a block."""
+
+    def test_read_blocks_reports_author_and_last_writer(self, scratchpad):
+        slug, ids = scratchpad
+        run(
+            ReplaceBlockTool,
+            block_id=ids[1],
+            block_type="paragraph",
+            data={"text": "agent wrote this"},
+        )
+        result = run(ReadBlocksTool, block_id=ids[1])
+        assert "author=user" in result
+        assert "last-touched-by=agent" in result
+
+    def test_read_scratchpad_reports_the_same_two_fields(self, scratchpad):
+        slug, ids = scratchpad
+        run(
+            ReplaceBlockTool,
+            block_id=ids[1],
+            block_type="paragraph",
+            data={"text": "agent wrote this"},
+        )
+        result = run(ReadScratchpadTool)
+        assert "author=user" in result
+        assert "last-touched-by=agent" in result
+
+    def test_the_labels_are_the_same_in_both_tools(self, scratchpad):
+        """Two vocabularies for one fact make the agent guess."""
+        slug, ids = scratchpad
+        from_block_tool = run(ReadBlocksTool, block_id=ids[1])
+        from_scratchpad = run(ReadScratchpadTool)
+        for label in ("author=", "last-touched-by="):
+            assert label in from_block_tool
+            assert label in from_scratchpad
+
+
+class TestNoOpWritesDoNotBump:
+    """A write that changes nothing must not move the version.
+
+    The browser never learns about a version it did not cause: the next save
+    sends the version it loaded, and the bump makes it stale. An empty-op
+    revision is also a lie in the history.
+    """
+
+    def test_a_repeated_replace_reports_nothing_changed(self, scratchpad):
+        slug, ids = scratchpad
+        first = run(
+            ReplaceBlockTool,
+            block_id=ids[1],
+            block_type="paragraph",
+            data={"text": "same"},
+        )
+        assert "Replaced" in first
+        after_first = load_document(slug).meta.version
+
+        second = run(
+            ReplaceBlockTool,
+            block_id=ids[1],
+            block_type="paragraph",
+            data={"text": "same"},
+        )
+        assert "nothing changed" in second
+        assert load_document(slug).meta.version == after_first
+
+    def test_a_noop_revision_is_not_recorded(self, scratchpad):
+        slug, ids = scratchpad
+        run(
+            ReplaceBlockTool,
+            block_id=ids[1],
+            block_type="paragraph",
+            data={"text": "same"},
+        )
+        before = run(ReadRevisionsTool)
+        count_before = before.count("[rev ")
+
+        run(
+            ReplaceBlockTool,
+            block_id=ids[1],
+            block_type="paragraph",
+            data={"text": "same"},
+        )
+        assert run(ReadRevisionsTool).count("[rev ") == count_before
+
+    def test_the_browser_is_not_told_about_a_noop(self, scratchpad):
+        """The queued-op side of the same rule."""
+        from wichy.tools.notes.state import describe_pending
+
+        slug, ids = scratchpad
+        run(
+            ReplaceBlockTool,
+            block_id=ids[1],
+            block_type="paragraph",
+            data={"text": "same"},
+        )
+        describe_pending(slug)  # drain the first write's op by reading it
+
+        run(
+            ReplaceBlockTool,
+            block_id=ids[1],
+            block_type="paragraph",
+            data={"text": "same"},
+        )
+        # Nothing NEW was queued by the second call: the first op is still the
+        # only one, and it describes the first (real) change.
+        from wichy.tools.notes.state import clear_agent_changes, peek_agent_changes
+
+        clear_agent_changes(slug)
+        run(
+            ReplaceBlockTool,
+            block_id=ids[1],
+            block_type="paragraph",
+            data={"text": "same"},
+        )
+        assert peek_agent_changes(slug) == []
+
+
+class TestSinceIdIsTyped:
+    """`since_id` accepted `true` while `limit` refused it, and read it as id 1."""
+
+    def test_a_bool_since_id_is_refused(self, scratchpad):
+        assert "must be an integer" in run(ReadRevisionsTool, since_id=True)
+
+    def test_a_string_since_id_is_refused(self, scratchpad):
+        assert "must be an integer" in run(ReadRevisionsTool, since_id="3")
+
+    def test_an_integer_since_id_is_accepted(self, scratchpad):
+        assert "revision(s)" in run(ReadRevisionsTool, since_id=0)
+
+
+class TestIndexRangeDescriptions:
+    def test_the_range_bounds_are_described_as_inclusive(self):
+        """The agent sees only the schema, so the docstring is not enough."""
+        schema = ReadBlocksTool().to_function_definition()
+        props = schema["function"]["parameters"]["properties"]
+        assert "inclusive" in props["start_index"]["description"]
+        assert "inclusive" in props["end_index"]["description"]

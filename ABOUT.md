@@ -270,9 +270,21 @@ Predefined sub-agent types:
 
 These operate on the pinned scratchpad only and take no slug. With nothing
 pinned every one of them returns "No scratchpad is pinned. Pin a note in the
-notes UI first." and writes nothing; with a markdown-format scratchpad they
-return the conversion message instead, because a block write would otherwise
-give one slug two live documents.
+notes UI first." and writes nothing; with a markdown-format scratchpad the write
+tools return the conversion message instead, because a block write would
+otherwise give one slug two live documents. The read tools still show the
+content, so a note the agent cannot edit is still one it can read.
+
+The write tools accept an optional `expected_version`, and there are two ways to
+use them:
+
+- **Quote and check.** Read the document, then pass the version that read
+  reported. If the user edited the note in between, the write is refused with a
+  message naming both versions, and the agent re-reads before retrying. This is
+  the safe mode: it cannot silently discard an edit made after the read.
+- **Fresh write.** Omit `expected_version`. The tool reads the document under its
+  lock and writes over whatever is current, which is last-writer-wins. Correct
+  when the agent is the only writer, or when overwriting is the intent.
 
 #### Skills Tools
 
