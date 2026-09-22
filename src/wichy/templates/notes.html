@@ -152,6 +152,20 @@
                             <button id="btn-delete" class="btn btn-danger">Delete</button>
                         </div>
                     </div>
+                    {# A legacy .md note is read-only here by design: the bridge
+                       keeps .md as markdown and conversion is the edit path. The
+                       hint names that path instead of offering a save that can
+                       never succeed. #}
+                    <div id="convert-hint" class="convert-hint hidden" role="status" aria-live="polite">
+                        <span>This note is stored as markdown, so it is shown read-only.</span>
+                        <button id="btn-convert-hint" class="btn btn-secondary btn-sm" type="button">
+                            Convert to blocks to edit
+                        </button>
+                    </div>
+                    {# Errors surfaced here, not only in the console: a failed
+                       load or save with no visible message reads as a page that
+                       silently did nothing. #}
+                    <p id="note-error" class="note-error hidden" role="status" aria-live="polite"></p>
                     {# The markdown editor and the block editor are separate nodes.
                        Sharing one container would make each editor fight the
                        other for the same DOM, so the page swaps between them by

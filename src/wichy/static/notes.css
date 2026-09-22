@@ -195,6 +195,40 @@
   display: none;
 }
 
+/* Read-only notice for a legacy markdown note. Shown only when the note is
+   stored as markdown, where saving is refused by design. */
+.convert-hint {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  padding: var(--space-sm) var(--space-xl);
+  background: var(--background);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.convert-hint.hidden {
+  display: none;
+}
+
+/* Load and save failures that would otherwise only reach the console. */
+.note-error {
+  margin: 0;
+  padding: var(--space-sm) var(--space-xl);
+  background: var(--danger-bg);
+  color: var(--danger-text);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--font-size-sm);
+  flex-shrink: 0;
+}
+
+.note-error.hidden {
+  display: none;
+}
+
 .editor-actions {
   display: flex;
   gap: var(--space-sm);

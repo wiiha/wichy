@@ -15,6 +15,8 @@
     let saveTimer = null;
     let isDirty = false;
     let pollTimer = null;
+    /** True while the open note is a legacy markdown file, where saving is refused. */
+    let isMarkdownNote = false;
 
     // DOM elements
     const btnNewNote = document.getElementById('btn-new-note');
@@ -26,6 +28,8 @@
     const noteTitle = document.getElementById('note-title');
     const editorHeader = document.getElementById('editor-header');
     const noteContent = document.getElementById('note-content');
+    const convertHint = document.getElementById('convert-hint');
+    const noteError = document.getElementById('note-error');
     const btnPin = document.getElementById('btn-pin');
     const btnDelete = document.getElementById('btn-delete');
 
@@ -83,6 +87,15 @@
                 setScratchpad();
             }
         });
+
+        // Convert-from-hint button: the read-only notice for a markdown note
+        // names the only edit path there is, so it must actually start it.
+        const btnConvertHint = document.getElementById('btn-convert-hint');
+        if (btnConvertHint) {
+            btnConvertHint.addEventListener('click', () => {
+                convertFromRow(currentSlug, btnConvertHint);
+            });
+        }
 
         // Delete button
         btnDelete.addEventListener('click', deleteCurrentNote);
@@ -282,6 +295,12 @@
                 selectNote(note.slug);
             });
             item.addEventListener('keydown', (e) => {
+                // A keypress on the row's own Convert control belongs to that
+                // control: without this, Enter on it both selected the note and
+                // started a conversion, two actions from one key.
+                if (e.target.closest('[data-convert-slug]')) {
+                    return;
+                }
                 if (e.key === 'Enter' || e.key === ' ') {
                     selectNote(note.slug);
                 }
@@ -290,13 +309,14 @@
         });
     }
 
-    /** Convert a markdown note from its sidebar row. */
-    async function convertFromRow(button) {
-        const slug = button.dataset.convertSlug;
+    /** Convert a markdown note from its sidebar row or from the read-only hint. */
+    async function convertFromRow(slug, button) {
         if (!slug) {
             return;
         }
-        button.disabled = true;
+        if (button) {
+            button.disabled = true;
+        }
         try {
             const resp = await fetch(`/tools/notes/api/notes/${slug}/convert`, {
                 method: 'POST',
@@ -304,15 +324,43 @@
             });
             if (!resp.ok) {
                 const err = await resp.json().catch(() => ({}));
-                alert('Could not convert this note: ' + (err.error || resp.status));
-                button.disabled = false;
+                showNoteError('Could not convert this note: ' + (err.error || resp.status));
+                if (button) {
+                    button.disabled = false;
+                }
                 return;
             }
             await loadNotes();
+            await reattachOpenNote(slug);
         } catch (e) {
             console.error('Failed to convert note:', e);
-            button.disabled = false;
+            showNoteError('Could not convert this note.');
+            if (button) {
+                button.disabled = false;
+            }
         }
+    }
+
+    /**
+     * Rebuild the editor for a note whose file changed format under it.
+     *
+     * Converting the note that is currently open leaves the markdown editor
+     * showing the pre-conversion text with its debounced save still armed -- a
+     * save that would write the stale body back over the conversion result.
+     * Announcing the note again makes the block editor take the document over,
+     * exactly as the toolbar's own Convert action does.
+     */
+    async function reattachOpenNote(slug) {
+        if (slug !== currentSlug) {
+            return;
+        }
+        clearTimeout(saveTimer);
+        saveTimer = null;
+        isDirty = false;
+        setDirtyState(false);
+        isMarkdownNote = false;
+        showConvertHint(false);
+        announceNoteOpened(slug);
     }
 
     /** Tell the block editor which document is open. */
@@ -348,13 +396,24 @@
         try {
             const resp = await fetch(`/tools/notes/api/notes/${slug}`, { credentials: 'same-origin' });
             if (!resp.ok) {
-                console.error('Failed to load note');
+                showNoteError(`Could not load this note (HTTP ${resp.status}).`);
                 return;
             }
             const note = await resp.json();
 
+            // The wire form is {meta, blocks, format}: the title lives under
+            // `meta`, and there is no top-level `content`. A legacy `.md` note
+            // arrives as one synthetic paragraph block holding its body.
+            const meta = note.meta || {};
+            isMarkdownNote = note.format === 'markdown';
+            const bodyText = isMarkdownNote
+                ? ((note.blocks && note.blocks[0] && note.blocks[0].data && note.blocks[0].data.text) || '')
+                : '';
+
+            clearNoteError();
+
             // Populate title immediately
-            noteTitle.textContent = note.title || '';
+            noteTitle.textContent = meta.title || '';
             setDirtyState(false);
 
             // Update active state in list
@@ -370,7 +429,7 @@
             }
 
             // Reset the textarea
-            noteContent.value = note.content || '';
+            noteContent.value = bodyText;
 
             // Create new EasyMDE instance — no toolbar (user writes raw Markdown).
             // autoDownloadFontAwesome: false prevents the constructor from injecting any
@@ -380,12 +439,25 @@
                 toolbar: false,
                 spellChecker: false,
                 autoDownloadFontAwesome: false,
-                initialValue: note.content || '',
+                initialValue: bodyText,
                 status: false,
             });
 
+            // A markdown note is read-only here: writing one would create a
+            // .json beside the .md, so the server refuses it. The notice points
+            // at conversion, which is the supported edit path.
+            showConvertHint(isMarkdownNote);
+            if (isMarkdownNote) {
+                mde.codemirror.setOption('readOnly', true);
+            }
+
             // Track changes
             mde.codemirror.on('change', () => {
+                if (isMarkdownNote) {
+                    // Read-only by design; arming the debounce would queue a save
+                    // the server is only going to reject.
+                    return;
+                }
                 isDirty = true;
                 setDirtyState(true);
                 restartSaveTimer();
@@ -397,6 +469,7 @@
 
         } catch (e) {
             console.error('Failed to load note:', e);
+            showNoteError('Could not load this note.');
         }
     }
 
@@ -405,6 +478,15 @@
 
         clearTimeout(saveTimer);
         saveTimer = null;
+
+        if (isMarkdownNote) {
+            // The server has no markdown write path. Refuse visibly rather than
+            // issuing a request that can only fail.
+            showNoteError('This note is stored as markdown. Convert it to blocks to edit it.');
+            isDirty = false;
+            setDirtyState(false);
+            return;
+        }
 
         const title = noteTitle.textContent.trim() || 'Untitled';
         const content = mde ? mde.value() : '';
@@ -421,7 +503,14 @@
             });
 
             if (!resp.ok) {
-                console.error('Failed to save note');
+                let detail = `HTTP ${resp.status}`;
+                try {
+                    const err = await resp.json();
+                    if (err && err.error) detail = err.error;
+                } catch (parseError) {
+                    // A non-JSON error body must not mask the status code.
+                }
+                showNoteError(`Could not save this note: ${detail}`);
                 editorHeader.dataset.saving = 'false';
                 return;
             }
@@ -430,6 +519,7 @@
             isDirty = false;
             setDirtyState(false);
             editorHeader.dataset.saving = 'false';
+            clearNoteError();
 
             // Reload note list (title may have changed)
             await loadNotes();
@@ -441,6 +531,7 @@
 
         } catch (e) {
             console.error('Failed to save note:', e);
+            showNoteError('Could not save this note.');
             editorHeader.dataset.saving = 'false';
         }
     }
@@ -461,7 +552,7 @@
 
             if (!resp.ok) {
                 const err = await resp.json();
-                alert('Error creating note: ' + (err.error || 'Unknown'));
+                showNoteError('Error creating note: ' + (err.error || 'Unknown'));
                 return;
             }
 
@@ -488,7 +579,7 @@
 
             if (!resp.ok) {
                 const err = await resp.json();
-                alert('Error deleting note: ' + (err.error || 'Unknown'));
+                showNoteError('Error deleting note: ' + (err.error || 'Unknown'));
                 return;
             }
 
@@ -531,7 +622,7 @@
 
             if (!resp.ok) {
                 const err = await resp.json();
-                alert('Error pinning note: ' + (err.error || 'Unknown'));
+                showNoteError('Error pinning note: ' + (err.error || 'Unknown'));
                 return;
             }
 
@@ -561,7 +652,7 @@
 
             if (!resp.ok) {
                 const err = await resp.json();
-                alert('Error unpinning note: ' + (err.error || 'Unknown'));
+                showNoteError('Error unpinning note: ' + (err.error || 'Unknown'));
                 return;
             }
 
@@ -592,7 +683,7 @@
         notesList.addEventListener('click', (event) => {
             const button = event.target.closest('[data-convert-slug]');
             if (button) {
-                convertFromRow(button);
+                convertFromRow(button.dataset.convertSlug, button);
             }
         });
     }
@@ -624,6 +715,32 @@
         } else {
             noteTitle.classList.remove('unsaved');
         }
+    }
+
+    /**
+     * Show or hide the "this note is read-only" notice.
+     *
+     * The markdown page has no write path, so the notice names the one edit
+     * route that does exist rather than leaving the user to guess why nothing
+     * happens when they type.
+     */
+    function showConvertHint(show) {
+        if (convertHint) {
+            convertHint.classList.toggle('hidden', !show);
+        }
+    }
+
+    /** Surface a failure in the page, not only in the console. */
+    function showNoteError(message) {
+        if (!noteError) {
+            return;
+        }
+        noteError.textContent = message || '';
+        noteError.classList.toggle('hidden', !message);
+    }
+
+    function clearNoteError() {
+        showNoteError('');
     }
 
     function updatePinButton() {

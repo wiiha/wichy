@@ -948,3 +948,145 @@ class TestTheQueueControl:
         body = body[: body.index("function askToConvert")]
         assert 'action === "send-changes"' in body
         assert 'action === "clear-changes"' in body
+
+
+class TestTheLegacyMarkdownPage:
+    """The markdown page must read the payload the API actually sends.
+
+    It used to read `note.title` and `note.content` from a payload shaped
+    `{meta, blocks, format}` and PUT `{title, content}` to an endpoint that
+    requires `version` plus `blocks`. Both halves failed: the page rendered an
+    empty title and body, and every save was rejected -- with the only trace in
+    the browser console.
+    """
+
+    def script(self) -> str:
+        return (STATIC / "notes.js").read_text(encoding="utf-8")
+
+    def select_body(self) -> str:
+        source = self.script()
+        body = source[source.index("async function selectNote") :]
+        return body[: body.index("async function saveNote")]
+
+    def test_it_reads_the_title_from_meta(self):
+        """`meta.title` is where the API puts it; `note.title` is undefined."""
+        body = self.select_body()
+        assert "meta.title" in body
+        assert "note.title" not in body
+
+    def test_it_reads_a_markdown_body_from_the_synthetic_block(self):
+        """A legacy .md arrives as one paragraph block holding the body."""
+        body = self.select_body()
+        assert "note.blocks" in body
+        assert "data.text" in body
+        # The old top-level content field does not exist in the payload.
+        assert "note.content" not in body
+
+    def test_it_creates_the_editor_with_the_extracted_body(self):
+        """Passing the raw payload field would leave the editor blank."""
+        body = self.select_body()
+        editor_at = body.index("new EasyMDE(")
+        assert "initialValue: bodyText" in body[editor_at:]
+
+    def test_a_markdown_note_is_read_only(self):
+        """Nothing can write a .md note, so the editor must not pretend otherwise."""
+        body = self.select_body()
+        assert "setOption('readOnly', true)" in body
+
+    def test_the_save_debounce_is_never_armed_for_markdown(self):
+        """An armed debounce queues a save the server can only reject."""
+        body = self.select_body()
+        change_at = body.index("codemirror.on('change'")
+        handler = body[change_at : change_at + 400]
+        assert "if (isMarkdownNote)" in handler
+        assert handler.index("if (isMarkdownNote)") < handler.index("isDirty = true")
+
+    def test_saving_a_markdown_note_is_refused_before_the_request(self):
+        """Issue no request that can only fail; say why instead."""
+        source = self.script()
+        body = source[source.index("async function saveNote") :]
+        body = body[: body.index("async function createNewNote")]
+        guard = body.index("if (isMarkdownNote)")
+        assert guard < body.index("await fetch(")
+
+    def test_the_read_only_notice_exists_and_names_conversion(self):
+        """The notice is the only place the edit path is explained."""
+        markup = template()
+        assert 'id="convert-hint"' in markup
+        assert "Convert to blocks to edit" in markup
+
+    def test_the_notice_is_only_shown_for_markdown(self):
+        source = self.script()
+        body = self.select_body()
+        assert "showConvertHint(isMarkdownNote)" in body
+        # And it is defined to toggle rather than to show unconditionally.
+        helper = source[source.index("function showConvertHint") :]
+        helper = helper[: helper.index("function showNoteError")]
+        assert "classList.toggle('hidden', !show)" in helper
+
+    def test_the_notice_button_starts_the_conversion(self):
+        """A notice naming the edit path with a dead button is decoration."""
+        source = self.script()
+        assert "btn-convert-hint" in source
+        body = source[source.index("btnConvertHint.addEventListener") :]
+        assert "convertFromRow(currentSlug" in body[:200]
+
+    def test_errors_reach_the_page_and_not_only_the_console(self):
+        """A failed load or save that only logs reads as a page that did nothing."""
+        markup = template()
+        assert 'id="note-error"' in markup
+        source = self.script()
+        save = source[source.index("async function saveNote") :]
+        save = save[: save.index("async function createNewNote")]
+        assert "showNoteError(" in save
+        # The read path reports too.
+        assert "showNoteError(" in self.select_body()
+
+    def test_the_error_message_carries_the_server_detail(self):
+        """HTTP 409 with no explanation is not actionable."""
+        source = self.script()
+        save = source[source.index("async function saveNote") :]
+        save = save[: save.index("async function createNewNote")]
+        assert "err.error" in save
+
+
+class TestTheConvertOfAnOpenNote:
+    """Converting the open note must hand the editor over to the new document.
+
+    The row's Convert control re-rendered the sidebar only, leaving the markdown
+    editor holding the pre-conversion text with its debounced save still armed
+    against the same slug. Once the markdown page could save, that buffer would
+    write the old body back over the conversion result.
+    """
+
+    def script(self) -> str:
+        return (STATIC / "notes.js").read_text(encoding="utf-8")
+
+    def test_the_open_note_is_re_announced_after_a_conversion(self):
+        source = self.script()
+        body = source[source.index("async function convertFromRow") :]
+        body = body[: body.index("async function reattachOpenNote")]
+        assert "reattachOpenNote(slug)" in body
+
+    def test_re_announcing_checks_it_is_still_the_open_note(self):
+        """Converting another row must not disturb the note being edited."""
+        source = self.script()
+        helper = source[source.index("async function reattachOpenNote") :]
+        helper = helper[: helper.index("/** Tell the block editor")]
+        assert "slug !== currentSlug" in helper
+
+    def test_re_announcing_cancels_the_armed_markdown_save(self):
+        """The stale buffer is exactly what must not survive the conversion."""
+        source = self.script()
+        helper = source[source.index("async function reattachOpenNote") :]
+        helper = helper[: helper.index("/** Tell the block editor")]
+        assert "clearTimeout(saveTimer)" in helper
+        assert "announceNoteOpened(slug)" in helper
+
+    def test_a_row_keypress_on_the_convert_button_does_not_select_the_row(self):
+        """One key must not both select the note and start a conversion."""
+        source = self.script()
+        body = source[source.index("item.addEventListener('keydown'") :]
+        body = body[: body.index("notesList.appendChild(item)")]
+        assert "closest('[data-convert-slug]')" in body
+        assert body.index("closest('[data-convert-slug]')") < body.index("selectNote(")
