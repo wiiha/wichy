@@ -322,6 +322,55 @@
     padding-left: 8px;
 }
 
+/* The robot marker. Text rather than a glyph or a colour, so the meaning
+   survives a monochrome display and a missing icon font: the tooltip says the
+   same thing in words. */
+.block-editor .agent-touched::before {
+    content: "[AGENT]";
+    display: inline-block;
+    margin-right: 6px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: #7c3aed;
+    vertical-align: top;
+}
+
+/* A block the agent CREATED, as opposed to one it edited, is marked differently
+   enough to tell apart without relying on hue alone. */
+.block-editor .agent-touched.agent-created::before {
+    content: "[AGENT NEW]";
+}
+
+.block-editor .agent-touched.agent-created {
+    border-left-style: dotted;
+}
+
+/* The toast. Positioned so it does not cover the block the user is editing. */
+.agent-toast {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    z-index: 40;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border-left: 4px solid #a855f7;
+    background: var(--surface, #fff);
+    color: var(--text, #111);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+    font-size: 14px;
+}
+
+.agent-toast.hidden {
+    display: none;
+}
+
+.agent-toast button {
+    font-size: 12px;
+}
+
 /* The flash on arrival draws attention to a change; someone who has asked for
    reduced motion gets the mark without the animation. */
 @media (prefers-reduced-motion: no-preference) {

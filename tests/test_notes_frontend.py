@@ -473,7 +473,7 @@ class TestAccessibility:
         assert 'aria-modal="true"' in marker
 
 
-class TestAgentChangeVisualization:
+class TestTheMarkIsAppliedToTheBlock:
     """An agent edit must be visible on the block, not only counted."""
 
     def script(self) -> str:
@@ -654,3 +654,119 @@ class TestTheBrowserSendsTheUserChanges:
         assert "SETTINGS.change_debounce_ms" in source
         assert "SETTINGS.notification_mode" in source
         assert "CHANGE_DEBOUNCE_MS" in source
+
+
+class TestAgentChangeVisualization:
+    """The 9.2 marks, the toast, and the scope of the undo.
+
+    Every assertion here pins the one thing that makes the feature honest: the
+    meaning is carried by text, the count is blocks rather than ops, and an undo
+    says what it will undo before it does it.
+    """
+
+    def script(self) -> str:
+        """The block editor source."""
+        return (STATIC / "notes_blocks.js").read_text(encoding="utf-8")
+
+    def test_the_mark_is_carried_by_text_not_colour_alone(self):
+        """A monochrome display, or no icon font, must still convey it."""
+        css = (STATIC / "notes.css").read_text(encoding="utf-8")
+        assert "[AGENT]" in css
+        assert "[AGENT NEW]" in css
+        source = self.script()
+        assert "Changed by the agent" in source
+        assert "Created by agent" in source
+
+    def test_a_created_block_is_marked_differently_from_an_edited_one(self):
+        source = self.script()
+        assert "agentCreated" in source
+        body = source[source.index("async function applyAgentChanges") :]
+        body = body[: body.index("async function applyOneOp")]
+        assert 'op.op === "add"' in body
+
+    def test_the_tooltip_carries_a_timestamp(self):
+        source = self.script()
+        assert "function clockNow" in source
+        assert "at ${time}" in source
+
+    def test_the_toast_counts_distinct_blocks_not_ops(self):
+        """Five ops on one block is one block, and the marks show one block."""
+        source = self.script()
+        body = source[source.index("async function applyAgentChanges") :]
+        body = body[: body.index("async function applyOneOp")]
+        assert "new Set(untouched.map((op) => op.block_id)).size" in body
+
+    def test_the_toast_pluralizes_correctly(self):
+        source = self.script()
+        body = source[source.index("function showAgentToast") :]
+        body = body[: body.index("function hideAgentToast")]
+        assert 'count === 1 ? "" : "s"' in body
+
+    def test_dismissing_the_toast_keeps_the_marks(self):
+        """Waving the notice away must not erase what it was pointing at."""
+        source = self.script()
+        body = source[source.index("function initAgentToast") :]
+        body = body[: body.index("function startPolling")]
+        dismiss = body[body.index('"dismiss"') :]
+        assert "hideAgentToast()" in dismiss
+        assert "agentTouched = new Set()" not in dismiss
+
+    def test_undo_confirms_with_the_scope_and_the_summary_before_reverting(self):
+        """A revert is whole-document; the dialog must say so first."""
+        source = self.script()
+        body = source[source.index("async function undoLastAgentEdit") :]
+        body = body[: body.index("function initAgentToast")]
+        assert "window.confirm" in body
+        assert "restores the whole document" in body
+        assert body.index("window.confirm") < body.index("/revert")
+        assert "latest.summary" in body
+
+    def test_undo_targets_the_latest_agent_revision(self):
+        source = self.script()
+        body = source[source.index("async function undoLastAgentEdit") :]
+        body = body[: body.index("function initAgentToast")]
+        assert "author=agent" in body
+        assert "revisions/${latest.id}/revert" in body
+
+    def test_a_refused_undo_issues_no_request(self):
+        source = self.script()
+        body = source[source.index("async function undoLastAgentEdit") :]
+        body = body[: body.index("function initAgentToast")]
+        confirm_at = body.index("window.confirm")
+        guard_at = body.index("if (!confirmed)")
+        revert_at = body.index("/revert")
+        assert confirm_at < guard_at < revert_at
+
+    def test_a_status_message_survives_the_next_poll(self):
+        """The poll runs every 2s and would wipe a notice before it is read."""
+        source = self.script()
+        assert "function holdStatus" in source
+        body = source[source.index("async function poll") :]
+        body = body[: body.index("async function open")]
+        assert "Date.now() >= statusHoldUntil" in body
+
+    def test_the_busy_notice_names_what_happens_to_the_users_edits(self):
+        source = self.script()
+        assert "next thinking" in source
+
+    def test_the_flash_respects_reduced_motion(self):
+        css = (STATIC / "notes.css").read_text(encoding="utf-8")
+        assert "prefers-reduced-motion" in css
+        # The animation is declared inside a no-preference block, so the mark
+        # survives for someone who has asked for less motion.
+        assert "@media (prefers-reduced-motion: no-preference)" in css
+
+
+class TestTheToastIsAnnouncedPolitely:
+    def test_the_toast_uses_aria_live_polite(self):
+        body = template()
+        assert 'id="agent-toast"' in body
+        toast = body[body.index('id="agent-toast"') :]
+        toast = toast[: toast.index("</div>")]
+        assert 'aria-live="polite"' in toast
+        assert 'role="status"' in toast
+
+    def test_the_toast_offers_view_dismiss_and_undo(self):
+        body = template()
+        for action in ("view", "dismiss", "undo"):
+            assert f'data-toast="{action}"' in body

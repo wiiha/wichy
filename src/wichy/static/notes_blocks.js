@@ -83,6 +83,12 @@
     let pendingConflicts = [];
     /** Guards the one-shot retry after a 409, so a losing write cannot loop. */
     let conflictRetried = false;
+    /** Timestamp until which a held status message must not be overwritten. */
+    let statusHoldUntil = 0;
+    /** Blocks the agent CREATED, as opposed to ones it modified. */
+    let agentCreated = new Set();
+    /** When each marked block was changed, as HH:MM local time. */
+    let agentChangeTimes = new Map();
 
     const blocksNode = document.getElementById("block-editor");
     const markdownNode = document.getElementById("note-content");
@@ -120,6 +126,19 @@
         if (statusNode) {
             statusNode.textContent = text || "";
         }
+    }
+
+    /**
+     * Show a status message that survives the next poll.
+     *
+     * `setStatus` is called on every poll, and the poll runs every couple of
+     * seconds, so a plain message is wiped almost immediately -- "Edits queued
+     * for next turn" would be unreadable. The hold is a deadline rather than a
+     * flag so a burst of messages cannot leave the status stuck forever.
+     */
+    function holdStatus(text, ms = 6000) {
+        setStatus(text);
+        statusHoldUntil = Date.now() + ms;
     }
 
     /** The Editor.js tools map. Custom classes come from the vendored bundle. */
@@ -164,6 +183,8 @@
         }
         dirty = new Set();
         agentTouched = new Set();
+        agentCreated = new Set();
+        agentChangeTimes = new Map();
         sentSnapshot = new Map();
         updateQueueIndicator();
     }
@@ -437,14 +458,14 @@
                 pendingOps.delete(targetSlug);
                 pendingVersion.delete(targetSlug);
                 await refreshVersion();
-                setStatus("The note changed elsewhere. Your next edit will be sent.");
+                holdStatus("The note changed elsewhere. Your next edit will be sent.");
                 updateQueueIndicator();
                 return false;
             }
             // 503 (no session) and anything else transient: keep the ops and let
             // the next poll retry. Dropping them here is how an edit goes missing.
             if (result.error === "HTTP 503") {
-                setStatus("Edits queued for next turn.");
+                holdStatus("Edits queued for next turn.");
             }
             updateQueueIndicator();
             return false;
@@ -533,6 +554,12 @@
         for (const op of untouched) {
             await applyOneOp(op);
             agentTouched.add(op.block_id);
+            if (op.op === "add") {
+                // Tracked separately so the block gets the "created by" mark and
+                // tooltip rather than the "changed by" one.
+                agentCreated.add(op.block_id);
+            }
+            agentChangeTimes.set(op.block_id, clockNow());
         }
         // The re-render moved the DOM, and both the mark and the snapshot are
         // keyed by what is rendered now.
@@ -541,6 +568,7 @@
         if (untouched.length) {
             const distinct = new Set(untouched.map((op) => op.block_id)).size;
             setStatus(`Agent updated ${distinct} block(s).`);
+            showAgentToast(distinct);
         }
         if (blocked.length) {
             // Those blocks are being edited here, so applying the agent's
@@ -616,15 +644,41 @@
             const id = block && block.id ? block.id : null;
             if (id && agentTouched.has(id)) {
                 element.classList.add("agent-touched");
+                element.classList.toggle("agent-created", agentCreated.has(id));
                 // The flash is a separate class so the mark survives its end.
                 element.classList.add("agent-flash");
-                element.title = "Changed by the agent";
+                element.title = describeAgentChange(id);
                 window.setTimeout(() => element.classList.remove("agent-flash"), 2000);
             } else {
-                element.classList.remove("agent-touched");
+                element.classList.remove("agent-touched", "agent-created", "agent-flash");
                 element.removeAttribute("title");
             }
         });
+    }
+
+    /**
+     * The tooltip for a marked block.
+     *
+     * Text, not colour or an icon alone, so the meaning survives a monochrome
+     * display: the CSS adds the robot marker, and this says the same thing in
+     * words. The time is when the browser applied the change, which is the only
+     * time it has -- the op carries no server timestamp, and inventing one would
+     * claim a precision the pipeline does not have.
+     */
+    function describeAgentChange(id) {
+        const time = agentChangeTimes.get(id);
+        if (agentCreated.has(id)) {
+            return time ? `Created by agent at ${time}` : "Created by agent";
+        }
+        return time ? `Changed by the agent at ${time}` : "Changed by the agent";
+    }
+
+    /** Local HH:MM for the moment the browser applied an agent change. */
+    function clockNow() {
+        const now = new Date();
+        const hh = String(now.getHours()).padStart(2, "0");
+        const mm = String(now.getMinutes()).padStart(2, "0");
+        return `${hh}:${mm}`;
     }
 
     function showConflict() {
@@ -632,6 +686,100 @@
         if (banner) {
             banner.classList.remove("hidden");
         }
+    }
+
+    /**
+     * Show the "Agent updated N blocks" toast.
+     *
+     * `count` is distinct blocks, not ops: it matches what the marks show and
+     * what the conflict cap counts, so the number the user reads is the number of
+     * blocks they can see changed.
+     */
+    function showAgentToast(count) {
+        const toast = document.getElementById("agent-toast");
+        const text = document.getElementById("agent-toast-text");
+        if (!toast) {
+            return;
+        }
+        if (text) {
+            text.textContent = `Agent updated ${count} block${count === 1 ? "" : "s"}`;
+        }
+        toast.classList.remove("hidden");
+    }
+
+    function hideAgentToast() {
+        const toast = document.getElementById("agent-toast");
+        if (toast) {
+            toast.classList.add("hidden");
+        }
+    }
+
+    /** Scroll the first marked block into view and flash it again. */
+    function viewAgentChange() {
+        if (!blocksNode) {
+            return;
+        }
+        const marked = blocksNode.querySelector(".ce-block.agent-touched");
+        if (!marked) {
+            setStatus("No agent changes are marked in this document.");
+            return;
+        }
+        marked.scrollIntoView({ behavior: "smooth", block: "center" });
+        marked.classList.remove("agent-flash");
+        // Reflow between removing and re-adding, or the animation does not restart.
+        void marked.offsetWidth;
+        marked.classList.add("agent-flash");
+    }
+
+    /**
+     * Revert the most recent agent revision.
+     *
+     * The whole-document scope is surfaced before anything happens: a revert
+     * restores the document as it was before that revision, which can undo more
+     * than the single block the user saw flash. Saying so is the difference
+     * between an undo and a surprise.
+     */
+    async function undoLastAgentEdit() {
+        if (!slug) {
+            return;
+        }
+        const listed = await fetchJson(
+            `${PREFIX}/api/notes/${slug}/revisions?author=agent&limit=1`
+        );
+        if (listed.error) {
+            setStatus("Could not read the revision history.");
+            return;
+        }
+        const latest = (listed.revisions || [])[0];
+        if (!latest) {
+            setStatus("There is no agent edit to undo.");
+            return;
+        }
+        const summary = latest.summary || "the agent's last change";
+        const when = latest.timestamp || "";
+        const confirmed = window.confirm(
+            `Undo the agent's last edit?\n\n${summary}\n${when}\n\n` +
+                "This restores the whole document to how it was before that " +
+                "change. Any edits made here since then are kept only if you " +
+                "saved them."
+        );
+        if (!confirmed) {
+            return;
+        }
+        const result = await fetchJson(
+            `${PREFIX}/api/notes/${slug}/revisions/${latest.id}/revert`,
+            { method: "POST", body: JSON.stringify({ version }) }
+        );
+        if (result.error) {
+            setStatus("Could not undo that edit.");
+            return;
+        }
+        // Reloaded rather than patched in place: a revert can restore, remove and
+        // reorder blocks at once, so re-reading is the only way to be sure the
+        // page matches the document.
+        await open(slug);
+        hideAgentToast();
+        setStatus("Undid the agent's last edit.");
     }
 
     /** One poll: retry unsent ops, hand back what the agent changed, then ack it. */
@@ -676,7 +824,21 @@
             version = body.version;
         }
         updateQueueIndicator();
-        setStatus(body.agent_busy ? "Agent is working..." : "");
+        if (Date.now() >= statusHoldUntil) {
+            if (body.agent_busy) {
+                // Names what happens to the user's edits, not just that the agent
+                // is busy: the queue is not discarded, it lands in the next
+                // thinking step, and the user should know that before typing more.
+                setStatus(
+                    "Agent is working. Your edits will appear in its next thinking " +
+                        "step -- this may redirect its attention."
+                );
+            } else if ((pendingOps.get(slug) || []).length && !AUTO_SEND) {
+                setStatus("Edits queued for next turn.");
+            } else {
+                setStatus("");
+            }
+        }
     }
 
     /** Open a block document, replacing whatever is currently loaded. */
@@ -767,7 +929,7 @@
                     pendingOps.delete(slug);
                     pendingVersion.delete(slug);
                     updateQueueIndicator();
-                    setStatus("Queued changes cleared.");
+                    holdStatus("Queued changes cleared.");
                 }
                 return;
             }
@@ -895,6 +1057,29 @@
         }
     }
 
+    /** The agent toast's three actions. */
+    function initAgentToast() {
+        const toast = document.getElementById("agent-toast");
+        if (!toast) {
+            return;
+        }
+        toast.addEventListener("click", async (event) => {
+            const button = event.target.closest("button[data-toast]");
+            if (!button) {
+                return;
+            }
+            if (button.dataset.toast === "view") {
+                viewAgentChange();
+            } else if (button.dataset.toast === "undo") {
+                await undoLastAgentEdit();
+            } else if (button.dataset.toast === "dismiss") {
+                // Dismissal hides the notice only: the marks stay, so the user can
+                // still see what changed after waving the toast away.
+                hideAgentToast();
+            }
+        });
+    }
+
     /** Start polling for agent changes. */
     function startPolling() {
         if (pollTimer) {
@@ -905,6 +1090,7 @@
 
     function init() {
         initToolbar();
+        initAgentToast();
         startPolling();
         // The notes list decides which document is open; it publishes the slug
         // so this script does not have to parse the DOM for it.

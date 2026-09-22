@@ -52,6 +52,15 @@
             <span id="editor-status" class="editor-status" role="status" aria-live="polite"></span>
         </div>
 
+        {# Announced politely: an agent edit is worth interrupting for, but must not
+           steal focus from what the user is typing. #}
+        <div id="agent-toast" class="agent-toast hidden" role="status" aria-live="polite">
+            <span id="agent-toast-text"></span>
+            <button class="btn btn-secondary" data-toast="view">View</button>
+            <button class="btn btn-secondary" data-toast="undo">Undo last agent edit</button>
+            <button class="btn btn-secondary" data-toast="dismiss">Dismiss</button>
+        </div>
+
         {# Announced politely rather than assertively: a conflict is important but
            must not interrupt what the user is typing. #}
         <div id="conflict-banner" class="conflict-banner hidden" role="status" aria-live="polite" tabindex="0">
