@@ -1420,3 +1420,293 @@ class TestReadScratchpadNeverRaises:
         assert "could not be read" in result
         # And it names the file, so the user can find it.
         assert "binary" in result
+
+
+class TestRenameCannotClobberItsTarget:
+    """A rename onto a live slug must fail cleanly and destroy nothing.
+
+    The target-exists check used to run BEFORE any lock, the lock held was the
+    OLD slug's, and the allocation lock was not held at all. Two concurrent
+    renames to the same target -- or a rename racing a create -- both passed the
+    check and then renamed over the target: data loss reported as a 200.
+    """
+
+    def test_a_rename_onto_a_live_slug_is_refused_and_leaves_it_intact(self, notes_dir):
+        create_document("Alpha", [{"type": "paragraph", "data": {"text": "a"}}])
+        create_document("Beta", [{"type": "paragraph", "data": {"text": "b"}}])
+        with pytest.raises(ValueError):
+            rename_document_files("alpha", "beta")
+        assert load_document("beta").blocks[0].data["text"] == "b"
+
+    def test_a_refused_rename_does_not_half_move_the_source(self, notes_dir):
+        """The check happens before any file moves, so nothing is left behind."""
+        create_document("Alpha", [{"type": "paragraph", "data": {"text": "a"}}])
+        create_document("Beta", [{"type": "paragraph", "data": {"text": "b"}}])
+        with pytest.raises(ValueError):
+            rename_document_files("alpha", "beta")
+        assert load_document("alpha").blocks[0].data["text"] == "a"
+
+    def test_concurrent_renames_to_one_target_cannot_clobber_it(
+        self, notes_dir, monkeypatch
+    ):
+        """Both renames reach the target-exists check together; one must lose.
+
+        Rendezvoused INSIDE the check, not merely at thread start. Two threads
+        that both call the function do not reliably overlap -- the first can
+        finish its whole rename before the second is scheduled, and the test then
+        passes without ever exercising the race. Instrumenting the check itself
+        makes the overlap happen every run.
+        """
+        import wichy.tools.notes.blocks as blocks_mod
+
+        create_document("Source One", [{"type": "paragraph", "data": {"text": "one"}}])
+        create_document("Source Two", [{"type": "paragraph", "data": {"text": "two"}}])
+        create_document("Target", [{"type": "paragraph", "data": {"text": "target"}}])
+        # Free the target slug by moving it aside under another name.
+        rename_document_files("target", "placeholder")
+
+        arrived = threading.Barrier(2, timeout=0.5)
+        real_slug_exists = blocks_mod.slug_exists
+
+        def rendezvous_slug_exists(slug):
+            exists = real_slug_exists(slug)
+            if slug == "target":
+                # Rendezvous at the "is the target free" question, which is the
+                # window the old pre-lock check left open. A SHORT timeout, and a
+                # broken barrier is tolerated: the fixed code holds the
+                # allocation lock across this check, so the second caller is
+                # still waiting on that lock and never arrives. Only when the
+                # lock is missing do both reach here -- which is precisely when
+                # the race is real.
+                try:
+                    arrived.wait()
+                except threading.BrokenBarrierError:
+                    pass
+            return exists
+
+        monkeypatch.setattr(blocks_mod, "slug_exists", rendezvous_slug_exists)
+
+        # Keyed by source, so the loser is identified by which rename failed
+        # rather than by where its line landed in a shared list.
+        outcomes: dict[str, str] = {}
+        lock = threading.Lock()
+
+        def attempt(source: str) -> None:
+            try:
+                rename_document_files(source, "target")
+                result = "won"
+            except (ValueError, DocumentNotFoundError):
+                result = "lost"
+            with lock:
+                outcomes[source] = result
+
+        threads = [
+            threading.Thread(target=attempt, args=(slug,))
+            for slug in ("source-one", "source-two")
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=15)
+        for thread in threads:
+            assert not thread.is_alive()
+
+        # Both racers got past the check, and exactly one took the target.
+        assert sorted(outcomes.values()) == ["lost", "won"], outcomes
+        # The target is a real document, not a clobbered half-state.
+        assert load_document("target").blocks
+        # And the loser's document still exists under its own slug, with its own
+        # content -- not overwritten by the winner's.
+        loser = next(source for source, result in outcomes.items() if result == "lost")
+        winner = next(source for source, result in outcomes.items() if result == "won")
+        assert load_document(loser).blocks
+        assert load_document(loser).blocks[0].data["text"] == loser.split("-")[-1]
+        assert load_document("target").blocks[0].data["text"] == winner.split("-")[-1]
+
+    def test_a_rename_and_a_create_cannot_both_take_one_slug(self, notes_dir):
+        """The allocation lock spans the rename, so create serialises with it."""
+        create_document("Mover", [{"type": "paragraph", "data": {"text": "m"}}])
+        outcomes: list[str] = []
+        barrier = threading.Barrier(2, timeout=10)
+
+        def rename() -> None:
+            barrier.wait()
+            try:
+                rename_document_files("mover", "contested")
+                outcomes.append("renamed")
+            except (ValueError, DocumentNotFoundError):
+                outcomes.append("rename-refused")
+
+        def create() -> None:
+            barrier.wait()
+            created = create_document(
+                "Contested", [{"type": "paragraph", "data": {"text": "c"}}]
+            )
+            outcomes.append("created:" + created.meta.slug)
+
+        threads = [threading.Thread(target=rename), threading.Thread(target=create)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=15)
+        for thread in threads:
+            assert not thread.is_alive()
+
+        # Whichever way the race went, one slug has one document: the create saw
+        # the rename's file and allocated a different slug, or the rename was
+        # refused. Two documents under one slug is the failure this prevents.
+        slugs = {row["slug"] for row in list_documents()}
+        assert "contested" in slugs
+        assert len(slugs) == len({row["slug"] for row in list_documents()})
+        assert load_document("contested").blocks
+
+    def test_rename_onto_a_slug_with_stale_state_is_refused(self, notes_dir):
+        """In-memory state outliving the files must not be merged."""
+        from wichy.tools.notes.state import get_doc_lock
+
+        create_document("Alpha", [{"type": "paragraph", "data": {"text": "a"}}])
+        # Simulate a recent delete of a document called "beta": no files, but a
+        # lock object still in the registry.
+        get_doc_lock("beta")
+        with pytest.raises(ValueError):
+            rename_document_files("alpha", "beta")
+        # The source did not move.
+        assert load_document("alpha").blocks[0].data["text"] == "a"
+
+
+class TestDocumentsAreLockedAcrossProcesses:
+    """A second process on the same notes directory must serialise too.
+
+    The in-process locks cannot stop it: each process has its own objects, so
+    both would read version V, both pass their version check, and both write
+    V+1 -- the second silently reverting the first, with both reporting success.
+
+    Driven through SUBPROCESSES, because threads share the in-process lock and
+    therefore cannot tell the two apart. The ordering is deliberate rather than
+    hoped for: the first process takes the document lock and holds it while the
+    second starts, so the second is provably trying to enter a held lock. A
+    symmetric rendezvous was tried first and was not reliable -- process startup
+    jitter let the first finish its whole read-check-write before the second
+    looked at anything, which passes whether or not the lock excludes anything.
+    """
+
+    WORKER = """
+import sys
+import time
+from pathlib import Path
+
+from wichy.config import settings
+
+settings.notes_dir_name = sys.argv[1]
+from wichy.tools.notes.blocks import (
+    StaleVersionError,
+    load_document,
+    locked_document,
+    replace_block,
+)
+
+role = sys.argv[2]
+label = sys.argv[3]
+
+if role == "hold":
+    # Take the lock FIRST and keep it, so the other process is definitely
+    # contending. Reading the version after acquiring would prove nothing.
+    with locked_document("shared", None, author="user") as document:
+        replace_block(
+            document, document.blocks[0].id, data={"text": "held"}, author="user"
+        )
+        print("won", flush=True)
+        time.sleep(1.5)
+else:
+    # Start late enough that the holder is inside its body, so the version read
+    # below is the PRE-hold version -- the stale read the lock must catch.
+    time.sleep(0.5)
+    version = load_document("shared").meta.version
+    try:
+        with locked_document("shared", version, author="user") as document:
+            replace_block(
+                document, document.blocks[0].id, data={"text": "late"}, author="user"
+            )
+        print("won", flush=True)
+    except StaleVersionError:
+        print("stale", flush=True)
+"""
+
+    def test_two_processes_produce_exactly_one_winner(self, notes_dir, tmp_path):
+        import subprocess
+        import sys
+
+        create_document("Shared", [{"type": "paragraph", "data": {"text": "seed"}}])
+        script_path = tmp_path / "worker.py"
+        script_path.write_text(self.WORKER, encoding="utf-8")
+
+        holder = subprocess.Popen(
+            [sys.executable, str(script_path), str(notes_dir), "hold", "holder"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        latecomer = subprocess.Popen(
+            [sys.executable, str(script_path), str(notes_dir), "late", "late"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        holder_out = holder.communicate(timeout=60)[0].strip()
+        late_out = latecomer.communicate(timeout=60)[0].strip()
+        assert holder.returncode == 0
+        assert latecomer.returncode == 0
+
+        # The holder wrote; the latecomer quoted the pre-hold version and was
+        # told it was stale. WHICH one wins is fixed by the ordering, not by the
+        # race, so the assertion cannot flake.
+        assert holder_out == "won", holder_out
+        assert late_out == "stale", late_out
+
+        # The version moved exactly ONCE. Two bumps would mean both writers
+        # based themselves on version 1 and one edit was silently lost -- the
+        # lost update the file lock exists to prevent.
+        assert load_document("shared").meta.version == 2
+        assert load_document("shared").blocks[0].data["text"] == "held"
+
+    def test_the_second_process_waits_instead_of_proceeding(self, notes_dir, tmp_path):
+        """Direct evidence of exclusion: the latecomer BLOCKS on the lock.
+
+        Asserted by timing, because a version check alone could be satisfied by a
+        fast run that never overlapped.
+        """
+        from wichy.tools.notes.blocks import document_lock
+
+        import subprocess
+        import sys
+        import time as _time
+
+        create_document("Shared", [{"type": "paragraph", "data": {"text": "seed"}}])
+        probe = tmp_path / "probe.py"
+        probe.write_text(
+            "import sys, time\n"
+            "from wichy.config import settings\n"
+            "settings.notes_dir_name = sys.argv[1]\n"
+            "from wichy.tools.notes.blocks import document_lock\n"
+            "time.sleep(float(sys.argv[2]))\n"
+            "start = time.time()\n"
+            "with document_lock('shared'):\n"
+            "    print(round(time.time() - start, 2), flush=True)\n",
+            encoding="utf-8",
+        )
+
+        with document_lock("shared"):
+            # Hold the cross-process lock in THIS process while the subprocess
+            # tries to take it.
+            proc = subprocess.Popen(
+                [sys.executable, str(probe), str(notes_dir), "0"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            _time.sleep(0.8)
+        waited = float(proc.communicate(timeout=60)[0].strip())
+
+        # It could not have entered before this process released the lock, which
+        # means it waited at least most of the 0.8s.
+        assert waited > 0.3, f"the subprocess did not wait: {waited}s"

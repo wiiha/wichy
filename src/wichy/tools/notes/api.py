@@ -45,6 +45,7 @@ from wichy.tools.notes.blocks import (
     create_document,
     delete_block,
     delete_document_files,
+    document_lock,
     generate_slug,
     insert_block,
     list_documents,
@@ -77,7 +78,6 @@ from wichy.tools.notes.models import (
 from wichy.tools.notes.state import (
     clear_agent_changes,
     collapse_by_block,
-    get_doc_lock,
     count_distinct_blocks,
     describe_pending,
     discard_stale_changes,
@@ -203,7 +203,6 @@ def _build_document(
         ValueError: The title is empty.
     """
     from wichy.tools.notes.blocks import (
-        get_doc_lock,
         notes_dir as _notes_dir,
         make_block,
         save_document,
@@ -237,7 +236,7 @@ def _build_document(
             )
         )
 
-    with get_doc_lock(slug):
+    with document_lock(slug):
         # Re-checked under the lock, which is the only check that counts: two
         # concurrent converts would otherwise both pass the caller's test, both
         # write, and both append a revision with id 1.
@@ -342,6 +341,12 @@ def _apply_locked(
     except MarkdownDocumentError:
         return None, _error(MARKDOWN_WRITE_REFUSED, 409)
     except StaleVersionError as e:
+        return None, _error(str(e), 409)
+    except DocumentExistsError as e:
+        # A rename onto a live slug, or onto a slug whose in-memory state still
+        # belongs to another document. A conflict with existing state, not a
+        # malformed request -- and without this clause it would fall through to
+        # the ValueError arm below and be reported as a 400.
         return None, _error(str(e), 409)
     except BlockNotFoundError as e:
         return None, _error(str(e), 404)
@@ -1057,7 +1062,7 @@ def register_routes(bp: Blueprint):
             # and because the warm-up only runs on a cache miss it would then
             # report the stale value forever -- so the browser's own staleness
             # check could never fire.
-            with get_doc_lock(slug):
+            with document_lock(slug):
                 if get_doc_version(slug) == 0:
                     set_doc_version(slug, load_document(slug).meta.version)
                 pending = describe_pending(slug)

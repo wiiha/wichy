@@ -382,6 +382,30 @@ def describe_pending(slug: str) -> dict:
 # -------------------------------------------------------------------------
 
 
+def has_state(slug: str) -> bool:
+    """Whether *slug* has any in-memory state of its own.
+
+    A caller about to move a document ONTO this slug needs to know before it
+    touches a single file: the refusal has to happen while the operation is still
+    a no-op, or a rename that fails part-way leaves the files moved and the state
+    behind. Checked under the same lock ``rename_document`` takes.
+
+    Args:
+        slug: The document slug.
+
+    Returns:
+        True when a lock, queued ops, a cached version or an injection mark
+        exists for the slug.
+    """
+    with _state_lock:
+        return (
+            slug in doc_locks
+            or slug in agent_changes
+            or slug in doc_versions
+            or slug in last_injected
+        )
+
+
 def rename_document(old_slug: str, new_slug: str, version: int) -> None:
     """Move every piece of per-slug state from *old_slug* to *new_slug*.
 
@@ -404,8 +428,19 @@ def rename_document(old_slug: str, new_slug: str, version: int) -> None:
         if pending:
             agent_changes.setdefault(new_slug, []).extend(pending)
 
+        # NEVER clobber the target's lock object. Overwriting it would hand a
+        # writer that already fetched the old object a DIFFERENT lock from the
+        # next caller, which is the lost update the lock exists to prevent. When
+        # the target has one it is the caller's own (it holds it, having taken
+        # ``document_lock(new_slug)``), so the safe answer is to keep it and drop
+        # the old slug's.
+        #
+        # A target that already belonged to another document is refused BEFORE
+        # any of this, by ``has_state`` in the rename path -- where the refusal
+        # can still leave the whole operation a no-op. Merging two documents'
+        # state is not coherent, so it is never attempted here.
         lock = doc_locks.pop(old_slug, None)
-        if lock is not None:
+        if lock is not None and new_slug not in doc_locks:
             doc_locks[new_slug] = lock
 
         doc_versions.pop(old_slug, None)

@@ -39,6 +39,7 @@ from wichy.tools.notes.models import (
     validate_block_data,
 )
 from wichy.tools.notes.state import (
+    has_state,
     clear_doc_version,
     get_doc_lock,
     get_doc_version,
@@ -70,12 +71,83 @@ _NESTED = threading.local()
 _SLUG_ALLOCATION_LOCK = threading.Lock()
 
 
+#: Lock names this PROCESS currently holds, with the thread that holds them.
+#: Re-entrancy is per thread, exactly like a threading.RLock.
+_FILE_LOCKS_HELD: dict[str, int] = {}
+_FILE_LOCKS_GUARD = threading.Lock()
+
+
+@contextmanager
+def _file_lock(name: str) -> Generator[None, None, None]:
+    """Hold an advisory lock file for *name*, good across processes.
+
+    Built on the repo's existing ``FileLock`` primitive. The in-process
+    ``threading`` lock keeps request threads cheap, but it cannot stop a SECOND
+    process on the same notes directory: two processes would each pass their own
+    version check and both write, losing one update, and a rename in one process
+    could clobber a document the other had just created.
+
+    The lock file lives in the notes directory and is named for what it guards,
+    so two processes aimed at the same notes directory contend on the same file.
+
+    Re-entrant PER THREAD. ``locked_document`` holds the document lock across its
+    whole body, and the rename inside that body takes the same document's lock
+    again; the underlying sidecar is created with ``O_EXCL`` and is not
+    re-entrant, so a second acquire from the same thread would block until it
+    timed out. Cross-process exclusion is unaffected: another process has its own,
+    empty, record of what this thread holds.
+    """
+    from wichy.context.file_lock import FileLock
+
+    key = f"{name}:{threading.get_ident()}"
+    with _FILE_LOCKS_GUARD:
+        nested = key in _FILE_LOCKS_HELD
+        if nested:
+            _FILE_LOCKS_HELD[key] += 1
+        else:
+            _FILE_LOCKS_HELD[key] = 1
+    # The guard is NOT held across the yield: it is a plain Lock, so re-acquiring
+    # it in the finally below would deadlock against itself.
+    try:
+        if nested:
+            # Already held by this thread, so the sidecar is ours already.
+            # Re-entering must not create a second one (O_EXCL would block until
+            # it timed out) and must not release it on the way out either.
+            yield
+        else:
+            with FileLock(notes_dir() / f".wichy-{name}").acquire():
+                yield
+    finally:
+        with _FILE_LOCKS_GUARD:
+            _FILE_LOCKS_HELD[key] -= 1
+            if _FILE_LOCKS_HELD[key] <= 0:
+                _FILE_LOCKS_HELD.pop(key, None)
+
+
+@contextmanager
+def document_lock(slug: str) -> Generator[None, None, None]:
+    """One lock per document, in-process AND across processes.
+
+    Always taken BEFORE the per-object work and always in this order
+    (allocation -> document -> target), so two holders can never deadlock. Use
+    this rather than ``get_doc_lock`` for anything that touches the files.
+    """
+    with get_doc_lock(slug), _file_lock(f"doc-{slug}"):
+        yield
+
+
 class DocumentNotFoundError(LookupError):
     """No document exists for the requested slug."""
 
 
-class DocumentExistsError(FileExistsError):
+class DocumentExistsError(FileExistsError, ValueError):
     """A document already exists where a new one was about to be written.
+
+    Also a ``ValueError`` because a rename onto an occupied slug is a conflict
+    with the request's own argument, and callers on that path already answer
+    ``ValueError`` with a clean 4xx. Being a ``FileExistsError`` keeps the
+    distinct type for callers that want it; the ``ValueError`` base exists purely
+    so a rename refusal is never mistaken for an unhandled server fault.
 
     Distinct from a generic ``FileExistsError`` so a caller can answer with a
     conflict rather than a server fault. Raised from inside the document lock,
@@ -442,7 +514,7 @@ def locked_document(
         StaleVersionError: ``expected_version`` does not match.
     """
     require_valid_slug(slug)
-    with get_doc_lock(slug):
+    with document_lock(slug):
         held = getattr(_NESTED, "slugs", None)
         if held is None:
             held = _NESTED.slugs = set()
@@ -613,9 +685,9 @@ def create_document(
     from wichy.tools.notes.revisions import append_entry as append_revision
     from wichy.tools.notes.revisions import baseline_entry
 
-    with _SLUG_ALLOCATION_LOCK:
+    with _SLUG_ALLOCATION_LOCK, _file_lock("slug-allocation"):
         document.meta.slug = make_unique_slug(document.meta.slug)
-        with get_doc_lock(document.meta.slug):
+        with document_lock(document.meta.slug):
             # Same order as locked_document: write the document first, then
             # append. A crash in between must not leave an entry with an id the
             # counter will hand out again.
@@ -942,8 +1014,9 @@ def delete_document_files(slug: str) -> list[str]:
     removed: list[str] = []
     failed: list[str] = []
     # Under the document lock, so a writer that entered before the delete
-    # cannot finish afterwards and re-create the file it just removed.
-    with get_doc_lock(slug):
+    # cannot finish afterwards and re-create the file it just removed -- in this
+    # process or another one against the same notes directory.
+    with document_lock(slug):
         for path in document_files(slug):
             try:
                 path.unlink()
@@ -990,30 +1063,53 @@ def rename_document_files(old_slug: str, new_slug: str) -> None:
     """
     require_valid_slug(old_slug)
     require_valid_slug(new_slug)
-    if slug_exists(new_slug):
-        raise ValueError(f"Slug '{new_slug}' is already in use.")
-
-    sources = document_files(old_slug)
-    if not sources:
-        raise DocumentNotFoundError(f"No note found for slug '{old_slug}'.")
 
     directory = notes_dir()
     version = 0
-    # Held across the move, so a writer that entered under the old slug cannot
-    # complete afterwards and re-create it -- which would leave two live
-    # documents for what is meant to be one.
-    with get_doc_lock(old_slug):
-        try:
-            version = current_version(old_slug)
-        except (DocumentNotFoundError, InvalidDocumentError, MarkdownDocumentError):
-            version = 0
-        for path in sources:
-            suffix = path.name[len(old_slug) :]
-            path.rename(directory / f"{new_slug}{suffix}")
-        # Queued ops, the lock object and the cached version all move with the
-        # document; the browser is polling under the old slug and would never
-        # see operations left behind there.
-        rename_state(old_slug, new_slug, version)
+    # The target-exists check, the source listing and the move all happen under
+    # ONE lock, and the allocation lock is part of it. Checking before locking
+    # was the hole: two renames to the same target, or a rename racing a create,
+    # both passed the old check and then clobbered the target -- os.rename over a
+    # live document is data loss reported as a 200.
+    #
+    # Order is allocation -> old slug -> target slug, the same everywhere a
+    # rename touches files, so two renames crossing in opposite directions
+    # cannot deadlock.
+    with _SLUG_ALLOCATION_LOCK, _file_lock("slug-allocation"):
+        # Both refusals happen HERE, before any document lock is taken and before
+        # any file moves, so a refused rename leaves the operation a no-op rather
+        # than half done. Taking the target's document lock first would create a
+        # lock entry for it and make the state check below fire on itself.
+        if slug_exists(new_slug):
+            raise DocumentExistsError(f"Slug '{new_slug}' is already in use.")
+        if has_state(new_slug) and new_slug != old_slug:
+            # In-memory state that outlives the files: a recent delete, a stale
+            # version cache, an injection mark. Merging two documents' state is
+            # not coherent, so this is refused like a live target.
+            raise DocumentExistsError(
+                f"Slug '{new_slug}' still has state from another document."
+            )
+
+        with document_lock(old_slug), document_lock(new_slug):
+            sources = document_files(old_slug)
+            if not sources:
+                raise DocumentNotFoundError(f"No note found for slug '{old_slug}'.")
+
+            try:
+                version = current_version(old_slug)
+            except (
+                DocumentNotFoundError,
+                InvalidDocumentError,
+                MarkdownDocumentError,
+            ):
+                version = 0
+            for path in sources:
+                suffix = path.name[len(old_slug) :]
+                path.rename(directory / f"{new_slug}{suffix}")
+            # Queued ops, the lock object and the cached version all move with
+            # the document; the browser is polling under the old slug and would
+            # never see operations left behind there.
+            rename_state(old_slug, new_slug, version)
 
 
 def list_documents() -> list[dict[str, Any]]:
