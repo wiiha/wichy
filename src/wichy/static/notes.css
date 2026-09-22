@@ -372,3 +372,101 @@
     align-items: center;
     gap: 6px;
 }
+
+/* ---------------------------------------------------------------------------
+   Dark theme
+
+   shared.css defines a light palette only, so the notes page needs its own dark
+   values for the tokens it uses. Scoped to this stylesheet's consumers: the
+   shared tokens are re-declared here rather than globally, so no other page's
+   appearance changes.
+   --------------------------------------------------------------------------- */
+
+[data-theme="dark"] {
+    --surface: #1b1f2a;
+    --background: #12151d;
+    --background-alt: #1b1f2a;
+    --border: #2e3444;
+    --border-hover: #3d4557;
+    --text: #e6e8ee;
+    --text-muted: #9aa2b1;
+    --text-light: #7b8494;
+    --accent-warning: #e0a33a;
+    --accent-info: #6fb3e8;
+    --surface-warning: #33291a;
+}
+
+/* Editor.js and its plugins inject light-oriented chrome (the gutter button,
+   the settings popover, the inline toolbar) that they do not theme. These
+   overrides are scoped to this page's editor. */
+[data-theme="dark"] .codex-editor__redactor {
+    color: var(--text);
+}
+
+[data-theme="dark"] .ce-toolbar__plus,
+[data-theme="dark"] .ce-toolbar__settings-btn {
+    color: var(--text-muted);
+}
+
+[data-theme="dark"] .ce-toolbar__plus:hover,
+[data-theme="dark"] .ce-toolbar__settings-btn:hover {
+    background-color: var(--background-alt);
+}
+
+[data-theme="dark"] .ce-popover,
+[data-theme="dark"] .ce-inline-toolbar {
+    background-color: var(--surface);
+    border-color: var(--border);
+}
+
+[data-theme="dark"] .ce-popover-item,
+[data-theme="dark"] .cdx-search-field,
+[data-theme="dark"] .ce-popover-item__title {
+    color: var(--text);
+}
+
+[data-theme="dark"] .ce-popover-item:hover {
+    background-color: var(--background-alt);
+}
+
+[data-theme="dark"] .ce-block--selected .ce-block__content,
+[data-theme="dark"] .ce-inline-tool--active {
+    background-color: var(--background-alt);
+}
+
+/* ---------------------------------------------------------------------------
+   Accessibility
+
+   Every state below carries a TEXT cue as well as a colour one, so it is
+   legible in monochrome and to a screen reader.
+   --------------------------------------------------------------------------- */
+
+/* The block editor's focus ring, so keyboard navigation is visible. */
+#block-editor [contenteditable]:focus-visible,
+#block-editor .ce-block--focused {
+    outline: 2px solid var(--accent-info, #1a6fb5);
+    outline-offset: 2px;
+}
+
+/* Status text is announced politely and must meet contrast at small size. */
+.editor-status {
+    min-height: 1.2em;
+}
+
+/* The pinned marker uses a SHAPE as well as a colour, and the row carries the
+   meaning in text for assistive technology. */
+.note-item-star.scratchpad::after {
+    content: " pinned";
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--text-muted, #666);
+}
+
+/* Skip the flash for anyone who asked for reduced motion: the marker still
+   appears, so the information is not lost. */
+@media (prefers-reduced-motion: reduce) {
+    .block-editor .agent-flash {
+        animation: none;
+    }
+}

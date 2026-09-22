@@ -193,12 +193,22 @@
             box.disabled = Boolean(this.readOnly);
             box.addEventListener("change", () => {
                 this.data.checked = box.checked;
+                label.textContent = box.checked ? "[TODO checked]" : "[TODO unchecked]";
                 // Tell the editor something changed, so the save debounce starts.
                 if (typeof this.api?.blocks?.blockDidMutated === "function") {
                     this.api.blocks.blockDidMutated(box);
                 }
             });
-            this.wrapper.insertBefore(box, this.editable);
+
+            // A visible text label, like the question and decision badges. A bare
+            // checkbox conveys "todo" by shape alone, which is not legible in
+            // monochrome and says nothing to a screen reader.
+            const label = document.createElement("span");
+            label.classList.add("cdx-todo__badge");
+            label.textContent = this.data.checked ? "[TODO checked]" : "[TODO unchecked]";
+
+            this.wrapper.insertBefore(label, this.editable);
+            this.wrapper.insertBefore(box, label);
 
             if (this.readOnly) {
                 this.editable.contentEditable = "false";

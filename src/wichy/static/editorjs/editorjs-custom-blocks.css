@@ -18,7 +18,8 @@
 }
 
 .cdx-question__badge,
-.cdx-decision__badge {
+.cdx-decision__badge,
+.cdx-todo__badge {
     flex: 0 0 auto;
     font-size: 11px;
     font-weight: 600;
@@ -38,6 +39,14 @@
 
 .cdx-decision__badge {
     color: var(--accent-info, #1a6fb5);
+}
+
+.cdx-todo__badge {
+    color: var(--text-muted, #6b7280);
+}
+
+[data-theme="dark"] .cdx-todo__badge {
+    color: var(--text-muted, #9aa2b1);
 }
 
 .cdx-question__text,

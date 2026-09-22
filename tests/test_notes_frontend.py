@@ -384,3 +384,90 @@ class TestConvertButtonIsEnabledForMarkdown:
         update_at = body.index("updateConvertButton(document_.format)")
         return_at = body.index('if (document_.format !== "editorjs")')
         assert update_at < return_at, "the button is set after the markdown return"
+
+
+class TestTheming:
+    """The page must honour the shared theme rather than forcing light."""
+
+    def css(self) -> str:
+        return (STATIC / "notes.css").read_text(encoding="utf-8")
+
+    def test_the_page_no_longer_forces_light(self):
+        """`color-scheme: light` alone would pin the page regardless of theme."""
+        source = template()
+        assert 'content="light"' not in source
+
+    def test_it_does_not_suppress_the_theme_script(self):
+        """The base template's FOUC-prevention script must reach this page."""
+        source = template()
+        assert "{% block theme_script %}{% endblock theme_script %}" not in source
+
+    def test_a_dark_palette_exists(self):
+        assert '[data-theme="dark"]' in self.css()
+
+    def test_the_dark_palette_covers_the_tokens_the_page_uses(self):
+        """A token left undefined would fall back to its light value.
+
+        The palette is the `[data-theme="dark"]` block that DECLARES variables,
+        not the first scoped rule that merely uses one.
+        """
+        import re
+
+        match = re.search(r'\[data-theme="dark"\]\s*\{([^}]*)\}', self.css())
+        assert match, "no dark palette block found"
+        palette = match.group(1)
+        for token in ("--surface", "--background", "--border", "--text"):
+            assert token in palette, f"{token} has no dark value"
+
+    def test_the_editor_chrome_is_themed(self):
+        """Editor.js injects light-oriented chrome that it does not theme."""
+        css = self.css()
+        for selector in (".ce-toolbar__plus", ".ce-popover", ".ce-inline-toolbar"):
+            assert f'[data-theme="dark"] {selector}' in css, selector
+
+    def test_braces_remain_balanced(self):
+        assert self.css().count("{") == self.css().count("}")
+
+
+class TestAccessibility:
+    def css(self) -> str:
+        return (STATIC / "notes.css").read_text(encoding="utf-8")
+
+    def test_reduced_motion_disables_the_flash(self):
+        """The mark still appears; only the animation is dropped."""
+        css = self.css()
+        assert "prefers-reduced-motion: reduce" in css
+        block = css[css.index("prefers-reduced-motion: reduce") :]
+        assert "animation: none" in block
+
+    def test_focus_is_visible_in_the_editor(self):
+        """Keyboard navigation must show where focus is."""
+        assert "focus-visible" in self.css()
+
+    def test_the_pinned_marker_has_a_text_cue(self):
+        """Not colour alone: the state is spelled out."""
+        css = self.css()
+        assert "pinned" in css
+        assert 'content: " pinned"' in css
+
+    def test_every_custom_block_has_a_text_label(self):
+        """Their meaning must not depend on their colour."""
+        source = (STATIC / "editorjs/custom-blocks.js").read_text(encoding="utf-8")
+        for label in ("[QUESTION", "[DECISION]", "[TODO "):
+            assert label in source, label
+
+    def test_the_conflict_banner_states_the_conflict_in_words(self):
+        source = template()
+        assert "Agent also edited this block" in source
+
+    def test_the_modal_has_a_labelled_title(self):
+        source = template()
+        assert 'aria-labelledby="convert-modal-title"' in source
+        assert 'id="convert-modal-title"' in source
+
+    def test_the_modal_declares_itself_a_dialog(self):
+        source = template()
+        marker = source[source.index('id="convert-modal"') :]
+        marker = marker[: marker.index(">")]
+        assert 'role="dialog"' in marker
+        assert 'aria-modal="true"' in marker

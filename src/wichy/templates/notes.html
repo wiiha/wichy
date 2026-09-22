@@ -2,11 +2,9 @@
 
 {% block title %}Wichy - Notes{% endblock title %}
 
-{% block color_scheme %}
-<meta name="color-scheme" content="light" />
-{% endblock color_scheme %}
-
-{% block theme_script %}{% endblock theme_script %}
+{# The theme blocks are INHERITED, not suppressed. The base template sets
+   data-theme before any CSS loads, so the page does not flash light before
+   switching, and the shared toggle works here as it does elsewhere. #}
 
 {% block extra_css %}
 <link rel="stylesheet" href="{{ url_for('shared.static', filename='notes.css') }}">
