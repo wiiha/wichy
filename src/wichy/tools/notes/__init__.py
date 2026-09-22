@@ -44,7 +44,16 @@ def register(app):
     # Register the main notes route
     @bp.route("/", methods=["GET"])
     def index():
-        return render_template("notes.html")
+        # The intervals are passed in rather than hardcoded in the script, so a
+        # deployment can change them without editing JavaScript.
+        settings_for_page = {
+            "poll_interval_ms": settings.notes_poll_interval_ms,
+            "change_debounce_ms": settings.notes_change_debounce_ms,
+            "save_debounce_ms": settings.notes_save_debounce_ms,
+            "notification_default_mode": settings.notification_default_mode,
+            "enable_block_editor": settings.notes_enable_block_editor,
+        }
+        return render_template("notes.html", notes_settings=settings_for_page)
 
     # Finally, register the blueprint with the app
     app.register_blueprint(bp)

@@ -12,6 +12,9 @@
 <link rel="stylesheet" href="{{ url_for('shared.static', filename='notes.css') }}">
 <!-- EasyMDE from local static -->
 <link rel="stylesheet" href="{{ url_for('notes.static', filename='easymde.min.css') }}">
+<!-- Block editor: styling for the custom block types only; Editor.js and its
+     plugins inject their own styles at load time. -->
+<link rel="stylesheet" href="{{ url_for('shared.static', filename='editorjs/editorjs-custom-blocks.css') }}">
 {% endblock extra_css %}
 
 {% block body %}
@@ -63,7 +66,12 @@
                             <button id="btn-delete" class="btn btn-danger">Delete</button>
                         </div>
                     </div>
+                    {# The markdown editor and the block editor are separate nodes.
+                       Sharing one container would make each editor fight the
+                       other for the same DOM, so the page swaps between them by
+                       document format and neither can disturb the other. #}
                     <textarea id="note-content"></textarea>
+                    <div id="block-editor" class="block-editor hidden" aria-label="Block editor"></div>
                 </div>
             </main>
         </div>
@@ -73,5 +81,51 @@
 {% block extra_js %}
     <!-- EasyMDE from local static -->
     <script src="{{ url_for('notes.static', filename='easymde.min.js') }}"></script>
+
+    {# Editor.js and its plugins, each guarded individually. A single guard on
+       the core alone would let a missing plugin fail silently at editor init
+       instead of visibly at load, which is much harder to diagnose. The page
+       script checks `window.editorjsReady` and falls back to markdown editing
+       if any asset is absent, so a bad vendor drop degrades rather than
+       breaking the page. #}
+    <script src="{{ url_for('shared.static', filename='editorjs/editorjs.umd.js') }}"></script>
+    <script>
+        window.editorjsMissing = [];
+        function _guard(name) {
+            if (!window[name]) { window.editorjsMissing.push(name); }
+        }
+        _guard('EditorJS');
+    </script>
+    <script src="{{ url_for('shared.static', filename='editorjs/header.umd.js') }}"></script>
+    <script src="{{ url_for('shared.static', filename='editorjs/list.umd.js') }}"></script>
+    <script src="{{ url_for('shared.static', filename='editorjs/code.umd.js') }}"></script>
+    <script src="{{ url_for('shared.static', filename='editorjs/quote.umd.js') }}"></script>
+    <script src="{{ url_for('shared.static', filename='editorjs/checklist.umd.js') }}"></script>
+    <script src="{{ url_for('shared.static', filename='editorjs/delimiter.umd.js') }}"></script>
+    <script>
+        ['Header', 'List', 'CodeTool', 'Quote', 'Checklist', 'Delimiter'].forEach(_guard);
+    </script>
+    <!-- Loaded after the plugins, because it defines the custom block classes. -->
+    <script src="{{ url_for('shared.static', filename='editorjs/custom-blocks.js') }}"></script>
+    <script>
+        _guard('WichyCustomBlocks');
+        window.editorjsReady = window.editorjsMissing.length === 0;
+    </script>
+
+    {# The intervals the frontend uses, so they are settings rather than
+       constants buried in the script. Injected as JSON so a value can never be
+       interpolated as live code. #}
+    <script type="application/json" id="notes-settings">
+        {{ {
+            "poll_interval_ms": notes_settings.poll_interval_ms,
+            "change_debounce_ms": notes_settings.change_debounce_ms,
+            "save_debounce_ms": notes_settings.save_debounce_ms,
+            "notification_mode": notes_settings.notification_default_mode
+        } | tojson }}
+    </script>
+
     <script src="{{ url_for('shared.static', filename='notes.js') }}"></script>
+    {% if notes_settings.enable_block_editor %}
+    <script src="{{ url_for('shared.static', filename='notes_blocks.js') }}"></script>
+    {% endif %}
 {% endblock extra_js %}

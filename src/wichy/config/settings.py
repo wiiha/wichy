@@ -165,6 +165,11 @@ class Settings(BaseSettings):
     # Rotated revision logs kept after rotation (count-based, not age-based)
     notes_revisions_retention: int = 5
 
+    # Serve the block editor in the notes UI. Off leaves the existing markdown
+    # editor as the only editor, which is a working configuration: nothing else
+    # in the notes feature depends on this being on.
+    notes_enable_block_editor: bool = True
+
     # -------------------------------------------------------------------------
     # Loop Detection Configuration
     # -------------------------------------------------------------------------
