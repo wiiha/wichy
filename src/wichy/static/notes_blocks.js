@@ -374,9 +374,9 @@
      * Restart the change-notify debounce.
      *
      * Separate from the save debounce and shorter by default: saving is the
-     * editor's own durability, notifying is what the agent sees, and INV-006 asks
-     * for a documented quiet period so a burst of keystrokes is not one message
-     * each.
+     * editor's own durability, notifying is what the agent sees. The quiet period
+     * exists so a burst of keystrokes is one message, not one message per key;
+     * the interval is configurable and read from the page's settings.
      */
     function scheduleChangeNotify() {
         if (changeTimer) {
