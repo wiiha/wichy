@@ -151,8 +151,14 @@ class AgentCore(ABC):
             None. The wrapped body's return value is unaffected.
         """
         observers = _snapshot_observers()
-        self._notify_turn_observers(observers, index=0)
+        # The start notification is INSIDE the try. Outside it, a BaseException
+        # from a start callback left the end notification un-run, so the turn
+        # count never came back down and "agent is working" stuck true forever.
+        # `_notify_turn_observers` catches `Exception` per callback, so only a
+        # BaseException (KeyboardInterrupt, SystemExit) reaches here -- and it is
+        # exactly the case that has to still close the turn.
         try:
+            self._notify_turn_observers(observers, index=0)
             yield
         finally:
             self._notify_turn_observers(observers, index=1)

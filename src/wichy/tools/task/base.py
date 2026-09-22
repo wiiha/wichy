@@ -339,7 +339,11 @@ class TaskAgent(AgentCore):
                     )
                 )
             )
-            res = self._process()
+            # A sub-agent turn is an agent turn: without a turn_scope here, every
+            # observer that means "any turn" is wrong for exactly the turns that
+            # run while the user is waiting on a delegated task.
+            with self.turn_scope():
+                res = self._process()
             console_task_agents.log(
                 Markdown(
                     "\n\n---\n\n ### Task Agent "

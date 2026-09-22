@@ -25,7 +25,7 @@ from wichy.constants import ROLE_ASSISTANT
 from wichy.context.handler import context_from_file
 from wichy.llm_backend import Message
 from wichy.root_agent.root_agent import RootAgent
-from wichy.tools.notes.busy import install_busy_observer
+from wichy.tools.notes.busy import install_busy_observer, uninstall_busy_observer
 from wichy.tools.notes.state import (
     clear_agent_changes,
     clear_doc_version,
@@ -39,6 +39,8 @@ from wichy.tools.notes.state import (
     peek_agent_changes,
     queue_agent_change,
     rename_document,
+    turn_begun,
+    turn_ended,
     was_injected,
     reset_state,
     set_agent_busy,
@@ -634,3 +636,232 @@ class TestRegistrationInstallsTheObserver:
         # had already run by the time ours did.
         assert seen == [True, False]
         assert is_agent_busy() is False
+
+
+# ---------------------------------------------------------------------------
+# Stage 9: the busy indicator as a count of turns in flight
+# ---------------------------------------------------------------------------
+
+
+class TestBusyReflectsNestedTurns:
+    """Busy must stay on while ANY turn is running.
+
+    The flag was one process-wide Event set at turn start. Turns nest -- a
+    sub-agent runs inside the outer turn -- so whichever finished first cleared
+    it while the other was still working, and the UI went idle mid-turn.
+    """
+
+    def test_a_nested_turn_keeps_the_indicator_on(self):
+        turn_begun()
+        turn_begun()
+        assert is_agent_busy() is True
+        # The inner turn ends. The outer one is still running.
+        turn_ended()
+        assert is_agent_busy() is True, "busy cleared while the outer turn ran"
+        turn_ended()
+        assert is_agent_busy() is False
+
+    def test_three_deep_nesting(self):
+        for _ in range(3):
+            turn_begun()
+        turn_ended()
+        turn_ended()
+        assert is_agent_busy() is True
+        turn_ended()
+        assert is_agent_busy() is False
+
+    def test_an_unmatched_end_does_not_drive_the_count_negative(self):
+        """A missed start must not make several later turns report idle.
+
+        A bare decrement would go to -1, and the next two turns would climb only
+        to 0 and 1 -- so the second of them would already read idle.
+        """
+        turn_ended()
+        turn_ended()
+        turn_begun()
+        assert is_agent_busy() is True, "the count was left negative"
+        turn_ended()
+        assert is_agent_busy() is False
+
+    def test_reset_clears_the_count(self):
+        turn_begun()
+        turn_begun()
+        reset_state()
+        assert is_agent_busy() is False
+        # And a single later turn reads correctly, rather than taking two.
+        turn_begun()
+        assert is_agent_busy() is True
+        turn_ended()
+        assert is_agent_busy() is False
+
+    def test_nested_turns_are_counted_through_the_real_observers(self, tmp_path):
+        """Driven through actual agent turns, not the primitives.
+
+        A sub-agent's turn runs INSIDE the outer turn, which is what makes the
+        count necessary. Both scopes are entered here and the inner one exits
+        first, exactly as nesting does.
+        """
+        clear_turn_observers()
+        install_busy_observer()
+        agent = _StubAgent()
+        sampled = []
+
+        def nested():
+            sampled.append(("outer", is_agent_busy()))
+
+            def inner():
+                sampled.append(("inner", is_agent_busy()))
+
+            agent.run_turn(inner)
+            # The INNER turn has ended. The outer one is still running.
+            sampled.append(("outer-after-inner", is_agent_busy()))
+
+        assert is_agent_busy() is False
+        agent.run_turn(nested)
+        assert is_agent_busy() is False
+
+        assert sampled == [
+            ("outer", True),
+            ("inner", True),
+            ("outer-after-inner", True),
+        ], sampled
+
+
+class TestAStartObserverCannotStickBusy:
+    """A BaseException from a start callback must still close the turn.
+
+    The start notification sat OUTSIDE the try, so an exception escaping the
+    callback loop skipped the end notification: the count leaked and the
+    indicator stayed on for the life of the process.
+    """
+
+    def test_a_raising_start_observer_leaves_busy_consistent(self):
+        clear_turn_observers()
+        install_busy_observer()
+
+        def explode(_agent):
+            raise KeyboardInterrupt("interrupted at turn start")
+
+        # Registered AFTER the busy observer, so the busy callback has already
+        # run when this one blows up.
+        on_turn_started(explode)
+
+        with pytest.raises(KeyboardInterrupt):
+            _StubAgent().run_turn(lambda: None)
+
+        assert is_agent_busy() is False, "busy stuck on after a start failure"
+
+    def test_a_normal_observer_exception_is_still_swallowed(self):
+        """Only BaseException propagates; an Exception must not break the turn."""
+        clear_turn_observers()
+
+        def complain(_agent):
+            raise RuntimeError("observer is broken")
+
+        on_turn_started(complain)
+        # No raise: the turn runs normally.
+        _StubAgent().run_turn(lambda: None)
+
+
+class TestTheObserverCanBeReinstalled:
+    """clear_turn_observers() must not disarm the installer permanently.
+
+    `_installed` was never reset, so after any test or re-setup that cleared the
+    observers, install_busy_observer() returned early and the indicator never
+    worked again in that process.
+    """
+
+    def test_uninstall_then_install_rearms_the_indicator(self, tmp_path):
+        clear_turn_observers()
+        uninstall_busy_observer()
+        install_busy_observer()
+
+        agent = _make_agent(tmp_path)
+        seen = []
+
+        def record_busy(*args, **kwargs):
+            seen.append(is_agent_busy())
+            return _make_response()
+
+        with (
+            patch("wichy.root_agent.root_agent.console.log"),
+            patch("wichy.root_agent.root_agent.user_console.print"),
+            patch("wichy.root_agent.root_agent.call", side_effect=record_busy),
+        ):
+            agent.process("hello")
+
+        assert seen == [True], "the indicator was not re-armed"
+        assert is_agent_busy() is False
+
+    def test_a_plain_clear_disarms_and_uninstall_recovers(self, tmp_path):
+        """`clear_turn_observers()` alone leaves this module believing it is
+        still subscribed, and a later `install` then no-ops.
+
+        That is the documented contract of the pair, and it is why the recovery
+        path exists: `uninstall_busy_observer()` clears AND resets the flag, so
+        the next install really registers. Asserted through a real turn, because
+        the failure is an ABSENT observer -- nothing observable from the
+        primitives alone.
+        """
+        seen = []
+
+        def record_busy(*args, **kwargs):
+            seen.append(is_agent_busy())
+            return _make_response()
+
+        agent = _make_agent(tmp_path)
+
+        # install -> clear -> install: the module still thinks it is installed,
+        # so the second install registers nothing and the turn is invisible.
+        install_busy_observer()
+        clear_turn_observers()
+        install_busy_observer()
+        with (
+            patch("wichy.root_agent.root_agent.console.log"),
+            patch("wichy.root_agent.root_agent.user_console.print"),
+            patch("wichy.root_agent.root_agent.call", side_effect=record_busy),
+        ):
+            agent.process("hello")
+        assert seen == [False], "a plain clear unexpectedly re-armed the observer"
+
+        # The recovery path: uninstall resets the flag, so install re-registers.
+        uninstall_busy_observer()
+        install_busy_observer()
+        seen.clear()
+        with (
+            patch("wichy.root_agent.root_agent.console.log"),
+            patch("wichy.root_agent.root_agent.user_console.print"),
+            patch("wichy.root_agent.root_agent.call", side_effect=record_busy),
+        ):
+            agent.process("hello")
+        assert seen == [True], "uninstall then install did not re-arm the observer"
+        assert is_agent_busy() is False
+
+
+class TestTaskAgentTurnsFireObservers:
+    """A sub-agent turn is an agent turn.
+
+    `turn_scope` was only on RootAgent.process, so a whole class of turns -- the
+    delegated ones the user is waiting on -- was invisible to every observer.
+    """
+
+    def test_task_agent_run_is_wrapped_in_a_turn_scope(self):
+        """Asserted on the source: constructing a real TaskAgent needs a live
+        backend, and the wiring is the thing that was missing."""
+        import inspect
+
+        from wichy.tools.task import base as task_base
+
+        source = inspect.getsource(task_base.TaskAgent.run)
+        assert "self.turn_scope()" in source
+        # Scoped to the processing call, not merely present in the function.
+        assert source.index("self.turn_scope()") < source.index("self._process()")
+
+    def test_the_scope_is_used_as_a_context_manager_not_dropped(self):
+        """A bare call would build the generator and never enter it."""
+        import inspect
+
+        from wichy.tools.task import base as task_base
+
+        source = inspect.getsource(task_base.TaskAgent.run)
+        assert "with self.turn_scope():" in source

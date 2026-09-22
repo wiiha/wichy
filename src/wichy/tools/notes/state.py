@@ -459,17 +459,58 @@ def rename_document(old_slug: str, new_slug: str, version: int) -> None:
 # -------------------------------------------------------------------------
 
 
+#: How many turns are in flight, and the lock that keeps the count honest.
+#:
+#: A single Event cannot describe nesting: agent turns nest (a sub-agent runs
+#: inside the outer turn), and whichever turn ended first cleared the flag while
+#: the other was still running. The count turns "is anything working" into a
+#: question with a correct answer for any depth.
+_busy_lock = threading.Lock()
+_busy_turns = 0
+
+
+def turn_begun() -> None:
+    """Count one agent turn in, and mark the agent busy."""
+    global _busy_turns
+    with _busy_lock:
+        _busy_turns += 1
+        agent_busy.set()
+
+
+def turn_ended() -> None:
+    """Count one agent turn out, clearing busy only when none are left.
+
+    Safe to call for a nested turn: the outer turn is still counted, so the
+    indicator stays on.
+    """
+    global _busy_turns
+    with _busy_lock:
+        # max(0, ...) rather than a bare decrement: an unmatched end (a turn
+        # whose start was missed) must not drive the count negative, which would
+        # take several later turns to climb back to zero and leave the indicator
+        # off while work is happening.
+        _busy_turns = max(0, _busy_turns - 1)
+        if _busy_turns == 0:
+            agent_busy.clear()
+
+
 def set_agent_busy(busy: bool) -> None:
-    """Set or clear the busy indicator.
+    """Set or clear the busy indicator unconditionally.
+
+    For tests and for callers that know the whole picture. Turn observers use
+    :func:`turn_begun` / :func:`turn_ended` instead, which respect nesting.
 
     Args:
         busy: True while an agent turn is in flight, False once the response
             is ready.
     """
-    if busy:
-        agent_busy.set()
-    else:
-        agent_busy.clear()
+    global _busy_turns
+    with _busy_lock:
+        _busy_turns = 1 if busy else 0
+        if busy:
+            agent_busy.set()
+        else:
+            agent_busy.clear()
 
 
 def is_agent_busy() -> bool:
@@ -493,9 +534,12 @@ def reset_state() -> None:
     is meant to survive for the process lifetime, and a restart recovers from
     disk anyway.
     """
+    global _busy_turns
     with _state_lock:
         agent_changes.clear()
         doc_versions.clear()
         doc_locks.clear()
         last_injected.clear()
+    with _busy_lock:
+        _busy_turns = 0
     agent_busy.clear()
