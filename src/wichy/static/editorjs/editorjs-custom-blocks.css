@@ -1,0 +1,109 @@
+/* Styling for the custom block tools.
+ *
+ * Editor.js and its plugins inject their own styles into document.head at load
+ * time; this file covers only the blocks authored here, plus the dark-mode
+ * overrides the plugins do not provide.
+ *
+ * Colours come from the shared design system's custom properties, with literal
+ * fallbacks so the blocks remain legible if the variable is ever missing.
+ */
+
+.cdx-question,
+.cdx-decision,
+.cdx-todo {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 6px 0;
+}
+
+.cdx-question__badge,
+.cdx-decision__badge {
+    flex: 0 0 auto;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    padding: 2px 6px;
+    border-radius: 4px;
+    /* Not colour-only: the text carries the meaning, so the block reads
+       correctly in monochrome and to a screen reader. */
+    border: 1px solid currentColor;
+    white-space: nowrap;
+    margin-top: 2px;
+}
+
+.cdx-question__badge {
+    color: var(--accent-warning, #b26a00);
+}
+
+.cdx-decision__badge {
+    color: var(--accent-info, #1a6fb5);
+}
+
+.cdx-question__text,
+.cdx-decision__text,
+.cdx-todo__text {
+    flex: 1 1 auto;
+    outline: none;
+    min-height: 1.4em;
+}
+
+.cdx-todo__box {
+    flex: 0 0 auto;
+    margin-top: 5px;
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+}
+
+.cdx-todo__box:disabled {
+    cursor: default;
+}
+
+/* A question block is set slightly apart: it is a marker the agent may act on,
+   and the distinction should be visible without relying on colour. */
+.cdx-question {
+    border-left: 3px solid var(--accent-warning, #b26a00);
+    padding-left: 8px;
+}
+
+.cdx-decision {
+    border-left: 3px solid var(--accent-info, #1a6fb5);
+    padding-left: 8px;
+}
+
+/* Dark mode: the plugin blocks use hard-coded light colours, so override the
+   ones that would otherwise be unreadable against a dark background. */
+@media (prefers-color-scheme: dark) {
+    .cdx-question__badge {
+        color: var(--accent-warning-dark, #e0a33a);
+    }
+
+    .cdx-decision__badge {
+        color: var(--accent-info-dark, #6fb3e8);
+    }
+
+    .cdx-question {
+        border-left-color: var(--accent-warning-dark, #e0a33a);
+    }
+
+    .cdx-decision {
+        border-left-color: var(--accent-info-dark, #6fb3e8);
+    }
+}
+
+[data-theme="dark"] .cdx-question__badge {
+    color: var(--accent-warning-dark, #e0a33a);
+}
+
+[data-theme="dark"] .cdx-decision__badge {
+    color: var(--accent-info-dark, #6fb3e8);
+}
+
+[data-theme="dark"] .cdx-question {
+    border-left-color: var(--accent-warning-dark, #e0a33a);
+}
+
+[data-theme="dark"] .cdx-decision {
+    border-left-color: var(--accent-info-dark, #6fb3e8);
+}
