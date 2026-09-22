@@ -1090,3 +1090,192 @@ class TestTheConvertOfAnOpenNote:
         body = body[: body.index("notesList.appendChild(item)")]
         assert "closest('[data-convert-slug]')" in body
         assert body.index("closest('[data-convert-slug]')") < body.index("selectNote(")
+
+
+class TestTheDirtyGuardDoesNotLatch:
+    """An agent edit must not permanently classify its own block as conflicted.
+
+    Writing an agent op into the editor makes Editor.js report those blocks as
+    changed, which added them to the dirty set. The applied content then diffed
+    empty against the refreshed snapshot, so save() returned early and the entries
+    were never cleared. After the FIRST agent edit to a block, every later agent
+    edit to it was routed to the conflict banner instead of being applied.
+    """
+
+    def script(self) -> str:
+        return (STATIC / "notes_blocks.js").read_text(encoding="utf-8")
+
+    def apply_body(self) -> str:
+        source = self.script()
+        body = source[source.index("async function applyAgentChanges") :]
+        return body[: body.index("async function applyOneOp")]
+
+    def test_applied_agent_blocks_are_disarmed(self):
+        body = self.apply_body()
+        assert "dirty.delete(op.block_id)" in body
+
+    def test_the_disarm_happens_after_the_snapshot_is_refreshed(self):
+        """Resyncing afterwards would compare against a stale base."""
+        body = self.apply_body()
+        assert body.index("await resyncSnapshot()") < body.index("dirty.delete(")
+
+    def test_only_applied_ops_are_disarmed(self):
+        """A blocked op is untouched content, so its guard must survive."""
+        body = self.apply_body()
+        clear_loop = body[
+            body.index("for (const op of untouched) {\n            dirty.delete") :
+        ]
+        assert "blocked" not in clear_loop[:200]
+
+    def test_it_reports_which_ops_it_applied(self):
+        """The ack needs the applied set; marking alone is not enough."""
+        body = self.apply_body()
+        assert "return untouched;" in body
+        assert "return [];" in body
+
+    def test_a_blocked_op_still_raises_the_conflict_banner(self):
+        body = self.apply_body()
+        assert "pendingConflicts = blocked;" in body
+        assert "showConflict();" in body
+
+
+class TestKeepMinePersistsTheKeptContent:
+    """Keep mine must write the user's version before it acknowledges.
+
+    The old path acked, then resynced the snapshot with the kept blocks still
+    unsaved. Because the kept content was now recorded as sent, the diff was empty
+    and save() skipped the PUT: the user's kept text was never written anywhere,
+    while the ack told the server the agent's ops had been handled.
+    """
+
+    def script(self) -> str:
+        return (STATIC / "notes_blocks.js").read_text(encoding="utf-8")
+
+    def keep_mine_body(self) -> str:
+        source = self.script()
+        body = source[source.index("async function keepMine") :]
+        return body[: body.index("async function keepTheirs")]
+
+    def test_the_kept_blocks_are_put_to_the_server(self):
+        body = self.keep_mine_body()
+        assert 'method: "PUT"' in body
+        assert "JSON.stringify({ version, blocks })" in body
+
+    def test_the_save_precedes_the_ack(self):
+        """Acking first is exactly the path that lost the content."""
+        body = self.keep_mine_body()
+        assert body.index('method: "PUT"') < body.index("/api/changes/ack")
+
+    def test_the_kept_blocks_are_read_from_the_editor(self):
+        """Resyncing instead of saving would record unsent content as sent."""
+        body = self.keep_mine_body()
+        assert "await currentBlocks()" in body
+
+    def test_a_failed_save_re_raises_the_banner(self):
+        """The conflict is unresolved when the kept content did not land."""
+        body = self.keep_mine_body()
+        retry_failed = body[body.index("if (retry.error)") :]
+        assert "pendingConflicts = conflictOps" in retry_failed
+        assert "showConflict()" in retry_failed
+
+    def test_a_non_conflict_failure_also_keeps_the_banner(self):
+        body = self.keep_mine_body()
+        else_branch = body[body.index("} else {\n                pendingConflicts") :]
+        assert "showConflict()" in else_branch[:200]
+
+    def test_the_conflict_is_captured_before_the_banner_clears(self):
+        body = self.keep_mine_body()
+        assert body.index("const conflictOps = pendingConflicts") < body.index(
+            "pendingConflicts = []"
+        )
+
+    def test_a_stray_click_with_no_conflict_does_nothing(self):
+        body = self.keep_mine_body()
+        assert "!conflictOps.length" in body
+
+
+class TestTheAckOnlyCoversWhatWasApplied:
+    """Conflicted ops must survive the poll that could not apply them.
+
+    poll() acknowledged the response's version unconditionally, right after
+    applyAgentChanges returned -- including the blocked subset that went to the
+    conflict banner. The comment claiming those ops come back on the next poll was
+    false: they were already discarded server-side.
+    """
+
+    def script(self) -> str:
+        return (STATIC / "notes_blocks.js").read_text(encoding="utf-8")
+
+    def poll_body(self) -> str:
+        source = self.script()
+        body = source[source.index("async function poll") :]
+        return body[: body.index("function ackableVersion")]
+
+    def test_the_poll_does_not_ack_the_response_version_blindly(self):
+        body = self.poll_body()
+        assert "up_to_version: body.version" not in body
+
+    def test_the_ack_is_derived_from_the_applied_set(self):
+        body = self.poll_body()
+        assert "ackableVersion(body.changes, applied)" in body
+
+    def test_the_ack_is_skipped_when_there_is_nothing_safe_to_ack(self):
+        """A computed max of zero must not send ``up_to_version: 0``."""
+        body = self.poll_body()
+        assert "if (ackUpTo > 0)" in body
+
+    def test_an_unapplied_op_caps_the_ack_below_its_version(self):
+        source = self.script()
+        body = source[source.index("function ackableVersion") :]
+        body = body[: body.index("/** Open a block document")]
+        assert "appliedIds" in body
+        assert "return lowest - 1;" in body
+
+    def test_an_entirely_applied_batch_acks_its_versions(self):
+        source = self.script()
+        body = source[source.index("function ackableVersion") :]
+        body = body[: body.index("/** Open a block document")]
+        assert "lowest === Infinity" in body
+
+    def test_the_comment_describes_the_implemented_behaviour(self):
+        """The claim that blocked ops re-deliver is only true if they stay queued."""
+        source = self.script()
+        comment = source[source.index("let pendingConflicts = [];") - 400 :]
+        assert "NOT acknowledged" in comment
+
+
+class TestTheConflictedReloadRespectsDirtyBlocks:
+    """The wholesale reload is the one path that could overwrite typing.
+
+    On ``body.conflicted`` the poll called open(slug), which re-fetches and rebuilds
+    the editor with no regard for unsaved local edits.
+    """
+
+    def script(self) -> str:
+        return (STATIC / "notes_blocks.js").read_text(encoding="utf-8")
+
+    def conflicted_branch(self) -> str:
+        source = self.script()
+        body = source[source.index("if (body.conflicted)") :]
+        return body[: body.index("if (body.changes && body.changes.length)")]
+
+    def test_it_asks_before_discarding_unsaved_work(self):
+        branch = self.conflicted_branch()
+        assert "window.confirm" in branch
+        assert "dirty.size" in branch
+        assert "pendingConflicts.length" in branch
+
+    def test_the_confirmation_precedes_the_reload(self):
+        branch = self.conflicted_branch()
+        assert branch.index("window.confirm") < branch.index("await open(slug)")
+
+    def test_declining_does_not_reload(self):
+        branch = self.conflicted_branch()
+        refusal = branch[branch.index("if (!ok)") :]
+        assert "return;" in refusal
+        assert refusal.index("return;") < branch.index("await open(slug)")
+
+    def test_a_clean_document_reloads_without_asking(self):
+        """The question is only worth asking when there is something to lose."""
+        branch = self.conflicted_branch()
+        assert branch.index("if (dirty.size") < branch.index("window.confirm")

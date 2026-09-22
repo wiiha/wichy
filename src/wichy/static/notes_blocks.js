@@ -77,8 +77,9 @@
      * Agent ops for blocks the user is editing, so they were not applied.
      *
      * Held rather than dropped: the banner's [Keep agent's] applies these, and
-     * while the banner is up they have not been acknowledged, so the next poll
-     * returns them again.
+     * while the banner is up they are NOT acknowledged -- the poll acks only the
+     * ops it actually applied, so these stay queued on the server and the next
+     * poll returns them again.
      */
     let pendingConflicts = [];
     /** Guards the one-shot retry after a 409, so a losing write cannot loop. */
@@ -563,7 +564,7 @@
      */
     async function applyAgentChanges(changes) {
         if (!editor || !changes.length) {
-            return;
+            return [];
         }
 
         const untouched = changes.filter(
@@ -586,6 +587,20 @@
         // The re-render moved the DOM, and both the mark and the snapshot are
         // keyed by what is rendered now.
         await resyncSnapshot();
+        // Writing the agent's ops into the editor made it report those blocks as
+        // changed, which armed the dirty guard for content that is now identical
+        // on both sides. The applied content diffs empty against the refreshed
+        // snapshot, so save() returns early and would otherwise never clear
+        // them: after the first agent edit to a block, every later agent edit to
+        // it would be classified as a conflict, forever.
+        //
+        // Resyncing first is what makes this safe. Anything the user typed during
+        // the apply window is still unsaved and still dirty, so it stays
+        // protected; only the blocks whose content the agent just wrote -- and
+        // which are now recorded in the snapshot -- are disarmed.
+        for (const op of untouched) {
+            dirty.delete(op.block_id);
+        }
         await markAgentBlocks();
         if (untouched.length) {
             const distinct = new Set(untouched.map((op) => op.block_id)).size;
@@ -602,6 +617,11 @@
             await markAgentBlocks();
             showConflict();
         }
+        // The ops actually written into the editor. The caller acknowledges this
+        // set and no more: the blocked ones are still queued on the server, which
+        // is what makes the banner's promise (they come back on the next poll)
+        // true.
+        return untouched;
     }
 
     /** Apply one agent op to the editor. Idempotent per op. */
@@ -742,24 +762,65 @@
     /**
      * Resolve the conflict in favour of the local version.
      *
-     * "Keep mine" means the agent's ops for those blocks are dropped and the
-     * document is acknowledged at the current version, so they do not come back
-     * on the next poll. Dropping them locally is not enough on its own: the ops
-     * live on the server until an ack discards them.
+     * "Keep mine" means the user's version of those blocks is what the document
+     * ends up holding, and the agent's queued ops for them are dropped.
+     *
+     * The kept content is SAVED FIRST. Recording it as sent without writing it
+     * was a silent data-loss path: resyncing the snapshot made the kept blocks
+     * diff empty, so save() skipped the PUT entirely and the user's kept text was
+     * never persisted anywhere -- while the ack below told the server the agent's
+     * ops had been handled. The ack now waits until the PUT has actually landed.
      */
     async function keepMine() {
+        const conflictOps = pendingConflicts; // captured before the banner clears
         pendingConflicts = [];
         hideConflict();
-        if (!slug) {
+        if (!slug || !conflictOps.length) {
             return;
         }
+
+        const blocks = await currentBlocks();
+        const result = await fetchJson(`${PREFIX}/api/notes/${slug}`, {
+            method: "PUT",
+            body: JSON.stringify({ version, blocks }),
+        });
+
+        if (result.error) {
+            // Same retry-once shape as save(): adopt the newer version and send
+            // the kept content again on top of it.
+            if (String(result.error).includes("409")) {
+                await refreshVersion();
+                const retry = await fetchJson(`${PREFIX}/api/notes/${slug}`, {
+                    method: "PUT",
+                    body: JSON.stringify({ version, blocks }),
+                });
+                if (retry.error) {
+                    // The kept content is still unsaved, so the conflict is NOT
+                    // resolved: put the banner back rather than reporting success.
+                    pendingConflicts = conflictOps;
+                    showConflict();
+                    setStatus("Could not save your version. The conflict is still open.");
+                    return;
+                }
+                version = retry.version;
+            } else {
+                pendingConflicts = conflictOps;
+                showConflict();
+                setStatus("Could not save your version. The conflict is still open.");
+                return;
+            }
+        } else {
+            version = result.version;
+        }
+
+        dirty = new Set();
+        await resyncSnapshot();
+        // Only now, with the kept content on the server, are the agent's ops for
+        // those blocks discarded.
         await fetchJson(`${PREFIX}/api/changes/ack`, {
             method: "POST",
             body: JSON.stringify({ slug, up_to_version: version }),
         });
-        // The local blocks are what we are keeping, so they are recorded as the
-        // sent state; otherwise the next diff would describe them as new changes.
-        await resyncSnapshot();
         setStatus("Kept your version of the blocks the agent also edited.");
     }
 
@@ -1020,18 +1081,35 @@
 
         if (body.conflicted) {
             // Too many blocks changed for piecemeal application to be safe, so
-            // the whole document is re-fetched instead.
+            // the whole document is re-fetched instead. That rebuild replaces
+            // every block, so it must not run over the top of local edits the
+            // user has not saved: this is the one place the "never overwrite a
+            // block the user is typing in" rule could still be broken.
+            if (dirty.size || pendingConflicts.length) {
+                const ok = window.confirm(
+                    "The agent changed many blocks in this note. Reloading will " +
+                        "discard the edits you have not saved, and any conflict you " +
+                        "have not resolved. Reload?"
+                );
+                if (!ok) {
+                    holdStatus("Reload skipped. Save or resolve your edits first.");
+                    return;
+                }
+            }
             setStatus("Many changes arrived. Reloading the document.");
             await open(slug);
             return;
         }
 
         if (body.changes && body.changes.length) {
-            await applyAgentChanges(body.changes);
-            await fetchJson(`${PREFIX}/api/changes/ack`, {
-                method: "POST",
-                body: JSON.stringify({ slug, up_to_version: body.version }),
-            });
+            const applied = await applyAgentChanges(body.changes);
+            const ackUpTo = ackableVersion(body.changes, applied);
+            if (ackUpTo > 0) {
+                await fetchJson(`${PREFIX}/api/changes/ack`, {
+                    method: "POST",
+                    body: JSON.stringify({ slug, up_to_version: ackUpTo }),
+                });
+            }
             // Adopt the version those ops produced. The agent's write moved the
             // document on, and acknowledging is exactly "I am now based on this
             // version". Without this the client keeps sending the version it
@@ -1055,6 +1133,48 @@
                 setStatus("");
             }
         }
+    }
+
+    /**
+     * The highest version this poll may acknowledge.
+     *
+     * Acknowledging V tells the server the browser has applied everything
+     * produced at or before V, and that is only true for ops actually written
+     * into the editor. Acking the response's version unconditionally was the
+     * defect: the conflicted ops were discarded server-side while the banner
+     * still offered to apply them, so the promise that they come back on the
+     * next poll was false and [Keep agent's] resolved a conflict whose
+     * server-side source no longer existed.
+     *
+     * A queued op's version is the version of the WRITE it came from, so several
+     * ops in one batch can share a version -- including a blocked one alongside
+     * an applied one. Returning the version just BELOW the oldest blocked op is
+     * therefore the strongest statement that is actually true; anything at or
+     * below it was applied, and the blocked ops stay queued. Acking a lower
+     * number never loses an applied op: it only leaves ops to be re-delivered,
+     * and acking the remainder on a later poll is enough, because everything at
+     * or below the ack is already on screen.
+     */
+    function ackableVersion(changes, applied) {
+        const appliedIds = new Set(applied.map((op) => op.block_id));
+        let lowest = Infinity;
+        for (const op of changes) {
+            if (appliedIds.has(op.block_id)) {
+                continue;
+            }
+            const v = typeof op.version === "number" ? op.version : 0;
+            if (v < lowest) {
+                lowest = v;
+            }
+        }
+        if (lowest === Infinity) {
+            // Everything in the batch was applied, so the batch's versions are
+            // safe to acknowledge.
+            return Math.max(
+                ...changes.map((op) => (typeof op.version === "number" ? op.version : 0))
+            );
+        }
+        return lowest - 1;
     }
 
     /** Open a block document, replacing whatever is currently loaded. */
