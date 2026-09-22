@@ -12,6 +12,8 @@
  * Data flow:
  *   open document -> GET /api/notes/<slug>  (format decides which editor shows)
  *   edit          -> debounce -> PUT /api/notes/<slug> with the whole block list
+ *   edit          -> debounce -> POST /api/changes with the DIFF, so the agent
+ *                    is told what changed rather than the whole document
  *   poll          -> GET /api/changes/pending?slug= ... -> apply to clean blocks
  *   done          -> POST /api/changes/ack
  */
@@ -27,7 +29,15 @@
     const SETTINGS = settingsNode ? JSON.parse(settingsNode.textContent) : {};
     const SAVE_DEBOUNCE_MS = SETTINGS.save_debounce_ms || 2000;
     const POLL_INTERVAL_MS = SETTINGS.poll_interval_ms || 2000;
+    const CHANGE_DEBOUNCE_MS = SETTINGS.change_debounce_ms || 1000;
     const PREFIX = "/tools/notes";
+
+    /**
+     * "auto" sends each diff as it settles; anything else queues it locally until
+     * the user presses Send.
+     */
+    const NOTIFICATION_MODE = SETTINGS.notification_mode || "auto";
+    const AUTO_SEND = NOTIFICATION_MODE === "auto";
 
     /** The editor instance, or null when no block document is open. */
     let editor = null;
@@ -39,8 +49,40 @@
     let dirty = new Set();
     /** Blocks the agent has changed, so they are marked rather than silently overwritten. */
     let agentTouched = new Set();
+    /**
+     * The blocks as the agent last saw them, keyed by id, and the version that
+     * snapshot belongs to.
+     *
+     * The diff is taken against this, not against `dirty`. `dirty` cannot
+     * describe an added, removed or moved block -- it only knows which indexes
+     * reported a change -- and an op list needs ids and positions. The snapshot
+     * advances only once the server has accepted the ops, so a rejected send
+     * leaves the change pending instead of losing it.
+     */
+    let sentSnapshot = new Map();
+    /**
+     * Ops computed but not yet sent, per slug.
+     *
+     * In auto mode a failed POST parks them here and the next poll retries, which
+     * is what keeps "no active session" from silently dropping an edit. In
+     * on-demand mode they wait here on purpose until Send.
+     */
+    let pendingOps = new Map();
+    /** The version to send with pendingOps for a given slug. */
+    let pendingVersion = new Map();
+    let changeTimer = null;
     let saveTimer = null;
     let pollTimer = null;
+    /**
+     * Agent ops for blocks the user is editing, so they were not applied.
+     *
+     * Held rather than dropped: the banner's [Keep agent's] applies these, and
+     * while the banner is up they have not been acknowledged, so the next poll
+     * returns them again.
+     */
+    let pendingConflicts = [];
+    /** Guards the one-shot retry after a 409, so a losing write cannot loop. */
+    let conflictRetried = false;
 
     const blocksNode = document.getElementById("block-editor");
     const markdownNode = document.getElementById("note-content");
@@ -107,6 +149,10 @@
             clearTimeout(saveTimer);
             saveTimer = null;
         }
+        if (changeTimer) {
+            clearTimeout(changeTimer);
+            changeTimer = null;
+        }
         if (editor) {
             try {
                 await editor.isReady;
@@ -118,6 +164,8 @@
         }
         dirty = new Set();
         agentTouched = new Set();
+        sentSnapshot = new Map();
+        updateQueueIndicator();
     }
 
     /** Read the editor's current blocks, excluding anything not yet rendered. */
@@ -126,31 +174,167 @@
         return saved.blocks || [];
     }
 
+    /** The comparable content of one block: id, type and data, without meta. */
+    function comparable(block) {
+        return { id: block.id, type: block.type, data: block.data };
+    }
+
+    /**
+     * Describe the change from the sent snapshot to the current blocks.
+     *
+     * Mirrors the server's own diff (removals first, then a left-to-right pass
+     * placing each block, then updates) so the ops the agent is told about match
+     * the ops its own revision log records for the same edit. Removals carry no
+     * index because a removal does not depend on position; every other index is
+     * measured against the FINAL list, which is only well defined once the
+     * removals have been dropped.
+     *
+     * Returns [] when nothing changed, so a no-op flush sends nothing.
+     */
+    function diffAgainstSnapshot(blocks) {
+        const before = Array.from(sentSnapshot.values());
+        const beforeById = new Map(before.map((entry) => [entry.id, entry]));
+        const afterIds = new Set(blocks.map((block) => block.id));
+        const ops = [];
+
+        for (const entry of before) {
+            if (!afterIds.has(entry.id)) {
+                ops.push({
+                    op: "remove",
+                    block_id: entry.id,
+                    block_type: entry.type,
+                });
+            }
+        }
+
+        let working = before
+            .filter((entry) => afterIds.has(entry.id))
+            .map((entry) => entry.id);
+
+        blocks.forEach((block, index) => {
+            const previous = beforeById.get(block.id);
+            if (!previous) {
+                ops.push({
+                    op: "add",
+                    block_id: block.id,
+                    block_type: block.type,
+                    data: block.data,
+                    index: index,
+                });
+                working.splice(index, 0, block.id);
+                return;
+            }
+            if (index < working.length && working[index] !== block.id) {
+                ops.push({ op: "move", block_id: block.id, index: index });
+                working = working.filter((id) => id !== block.id);
+                working.splice(index, 0, block.id);
+            }
+            if (
+                JSON.stringify(previous.data) !== JSON.stringify(block.data) ||
+                previous.type !== block.type
+            ) {
+                ops.push({
+                    op: "update",
+                    block_id: block.id,
+                    block_type: block.type,
+                    data: block.data,
+                    index: index,
+                });
+            }
+        });
+
+        return ops;
+    }
+
+    /** Record the current blocks as what the server now knows about. */
+    async function resyncSnapshot() {
+        if (!editor) {
+            sentSnapshot = new Map();
+            return;
+        }
+        const blocks = await currentBlocks();
+        sentSnapshot = new Map(
+            blocks.filter((block) => block.id).map((block) => [block.id, comparable(block)])
+        );
+    }
+
+    /**
+     * Re-read the document's version after a write we did not make.
+     *
+     * The snapshot is resynced too, and that is the point of doing it here
+     * rather than only reading the version: after a conflict the local content is
+     * the truth we want to keep, so recording it as sent stops the next diff from
+     * describing the user's own existing text as a fresh change.
+     */
+    async function refreshVersion() {
+        if (!slug) {
+            return;
+        }
+        const document_ = await fetchJson(`${PREFIX}/api/notes/${slug}`);
+        if (!document_.error && document_.meta) {
+            version = document_.meta.version;
+        }
+        await resyncSnapshot();
+    }
+
     /**
      * Save the whole block list.
      *
      * A whole-list PUT is what the server expects: the editor owns order and
      * content, and the server merges its own per-block metadata back in by id.
+     *
+     * A save that would change nothing is skipped. The editor reports changes
+     * made by the editor rather than by the user -- including the ones this
+     * script makes when it applies an agent's ops -- so without this check a
+     * delivery of agent changes triggered a PUT of content that was already on
+     * the server, which came back 409 because the version had moved. Comparing
+     * against the last known server state is self-correcting: whatever the
+     * cause of a spurious change event, an unchanged document is never written.
      */
     async function save() {
         if (!editor || !slug) {
             return;
         }
         const blocks = await currentBlocks();
+        if (!diffAgainstSnapshot(blocks).length) {
+            return;
+        }
         const result = await fetchJson(`${PREFIX}/api/notes/${slug}`, {
             method: "PUT",
             body: JSON.stringify({ version, blocks }),
         });
 
         if (result.error) {
+            if (String(result.error).includes("409") && !conflictRetried) {
+                // Someone else wrote first. Adopt their version and re-send the
+                // local content on top of it, so the user's edit is not simply
+                // refused. Retried once only: if it conflicts again the note is
+                // being written continuously, and looping would hammer it while
+                // the user's editor and the other writer fight.
+                conflictRetried = true;
+                try {
+                    await refreshVersion();
+                    const retry = await fetchJson(`${PREFIX}/api/notes/${slug}`, {
+                        method: "PUT",
+                        body: JSON.stringify({ version, blocks }),
+                    });
+                    if (!retry.error) {
+                        version = retry.version;
+                        dirty = new Set();
+                        await resyncSnapshot();
+                        setStatus("");
+                        return;
+                    }
+                } finally {
+                    conflictRetried = false;
+                }
+            }
             setStatus("Could not save. Reload the page to see the current version.");
             return;
         }
         version = result.version;
         dirty = new Set();
-        // The editor may have re-rendered after adding or moving a block, so the
-        // ids the agent mark matches on are refreshed with every save.
-        await stampBlockIds();
+        await resyncSnapshot();
         setStatus("");
     }
 
@@ -163,6 +347,134 @@
             saveTimer = null;
             save();
         }, SAVE_DEBOUNCE_MS);
+    }
+
+    /**
+     * Restart the change-notify debounce.
+     *
+     * Separate from the save debounce and shorter by default: saving is the
+     * editor's own durability, notifying is what the agent sees, and INV-006 asks
+     * for a documented quiet period so a burst of keystrokes is not one message
+     * each.
+     */
+    function scheduleChangeNotify() {
+        if (changeTimer) {
+            clearTimeout(changeTimer);
+        }
+        changeTimer = setTimeout(() => {
+            changeTimer = null;
+            flushChangeNotify();
+        }, CHANGE_DEBOUNCE_MS);
+    }
+
+    /**
+     * Compute the diff and either send it or park it, depending on the mode.
+     *
+     * The save is awaited BEFORE the ops are posted, and the version they carry
+     * is the one the save produced. Posting them with the pre-save version raced
+     * the save: the server checks the version against the document, and whichever
+     * of the two requests arrived second was told its version was stale. The two
+     * are not independent -- the notify describes the very change the save
+     * persists -- so they run in order, save first.
+     *
+     * The ops are computed before the save, because the save resyncs the snapshot
+     * that the diff is taken against.
+     */
+    async function flushChangeNotify() {
+        if (!editor || !slug) {
+            return;
+        }
+        const ops = diffAgainstSnapshot(await currentBlocks());
+        if (!ops.length) {
+            updateQueueIndicator();
+            return;
+        }
+        pendingOps.set(slug, ops);
+        // Persist first, so the version sent with the ops is the one the server
+        // holds once it has the content those ops describe.
+        await save();
+        pendingVersion.set(slug, version);
+        if (AUTO_SEND) {
+            await sendPendingOps(slug);
+        }
+        updateQueueIndicator();
+    }
+
+    /**
+     * POST the parked ops, and advance the snapshot only if the server took them.
+     *
+     * The version sent is the one the ops were computed against, not the current
+     * one: the server checks it against the document, and a mismatch means
+     * something else wrote first, so the diff is no longer against the right base
+     * and must not be recorded as sent.
+     */
+    async function sendPendingOps(targetSlug) {
+        const ops = pendingOps.get(targetSlug);
+        if (!ops || !ops.length) {
+            return false;
+        }
+        if (targetSlug !== slug) {
+            // The user switched documents; the ops stay parked for that slug and
+            // are sent when it is reopened.
+            return false;
+        }
+        const result = await fetchJson(`${PREFIX}/api/changes`, {
+            method: "POST",
+            body: JSON.stringify({
+                slug: targetSlug,
+                version: pendingVersion.get(targetSlug),
+                ops: ops.map((entry) => ({ ...entry, author: "user" })),
+            }),
+        });
+        if (result.error) {
+            if (result.error === "HTTP 409") {
+                // The document moved on since these ops were computed, so they
+                // describe a base the server no longer has. Retrying the same
+                // version would 409 forever, so the ops are dropped and the
+                // version is refreshed; the next edit diffs cleanly against the
+                // current state. The local content is still in the editor, so
+                // nothing the user typed is lost -- only this notification is.
+                pendingOps.delete(targetSlug);
+                pendingVersion.delete(targetSlug);
+                await refreshVersion();
+                setStatus("The note changed elsewhere. Your next edit will be sent.");
+                updateQueueIndicator();
+                return false;
+            }
+            // 503 (no session) and anything else transient: keep the ops and let
+            // the next poll retry. Dropping them here is how an edit goes missing.
+            if (result.error === "HTTP 503") {
+                setStatus("Edits queued for next turn.");
+            }
+            updateQueueIndicator();
+            return false;
+        }
+        pendingOps.delete(targetSlug);
+        pendingVersion.delete(targetSlug);
+        await resyncSnapshot();
+        updateQueueIndicator();
+        return true;
+    }
+
+    /**
+     * Show or hide the "Send to Agent" control and its count.
+     *
+     * Hidden when there is nothing unsent, so an empty queue is never offered:
+     * sending an empty op list would inject a change message describing nothing.
+     */
+    function updateQueueIndicator() {
+        const button = document.getElementById("send-changes");
+        const count = document.getElementById("queued-count");
+        if (!button) {
+            return;
+        }
+        const ops = slug ? pendingOps.get(slug) || [] : [];
+        const distinct = new Set(ops.map((entry) => entry.block_id)).size;
+        button.classList.toggle("hidden", distinct === 0);
+        if (count) {
+            count.textContent = String(distinct);
+        }
+        button.disabled = distinct === 0;
     }
 
     /** The id at a given editor index, or null when the index is out of range. */
@@ -193,10 +505,20 @@
             }
         }
         scheduleSave();
+        scheduleChangeNotify();
     }
 
-    /** Apply queued agent changes to blocks the user has not touched. */
-    function applyAgentChanges(changes) {
+    /**
+     * Apply queued agent changes to blocks the user has not touched.
+     *
+     * Applying means WRITING the change into the editor, not just marking it.
+     * Marking alone left the browser showing the old text while the server held
+     * the new: the user saw a purple border on content that did not match what
+     * the agent had actually written. Each op also refreshes the sent snapshot,
+     * so the agent's own change is not then diffed back as if the user had made
+     * it -- that would bounce the agent's edit straight back to it as a user edit.
+     */
+    async function applyAgentChanges(changes) {
         if (!editor || !changes.length) {
             return;
         }
@@ -209,33 +531,89 @@
         );
 
         for (const op of untouched) {
+            await applyOneOp(op);
             agentTouched.add(op.block_id);
         }
-        markAgentBlocks();
+        // The re-render moved the DOM, and both the mark and the snapshot are
+        // keyed by what is rendered now.
+        await resyncSnapshot();
+        await markAgentBlocks();
         if (untouched.length) {
-            setStatus(`Agent updated ${untouched.length} block(s).`);
+            const distinct = new Set(untouched.map((op) => op.block_id)).size;
+            setStatus(`Agent updated ${distinct} block(s).`);
         }
         if (blocked.length) {
             // Those blocks are being edited here, so applying the agent's
             // version would discard the user's work. The banner states the
             // conflict and leaves the choice to them.
+            pendingConflicts = blocked;
             showConflict();
+        }
+    }
+
+    /** Apply one agent op to the editor. Idempotent per op. */
+    async function applyOneOp(op) {
+        const id = op.block_id;
+        try {
+            if (op.op === "remove") {
+                if (editor.blocks.getBlockIndex(id) !== undefined) {
+                    editor.blocks.delete(editor.blocks.getBlockIndex(id));
+                }
+            } else if (op.op === "add") {
+                const index =
+                    typeof op.index === "number" ? op.index : undefined;
+                editor.blocks.insert(
+                    op.block_type,
+                    op.data || {},
+                    {},
+                    index,
+                    false,
+                    false,
+                    // The agent's own id is reused, so a later op for the same
+                    // block still resolves and the mark still matches.
+                    id
+                );
+            } else if (op.op === "update") {
+                if (editor.blocks.getBlockIndex(id) !== undefined) {
+                    await editor.blocks.update(id, op.data || {});
+                }
+            } else if (op.op === "move") {
+                const from = editor.blocks.getBlockIndex(id);
+                if (from !== undefined && typeof op.index === "number") {
+                    editor.blocks.move(op.index, from);
+                }
+            }
+        } catch (e) {
+            // One op that the editor refuses must not abort the rest of the
+            // batch, or a single stale id would leave the document half-updated.
+            setStatus("Some agent changes could not be applied. Reload the document.");
         }
     }
 
     /**
      * Mark the blocks the agent changed, and briefly flash them.
      *
-     * The mark is applied to the rendered block by matching its data id, not by
-     * index: indices shift as blocks are added or removed, so an index-based
-     * mark would land on the wrong block after any edit.
+     * The id for each rendered block comes from the editor's own block list, not
+     * from an attribute written onto the DOM. That is deliberate: Editor.js
+     * watches the redactor for attribute mutations and reports any it does not
+     * recognise as a user edit, so writing `data-block-id` here fired onChange,
+     * which scheduled a save, which re-stamped -- a PUT loop that ran forever
+     * with no user input, bumping the version and appending a "No changes"
+     * revision on every pass. Reading the ids instead of writing them removes
+     * the feedback loop at its source.
+     *
+     * The index-to-id pairing is sound for the same reason the old stamp was:
+     * within one render pass the editor's block list is in the same order as the
+     * rendered `.ce-block` elements.
      */
-    function markAgentBlocks() {
+    async function markAgentBlocks() {
         if (!blocksNode) {
             return;
         }
-        blocksNode.querySelectorAll(".ce-block").forEach((element) => {
-            const id = element.querySelector("[data-block-id]")?.dataset.blockId;
+        const blocks = editor ? await currentBlocks() : [];
+        blocksNode.querySelectorAll(".ce-block").forEach((element, index) => {
+            const block = blocks[index];
+            const id = block && block.id ? block.id : null;
             if (id && agentTouched.has(id)) {
                 element.classList.add("agent-touched");
                 // The flash is a separate class so the mark survives its end.
@@ -256,11 +634,19 @@
         }
     }
 
-    /** One poll: hand back what the agent changed, then acknowledge it. */
+    /** One poll: retry unsent ops, hand back what the agent changed, then ack it. */
     async function poll() {
         if (!slug) {
             return;
         }
+        // Retry anything still parked, in both modes: in auto mode this is the
+        // retry after a 503, and in on-demand mode it is a no-op because the ops
+        // are waiting for the user, not for the network. The queue is only sent
+        // on demand there, so sendPendingOps is not called for it.
+        if (AUTO_SEND && (pendingOps.get(slug) || []).length) {
+            await sendPendingOps(slug);
+        }
+
         const body = await fetchJson(
             `${PREFIX}/api/changes/pending?slug=${encodeURIComponent(slug)}`
         );
@@ -277,12 +663,19 @@
         }
 
         if (body.changes && body.changes.length) {
-            applyAgentChanges(body.changes);
+            await applyAgentChanges(body.changes);
             await fetchJson(`${PREFIX}/api/changes/ack`, {
                 method: "POST",
                 body: JSON.stringify({ slug, up_to_version: body.version }),
             });
+            // Adopt the version those ops produced. The agent's write moved the
+            // document on, and acknowledging is exactly "I am now based on this
+            // version". Without this the client keeps sending the version it
+            // loaded, and every later save and notify is rejected as stale --
+            // the user's next edit could never be persisted at all.
+            version = body.version;
         }
+        updateQueueIndicator();
         setStatus(body.agent_busy ? "Agent is working..." : "");
     }
 
@@ -315,29 +708,17 @@
             onChange: onChange,
         });
         await editor.isReady;
-        await stampBlockIds();
-    }
-
-    /**
-     * Write each block's id into the DOM.
-     *
-     * Editor.js has no attribute for it, and the agent-change mark has to match
-     * a rendered block to its op. Re-run after every save, because the editor
-     * re-renders blocks that were added or moved.
-     */
-    async function stampBlockIds() {
-        if (!editor || !blocksNode) {
-            return;
-        }
-        const blocks = await currentBlocks();
-        const rendered = blocksNode.querySelectorAll(".ce-block");
-        rendered.forEach((element, index) => {
-            const block = blocks[index];
-            const target = element.querySelector("[contenteditable]") || element;
-            if (block && block.id) {
-                target.dataset.blockId = block.id;
-            }
-        });
+        // What the server now knows about, taken from the document just loaded
+        // rather than from the editor: a save round-trip would rewrite the
+        // document before the user changed anything.
+        sentSnapshot = new Map(
+            document_.blocks
+                .filter((block) => block.id)
+                .map((block) => [block.id, comparable(block)])
+        );
+        // Any ops left parked from a previous visit to this document are still
+        // unsent, so the control reappears with its count.
+        updateQueueIndicator();
     }
 
     /**
@@ -375,6 +756,21 @@
                 return;
             }
             const action = button.dataset.action;
+            if (action === "send-changes") {
+                if (slug) {
+                    await sendPendingOps(slug);
+                }
+                return;
+            }
+            if (action === "clear-changes") {
+                if (slug) {
+                    pendingOps.delete(slug);
+                    pendingVersion.delete(slug);
+                    updateQueueIndicator();
+                    setStatus("Queued changes cleared.");
+                }
+                return;
+            }
             if (!slug) {
                 return;
             }

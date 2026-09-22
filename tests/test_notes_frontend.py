@@ -497,23 +497,160 @@ class TestAgentChangeVisualization:
         source = self.script()
         body = source[source.index("function markAgentBlocks()") :]
         body = body[: body.index("function showConflict")]
-        assert "dataset.blockId" in body
         assert "agentTouched.has(id)" in body
 
-    def test_each_rendered_block_carries_its_id(self):
-        """The mark has nothing to match on without it."""
-        source = self.script()
-        assert "function stampBlockIds()" in source
-        assert "dataset.blockId = block.id" in source
+    def test_the_mark_reads_ids_without_writing_to_the_block_dom(self):
+        """The ids come from the editor, never from an attribute we wrote.
 
-    def test_ids_are_restamped_after_a_save(self):
-        """The editor re-renders blocks that were added or moved."""
+        Writing `data-block-id` onto the rendered block made Editor.js report the
+        write back as a user edit, so onChange scheduled a save, whose re-stamp
+        fired onChange again: the page PUT the document once per debounce interval
+        forever with no user input. Read-only id lookup is what removes that loop.
+        """
+        source = self.script()
+        assert "stampBlockIds" not in source
+        assert "dataset.blockId = " not in source
+        body = source[source.index("function markAgentBlocks()") :]
+        body = body[: body.index("function showConflict")]
+        assert "blocks[index]" in body
+
+    def test_a_save_that_would_change_nothing_is_skipped(self):
+        """The editor reports its own DOM writes as changes, so idle must be free.
+
+        Without this guard the page saved in a loop and the version ran away.
+        """
         source = self.script()
         save_body = source[source.index("async function save()") :]
         save_body = save_body[: save_body.index("function scheduleSave")]
-        assert "stampBlockIds()" in save_body
+        assert "diffAgainstSnapshot(blocks).length" in save_body
 
     def test_the_mark_carries_a_tooltip(self):
         """A border alone does not say what happened."""
         source = self.script()
         assert "Changed by the agent" in source
+
+
+class TestTheBrowserSendsTheUserChanges:
+    """The browser -> agent direction exists at all.
+
+    This is the guard that was missing. Every other guard in this file passed
+    while the page sent nothing: they asserted the shape of code that ran, and
+    none asserted that the one network call the whole feature depends on is
+    actually made. A shape guard cannot see an absent call, so the assertions
+    here are deliberately about the call and its payload.
+    """
+
+    def script(self) -> str:
+        """The block editor source."""
+        return (STATIC / "notes_blocks.js").read_text(encoding="utf-8")
+
+    def test_the_script_posts_to_the_changes_endpoint(self):
+        source = self.script()
+        body = source[source.index("async function sendPendingOps") :]
+        body = body[: body.index("function updateQueueIndicator")]
+        assert 'method: "POST"' in body
+        assert "/api/changes" in body
+
+    def test_the_ops_it_sends_are_authored_by_the_user(self):
+        """A missing author is not evidence of a user, and the server drops it."""
+        source = self.script()
+        assert 'author: "user"' in source
+
+    def test_the_payload_carries_the_version_the_op_was_computed_against(self):
+        """The server checks it, and a wrong version is a 409."""
+        source = self.script()
+        body = source[source.index("async function sendPendingOps") :]
+        body = body[: body.index("function updateQueueIndicator")]
+        # The exact expression, not merely the name: `version` alone also appears
+        # in the body, so a looser assertion passes when the wrong one is sent.
+        assert "version: pendingVersion.get(targetSlug)," in body
+
+    def test_the_parked_version_is_the_one_the_save_produced(self):
+        """Recording the pre-save version raced the save and 409'd the notify."""
+        source = self.script()
+        body = source[source.index("async function flushChangeNotify") :]
+        body = body[: body.index("async function sendPendingOps")]
+        assert body.index("await save()") < body.index(
+            "pendingVersion.set(slug, version)"
+        )
+
+    def test_the_diff_is_taken_against_a_snapshot_not_the_dirty_set(self):
+        """The dirty set holds indexes; ops need ids, adds, removes and order."""
+        source = self.script()
+        assert "function diffAgainstSnapshot" in source
+        assert "sentSnapshot" in source
+        body = source[source.index("function diffAgainstSnapshot") :]
+        body = body[: body.index("async function resyncSnapshot")]
+        assert '"remove"' in body
+        assert '"add"' in body
+        assert '"move"' in body
+        assert '"update"' in body
+
+    def test_the_snapshot_advances_only_after_the_error_branches(self):
+        """Advancing it on a failed POST would lose the change silently."""
+        source = self.script()
+        body = source[source.index("async function sendPendingOps") :]
+        body = body[: body.index("function updateQueueIndicator")]
+        # The error branch must RETURN, so the resync below it is unreachable
+        # when the POST failed. Asserting only that a resync exists somewhere
+        # passes even when it runs before the failure is handled.
+        error_branch = body[body.index("if (result.error)") :]
+        assert "return false;" in error_branch
+        assert error_branch.index("return false;") < body.index("resyncSnapshot")
+
+    def test_a_503_keeps_the_ops_for_the_next_poll(self):
+        """No active session is transient; dropping the ops loses the edit."""
+        source = self.script()
+        body = source[source.index("async function sendPendingOps") :]
+        body = body[: body.index("function updateQueueIndicator")]
+        error_branch = body[body.index("if (result.error)") :]
+        assert "HTTP 503" in error_branch
+        assert "pendingOps.delete" not in error_branch[: error_branch.index("HTTP 409")]
+
+    def test_the_send_control_is_hidden_when_nothing_is_queued(self):
+        """An empty send would inject a message describing no change."""
+        source = self.script()
+        body = source[source.index("function updateQueueIndicator") :]
+        body = body[: body.index("async function idAt")]
+        assert 'button.classList.toggle("hidden", distinct === 0);' in body
+        assert "button.disabled = distinct === 0;" in body
+
+    def test_the_notify_runs_after_the_save(self):
+        """Posting before the save raced it and every notify came back 409."""
+        source = self.script()
+        body = source[source.index("async function flushChangeNotify") :]
+        body = body[: body.index("async function sendPendingOps")]
+        assert body.index("await save()") < body.index("sendPendingOps(slug)")
+
+    def test_the_client_adopts_the_version_the_agent_change_produced(self):
+        """Otherwise every later save and notify is stale forever."""
+        source = self.script()
+        body = source[source.index("async function poll") :]
+        body = body[: body.index("async function open")]
+        assert "version = body.version" in body
+
+    def test_an_agent_op_is_written_into_the_editor_not_just_marked(self):
+        """Marking alone shows a border on content the agent never changed."""
+        source = self.script()
+        assert "async function applyOneOp" in source
+        body = source[source.index("async function applyOneOp") :]
+        body = body[: body.index("function showConflict")]
+        assert "blocks.update" in body
+        assert "blocks.insert" in body
+        assert "blocks.delete" in body
+        assert "blocks.move" in body
+
+    def test_on_demand_mode_does_not_send_without_the_user(self):
+        source = self.script()
+        assert 'const AUTO_SEND = NOTIFICATION_MODE === "auto";' in source
+        body = source[source.index("async function flushChangeNotify") :]
+        body = body[: body.index("async function sendPendingOps")]
+        assert "if (AUTO_SEND) {" in body
+        assert "await sendPendingOps(slug);" in body
+
+    def test_the_mode_and_debounce_come_from_the_injected_settings(self):
+        """The settings were injected and never read; that is what made them dead."""
+        source = self.script()
+        assert "SETTINGS.change_debounce_ms" in source
+        assert "SETTINGS.notification_mode" in source
+        assert "CHANGE_DEBOUNCE_MS" in source

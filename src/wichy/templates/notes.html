@@ -37,6 +37,18 @@
             <button class="btn btn-secondary" data-action="convert" disabled>Convert to blocks</button>
             <button class="btn btn-secondary" data-action="pin" disabled>Pin as Scratchpad</button>
             <button class="btn btn-danger" data-action="delete" disabled>Delete</button>
+            {# Hidden until there is something unsent, so the control is never
+               offered empty: sending an empty op list would inject a change
+               message describing nothing. In auto mode it appears only while a
+               send is failing and the ops are parked. #}
+            <button class="btn btn-secondary hidden" data-action="send-changes"
+                    title="Changes queued. Send a chat message to start the agent.">
+                Queue Changes for Agent (<span id="queued-count">0</span>)
+            </button>
+            <button class="btn btn-secondary hidden" data-action="clear-changes"
+                    title="Discard the changes queued for the agent.">
+                Clear queued changes
+            </button>
             <span id="editor-status" class="editor-status" role="status" aria-live="polite"></span>
         </div>
 
