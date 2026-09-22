@@ -41,6 +41,7 @@ from wichy.tools.notes.state import (
     clear_doc_version,
     get_doc_lock,
     get_doc_version,
+    queue_agent_change,
     rename_document as rename_state,
     set_doc_version,
 )
@@ -470,10 +471,11 @@ def locked_document(
             # mutation is one version bump is one revision" holds by
             # construction. Diffed inside the lock, and one body cannot record
             # two entries.
+            ops = [*extra_ops, *diff_ops(before, block_snapshot_of(document))]
             entry = prepare_revision(
                 document,
                 author=author,
-                ops=[*extra_ops, *diff_ops(before, block_snapshot_of(document))],
+                ops=ops,
                 summary=summary,
             )
             if on_commit is not None:
@@ -481,6 +483,21 @@ def locked_document(
                 # the same atomic write as the version bump. A raise here aborts
                 # without writing, and without appending the entry either.
                 on_commit(document, entry)
+
+            if author == "agent":
+                # Queue the browser notification from the SAME ops the revision
+                # records, so the two can never disagree about what changed.
+                #
+                # A user-authored write is deliberately NOT queued: the browser is
+                # the author, and telling it about its own edit would make it
+                # reapply what it just typed. A revert is authored "system" and is
+                # not queued either -- the browser asked for it.
+                #
+                # Deferred to after the write, below, because the slug and the
+                # version are both only final once the body has run: a rename
+                # inside the body moves the document, and queueing under the old
+                # slug would leave the ops against a name that no longer exists.
+                queued_ops = entry.get("ops", ())
 
             # Order matters. The document (carrying the advanced counter) is
             # written FIRST, then the entry is appended. A crash in between then
@@ -500,6 +517,17 @@ def locked_document(
                 # The old slug no longer names a document, so a cached version for
                 # it would satisfy a stale check against something that is gone.
                 clear_doc_version(slug)
+
+            if author == "agent":
+                # Queued AFTER the write, so the browser is never told about a
+                # change that did not reach disk. Under the final slug, and with
+                # the version this write produced, so the ops match the document
+                # the browser will poll for.
+                for op in queued_ops:
+                    queue_agent_change(
+                        final_slug,
+                        {**op, "author": "agent", "version": document.meta.version},
+                    )
         finally:
             held.discard(slug)
 

@@ -27,6 +27,8 @@ from wichy.config import settings
 from wichy.tools.notes import api
 from wichy.tools.notes.blocks import (
     create_document,
+    delete_block,
+    insert_block,
     load_document,
     locked_document,
     replace_block,
@@ -35,6 +37,8 @@ from wichy.tools.notes.blocks import (
 from wichy.tools.notes.state import (
     count_distinct_blocks,
     collapse_by_block,
+    discard_stale_changes,
+    peek_agent_changes,
     queue_agent_change,
     reset_state,
     set_agent_busy,
@@ -997,3 +1001,157 @@ class TestAckUnknownDocument:
             f"{PREFIX}/api/changes/ack", json={"slug": "nope", "up_to_version": 1}
         )
         assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# The agent's ops are PRODUCED by the write path
+# ---------------------------------------------------------------------------
+
+
+class TestAgentWritesQueueTheirOwnOps:
+    """An agent write tells the browser what changed, without anyone asking it to.
+
+    The ops are taken from the same revision entry the write records, so the
+    browser's view and the log cannot disagree. Driven through a real
+    ``locked_document``/tool call rather than by calling ``queue_agent_change``
+    directly: a test that supplies its own ops passes whether or not the
+    production path exists, which is how this gap survived the first eleven
+    stages.
+    """
+
+    def test_an_agent_edit_queues_an_op_carrying_its_version(self, notes_dir, doc):
+        slug, ids = doc
+        with locked_document(slug, None, author="agent") as document:
+            replace_block(
+                document,
+                ids[0],
+                data={"text": "changed by the agent"},
+                author="agent",
+                block_type="paragraph",
+            )
+            expected_version = document.meta.version + 1
+
+        queued = peek_agent_changes(slug)
+        assert len(queued) == 1
+        assert queued[0]["op"] == "update"
+        assert queued[0]["block_id"] == ids[0]
+        assert queued[0]["author"] == "agent"
+        assert queued[0]["version"] == expected_version
+        assert queued[0]["data"] == {"text": "changed by the agent"}
+
+    def test_it_queues_one_op_per_changed_block(self, notes_dir, doc):
+        slug, ids = doc
+        with locked_document(slug, None, author="agent") as document:
+            for block_id in ids:
+                replace_block(
+                    document,
+                    block_id,
+                    data={"text": "touched"},
+                    author="agent",
+                    block_type="paragraph",
+                )
+
+        queued = peek_agent_changes(slug)
+        assert {entry["block_id"] for entry in queued} == set(ids)
+        assert len(queued) == len(ids)
+        # One write is one version, so every op names that same version.
+        assert len({entry["version"] for entry in queued}) == 1
+
+    def test_an_add_and_a_remove_are_queued_as_such(self, notes_dir, doc):
+        slug, ids = doc
+        with locked_document(slug, None, author="agent") as document:
+            delete_block(document, ids[0])
+            insert_block(
+                document,
+                block_type="header",
+                data={"text": "new", "level": 2},
+                author="agent",
+            )
+
+        kinds = {entry["op"] for entry in peek_agent_changes(slug)}
+        assert kinds == {"add", "remove"}
+
+    def test_a_no_op_agent_write_queues_nothing(self, notes_dir, doc):
+        slug, _ids = doc
+        with locked_document(slug, None, author="agent"):
+            pass
+
+        assert peek_agent_changes(slug) == []
+
+    def test_a_user_write_never_queues(self, notes_dir, doc):
+        """The browser is the author of a user write; it must not be told about it.
+
+        Queueing it would send the browser an op describing the edit it just
+        made, and applying that op would fight whatever the user types next.
+        """
+        slug, ids = doc
+        with locked_document(slug, None, author="user") as document:
+            replace_block(
+                document,
+                ids[0],
+                data={"text": "changed by the user"},
+                author="user",
+                block_type="paragraph",
+            )
+
+        assert peek_agent_changes(slug) == []
+
+    def test_the_queue_is_what_the_browser_polls(self, notes_dir, doc):
+        """The queued ops reach the browser through the pending route."""
+        slug, ids = doc
+        with locked_document(slug, None, author="agent") as document:
+            replace_block(
+                document,
+                ids[1],
+                data={"text": "for the browser"},
+                author="agent",
+                block_type="paragraph",
+            )
+
+        reported = peek_agent_changes(slug)
+        assert reported, "the write must have queued something to poll for"
+        assert reported[0]["data"] == {"text": "for the browser"}
+
+    def test_a_rename_queues_under_the_new_slug(self, notes_dir, doc):
+        """Ops must follow the document, like the revision log does.
+
+        Queueing under the pre-rename slug would leave the ops against a name
+        that no longer resolves, so the browser would poll forever and never be
+        told.
+        """
+        slug, ids = doc
+        with locked_document(slug, None, author="agent") as document:
+            document.meta.title = "Renamed By Agent"
+            document.meta.slug = "renamed-by-agent"
+            replace_block(
+                document,
+                ids[0],
+                data={"text": "after rename"},
+                author="agent",
+                block_type="paragraph",
+            )
+
+        assert peek_agent_changes(slug) == []
+        queued = peek_agent_changes("renamed-by-agent")
+        assert len(queued) == 1
+        assert queued[0]["block_id"] == ids[0]
+
+    def test_an_ack_at_the_queued_version_discards_the_ops(self, notes_dir, doc):
+        """Acking what was applied is what clears them, and only that version does."""
+        slug, ids = doc
+        with locked_document(slug, None, author="agent") as document:
+            replace_block(
+                document,
+                ids[0],
+                data={"text": "x"},
+                author="agent",
+                block_type="paragraph",
+            )
+        queued = peek_agent_changes(slug)
+        produced = queued[0]["version"]
+
+        discard_stale_changes(slug, produced - 1)
+        assert peek_agent_changes(slug), "an older ack must not discard newer ops"
+
+        discard_stale_changes(slug, produced)
+        assert peek_agent_changes(slug) == []
