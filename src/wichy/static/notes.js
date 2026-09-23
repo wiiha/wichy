@@ -498,6 +498,14 @@
                 status: false,
             });
 
+            // The block editor decides which editor is visible, and it decided
+            // while the old EasyMDE DOM was still standing: the announce fired
+            // at selectNote entry, before this constructor built the container
+            // it was supposed to hide. Restate this note's format so the fresh
+            // container lands hidden when a block document is open -- otherwise
+            // both editors show, stacked.
+            noteContent.classList.toggle('hidden', !isMarkdownNote);
+
             // A markdown note is read-only here: writing one would create a
             // .json beside the .md, so the server refuses it. The notice points
             // at conversion, which is the supported edit path.

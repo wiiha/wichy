@@ -1799,6 +1799,19 @@ class TestTheBlockEditorHidesTheMarkdownEditor:
         body = self.show_body()
         assert "if (isContainer)" in body
 
+    def test_rebuilding_easyMDE_restates_the_format(self):
+        """The constructor runs AFTER the visibility was decided.
+
+        selectNote announces the note (which hides the textarea) and then builds
+        a fresh EasyMDE container; without restating `hidden`, the new container
+        shows beneath the block editor.
+        """
+        source = (STATIC / "notes.js").read_text(encoding="utf-8")
+        constructor_at = source.index("new EasyMDE(")
+        window_end = source.index("showConvertHint(isMarkdownNote);", constructor_at)
+        after = source[constructor_at:window_end]
+        assert "classList.toggle('hidden', !isMarkdownNote)" in after
+
 
 class TestTheTitleSaveCarriesTheVersion:
     """The markdown page's save path was still markdown-era.
