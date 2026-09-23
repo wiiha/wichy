@@ -17,7 +17,25 @@
     let pollTimer = null;
     /** True while the open note is a legacy markdown file, where saving is refused. */
     let isMarkdownNote = false;
-
+    /**
+     * The server version this page last read or wrote, sent with every save.
+     *
+     * The PUT route rejects a body without `version`, and it refuses a stale
+     * one with a 409. Captured when a note is opened and adopted from each
+     * save response, then announced to the block editor -- which holds the
+     * version it fetched on open, and would otherwise send that against a
+     * document this save has already moved.
+     */
+    let knownVersion = 0;
+    /**
+     * Serialises title saves.
+     *
+     * A debounced save and a blur save can both fire for one edit: two PUTs
+     * carrying the same version 409 each other, and the user sees a conflict
+     * error for their own typing. Chained, the second send reads the version
+     * the first produced.
+     */
+    let saveChain = Promise.resolve();
     // DOM elements
     const btnNewNote = document.getElementById('btn-new-note');
     const noteSearch = document.getElementById('note-search');
@@ -198,6 +216,16 @@
                     allNotes = freshNotes;
                     scratchpadSlug = newScratchpadSlug;
                     renderNotesList(noteSearch.value.trim());
+                    // The list response carries the version of the open note.
+                    // The re-select above already re-read it for a clean, open
+                    // note; an agent write landed between polls would otherwise
+                    // leave this page holding the superseded version, and its
+                    // next save would 409 against a change it never made.
+                    const openNote = allNotes.find(n => n.slug === currentSlug);
+                    if (openNote && openNote.version && !isDirty) {
+                        knownVersion = openNote.version;
+                        announceVersion();
+                    }
                 }
             } catch (e) {}
         }, 5000);
@@ -375,6 +403,21 @@
         );
     }
 
+    /**
+     * Tell the block editor the document's version moved under it.
+     *
+     * A title save is a PUT: the server bumps the version, and the block
+     * editor's next save carries the one it fetched on open -- the pre-rename
+     * number, which the server now reads as stale. Without this, the FIRST
+     * block edit after a title edit dies on a 409 the user did nothing to
+     * cause.
+     */
+    function announceVersion() {
+        document.dispatchEvent(
+            new CustomEvent('wichy:note-version', { detail: { version: knownVersion } })
+        );
+    }
+
     /** Enable the toolbar controls that need an open document. */
     function setToolbarEnabled(enabled) {
         const toolbar = document.getElementById('toolbar');
@@ -410,6 +453,7 @@
             // `meta`, and there is no top-level `content`. A legacy `.md` note
             // arrives as one synthetic paragraph block holding its body.
             const meta = note.meta || {};
+            knownVersion = meta.version || 0;
             isMarkdownNote = note.format === 'markdown';
             const bodyText = isMarkdownNote
                 ? ((note.blocks && note.blocks[0] && note.blocks[0].data && note.blocks[0].data.text) || '')
@@ -427,10 +471,16 @@
             // Update pin button
             updatePinButton();
 
-            // Destroy existing EasyMDE if any
+            // Destroy existing EasyMDE if any. toTextArea unwinds the whole
+            // EasyMDE DOM: it reinserts the bare textarea where the container
+            // sits and removes the container, so a leftover container after a
+            // note switch is not a case to handle -- but any `hidden` class
+            // this page left on the textarea is, because the constructor clears
+            // the inline style, not the class.
             if (mde) {
                 mde.toTextArea();
                 mde = null;
+                noteContent.classList.remove('hidden');
             }
 
             // Reset the textarea
@@ -494,55 +544,87 @@
         }
 
         const title = noteTitle.textContent.trim() || 'Untitled';
-        const content = mde ? mde.value() : '';
+        // A title save must not write blocks: the block editor owns them, and
+        // PUTting a markdown string here would replace the whole block list
+        // with one synthetic paragraph. Omitted `blocks` means "unchanged" on
+        // the server, so a title-only save leaves every block exactly as it is.
+        const wanted = titleChanged();
+        const payload = { version: knownVersion };
+        if (wanted) {
+            payload.meta = { title };
+        }
 
-        // Mark as saving
-        editorHeader.dataset.saving = 'true';
+        // Serialise overlapping saves: the debounce and the blur can both fire
+        // for one edit, and two PUTs carrying the same version 409 each other.
+        const run = saveChain.then(doTitleSave);
+        // The chain must never reject: a failed save is surfaced in the page,
+        // and an unhandled rejection would kill every later save in the chain.
+        saveChain = run.catch(() => {});
+        await run;
 
-        try {
-            const resp = await fetch(`/tools/notes/api/notes/${currentSlug}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'same-origin',
-                body: JSON.stringify({ title, content }),
-            });
-
-            if (!resp.ok) {
-                let detail = `HTTP ${resp.status}`;
-                try {
-                    const err = await resp.json();
-                    if (err && err.error) detail = err.error;
-                } catch (parseError) {
-                    // A non-JSON error body must not mask the status code.
-                }
-                showNoteError(`Could not save this note: ${detail}`);
-                editorHeader.dataset.saving = 'false';
+        async function doTitleSave() {
+            if (isMarkdownNote) {
+                // Re-checked inside the chain: state can change while an earlier
+                // save is still in flight.
+                showNoteError('This note is stored as markdown. Convert it to blocks to edit it.');
+                isDirty = false;
+                setDirtyState(false);
                 return;
             }
+            // Mark as saving
+            editorHeader.dataset.saving = 'true';
 
-            const data = await resp.json();
-            isDirty = false;
-            setDirtyState(false);
-            editorHeader.dataset.saving = 'false';
-            clearNoteError();
+            try {
+                const resp = await fetch(`/tools/notes/api/notes/${currentSlug}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
+                    body: JSON.stringify(payload),
+                });
 
-            // Reload note list (title may have changed)
-            await loadNotes();
+                if (!resp.ok) {
+                    let detail = `HTTP ${resp.status}`;
+                    try {
+                        const err = await resp.json();
+                        if (err && err.error) detail = err.error;
+                    } catch (parseError) {
+                        // A non-JSON error body must not mask the status code.
+                    }
+                    showNoteError(`Could not save this note: ${detail}`);
+                    editorHeader.dataset.saving = 'false';
+                    return;
+                }
 
-            // Update current slug if it changed, and tell the block editor.
-            // Without the announcement the editor kept polling, saving and
-            // queueing under the DEAD slug: its poll 404ed silently and every
-            // later save failed, while the user saw a note that simply stopped
-            // persisting.
-            if (data.slug && data.slug !== currentSlug) {
-                currentSlug = data.slug;
-                announceNoteOpened(data.slug);
+                const data = await resp.json();
+                // Adopt the version this write produced, so the next save does
+                // not send a stale one and 409 against its own predecessor.
+                knownVersion = data.version;
+                // A same-title save is still a PUT: the server bumps the
+                // version, and the block editor's next save must carry the new
+                // one.
+                announceVersion();
+                isDirty = false;
+                setDirtyState(false);
+                editorHeader.dataset.saving = 'false';
+                clearNoteError();
+
+                // Reload note list (title may have changed)
+                await loadNotes();
+
+                // Update current slug if it changed, and tell the block editor.
+                // Without the announcement the editor kept polling, saving and
+                // queueing under the DEAD slug: its poll 404ed silently and every
+                // later save failed, while the user saw a note that simply stopped
+                // persisting.
+                if (data.slug && data.slug !== currentSlug) {
+                    currentSlug = data.slug;
+                    announceNoteOpened(data.slug);
+                }
+            } catch (e) {
+                console.error('Failed to save note:', e);
+                showNoteError('Could not save this note.');
+                editorHeader.dataset.saving = 'false';
             }
-
-        } catch (e) {
-            console.error('Failed to save note:', e);
-            showNoteError('Could not save this note.');
-            editorHeader.dataset.saving = 'false';
         }
     }
 
@@ -557,7 +639,7 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'same-origin',
-                body: JSON.stringify({ title: 'Untitled', content: '' }),
+                body: JSON.stringify({ title: 'Untitled' }),
             });
 
             if (!resp.ok) {
@@ -725,6 +807,22 @@
         } else {
             noteTitle.classList.remove('unsaved');
         }
+    }
+
+    /**
+     * Whether the open note's title differs from what the server has.
+     *
+     * The block editor owns content, so this page's save is title-only; a PUT
+     * with no title change would still bump the version and fire a rename-less
+     * revision, so the no-op save is skipped rather than sent. The comparison
+     * is against the sidebar list -- the last state this page loaded -- rather
+     * than the fetched document, because the fetched title is what the title
+     * element already shows.
+     */
+    function titleChanged() {
+        const current = allNotes.find(n => n.slug === currentSlug) || {};
+        const title = noteTitle.textContent.trim() || 'Untitled';
+        return title !== (current.title || '').trim();
     }
 
     /**

@@ -400,43 +400,48 @@ class TestConvertButtonIsEnabledForMarkdown:
 
 
 class TestTheming:
-    """The page must honour the shared theme rather than forcing light."""
+    """The page is deliberately light-only.
+
+    It used to declare its own dark palette, but the EasyMDE/CodeMirror editor
+    has no dark theme to match: dark chrome surrounded a solid white editor and
+    the page read as broken. The user asked for removal rather than completion,
+    so the page now pins the shared light tokens and suppresses the base
+    template's theme script.
+    """
 
     def css(self) -> str:
         return (STATIC / "notes.css").read_text(encoding="utf-8")
 
-    def test_the_page_no_longer_forces_light(self):
-        """`color-scheme: light` alone would pin the page regardless of theme."""
+    def test_the_page_pins_light(self):
+        """color-scheme names light only, so browser widgets match the page."""
         source = template()
-        assert 'content="light"' not in source
+        assert '<meta name="color-scheme" content="light" />' in source
 
-    def test_it_does_not_suppress_the_theme_script(self):
-        """The base template's FOUC-prevention script must reach this page."""
+    def test_the_theme_script_is_suppressed(self):
+        """A theme attribute with no dark palette behind it would half-darken."""
         source = template()
-        assert "{% block theme_script %}{% endblock theme_script %}" not in source
+        assert "{% block theme_script %}{% endblock theme_script %}" in source
 
-    def test_a_dark_palette_exists(self):
-        assert '[data-theme="dark"]' in self.css()
-
-    def test_the_dark_palette_covers_the_tokens_the_page_uses(self):
-        """A token left undefined would fall back to its light value.
-
-        The palette is the `[data-theme="dark"]` block that DECLARES variables,
-        not the first scoped rule that merely uses one.
-        """
+    def test_no_dark_palette_is_declared(self):
+        """The page states light tokens under a dark attribute rather than
+        declaring dark values: the palette is a pin, not a theme."""
         import re
 
-        match = re.search(r'\[data-theme="dark"\]\s*\{([^}]*)\}', self.css())
-        assert match, "no dark palette block found"
+        css = self.css()
+        match = re.search(r'\[data-theme="dark"\][^{]*\{([^}]*)\}', css)
+        assert match, "no light-pin rule found"
         palette = match.group(1)
         for token in ("--surface", "--background", "--border", "--text"):
-            assert token in palette, f"{token} has no dark value"
+            assert token in palette, f"{token} is not pinned"
+        # No dark values anywhere: every declared value is the shared light one.
+        for dark_value in ("#1b1f2a", "#12151d", "#2e3444", "#e6e8ee"):
+            assert dark_value not in css, f"dark value {dark_value} came back"
 
-    def test_the_editor_chrome_is_themed(self):
-        """Editor.js injects light-oriented chrome that it does not theme."""
+    def test_no_editor_chrome_dark_overrides_remain(self):
+        """The partial Editor.js dark rules are gone with the palette."""
         css = self.css()
         for selector in (".ce-toolbar__plus", ".ce-popover", ".ce-inline-toolbar"):
-            assert f'[data-theme="dark"] {selector}' in css, selector
+            assert f'[data-theme="dark"] {selector}' not in css, selector
 
     def test_braces_remain_balanced(self):
         assert self.css().count("{") == self.css().count("}")
@@ -1753,3 +1758,167 @@ class TestEveryAsyncActionCarriesTheEpoch:
         assert "api/notes/${targetSlug}/conversion-preview" in body
         assert "api/notes/${targetSlug}/convert" in body
         assert "api/notes/${slug}/" not in body
+
+
+class TestTheBlockEditorHidesTheMarkdownEditor:
+    """Opening a block document must hide the WHOLE markdown editor.
+
+    EasyMDE replaces the textarea with an `.EasyMDEContainer` and moves the
+    CodeMirror wrapper inside it, so toggling `hidden` on the textarea alone
+    left the real editor standing: the page showed both editors at once,
+    stacked in the same region.
+    """
+
+    def script(self) -> str:
+        return (STATIC / "notes_blocks.js").read_text(encoding="utf-8")
+
+    def show_body(self) -> str:
+        source = self.script()
+        body = source[source.index("function showEditorFor") :]
+        return body[: body.index("function setStatus")]
+
+    def test_the_container_is_hidden_with_the_textarea(self):
+        body = self.show_body()
+        assert "EasyMDEContainer" in body
+        assert 'classList.toggle("hidden"' in body
+
+    def test_the_toggle_goes_to_the_container_not_a_fresh_query(self):
+        """A querySelector could race a container that is rebuilt per note."""
+        body = self.show_body()
+        assert "markdownNode.parentElement" in body
+
+    def test_the_textarea_is_still_toggled(self):
+        """Before EasyMDE exists the textarea is the visible thing."""
+        body = self.show_body()
+        textarea_at = body.rindex("markdownNode.classList.toggle")
+        container_at = body.index('contains("EasyMDEContainer")')
+        assert container_at < textarea_at
+
+    def test_the_container_guard_tolerates_a_missing_easyMDE(self):
+        """A degraded page (no EasyMDE built) must not throw here."""
+        body = self.show_body()
+        assert "if (isContainer)" in body
+
+
+class TestTheTitleSaveCarriesTheVersion:
+    """The markdown page's save path was still markdown-era.
+
+    It PUT `{title, content}` to an endpoint that requires `version` and reads
+    the title from `meta`: every title edit failed with "A version is
+    required", and had it not, the markdown string in `content` would have
+    replaced the block list with one synthetic paragraph.
+    """
+
+    def script(self) -> str:
+        return (STATIC / "notes.js").read_text(encoding="utf-8")
+
+    def save_body(self) -> str:
+        source = self.script()
+        body = source[source.index("async function saveNote") :]
+        return body[: body.index("async function createNewNote")]
+
+    def test_the_payload_carries_the_version(self):
+        assert "{ version: knownVersion }" in self.save_body()
+
+    def test_the_payload_carries_no_blocks_key(self):
+        """Omitted `blocks` means unchanged; a present one replaces the list."""
+        body = self.save_body()
+        assert "payload.meta" in body
+        assert "JSON.stringify(payload)" in body
+        assert "content: ''" not in body
+        assert "{ title, content }" not in body
+
+    def test_the_title_rides_in_meta(self):
+        body = self.save_body()
+        assert "payload.meta = { title }" in body
+
+    def test_the_version_is_tracked_from_every_source(self):
+        source = self.script()
+        assert "let knownVersion" in source
+        assert "knownVersion = meta.version || 0;" in source
+        assert "knownVersion = data.version;" in source
+
+    def test_a_same_title_edit_is_still_a_put(self):
+        """A no-op save is sent anyway: it must clear the dirty latch."""
+        body = self.save_body()
+        assert "if (wanted) {" in body
+        assert "payload.meta = { title };" in body
+        # The PUT happens regardless of `wanted`.
+        assert body.index("const payload = { version: knownVersion };") < body.index(
+            "method: 'PUT'"
+        )
+
+    def test_overlapping_saves_are_serialised(self):
+        """A debounce and a blur can both fire: two PUTs with one version 409."""
+        source = self.script()
+        assert "let saveChain = Promise.resolve();" in source
+        body = self.save_body()
+        assert "saveChain.then(doTitleSave)" in body
+        assert "saveChain = run.catch(() => {});" in body
+
+    def test_the_new_version_reaches_the_block_editor(self):
+        """A title PUT bumps the version under the block editor's feet."""
+        source = self.script()
+        assert "wichy:note-version" in source
+        assert "announceVersion();" in source
+
+    def test_the_open_note_title_is_read_from_meta(self):
+        """`note.title` does not exist on the wire; `meta.title` does."""
+        source = self.script()
+        select_at = source.index("async function selectNote")
+        save_at = source.index("async function saveNote")
+        select_body = source[select_at:save_at]
+        assert "noteTitle.textContent = meta.title" in select_body
+        assert "note.title" not in select_body
+
+    def test_the_block_editor_adopts_an_announced_version(self):
+        blocks = (STATIC / "notes_blocks.js").read_text(encoding="utf-8")
+        init_at = blocks.index("function init() {")
+        body = blocks[init_at:]
+        assert 'addEventListener("wichy:note-version"' in body
+        assert "version = event.detail.version;" in body
+
+    def test_the_announced_version_is_ignored_with_no_document_open(self):
+        blocks = (STATIC / "notes_blocks.js").read_text(encoding="utf-8")
+        init_at = blocks.index('addEventListener("wichy:note-version"')
+        body = blocks[init_at : init_at + 600]
+        assert "if (!slug) {" in body
+        assert body.index("if (!slug) {") < body.index(
+            "version = event.detail.version;"
+        )
+
+
+class TestTheTitleSaveTracksServerMoves:
+    """A version held while the server moves is a 409 waiting to happen.
+
+    The page used to hold no version at all; after fixing the payload, a
+    version held but never refreshed would 409 the first save after any
+    external write -- the agent's, or another tab's.
+    """
+
+    def script(self) -> str:
+        return (STATIC / "notes.js").read_text(encoding="utf-8")
+
+    def test_the_poll_refreshes_the_version_from_the_list(self):
+        source = self.script()
+        poll_at = source.index("pollTimer = setInterval")
+        poll_body = source[poll_at : poll_at + 6000]
+        assert "knownVersion = openNote.version;" in poll_body
+        assert "announceVersion();" in poll_body
+
+    def test_the_poll_skips_a_dirty_note(self):
+        """Adopting a list version over unsaved edits would clobber them."""
+        source = self.script()
+        adopt_at = source.index("knownVersion = openNote.version;")
+        guard = source.rindex("if (", 0, adopt_at)
+        assert "!isDirty" in source[guard:adopt_at]
+
+    def test_a_markdown_note_refuses_before_the_request_still(self):
+        body = self.save_note_body()
+        guard_at = body.index("if (isMarkdownNote)")
+        assert guard_at < body.index("saveChain")
+
+    def save_note_body(self) -> str:
+        source = self.script()
+        body = source[source.index("async function saveNote") :]
+        return body[: body.index("async function createNewNote")]

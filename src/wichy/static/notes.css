@@ -473,10 +473,8 @@
     }
 }
 
-[data-theme="dark"] .conflict-banner {
-    background: var(--surface-warning-dark, #3a2f1a);
-    color: var(--text, #eee);
-}
+/* The banner keeps its light surface in any theme: this page is light-only,
+   and a dark-chrome banner inside a light editor read as broken. */
 
 /* The conversion dialog's feature list. Given a visible marker per item rather
    than colour alone, so the warning is legible without relying on hue. */
@@ -508,64 +506,26 @@
 }
 
 /* ---------------------------------------------------------------------------
-   Dark theme
+   Colour scheme
 
-   shared.css defines a light palette only, so the notes page needs its own dark
-   values for the tokens it uses. Scoped to this stylesheet's consumers: the
-   shared tokens are re-declared here rather than globally, so no other page's
-   appearance changes.
+   This page is light-only. shared.css defines a light palette only, and the
+   dark rules this page used to carry left the EasyMDE/CodeMirror editor solid
+   white inside dark chrome -- a half-darkened page that read as broken. The
+   stylesheet therefore pins the shared tokens on its consumers and keeps the
+   page light however the document is themed.
    --------------------------------------------------------------------------- */
 
-[data-theme="dark"] {
-    --surface: #1b1f2a;
-    --background: #12151d;
-    --background-alt: #1b1f2a;
-    --border: #2e3444;
-    --border-hover: #3d4557;
-    --text: #e6e8ee;
-    --text-muted: #9aa2b1;
-    --text-light: #7b8494;
-    --accent-warning: #e0a33a;
-    --accent-info: #6fb3e8;
-    --surface-warning: #33291a;
-}
-
-/* Editor.js and its plugins inject light-oriented chrome (the gutter button,
-   the settings popover, the inline toolbar) that they do not theme. These
-   overrides are scoped to this page's editor. */
-[data-theme="dark"] .codex-editor__redactor {
-    color: var(--text);
-}
-
-[data-theme="dark"] .ce-toolbar__plus,
-[data-theme="dark"] .ce-toolbar__settings-btn {
-    color: var(--text-muted);
-}
-
-[data-theme="dark"] .ce-toolbar__plus:hover,
-[data-theme="dark"] .ce-toolbar__settings-btn:hover {
-    background-color: var(--background-alt);
-}
-
-[data-theme="dark"] .ce-popover,
-[data-theme="dark"] .ce-inline-toolbar {
-    background-color: var(--surface);
-    border-color: var(--border);
-}
-
-[data-theme="dark"] .ce-popover-item,
-[data-theme="dark"] .cdx-search-field,
-[data-theme="dark"] .ce-popover-item__title {
-    color: var(--text);
-}
-
-[data-theme="dark"] .ce-popover-item:hover {
-    background-color: var(--background-alt);
-}
-
-[data-theme="dark"] .ce-block--selected .ce-block__content,
-[data-theme="dark"] .ce-inline-tool--active {
-    background-color: var(--background-alt);
+[data-theme="dark"] .main-layout {
+    /* Re-declared, not inherited: this is the page's statement that it has no
+       dark palette, not a token override a later rule could silently drop. */
+    --surface: #ffffff;
+    --background: #f8fafc;
+    --background-alt: #f1f5f9;
+    --border: #e2e8f0;
+    --border-hover: #cbd5e1;
+    --text: #1f2937;
+    --text-muted: #6b7280;
+    --text-light: #9ca3af;
 }
 
 /* ---------------------------------------------------------------------------

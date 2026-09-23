@@ -135,10 +135,25 @@
         }
     }
 
-    /** Show which editor matches `format`, and hide the other. */
+    /**
+     * Show which editor matches `format`, and hide the other.
+     *
+     * EasyMDE replaces the textarea with its own `.EasyMDEContainer` and moves
+     * the CodeMirror wrapper INSIDE it, so hiding the textarea alone leaves the
+     * actual editor standing: the page showed both editors at once, stacked in
+     * the same region. The container is the textarea's parent once EasyMDE has
+     * built its DOM, and `hidden` is toggled on it whenever the textarea's
+     * state is toggled. When EasyMDE has not been constructed yet the textarea
+     * is still the visible thing, so it is toggled as before.
+     */
     function showEditorFor(format) {
         const isBlocks = format === "editorjs";
         blocksNode.classList.toggle("hidden", !isBlocks);
+        const container = markdownNode.parentElement;
+        const isContainer = container && container.classList.contains("EasyMDEContainer");
+        if (isContainer) {
+            container.classList.toggle("hidden", isBlocks);
+        }
         markdownNode.classList.toggle("hidden", isBlocks);
     }
 
@@ -1642,6 +1657,18 @@
             if (event.detail && event.detail.slug) {
                 open(event.detail.slug);
             }
+        });
+        // A title save in notes.js is a PUT: it moves the server version under
+        // this editor. Adopting it keeps the next block save from 409ing on a
+        // number that went stale through no action taken here.
+        document.addEventListener("wichy:note-version", (event) => {
+            if (!event.detail || typeof event.detail.version !== "number") {
+                return;
+            }
+            if (!slug) {
+                return;
+            }
+            version = event.detail.version;
         });
     }
 
