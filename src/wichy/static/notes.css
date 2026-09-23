@@ -250,6 +250,17 @@
   display: none;
 }
 
+/* EasyMDE builds an .EasyMDEContainer AFTER the textarea and puts the
+   CodeMirror wrapper inside it, so hiding the textarea does not hide the
+   editor. The `hidden` class on the textarea is the visibility signal the
+   block editor toggles, and the general-sibling rule carries it to whatever
+   container exists -- including one created after the class was set, which a
+   JS toggle at open time cannot reach because EasyMDE is constructed later,
+   in notes.js. */
+#note-content.hidden ~ .EasyMDEContainer {
+  display: none;
+}
+
 /* EasyMDE editor fills remaining space */
 .note-editor .EasyMDE {
   flex: 1;
