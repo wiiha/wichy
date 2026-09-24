@@ -104,6 +104,11 @@ class HistoryState:
         return {block.id: block for block in self.blocks}
 
 
+#: Entries in the live log before it is moved aside. An internal file-size
+#: detail; how MUCH history survives is the limit in ``_history_limit``.
+ROTATE_AT_ENTRIES = 50
+
+
 def _rotation_stamp() -> str:
     """UTC timestamp for a rotated log's filename, to the microsecond.
 
@@ -115,14 +120,39 @@ def _rotation_stamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
 
 
+def _history_limit() -> int:
+    """How many revisions are kept in total, across every log file.
+
+    Counted in STATES, not files: the newest N revisions survive and older ones
+    are dropped, oldest first. A single number rather than "entries before
+    rotation" plus "rotated files to keep", because the user-visible fact is how
+    much history is available and two settings made that a multiplication the
+    user had to do themselves.
+    """
+    return max(int(settings.notes_revisions_max_count), 1)
+
+
 def _max_entries() -> int:
-    """Entries allowed before the log rotates."""
-    return int(settings.notes_revisions_max_count)
+    """Entries allowed in the live log before it is rotated away.
+
+    Rotation is an internal file-size mechanism, not a history length: it decides
+    when the live file is moved aside, and the history LIMIT is what decides how
+    much of it survives. Kept well below the limit so a rotation does not throw
+    away history the limit still allows -- at the limit, a rotation would discard
+    everything the user asked to keep. Capped at the limit for the degenerate
+    case where the limit is smaller.
+    """
+    return min(ROTATE_AT_ENTRIES, _history_limit())
 
 
 def _retention() -> int:
-    """How many rotated logs to keep."""
-    return int(settings.notes_revisions_retention)
+    """How many rotated logs to keep, derived from the history limit.
+
+    Not a user setting: the limit counts revisions, and this is just enough files
+    to hold them. One rotated log is added of slack so a rotation never prunes a
+    file the limit still needs.
+    """
+    return max(_history_limit() // ROTATE_AT_ENTRIES, 0) + 1
 
 
 def rotated_logs(slug: str) -> list[Path]:
@@ -309,20 +339,27 @@ def append_entry(slug: str, entry: Mapping[str, Any]) -> None:
     with open(path, "a", encoding="utf-8") as handle:
         handle.write(json.dumps(dict(entry), ensure_ascii=False) + "\n")
         handle.flush()
+    # AFTER the append: pruning first left the window one short, so the entry
+    # just written pushed the total past the limit and the file only shrank on
+    # the NEXT write.
+    prune_rotated(slug)
 
 
 def rotate_if_needed(slug: str) -> Path | None:
-    """Rotate the live log once it has reached the configured entry count.
+    """Move the live log aside once it holds a rotation's worth of entries, then
+    enforce the history limit.
+
+    Rotation is a storage detail: it keeps the live file small and bounds the
+    cost of an append. What survives is decided by ``prune_rotated`` against the
+    entry limit, which runs on every write once history is at that limit.
 
     Returns:
         The rotated file's path, or None when no rotation happened.
     """
     path = revisions_path(slug)
-    if not path.exists():
-        return None
-    if len(read_log_entries(path)) < _max_entries():
-        return None
-    return rotate_now(slug)
+    if path.exists() and len(read_log_entries(path)) >= ROTATE_AT_ENTRIES:
+        return rotate_now(slug)
+    return None
 
 
 def rotate_now(slug: str) -> Path | None:
@@ -349,28 +386,119 @@ def rotate_now(slug: str) -> Path | None:
     return target
 
 
-def prune_rotated(slug: str) -> list[Path]:
-    """Delete rotated logs beyond the retention count, oldest first.
+def _baseline_entry(slug: str, upto_id: int) -> dict | None:
+    """A snapshot entry standing in for history that ends at *upto_id*.
 
-    Count-based, not age-based: a document edited rarely and one edited hourly
-    both keep the same number of rotated logs.
+    Replay rebuilds state by applying the log from the beginning, so a log whose
+    earliest entries are gone cannot be rebuilt: any block first created in a
+    dropped entry is simply absent afterwards, and the reconstruction looks like
+    a real (but wrong) document. That is what an unbounded FIFO does to history.
+
+    This writes the state AT *upto_id* as a single entry of ``add`` ops, so the
+    surviving entries replay onto a correct starting point. The entry carries
+    ``upto_id`` itself, which is free: the file holding that original entry is
+    the one being deleted, so the id is not duplicated anywhere.
+
+    Args:
+        slug: The document slug.
+        upto_id: The last revision id that is about to be dropped.
 
     Returns:
-        The paths that were deleted.
+        The entry, or None when there is nothing to record (an empty state, or a
+        log too incomplete to know the state).
+    """
+    state = replay(slug, upto_id=upto_id + 1)
+    if not state.blocks:
+        return None
+    ops = [
+        {
+            "op": "add",
+            "block_id": block.id,
+            "block_type": block.type,
+            "data": dict(block.data),
+            "index": index,
+        }
+        for index, block in enumerate(state.blocks)
+    ]
+    return {
+        "id": upto_id,
+        "timestamp": now_iso(),
+        "author": "system",
+        # Explicit, so a reader can tell a snapshot from a change someone made
+        # without inferring it from the author.
+        "baseline": True,
+        "version_from": 0,
+        "version_to": 0,
+        "ops": ops,
+        "summary": (
+            f"Baseline: {len(ops)} block{'s' if len(ops) != 1 else ''} as of "
+            "revision %d. Earlier history was dropped." % upto_id
+        ),
+    }
+
+
+def prune_rotated(slug: str) -> list[Path]:
+    """Enforce the history limit, oldest entries first.
+
+    Counted in ENTRIES, across every file, because that is what the limit means
+    to the user: how many revisions are available. File rotation is only a
+    storage detail, so pruning is driven by the total rather than by how many
+    files happen to exist.
+
+    A baseline entry is written for the boundary being dropped, so the surviving
+    entries still replay onto a correct state -- without it, dropping the oldest
+    entries removes the block creations they contain and any block not mentioned
+    again vanishes from the reconstruction.
+
+    Returns:
+        The paths deleted.
     """
     require_valid_slug(slug)
-    keep = max(_retention(), 0)
-    logs = rotated_logs(slug)
-    excess = logs[: len(logs) - keep] if keep < len(logs) else []
-    deleted: list[Path] = []
-    for path in excess:
+    # The limit counts STATES the user can browse. A baseline entry is overhead
+    # that makes those states replayable, so it is not counted against the limit
+    # -- otherwise a baseline would silently cost the user one revision.
+    limit = _history_limit()
+    entries = [e for e in all_entries(slug) if e.get("author") != "system"]
+    if len(entries) <= limit:
+        return []
+
+    # Keep the newest `limit`. Entries have unique monotonic ids, so the cut is
+    # by id rather than by position.
+    keep_ids = {_entry_id(e) for e in entries[len(entries) - limit :]}
+    dropped = [e for e in entries if _entry_id(e) not in keep_ids]
+    last_dropped = max(
+        (_entry_id(e) for e in dropped if isinstance(e.get("id"), int)), default=None
+    )
+    kept = [e for e in entries if _entry_id(e) in keep_ids]
+
+    # The baseline stands in for everything before the surviving window. Its id
+    # is the last dropped one, which is now unused anywhere, so ids stay unique
+    # and monotonic.
+    if last_dropped is not None:
+        baseline = _baseline_entry(slug, last_dropped)
+        if baseline is not None:
+            kept.insert(0, baseline)
+
+    # Rewritten into the LIVE log and every rotated file removed: one file is
+    # simpler than keeping a rotated set in step with a moving boundary, and the
+    # limit bounds it to `limit` lines.
+    deleted = rotated_logs(slug)
+    for path in deleted:
         try:
             path.unlink()
-            deleted.append(path)
         except OSError:
-            # A log that cannot be removed is not worth failing a write over:
-            # the document change itself has already succeeded.
             pass
+
+    path = revisions_path(slug)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            "".join(json.dumps(e, ensure_ascii=False) + "\n" for e in kept),
+            encoding="utf-8",
+        )
+    except OSError:
+        # Not worth failing a write over: the document change already succeeded.
+        pass
     return deleted
 
 
@@ -722,7 +850,12 @@ def replay(slug: str, upto_id: int | None = None) -> HistoryState:
     # refuse a perfectly good target.
     real_ids = [_entry_id(e) for e in entries if isinstance(e.get("id"), int)]
     first_id = min(real_ids) if real_ids else None
-    complete = first_id == 1
+    # Complete when the log starts where history begins, OR at a baseline: a
+    # baseline IS the missing starting point, restated. Without this, a pruned
+    # log replayed perfectly and still reported itself unusable, which would make
+    # revert refuse a target it could restore exactly.
+    first_entry = entries[0] if entries else None
+    complete = first_id == 1 or bool(first_entry and first_entry.get("baseline"))
     reason = None
     if not complete:
         reason = (

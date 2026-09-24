@@ -169,11 +169,15 @@ class Settings(BaseSettings):
     # Initial change-notification mode; "auto" or a manual mode
     notification_default_mode: str = "auto"
 
-    # Revision entries written before the log is rotated
-    notes_revisions_max_count: int = 500
-
-    # Rotated revision logs kept after rotation (count-based, not age-based)
-    notes_revisions_retention: int = 5
+    # How many revisions are kept per document, FIFO: the newest N states
+    # survive and older ones are dropped.
+    #
+    # Counted in STATES the user can browse, not in files or entries. Dropping
+    # the oldest entries would leave the rest unreplayable on its own -- history
+    # is a chain of changes, so the entries that created a block carry its
+    # content -- and a baseline entry is written at the cut to restate the state
+    # there. That baseline is not counted against this limit.
+    notes_revisions_max_count: int = 50
 
     # Serve the block editor in the notes UI. Off leaves the existing markdown
     # editor as the only editor, which is a working configuration: nothing else

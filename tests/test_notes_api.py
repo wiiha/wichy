@@ -1535,9 +1535,13 @@ class TestUnhandledRevertErrors:
     def test_a_revert_on_a_pruned_history_is_a_conflict_not_a_crash(
         self, client, monkeypatch
     ):
-        """An incomplete log cannot rebuild the state, so the revert must not run."""
+        """A revision dropped by the history limit is not revertable.
+
+        Either answer is acceptable -- 404 when the revision no longer exists, or
+        409 when the state before it cannot be rebuilt exactly. What must not
+        happen is an HTML 500 the browser cannot read.
+        """
         monkeypatch.setattr(settings, "notes_revisions_max_count", 1)
-        monkeypatch.setattr(settings, "notes_revisions_retention", 0)
         create(client, "Pruned", "a")
         for _ in range(3):
             body = client.get(f"{PREFIX}/api/notes/pruned").get_json()
