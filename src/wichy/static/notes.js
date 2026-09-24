@@ -202,25 +202,24 @@
                 }
 
                 if (changed) {
-                    // Check if the currently viewed note was modified externally
-                    // Compare fresh data against OLD allNotes before updating
-                    if (currentSlug && !isDirty) {
-                        const freshNote = freshNotes.find(n => n.slug === currentSlug);
-                        const oldNote = allNotes.find(n => n.slug === currentSlug);
-                        if (freshNote && oldNote && freshNote.updated !== oldNote.updated) {
-                            await selectNote(currentSlug);
-                        }
-                    }
-
+                    // The open note is deliberately NOT re-selected here, even
+                    // when its `updated` stamp moved: this page's own saves
+                    // change that stamp, so the re-select fired a few seconds
+                    // after every pause in typing, and it rebuilds the editor
+                    // (open() destroys and recreates Editor.js) -- the user's
+                    // caret died mid-writing on a note they never left. External
+                    // changes to the open document arrive through the block
+                    // editor's own pending-changes poll, which applies the ops
+                    // into the standing editor instead of replacing it.
+                    //
                     // Now update state
                     allNotes = freshNotes;
                     scratchpadSlug = newScratchpadSlug;
                     renderNotesList(noteSearch.value.trim());
                     // The list response carries the version of the open note.
-                    // The re-select above already re-read it for a clean, open
-                    // note; an agent write landed between polls would otherwise
-                    // leave this page holding the superseded version, and its
-                    // next save would 409 against a change it never made.
+                    // An agent write landed between polls would otherwise leave
+                    // this page holding the superseded version, and its next
+                    // save would 409 against a change it never made.
                     const openNote = allNotes.find(n => n.slug === currentSlug);
                     if (openNote && openNote.version && !isDirty) {
                         knownVersion = openNote.version;

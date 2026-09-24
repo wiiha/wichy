@@ -157,6 +157,66 @@
         markdownNode.classList.toggle("hidden", isBlocks);
     }
 
+    /**
+     * The parked queue survives a reload.
+     *
+     * `pendingOps` is in-memory, and the toolbar tells the user the edits are
+     * "queued" -- a promise that dies with the page unless it is persisted.
+     * The queue is written to localStorage on every mutation and rehydrated
+     * when a document is opened, keyed by slug so several notes can hold
+     * unsent ops at once. The entry is cleared only when the server has
+     * actually taken the ops (or the document was deleted): a failed or
+     * refused send must leave the queue exactly as it was.
+     *
+     * Storage can be unavailable (private modes, quota), and a thrown error
+     * there would kill the save path, so every access is guarded: persistence
+     * is a repair for the reload case, not a load-bearing part of sending.
+     */
+    const QUEUE_STORAGE_KEY = "wichy-notes-pending-ops";
+
+    function persistQueue(targetSlug) {
+        try {
+            const raw = {};
+            for (const [key, value] of pendingOps) {
+                raw[key] = { ops: value, version: pendingVersion.get(key) || 0 };
+            }
+            if (!raw[targetSlug]) {
+                delete raw[targetSlug];
+            }
+            window.localStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(raw));
+        } catch (e) {
+            // Unavailable storage degrades to the old in-memory behaviour.
+        }
+    }
+
+    function restoreQueue(targetSlug) {
+        try {
+            const raw = JSON.parse(window.localStorage.getItem(QUEUE_STORAGE_KEY) || "{}");
+            const entry = raw[targetSlug];
+            if (!entry || !Array.isArray(entry.ops) || !entry.ops.length) {
+                return;
+            }
+            if (!pendingOps.has(targetSlug)) {
+                pendingOps.set(targetSlug, entry.ops);
+                pendingVersion.set(targetSlug, entry.version);
+            }
+        } catch (e) {
+            // Corrupt or unavailable storage: the queue simply starts empty.
+        }
+    }
+
+    function dropStoredQueue(targetSlug) {
+        try {
+            const raw = JSON.parse(window.localStorage.getItem(QUEUE_STORAGE_KEY) || "{}");
+            if (raw[targetSlug] !== undefined) {
+                delete raw[targetSlug];
+                window.localStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(raw));
+            }
+        } catch (e) {
+            // Nothing to drop, or nowhere to write the drop.
+        }
+    }
+
     function setStatus(text) {
         if (statusNode) {
             statusNode.textContent = text || "";
@@ -461,10 +521,12 @@
             return;
         }
         pendingOps.set(slug, ops);
+        persistQueue(slug);
         // Persist first, so the version sent with the ops is the one the server
         // holds once it has the content those ops describe.
         await save();
         pendingVersion.set(slug, version);
+        persistQueue(slug);
         if (AUTO_SEND) {
             await sendPendingOps(slug);
         }
@@ -530,6 +592,7 @@
                 // nothing the user typed is lost -- only this notification is.
                 pendingOps.delete(targetSlug);
                 pendingVersion.delete(targetSlug);
+                dropStoredQueue(targetSlug);
                 await refreshVersion();
                 holdStatus("The note changed elsewhere. Your next edit will be sent.");
                 updateQueueIndicator();
@@ -545,6 +608,10 @@
         }
         pendingOps.delete(targetSlug);
         pendingVersion.delete(targetSlug);
+        // Only now is the promise "queued" discharged: the server has the ops,
+        // so the stored copy can go. Clearing on a failed send here would lose
+        // edits on the very reload this persistence exists for.
+        dropStoredQueue(targetSlug);
         await resyncSnapshot();
         updateQueueIndicator();
         return true;
@@ -1418,6 +1485,11 @@
                 .filter((block) => block.id)
                 .map((block) => [block.id, comparable(block)])
         );
+        // The queue parked on a previous visit to this document comes back:
+        // the toolbar promised "queued", not "forgotten when you navigate".
+        // A queue already held in memory (an earlier open of this slug in this
+        // page's lifetime) is left untouched.
+        restoreQueue(nextSlug);
         // Any ops left parked from a previous visit to this document are still
         // unsent, so the control reappears with its count.
         updateQueueIndicator();
@@ -1606,10 +1678,15 @@
         if (!window.confirm("Delete this note? This cannot be undone.")) {
             return;
         }
+        const targetSlug = slug;
         const result = await fetchJson(`${PREFIX}/api/notes/${slug}`, {
             method: "DELETE",
         });
         if (!result.error) {
+            // A deleted document can never be reopened to send its queue, and
+            // a NEW note that later takes the same slug must not inherit the
+            // dead document's unsent ops.
+            dropStoredQueue(targetSlug);
             await destroyEditor();
             slug = null;
         }

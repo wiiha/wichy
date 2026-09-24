@@ -1935,3 +1935,128 @@ class TestTheTitleSaveTracksServerMoves:
         source = self.script()
         body = source[source.index("async function saveNote") :]
         return body[: body.index("async function createNewNote")]
+
+
+class TestTheListPollNeverRebuildsTheOpenEditor:
+    """The sidebar poll must not re-select the note the user is writing in.
+
+    The poll compared `updated` stamps and re-selected the open note when it
+    moved. But this page's own saves move that stamp: a few seconds after every
+    pause in typing, selectNote(sameSlug) ran, and open() destroys and
+    recreates Editor.js -- the caret died mid-writing on a note the user never
+    left. External changes to the open document arrive through the block
+    editor's own pending-changes poll, which writes ops into the standing
+    editor instead of replacing it.
+    """
+
+    def script(self) -> str:
+        return (STATIC / "notes.js").read_text(encoding="utf-8")
+
+    def poll_body(self) -> str:
+        source = self.script()
+        start = source.index("pollTimer = setInterval")
+        return source[start : start + 5200]
+
+    def test_the_poll_does_not_re_select_the_open_note(self):
+        body = self.poll_body()
+        assert "await selectNote(currentSlug)" not in body
+        assert "selectNote(" not in body.split("renderNotesList")[0]
+
+    def test_the_comment_states_why_the_reselect_is_gone(self):
+        body = self.poll_body()
+        assert "re-select" in body or "re-selected" in body
+
+    def test_the_poll_still_refreshes_the_open_version(self):
+        """Dropping the re-select must not drop the version refresh: the list
+        response carries the open note's current version."""
+        body = self.poll_body()
+        assert "knownVersion = openNote.version;" in body
+
+    def test_the_poll_still_renders_the_list(self):
+        body = self.poll_body()
+        assert "renderNotesList(noteSearch.value.trim())" in body
+
+
+class TestTheQueueSurvivesAReload:
+    """Parked ops died with the page.
+
+    pendingOps is in-memory, and the toolbar says the edits are "queued" --
+    after leaving and re-entering the notes page the queue was empty and the
+    Send control was gone, with no trace of the edits it had promised to
+    deliver.
+    """
+
+    def script(self) -> str:
+        return (STATIC / "notes_blocks.js").read_text(encoding="utf-8")
+
+    def test_a_storage_key_exists(self):
+        assert "wichy-notes-pending-ops" in self.script()
+
+    def test_parking_persists_the_queue(self):
+        body = self.flush_body()
+        first_set = body.index("pendingOps.set(slug, ops);")
+        persist_at = body.index("persistQueue(slug);", first_set)
+        assert persist_at > first_set
+
+    def test_the_version_is_persisted_after_the_save(self):
+        """The stored queue must carry the version the save produced."""
+        body = self.flush_body()
+        version_at = body.index("pendingVersion.set(slug, version);")
+        persist_at = body.index("persistQueue(slug);", version_at)
+        assert persist_at > version_at
+
+    def test_open_rehydrates_the_queue(self):
+        source = self.script()
+        open_at = source.index("async function open(")
+        open_body = source[open_at:]
+        snapshot_at = open_body.rindex("sentSnapshot = new Map(")
+        segment = open_body[snapshot_at : snapshot_at + 700]
+        assert "restoreQueue(nextSlug);" in segment
+
+    def test_a_successful_send_drops_the_stored_queue(self):
+        body = self.post_body()
+        delete_at = body.index(
+            "pendingOps.delete(targetSlug);", body.rindex("return false")
+        )
+        drop_at = body.index("dropStoredQueue(targetSlug);", delete_at)
+        assert drop_at > delete_at
+
+    def test_a_409_drop_also_clears_storage(self):
+        body = self.post_body()
+        conflict_at = body.index('result.error === "HTTP 409"')
+        segment = body[conflict_at : body.index("HTTP 503", conflict_at)]
+        assert "dropStoredQueue(targetSlug);" in segment
+
+    def test_a_failed_send_does_not_clear_storage(self):
+        """The 503 branch parks the ops: dropping the stored copy there is
+        exactly the loss this persistence exists to prevent."""
+        body = self.post_body()
+        conflict_at = body.index('result.error === "HTTP 503"')
+        segment = body[conflict_at : body.index("return false;", conflict_at)]
+        assert "dropStoredQueue" not in segment
+
+    def test_deleting_the_note_drops_its_queue(self):
+        """A new note that later takes the same slug must not inherit the dead
+        document's unsent ops."""
+        source = self.script()
+        start = source.index("async function removeDocument")
+        body = source[start : start + 800]
+        assert "dropStoredQueue(targetSlug);" in body
+
+    def test_storage_access_is_guarded(self):
+        """A private-mode or quota failure must not break the save path."""
+        for helper in ("persistQueue", "restoreQueue", "dropStoredQueue"):
+            start = self.script().index(f"function {helper}(")
+            body = self.script()[start : start + 900]
+            assert "try {" in body
+            assert "catch" in body
+
+    def flush_body(self) -> str:
+        source = self.script()
+        start = source.index("async function flushChangeNotify")
+        return source[start : source.index("async function sendPendingOps")]
+
+    def post_body(self) -> str:
+        source = self.script()
+        start = source.index("async function postPendingOps")
+        return source[start : source.index("function updateQueueIndicator")]
