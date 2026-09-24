@@ -464,6 +464,16 @@ def main():
     if not args.no_server:
         setup_server(root_agent)
         actual_port = start_server_in_background()
+        # Register the session with the server so its tools can reach the
+        # agent. The browser's notes page notifies "the agent" of user edits
+        # through POST /api/changes, which looks the active session up here --
+        # without this it answered 503 "no active session" in REPL mode
+        # forever, and every GUI edit parked with "queued" but nowhere to go.
+        # The session is NOT started: the REPL owns agent turns, so this is a
+        # holder making the agent reachable from the Flask thread, mirroring
+        # what server mode registers.
+        session = ChatSession(root_agent=root_agent, cmd_checker=cmd_checker)
+        set_server_active_session(session)
         user_console.print(
             f"[dim]Web server started on http://{settings.server_host}:{actual_port}[/dim]"
         )
