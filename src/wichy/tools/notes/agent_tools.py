@@ -143,32 +143,58 @@ def _open(slug: str, *, for_write: bool = True) -> tuple[Any, str | None]:
     return document, None
 
 
-def render_block(block: Any, *, include_metadata: bool = True) -> str:
+def render_block(
+    block: Any, *, include_metadata: bool = True, raw_data: bool = False
+) -> str:
     """Render one block in the form the agent reads.
 
     Args:
         block: The block to render.
-        include_metadata: Whether to include the ``[block id=... type=...]``
-            line. Without it the agent cannot name the block in a follow-up
-            call, so this is only false for a deliberately content-only read.
+        include_metadata: Whether to include the metadata line. Without it the
+            agent cannot name the block in a follow-up call, so this is only
+            false for a deliberately content-only read.
+        raw_data: Show the block's data as the stored JSON object rather than as
+            rendered content. The JSON is what a caller needs to build a write --
+            it carries the exact field names -- while rendered content is what a
+            reader wants. The metadata line is identical either way, so the two
+            forms differ only in how much detail the body carries.
 
     Returns:
         The rendered block.
     """
-    # Both authorship fields, consistently labeled and with the SAME labels the
-    # read_scratchpad tool uses. `author` alone was wrong twice over: it is the
-    # CREATOR and `touch_block` never updates it, so an agent re-reading a block
-    # it had just edited was told the user wrote it. `touched_by[-1]` is the last
-    # writer, which is the one the agent actually wants.
+    # The metadata line has ONE spelling, shared by read_blocks, get_block,
+    # find_block_id_for_string and the block style of read_scratchpad. Two
+    # spellings of the same facts would make the agent translate between them.
+    # The body differs by audience: rendered content to read, JSON to write.
+    # Both authorship fields, consistently labeled. `author` alone was wrong twice
+    # over: it is the CREATOR and `touch_block` never updates it, so an agent
+    # re-reading a block it had just edited was told the user wrote it.
+    # `touched_by[-1]` is the last writer, which is the one the agent wants.
+    touched = ",".join(block.meta.touched_by) or "nobody"
     last_touched = block.meta.touched_by[-1] if block.meta.touched_by else "nobody"
     header = (
-        f"[block id={block.id} type={block.type} "
-        f"author={block.meta.author} last-touched-by={last_touched}]"
+        f"[{block.type}] id: {block.id} author={block.meta.author} "
+        f"last-touched-by={last_touched} (touched by: {touched})"
         if include_metadata
         else ""
     )
-    body = render_data(block.type, block.data)
+    body = _render_body(block, raw_data=raw_data)
     return f"{header}\n{body}".strip() if header else body
+
+
+def _render_body(block: Any, *, raw_data: bool) -> str:
+    """One block's body: rendered content, or the stored JSON object.
+
+    Args:
+        block: The block.
+        raw_data: True for the JSON object, False for rendered content.
+
+    Returns:
+        The body text.
+    """
+    if raw_data:
+        return json.dumps(dict(block.data), ensure_ascii=False)
+    return render_data(block.type, block.data)
 
 
 def render_data(block_type: str, data: dict[str, Any]) -> str:
@@ -235,28 +261,130 @@ def _render_typed(block_type: str, data: dict[str, Any]) -> str:
     return str(data)
 
 
+def scratchpad_header(document: Any) -> str:
+    """The one-line header every read of the scratchpad starts with.
+
+    Args:
+        document: The document being read.
+
+    Returns:
+        The header line, naming no slug: the agent has no word for a note's name.
+    """
+    return (
+        f"[Scratchpad | version {document.meta.version} | "
+        f"{len(document.blocks)} blocks]"
+    )
+
+
 def render_document(
-    document: Any, blocks: list[Any] | None = None, *, include_metadata: bool = True
+    document: Any,
+    blocks: list[Any] | None = None,
+    *,
+    include_metadata: bool = True,
+    raw_data: bool = False,
 ) -> str:
     """Render a document header plus its blocks.
 
     Args:
         document: The document being read.
         blocks: Which of its blocks to render, or None for all.
-        include_metadata: Whether each block gets its ``[block id=...]`` line.
-            The total-block count is still reported either way, so the agent can
-            tell a filtered read from an empty document.
+        include_metadata: Whether each block gets its metadata line. The
+            total-block count is still reported either way, so the agent can tell
+            a filtered read from an empty document.
+        raw_data: Show each block's stored data object instead of its rendered
+            content; see :func:`render_block`.
     """
     chosen = document.blocks if blocks is None else blocks
-    lines = [
-        f"[Document: {document.meta.slug} | Version: {document.meta.version} | "
-        f"Total blocks: {len(document.blocks)}]",
-        "",
-    ]
+    lines: list[str] = []
+    if include_metadata:
+        # No slug: the agent knows this document only as the scratchpad, and the
+        # internal name is not something it can use. The version IS useful, for the
+        # expected_version argument of a write.
+        lines = [scratchpad_header(document), ""]
     for block in chosen:
-        lines.append(render_block(block, include_metadata=include_metadata))
+        lines.append(
+            render_block(block, include_metadata=include_metadata, raw_data=raw_data)
+        )
         lines.append("")
     return "\n".join(lines).rstrip()
+
+
+#: The styles ``read_scratchpad`` can render in.
+#:
+#: ``markdown`` is the default because it is what a read is usually FOR: seeing
+#: what the scratchpad says. ``block`` is the verbose form -- a metadata line and
+#: the raw data object -- which is needed when the agent must construct a write.
+#: Both accept the alias ``md``, because an agent that has seen the word
+#: "markdown" in many other contexts will reach for either spelling.
+READ_STYLES = ("markdown", "md", "block")
+
+#: Render markdown-style: the block's text wrapped in a tag naming its id.
+#:
+#: The id has to be present or the agent cannot target the block afterwards, and
+#: XML-ish tags are how it is attached without a metadata line per block. The tag
+#: is a real block id, not a placeholder, so it can be fed straight to a write
+#: tool.
+_MARKDOWN_BLOCK_OPEN = "<{block_id}>"
+_MARKDOWN_BLOCK_CLOSE = "</{block_id}>"
+
+
+def render_markdown_document(document: Any, blocks: list[Any] | None = None) -> str:
+    """Render a document as clean markdown, each block tagged with its id.
+
+    Args:
+        document: The document being read.
+        blocks: Which of its blocks to render, or None for all.
+
+    Returns:
+        The document's content, blocks separated by a blank line, each wrapped in
+        ``<id>`` ... ``</id>``. A block with no text of its own (a delimiter) still
+        gets its tags, so its id remains addressable.
+    """
+    chosen = document.blocks if blocks is None else blocks
+    pieces = [
+        f"{_MARKDOWN_BLOCK_OPEN.format(block_id=block.id)}\n"
+        f"{render_data(block.type, block.data)}\n"
+        f"{_MARKDOWN_BLOCK_CLOSE.format(block_id=block.id)}"
+        for block in chosen
+    ]
+    body = "\n\n".join(pieces)
+    return f"{scratchpad_header(document)}\n\n{body}".rstrip()
+
+
+def normalize_style(raw: Any) -> tuple[str | None, str | None]:
+    """Validate a requested read style.
+
+    Returns:
+        ``(style, error)``. ``markdown`` and its alias ``md`` both come back as
+        ``"markdown"``, so callers branch on one spelling.
+    """
+    if raw is None or raw == "":
+        return "markdown", None
+    style = str(raw).strip().lower()
+    if style == "md":
+        style = "markdown"
+    if style not in ("markdown", "block"):
+        return None, (
+            f"Unknown style '{raw}'. Use 'markdown' (default) for the content, "
+            "or 'block' for the metadata and raw data."
+        )
+    return style, None
+
+
+def render_style(style: str, document: Any, blocks: list[Any] | None = None) -> str:
+    """Render a document in the requested style.
+
+    Args:
+        style: ``"markdown"`` or ``"block"``, already normalised.
+        document: The document being read.
+        blocks: Which of its blocks to render, or None for all.
+
+    Returns:
+        The rendered document.
+    """
+    if style == "markdown":
+        return render_markdown_document(document, blocks)
+    return render_document(document, blocks, include_metadata=True, raw_data=True)
 
 
 def _parse_int(raw: Any, field: str) -> tuple[int | None, str | None]:
@@ -710,6 +838,103 @@ class MoveBlockTool(BaseTool):
         return f"Moved block {block_id} {where} (version {new_version})."
 
 
+class GetBlockParams(ParametersModel):
+    """Parameters for get_block."""
+
+    block_id: str = Field(description="The id of the block to read.")
+
+
+class GetBlockTool(BaseTool):
+    """Read one block in full detail."""
+
+    name = "get_block"
+    description = (
+        "Read one block by id, showing its type, author, last writer and raw "
+        "data object. Use this when you need the exact field names to build a "
+        "write, or the block's metadata. For seeing what the scratchpad says, "
+        "prefer read_scratchpad."
+    )
+    parameters_model = GetBlockParams
+    needs_verification_in_api = False
+
+    def execute(self, **kwargs: Any) -> str:
+        """Read one block."""
+        try:
+            slug = _scratchpad_slug()
+        except ScratchpadUnavailable as e:
+            return str(e)
+
+        block_id = str(kwargs.get("block_id") or "")
+        if not block_id:
+            return "block_id is required."
+
+        document, error = _open(slug, for_write=False)
+        if error is not None:
+            return error
+
+        block = document.get_block(block_id)
+        if block is None:
+            return f"No block '{block_id}' in this document."
+        return render_document(document, [block], include_metadata=True, raw_data=True)
+
+
+class FindBlocksParams(ParametersModel):
+    """Parameters for find_block_id_for_string."""
+
+    search_str: str = Field(
+        description="Text to look for. Case-insensitive, matches substrings."
+    )
+
+
+class FindBlockIdsTool(BaseTool):
+    """Find blocks whose content contains a string."""
+
+    name = "find_block_id_for_string"
+    description = (
+        "Find every block whose content contains the given text (case-insensitive "
+        "substring match) and return those blocks in full detail, exactly as "
+        "get_block renders one. Use this to locate a block by something it says "
+        "when you do not know its id."
+    )
+    parameters_model = FindBlocksParams
+    needs_verification_in_api = False
+
+    def execute(self, **kwargs: Any) -> str:
+        """Find matching blocks."""
+        try:
+            slug = _scratchpad_slug()
+        except ScratchpadUnavailable as e:
+            return str(e)
+
+        search = str(kwargs.get("search_str") or "")
+        if not search:
+            return "search_str is required."
+
+        document, error = _open(slug, for_write=False)
+        if error is not None:
+            return error
+
+        needle = search.lower()
+        matched = [
+            block
+            for block in document.blocks
+            # Searched against the RENDERED text, which is what the agent has
+            # seen. Matching the raw data instead would find "checked" in every
+            # checklist block's JSON -- a field name, not content the agent was
+            # looking for -- while missing nothing it could actually read.
+            if needle in render_data(block.type, block.data).lower()
+        ]
+        if not matched:
+            return (
+                f"No block contains '{search}' "
+                f"({len(document.blocks)} blocks searched)."
+            )
+        # Every match is returned IN FULL, not as a list of ids: the caller wants
+        # to know what the blocks say, and an id list would make it issue one
+        # get_block per match to find out.
+        return render_document(document, matched, include_metadata=True, raw_data=True)
+
+
 class ReadRevisionsParams(ParametersModel):
     """Parameters for read_revisions."""
 
@@ -904,6 +1129,8 @@ def all_tools() -> list[type[BaseTool]]:
     """Every block tool, in the order they are worth showing the agent."""
     return [
         ReadBlocksTool,
+        GetBlockTool,
+        FindBlockIdsTool,
         ReplaceBlockTool,
         InsertBlockTool,
         DeleteBlockTool,
@@ -917,6 +1144,8 @@ __all__ = [
     "ScratchpadUnavailable",
     "AnswerQuestionTool",
     "DeleteBlockTool",
+    "FindBlockIdsTool",
+    "GetBlockTool",
     "InsertBlockTool",
     "MoveBlockTool",
     "NO_SCRATCHPAD",

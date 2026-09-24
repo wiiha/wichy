@@ -34,6 +34,7 @@ from wichy.tools.notes.agent_tools import (
     ReplaceBlockTool,
     render_data,
 )
+from wichy.tools.notes.agent_tools import FindBlockIdsTool, GetBlockTool
 from wichy.tools.notes.blocks import (
     MARKDOWN_WRITE_REFUSED,
     create_document,
@@ -53,6 +54,9 @@ BLOCK_TOOLS = [
     MoveBlockTool,
     AnswerQuestionTool,
     ReadRevisionsTool,
+    GetBlockTool,
+    FindBlockIdsTool,
+    ReadScratchpadTool,
 ]
 
 
@@ -211,7 +215,7 @@ class TestReadBlocks:
     def test_reads_all_blocks_with_metadata(self, scratchpad):
         slug, ids = scratchpad
         result = run(ReadBlocksTool)
-        assert f"[Document: {slug} | Version: 1 | Total blocks: 3]" in result
+        assert "[Scratchpad | version 1 | 3 blocks]" in result
         for block_id in ids:
             assert block_id in result
 
@@ -230,7 +234,7 @@ class TestReadBlocks:
     def test_filter_by_type_still_reports_the_document_total(self, scratchpad):
         """So a filtered read is distinguishable from a small document."""
         result = run(ReadBlocksTool, filter_type="todo")
-        assert "Total blocks: 3" in result
+        assert "3 blocks" in result
 
     def test_read_one_block_by_id(self, scratchpad):
         slug, ids = scratchpad
@@ -302,12 +306,13 @@ class TestReadBlocks:
     def test_metadata_can_be_omitted(self, scratchpad):
         slug, ids = scratchpad
         result = run(ReadBlocksTool, include_metadata=False)
-        assert "[block id=" not in result
+        assert "[header]" not in result
+        assert "author=" not in result
         # The content is still there.
         assert "## Title" in result
 
     def test_metadata_is_on_by_default(self, scratchpad):
-        assert "[block id=" in run(ReadBlocksTool)
+        assert "author=" in run(ReadBlocksTool)
 
 
 # ---------------------------------------------------------------------------
@@ -750,10 +755,7 @@ class TestRendering:
         """
         slug, ids = scratchpad
         result = run(ReadBlocksTool, block_id=ids[0])
-        assert (
-            f"[block id={ids[0]} type=header author=user last-touched-by=user]"
-            in result
-        )
+        assert f"[header] id: {ids[0]} author=user last-touched-by=user" in result
 
 
 # ---------------------------------------------------------------------------
@@ -1440,6 +1442,7 @@ class TestBothAuthorshipFieldsAreReported:
         assert "last-touched-by=agent" in result
 
     def test_read_scratchpad_reports_the_same_two_fields(self, scratchpad):
+        """In block style, which is where metadata lives."""
         slug, ids = scratchpad
         run(
             ReplaceBlockTool,
@@ -1447,7 +1450,7 @@ class TestBothAuthorshipFieldsAreReported:
             block_type="paragraph",
             data={"text": "agent wrote this"},
         )
-        result = run(ReadScratchpadTool)
+        result = run(ReadScratchpadTool, style="block")
         assert "author=user" in result
         assert "last-touched-by=agent" in result
 
@@ -1455,7 +1458,7 @@ class TestBothAuthorshipFieldsAreReported:
         """Two vocabularies for one fact make the agent guess."""
         slug, ids = scratchpad
         from_block_tool = run(ReadBlocksTool, block_id=ids[1])
-        from_scratchpad = run(ReadScratchpadTool)
+        from_scratchpad = run(ReadScratchpadTool, style="block")
         for label in ("author=", "last-touched-by="):
             assert label in from_block_tool
             assert label in from_scratchpad
@@ -1561,3 +1564,170 @@ class TestIndexRangeDescriptions:
         props = schema["function"]["parameters"]["properties"]
         assert "inclusive" in props["start_index"]["description"]
         assert "inclusive" in props["end_index"]["description"]
+
+
+# ---------------------------------------------------------------------------
+# Read styles
+# ---------------------------------------------------------------------------
+
+
+class TestReadScratchpadStyles:
+    """The default read is content, not metadata.
+
+    Every block's author and raw JSON around its text is a lot of noise for a read
+    whose purpose is usually "what does the scratchpad say". The ids still have to
+    be there, because they are what a write targets.
+    """
+
+    def test_markdown_is_the_default(self, scratchpad):
+        result = run(ReadScratchpadTool)
+        assert "md" not in result.split("\n")[0]
+        # Content, rendered as markdown.
+        assert "## Title" in result
+        assert "some text" in result
+
+    def test_each_block_is_wrapped_in_a_tag_naming_its_id(self, scratchpad):
+        slug, ids = scratchpad
+        result = run(ReadScratchpadTool)
+        for block_id in ids:
+            assert f"<{block_id}>" in result
+            assert f"</{block_id}>" in result
+
+    def test_the_default_omits_the_raw_data_object(self, scratchpad):
+        result = run(ReadScratchpadTool)
+        assert '"text"' not in result
+        assert "author=" not in result
+
+    def test_block_style_shows_the_metadata_and_raw_data(self, scratchpad):
+        slug, ids = scratchpad
+        result = run(ReadScratchpadTool, style="block")
+        assert "author=" in result
+        assert "last-touched-by=" in result
+        assert '"text": "some text"' in result
+
+    def test_md_is_an_alias_for_markdown(self, scratchpad):
+        assert run(ReadScratchpadTool, style="md") == run(ReadScratchpadTool)
+
+    def test_the_style_is_case_insensitive(self, scratchpad):
+        assert run(ReadScratchpadTool, style="BLOCK") == run(
+            ReadScratchpadTool, style="block"
+        )
+
+    def test_an_unknown_style_names_the_valid_ones(self, scratchpad):
+        result = run(ReadScratchpadTool, style="fancy")
+        assert "markdown" in result
+        assert "block" in result
+
+    def test_an_empty_style_is_the_default(self, scratchpad):
+        assert run(ReadScratchpadTool, style="") == run(ReadScratchpadTool)
+
+    def test_a_delimiter_block_still_has_an_addressable_id(self, notes_dir):
+        """A block with no text of its own must not lose its id to an empty body."""
+        document = create_document(
+            "Delims",
+            [
+                {"type": "paragraph", "data": {"text": "above"}},
+                {"type": "delimiter", "data": {}},
+            ],
+        )
+        set_scratchpad_state(document.meta.slug)
+        delimiter_id = document.blocks[1].id
+        result = run(ReadScratchpadTool)
+        assert f"<{delimiter_id}>" in result
+
+    def test_the_header_reports_the_version(self, scratchpad):
+        assert "version 1" in run(ReadScratchpadTool)
+
+
+class TestGetBlock:
+    def test_returns_one_block_in_full_detail(self, scratchpad):
+        slug, ids = scratchpad
+        result = run(GetBlockTool, block_id=ids[1])
+        assert "some text" in result
+        assert "author=" in result
+        assert "## Title" not in result
+
+    def test_an_unknown_id_is_reported(self, scratchpad):
+        assert "No block" in run(GetBlockTool, block_id="blk-nope")
+
+    def test_a_missing_id_is_reported(self, scratchpad):
+        assert "required" in run(GetBlockTool)
+
+    def test_it_matches_read_scratchpad_block_style_for_the_same_block(
+        self, scratchpad
+    ):
+        """The agent should not have to learn two formats for one block."""
+        slug, ids = scratchpad
+        from_all = run(ReadScratchpadTool, style="block")
+        one = run(GetBlockTool, block_id=ids[1])
+        # The header differs (document header vs one block), the block does not.
+        assert one.split("\n", 2)[2] in from_all
+
+
+class TestFindBlockIds:
+    def test_finds_a_block_by_its_text(self, scratchpad):
+        slug, ids = scratchpad
+        result = run(FindBlockIdsTool, search_str="some text")
+        assert ids[1] in result
+
+    def test_matches_case_insensitively(self, scratchpad):
+        slug, ids = scratchpad
+        result = run(FindBlockIdsTool, search_str="SOME TEXT")
+        assert ids[1] in result
+
+    def test_matches_a_substring(self, scratchpad):
+        slug, ids = scratchpad
+        assert ids[1] in run(FindBlockIdsTool, search_str="ome tex")
+
+    def test_it_returns_the_full_blocks_not_just_ids(self, scratchpad):
+        """Otherwise the agent issues one get_block per hit to learn anything.
+
+        The body is the stored data object, as in get_block and the block style of
+        read_scratchpad, so a hit carries everything a follow-up write needs.
+        """
+        result = run(FindBlockIdsTool, search_str="a task")
+        assert "author=" in result
+        assert '"text": "a task"' in result
+
+    def test_it_can_match_several_blocks_at_once(self, notes_dir):
+        document = create_document(
+            "Multi",
+            [
+                {"type": "paragraph", "data": {"text": "alpha one"}},
+                {"type": "paragraph", "data": {"text": "alpha two"}},
+                {"type": "paragraph", "data": {"text": "beta"}},
+            ],
+        )
+        set_scratchpad_state(document.meta.slug)
+        result = run(FindBlockIdsTool, search_str="alpha")
+        assert document.blocks[0].id in result
+        assert document.blocks[1].id in result
+        assert document.blocks[2].id not in result
+
+    def test_no_match_is_reported_with_the_search_and_the_total(self, scratchpad):
+        result = run(FindBlockIdsTool, search_str="zzzz")
+        assert "zzzz" in result
+        assert "3" in result
+
+    def test_a_missing_search_string_is_reported(self, scratchpad):
+        assert "required" in run(FindBlockIdsTool)
+
+    def test_it_searches_the_rendered_text_not_the_raw_data(self, notes_dir):
+        """A field NAME is not content.
+
+        Searching the raw JSON would report every checklist block for "checked",
+        which is a schema key the agent never saw as text.
+        """
+        document = create_document(
+            "Checklists",
+            [
+                {
+                    "type": "checklist",
+                    "data": {"items": [{"text": "milk", "checked": False}]},
+                },
+            ],
+        )
+        set_scratchpad_state(document.meta.slug)
+        assert "No block" in run(FindBlockIdsTool, search_str="checked")
+        # And the visible text does match.
+        assert document.blocks[0].id in run(FindBlockIdsTool, search_str="milk")

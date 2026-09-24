@@ -14,7 +14,7 @@ only thing that sets it.
 
 from __future__ import annotations
 
-import json
+from pydantic import Field
 
 from wichy.tools.base import BaseTool, ParametersModel
 from wichy.tools.notes import get_scratchpad_slug
@@ -26,6 +26,11 @@ from wichy.tools.notes.blocks import (
     InvalidSlugError,
     load_document,
 )
+from wichy.tools.notes.agent_tools import (
+    normalize_style,
+    render_document,
+    render_markdown_document,
+)
 from wichy.tools.notes.models import is_valid_slug
 
 #: Returned when nothing is pinned. Every block tool returns this same message,
@@ -34,7 +39,18 @@ NO_SCRATCHPAD = "No scratchpad is pinned. Pin a note in the notes UI first."
 
 
 class ScratchpadParams(ParametersModel):
-    """No parameters needed for reading the scratchpad."""
+    """Parameters for reading the scratchpad."""
+
+    style: str | None = Field(
+        default=None,
+        description=(
+            "How to render the scratchpad. 'markdown' (default) returns the "
+            "content as clean markdown with each block wrapped in a tag naming "
+            "its id, e.g. <blk-a12>. 'block' additionally returns each block's "
+            "author, last writer and raw data object -- use it when you need the "
+            "exact field names. 'md' is accepted as a synonym for 'markdown'."
+        ),
+    )
 
 
 class ReadScratchpadTool(BaseTool):
@@ -42,9 +58,10 @@ class ReadScratchpadTool(BaseTool):
 
     name = "read_scratchpad"
     description = (
-        "Read the pinned scratchpad document, including each block's id and "
-        "metadata. Use read_blocks for a targeted read of one type or range; "
-        "use this to see the whole document before deciding what to change."
+        "Read the pinned scratchpad. Returns its content as markdown by default, "
+        "with every block wrapped in a tag naming its block id so you can target "
+        "it with a write tool. Pass style='block' when you need each block's "
+        "author, last writer and raw data object instead."
     )
     parameters_model = ScratchpadParams
     needs_verification_in_api: bool = False
@@ -57,6 +74,10 @@ class ReadScratchpadTool(BaseTool):
             Never raises: a missing pin is a state the agent should be told about,
             not an exception it has to interpret.
         """
+        style, style_error = normalize_style(kwargs.get("style"))
+        if style_error is not None:
+            return style_error
+
         slug = get_scratchpad_slug()
         if not slug:
             return NO_SCRATCHPAD
@@ -97,35 +118,9 @@ class ReadScratchpadTool(BaseTool):
             body = document.blocks[0].data.get("text", "") if document.blocks else ""
             return f"{MARKDOWN_WRITE_REFUSED}\n\n{body}"
 
-        lines = [
-            f"# Scratchpad: {document.meta.title}",
-            "",
-            f"slug: {slug}  version: {document.meta.version}",
-            "",
-        ]
-        for block in document.blocks:
-            touched = ",".join(block.meta.touched_by) or "nobody"
-            # The same two labels read_blocks uses, so the agent does not have to
-            # learn two vocabularies for one fact. `author` is the CREATOR, which
-            # nothing updates; the last entry of touched_by is who wrote it most
-            # recently.
-            last_writer = (
-                block.meta.touched_by[-1] if block.meta.touched_by else "nobody"
-            )
-            lines.append(
-                f"[{block.type}] id: {block.id} author={block.meta.author} "
-                f"last-touched-by={last_writer} (touched by: {touched})"
-            )
-            lines.append(_render_data(block.data))
-            lines.append("")
-        return "\n".join(lines).rstrip()
+        if style == "markdown":
+            return render_markdown_document(document)
 
-
-def _render_data(data: dict) -> str:
-    """Render one block's data compactly.
-
-    Block data is a small JSON object, so it is shown as JSON rather than
-    pretty-printed prose: the agent needs the exact field names to build a
-    follow-up call, and a paraphrase would lose them.
-    """
-    return json.dumps(data, ensure_ascii=False)
+        # The shared block-style renderer, so this tool and read_blocks/get_block
+        # never disagree about how a block is spelled.
+        return render_document(document, include_metadata=True, raw_data=True)
