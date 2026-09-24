@@ -596,6 +596,13 @@
     display: none;
 }
 
+/* The anchor notice is informational, not a warning: it marks where the record
+   begins rather than flagging a problem. Neutral border, not the warning hue. */
+.history-incomplete.history-boundary {
+    border-left-color: var(--accent-info, #1a6fb5);
+    background: var(--surface-muted, #fafafa);
+}
+
 /* The compare view. Two columns side by side so the difference is read across,
    wrapping to one column when there is not room for both. */
 .compare-grid {
