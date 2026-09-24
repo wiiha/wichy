@@ -116,8 +116,13 @@ MAX_CONFLICT_BLOCKS = 20
 
 #: Brackets around the injected change message, so the agent can tell where a
 #: notification starts and ends when several arrive in one context.
-CHANGE_MESSAGE_OPEN = "[Document changes for: {}]"
-CHANGE_MESSAGE_CLOSE = "[End document changes]"
+#:
+#: Names no document: the only document ever delivered is the pinned scratchpad
+#: (the agent's tools resolve their target from the pin and take no slug), so a
+#: title here would name something the agent has no other word for. It is the
+#: scratchpad, always.
+CHANGE_MESSAGE_OPEN = "[Scratchpad changes]"
+CHANGE_MESSAGE_CLOSE = "[End scratchpad changes]"
 
 #: Verb per op kind, for the injected summary.
 _OP_VERBS = {
@@ -125,14 +130,7 @@ _OP_VERBS = {
     "update": "Updated",
     "remove": "Deleted",
     "move": "Moved",
-    "rename": "Renamed",
 }
-
-#: Key under which a rename op is buffered. Not a block id -- a rename touches no
-#: block -- so it must not be able to collide with one. Block ids are always
-#: non-empty strings, so an empty key is already unambiguous; it is named here so
-#: the intent is explicit rather than incidental.
-_RENAME_KEY = ""
 
 #: How many lines of one block's diff are shown before it is truncated.
 #:
@@ -190,11 +188,6 @@ def _render_block_diff(op: Mapping[str, Any]) -> list[str]:
         before_type = str(before.get("type") or block_type)
         before_data = before.get("data")
 
-    if kind == "rename":
-        # A rename has no content to show: the two names are the whole change, and
-        # they live on the summary line rather than here.
-        return []
-
     if kind == "move":
         # Position is the whole of a move; the content did not change.
         index = op.get("index")
@@ -249,34 +242,29 @@ def _render_block_diff(op: Mapping[str, Any]) -> list[str]:
     return []
 
 
-def change_message(title: str, ops: Iterable[Mapping[str, Any]]) -> str:
+def change_message(ops: Iterable[Mapping[str, Any]]) -> str:
     """The message injected into the agent's context when a document changes.
 
-    Names the document because the agent may have switched documents since it
-    last looked: a bare list of ops would not say which document they describe.
+    Speaks of "the scratchpad" and names no document. Only the pinned scratchpad
+    is ever delivered -- the agent's tools resolve their target from the pin and
+    take no slug -- so a title would name something the agent has no other word
+    for, and the note's name is not a concept it can act on.
+
     Each op is followed by the CONTENT it produced -- a diff for an update, the
     new text for an addition, the deleted text for a removal -- so the agent
-    learns what the note now says without re-reading it. "Updated block (id:
+    learns what the text now says without re-reading it. "Updated block (id:
     blk-3)" told it that something moved, which is exactly the fact it cannot act
     on.
 
     Args:
-        title: The document's title.
         ops: The user's operations, one entry per changed block.
 
     Returns:
         The message, with one summary line per operation and its content beneath.
     """
-    lines = [CHANGE_MESSAGE_OPEN.format(title)]
+    lines = [CHANGE_MESSAGE_OPEN]
     for op in ops:
         verb = _OP_VERBS.get(str(op.get("op")), "Changed")
-        if str(op.get("op")) == "rename":
-            # The names ARE the change, so they go on the summary line: the title
-            # in the header is the NEW one, which would make a bare "Renamed" say
-            # nothing about what the document used to be called.
-            was = op.get("from_title") or "?"
-            lines.append(f"- {verb} from '{was}' to '{title}'")
-            continue
         block_id = op.get("block_id") or "?"
         header = f"- {verb} {_block_label(op.get('block_type'))} (id: {block_id})"
         body = _truncate_lines(_render_block_diff(op))
@@ -591,14 +579,7 @@ def _deliver_notification(slug: str) -> bool:
         # agent is momentarily unreachable.
         return False
 
-    try:
-        title = load_document(slug).meta.title
-    except (DocumentNotFoundError, InvalidDocumentError, OSError):
-        # The document is gone or unreadable. Retrying cannot help and the ops
-        # describe nothing, so they are dropped rather than re-buffered forever.
-        return True
-
-    message = change_message(title, ops)
+    message = change_message(ops)
     try:
         # context.add(), not steer(): steer prints to the console on every call,
         # and this is an automatic notification, not a user command.
@@ -801,10 +782,6 @@ def register_routes(bp: Blueprint):
         # says nothing changed.
         target_slug = slug
         rename_to: list[str] = []
-        # The title as it was BEFORE the body ran. Captured here rather than read
-        # inside `mutate`, which overwrites it -- and the notification needs the
-        # old name to say what the document was called.
-        title_before_rename: list[str] = [current.meta.title]
 
         def mutate(document):
             nonlocal target_slug
@@ -832,31 +809,6 @@ def register_routes(bp: Blueprint):
         document, error = _apply_locked(slug, expected, "user", mutate)
         if error is not None:
             return error
-
-        # A rename is a change the agent is told about, like any other: without
-        # this the document the agent has been editing silently changes name, and
-        # a notification describing an edit to the OLD name would arrive pointing
-        # at something that no longer exists under it. Buffered through the same
-        # channel, so it settles and is filtered by the pin like a block edit.
-        #
-        # Buffered under the NEW slug, because that is the name the document now
-        # has -- and the one the pin points at, since `_move_marker` repointed it.
-        if rename_to:
-            renamed_title = document.meta.title
-            buffer_notification(
-                target_slug,
-                [
-                    {
-                        "op": "rename",
-                        "from_title": (
-                            title_before_rename[0] if title_before_rename else None
-                        ),
-                        "to_title": renamed_title,
-                    }
-                ],
-                document.meta.version,
-            )
-
         return jsonify(
             {
                 "slug": target_slug,

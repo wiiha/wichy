@@ -330,14 +330,16 @@ class TestPostChanges:
         assert len(session.root_agent.context.injected) == 1
         role, content = session.root_agent.context.injected[0]
         assert role == "user"
-        assert content.startswith("[Document changes for: Change Doc]")
-        assert content.endswith("[End document changes]")
+        assert content.startswith("[Scratchpad changes]")
+        assert content.endswith("[End scratchpad changes]")
 
-    def test_the_message_names_the_document_title(self, client, doc, session):
+    def test_the_message_names_no_document(self, client, doc, session):
+        """The agent has no word for a note's name; it knows only "the scratchpad"."""
         slug, ids = doc
         post_and_flush(client, slug, [op(block_id=ids[0])])
         content = session.root_agent.context.injected[0][1]
-        assert "Change Doc" in content
+        assert "Change Doc" not in content
+        assert "scratchpad" in content.lower()
 
     def test_the_message_describes_each_op(self, client, doc, session):
         slug, ids = doc
@@ -782,27 +784,21 @@ class TestRenamingCarriesTheQueue:
 class TestInjectedMessage:
     def test_it_is_plain_text_not_markdown_heading(self):
         """The agent reads it as a message, so brackets delimit it, not markdown."""
-        message = api.change_message("Title", [op(block_id="blk-a")])
-        assert message.startswith("[Document changes for: Title]")
-        assert message.endswith("[End document changes]")
+        message = api.change_message([op(block_id="blk-a")])
+        assert message.startswith("[Scratchpad changes]")
+        assert message.endswith("[End scratchpad changes]")
 
     def test_one_line_per_op(self):
-        message = api.change_message(
-            "T", [op("update", "blk-a"), op("remove", "blk-b")]
-        )
+        message = api.change_message([op("update", "blk-a"), op("remove", "blk-b")])
         assert message.count("- ") == 2
 
     def test_an_unknown_op_kind_still_renders(self):
-        message = api.change_message("T", [{"op": "mystery", "block_id": "blk-a"}])
+        message = api.change_message([{"op": "mystery", "block_id": "blk-a"}])
         assert "blk-a" in message
 
     def test_a_missing_block_id_does_not_break_it(self):
-        message = api.change_message("T", [{"op": "update"}])
+        message = api.change_message([{"op": "update"}])
         assert "?" in message
-
-    def test_the_title_is_included_verbatim(self):
-        message = api.change_message("Notes: plan", [op()])
-        assert "Notes: plan" in message
 
 
 # ---------------------------------------------------------------------------
@@ -1699,7 +1695,16 @@ class TestNotificationIsDeferred:
         flush_changes(slug)
         assert session.root_agent.context.injected == []
 
-    def test_a_rename_carries_the_buffer_to_the_new_slug(self, client, doc, session):
+    def test_a_rename_carries_a_pending_buffer_to_the_new_slug(
+        self, client, doc, session
+    ):
+        """A buffered BLOCK edit survives the rename and is delivered under the new name.
+
+        The rename itself is not notified -- a note's name is not a concept the
+        agent has. But a block edit made just before it is still an edit to the
+        scratchpad, and it must not be stranded under a slug that no longer names
+        anything.
+        """
         slug, ids = doc
         post_changes(client, slug, [op(block_id=ids[0], data={"text": "x"})])
         response = client.put(
@@ -1709,7 +1714,9 @@ class TestNotificationIsDeferred:
         new_slug = response.get_json()["slug"]
         flush_changes(new_slug)
         assert len(session.root_agent.context.injected) == 1
-        assert "Renamed Doc" in session.root_agent.context.injected[0][1]
+        assert "x" in session.root_agent.context.injected[0][1]
+        # And the rename is not announced as a change of its own.
+        assert "Renamed" not in session.root_agent.context.injected[0][1]
 
 
 class TestTheMessageShowsWhatChanged:
@@ -2033,78 +2040,3 @@ class TestOnlyThePinnedNoteIsDelivered:
         set_scratchpad_slug(doc[0])
         time.sleep(0.5)
         assert len(session.root_agent.context.injected) == 1
-
-
-class TestRenamesAreNotified:
-    """A rename is a change to the document the agent is editing.
-
-    Left silent, the document the agent has been working on changes name without
-    it being told, and a later notification naming the old title points at a
-    document that is no longer called that.
-    """
-
-    def rename(self, client, slug, title, version=1):
-        return client.put(
-            f"{PREFIX}/api/notes/{slug}",
-            json={"version": version, "meta": {"title": title}},
-        )
-
-    def test_a_rename_is_injected(self, client, doc, session):
-        slug, ids = doc
-        response = self.rename(client, slug, "A New Name")
-        assert response.status_code == 200
-        flush_changes(response.get_json()["slug"])
-        assert len(session.root_agent.context.injected) == 1
-
-    def test_the_message_names_both_the_old_and_the_new_title(
-        self, client, doc, session
-    ):
-        slug, ids = doc
-        new_slug = self.rename(client, slug, "A New Name").get_json()["slug"]
-        flush_changes(new_slug)
-        content = session.root_agent.context.injected[0][1]
-        assert "A New Name" in content
-        assert "Change Doc" in content
-
-    def test_the_notification_is_filed_under_the_new_slug(self, client, doc, session):
-        """Otherwise the pin, which points at the new name, would filter it out."""
-        slug, ids = doc
-        new_slug = self.rename(client, slug, "A New Name").get_json()["slug"]
-        assert new_slug != slug
-        flush_changes(new_slug)
-        assert len(session.root_agent.context.injected) == 1
-
-    def test_a_rename_of_an_unpinned_note_is_not_injected(
-        self, client, doc, session, notes_dir
-    ):
-        other = create_document("Other", [{"type": "paragraph", "data": {"text": "x"}}])
-        new_slug = self.rename(client, other.meta.slug, "Renamed Other").get_json()[
-            "slug"
-        ]
-        flush_changes(new_slug)
-        assert session.root_agent.context.injected == []
-
-    def test_a_title_save_that_changes_nothing_notifies_nothing(
-        self, client, doc, session
-    ):
-        """The same title is not a rename, so there is nothing to announce."""
-        slug, ids = doc
-        response = self.rename(client, slug, "Change Doc")
-        assert response.status_code == 200
-        flush_changes(slug)
-        assert session.root_agent.context.injected == []
-
-    def test_two_renames_in_one_burst_read_from_the_original(
-        self, client, doc, session
-    ):
-        """The agent needs where it started and where it ended, not each hop."""
-        from wichy.tools.notes.state import set_notify_settle_seconds
-
-        set_notify_settle_seconds(5)  # hold the burst open
-        slug, ids = doc
-        first = self.rename(client, slug, "Middle Name").get_json()["slug"]
-        second = self.rename(client, first, "Final Name", version=2).get_json()["slug"]
-        flush_changes(second)
-        content = session.root_agent.context.injected[0][1]
-        assert "Change Doc" in content
-        assert "Final Name" in content
