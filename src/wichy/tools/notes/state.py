@@ -447,6 +447,17 @@ def merge_pending_ops(existing: Iterable[dict], incoming: Iterable[dict]) -> lis
         for field in ("data", "block_type", "index"):
             if field not in combined and field in first:
                 combined[field] = first[field]
+        if str(first.get("op")) == "rename":
+            # A rename keyed by the same (empty) key as another rename is still
+            # one statement: the document went from its ORIGINAL name to its
+            # final one. Keeping the first ``from_title`` is what makes two
+            # renames in a burst read "from 'A' to 'C'" rather than "'B' to 'C'".
+            combined["op"] = "rename"
+            combined["from_title"] = first.get("from_title")
+            if "to_title" not in combined and "to_title" in first:
+                combined["to_title"] = first["to_title"]
+            merged[key] = combined
+            continue
         if str(first.get("op")) == "add" and str(op.get("op")) != "remove":
             # Still an addition: the block did not exist before the burst, so a
             # diff against a previous state would be against nothing.

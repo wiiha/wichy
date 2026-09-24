@@ -85,7 +85,15 @@ def notes_dir(tmp_path, monkeypatch):
 
 @pytest.fixture
 def doc(notes_dir):
-    """A document with three blocks, returned as (slug, [block ids])."""
+    """A pinned document with three blocks, returned as (slug, [block ids]).
+
+    Pinned because that is the only document the agent can act on, and so the
+    only one whose changes are delivered. An unpinned document's edits are
+    accepted and then dropped at delivery -- see
+    TestOnlyThePinnedNoteIsDelivered.
+    """
+    from wichy.tools.notes import set_scratchpad_slug
+
     document = create_document(
         "Change Doc",
         [
@@ -94,6 +102,7 @@ def doc(notes_dir):
             {"type": "paragraph", "data": {"text": "three"}},
         ],
     )
+    set_scratchpad_slug(document.meta.slug)
     return document.meta.slug, [b.id for b in document.blocks]
 
 
@@ -1302,11 +1311,16 @@ class TestDeleteClearsPerSlugState:
 
     def test_delete_clears_the_injection_bookkeeping(self, client, doc, session):
         """A new document's first notification must not look like a repeat."""
+        from wichy.tools.notes import set_scratchpad_slug
+
         slug, ids = doc
         post_and_flush(client, slug, [op(block_id=ids[0])])
         assert len(session.root_agent.context.injected) == 1
         client.delete(f"{PREFIX}/api/notes/{slug}")
         create_document("Change Doc", [{"type": "paragraph", "data": {"text": "new"}}])
+        # Re-pinned: deleting the pinned note cleared the pin, and only the pinned
+        # note's changes are delivered.
+        set_scratchpad_slug(slug)
         post_and_flush(client, slug, [op(block_id=ids[0])])
         assert len(session.root_agent.context.injected) == 2
 
@@ -1952,3 +1966,145 @@ class TestTheSettleTimerItself:
         content = session.root_agent.context.injected[0][1]
         assert content.count(f"id: {ids[0]}") == 1
         assert "ab" in content
+
+
+class TestOnlyThePinnedNoteIsDelivered:
+    """The agent can only act on the pinned note, so only its changes are sent.
+
+    Every block tool resolves its target from the pin and takes no slug. A
+    notification about any other document describes something the agent can
+    neither open nor edit, and spending context on it is worse than silence.
+    """
+
+    def test_an_unpinned_notes_change_is_not_injected(
+        self, client, doc, session, notes_dir
+    ):
+        from wichy.tools.notes import set_scratchpad_slug
+
+        other = create_document("Other", [{"type": "paragraph", "data": {"text": "x"}}])
+        set_scratchpad_slug(doc[0])  # pin something else
+        post_and_flush(
+            client,
+            other.meta.slug,
+            [op(block_id=other.blocks[0].id, data={"text": "y"})],
+        )
+        assert session.root_agent.context.injected == []
+
+    def test_the_pinned_notes_change_is_injected(self, client, doc, session):
+        post_and_flush(client, doc[0], [op(block_id=doc[1][0], data={"text": "z"})])
+        assert len(session.root_agent.context.injected) == 1
+
+    def test_nothing_pinned_delivers_nothing(self, client, doc, session, notes_dir):
+        from wichy.tools.notes import set_scratchpad_slug
+
+        set_scratchpad_slug(None)
+        post_and_flush(client, doc[0], [op(block_id=doc[1][0], data={"text": "z"})])
+        assert session.root_agent.context.injected == []
+
+    def test_an_unpinned_change_is_dropped_not_retried(
+        self, client, doc, session, notes_dir
+    ):
+        """It must not sit in the buffer forever waiting for a pin that may never come."""
+        from wichy.tools.notes import set_scratchpad_slug
+        from wichy.tools.notes.state import peek_pending_notification
+
+        other = create_document("Other", [{"type": "paragraph", "data": {"text": "x"}}])
+        set_scratchpad_slug(doc[0])
+        post_and_flush(
+            client,
+            other.meta.slug,
+            [op(block_id=other.blocks[0].id, data={"text": "y"})],
+        )
+        assert peek_pending_notification(other.meta.slug) == []
+
+    def test_pinning_the_note_after_the_edit_still_delivers_it(
+        self, client, doc, session, notes_dir
+    ):
+        """The pin is read at DELIVERY, so pinning unblocks a buffered change."""
+        import time
+
+        from wichy.tools.notes import set_scratchpad_slug
+        from wichy.tools.notes.state import set_notify_settle_seconds
+
+        set_notify_settle_seconds(0.1)
+        set_scratchpad_slug(None)
+        post_changes(client, doc[0], [op(block_id=doc[1][0], data={"text": "z"})])
+        # Pin before the settle window elapses, while the ops are still buffered.
+        set_scratchpad_slug(doc[0])
+        time.sleep(0.5)
+        assert len(session.root_agent.context.injected) == 1
+
+
+class TestRenamesAreNotified:
+    """A rename is a change to the document the agent is editing.
+
+    Left silent, the document the agent has been working on changes name without
+    it being told, and a later notification naming the old title points at a
+    document that is no longer called that.
+    """
+
+    def rename(self, client, slug, title, version=1):
+        return client.put(
+            f"{PREFIX}/api/notes/{slug}",
+            json={"version": version, "meta": {"title": title}},
+        )
+
+    def test_a_rename_is_injected(self, client, doc, session):
+        slug, ids = doc
+        response = self.rename(client, slug, "A New Name")
+        assert response.status_code == 200
+        flush_changes(response.get_json()["slug"])
+        assert len(session.root_agent.context.injected) == 1
+
+    def test_the_message_names_both_the_old_and_the_new_title(
+        self, client, doc, session
+    ):
+        slug, ids = doc
+        new_slug = self.rename(client, slug, "A New Name").get_json()["slug"]
+        flush_changes(new_slug)
+        content = session.root_agent.context.injected[0][1]
+        assert "A New Name" in content
+        assert "Change Doc" in content
+
+    def test_the_notification_is_filed_under_the_new_slug(self, client, doc, session):
+        """Otherwise the pin, which points at the new name, would filter it out."""
+        slug, ids = doc
+        new_slug = self.rename(client, slug, "A New Name").get_json()["slug"]
+        assert new_slug != slug
+        flush_changes(new_slug)
+        assert len(session.root_agent.context.injected) == 1
+
+    def test_a_rename_of_an_unpinned_note_is_not_injected(
+        self, client, doc, session, notes_dir
+    ):
+        other = create_document("Other", [{"type": "paragraph", "data": {"text": "x"}}])
+        new_slug = self.rename(client, other.meta.slug, "Renamed Other").get_json()[
+            "slug"
+        ]
+        flush_changes(new_slug)
+        assert session.root_agent.context.injected == []
+
+    def test_a_title_save_that_changes_nothing_notifies_nothing(
+        self, client, doc, session
+    ):
+        """The same title is not a rename, so there is nothing to announce."""
+        slug, ids = doc
+        response = self.rename(client, slug, "Change Doc")
+        assert response.status_code == 200
+        flush_changes(slug)
+        assert session.root_agent.context.injected == []
+
+    def test_two_renames_in_one_burst_read_from_the_original(
+        self, client, doc, session
+    ):
+        """The agent needs where it started and where it ended, not each hop."""
+        from wichy.tools.notes.state import set_notify_settle_seconds
+
+        set_notify_settle_seconds(5)  # hold the burst open
+        slug, ids = doc
+        first = self.rename(client, slug, "Middle Name").get_json()["slug"]
+        second = self.rename(client, first, "Final Name", version=2).get_json()["slug"]
+        flush_changes(second)
+        content = session.root_agent.context.injected[0][1]
+        assert "Change Doc" in content
+        assert "Final Name" in content

@@ -125,7 +125,14 @@ _OP_VERBS = {
     "update": "Updated",
     "remove": "Deleted",
     "move": "Moved",
+    "rename": "Renamed",
 }
+
+#: Key under which a rename op is buffered. Not a block id -- a rename touches no
+#: block -- so it must not be able to collide with one. Block ids are always
+#: non-empty strings, so an empty key is already unambiguous; it is named here so
+#: the intent is explicit rather than incidental.
+_RENAME_KEY = ""
 
 #: How many lines of one block's diff are shown before it is truncated.
 #:
@@ -182,6 +189,11 @@ def _render_block_diff(op: Mapping[str, Any]) -> list[str]:
     if isinstance(before, Mapping):
         before_type = str(before.get("type") or block_type)
         before_data = before.get("data")
+
+    if kind == "rename":
+        # A rename has no content to show: the two names are the whole change, and
+        # they live on the summary line rather than here.
+        return []
 
     if kind == "move":
         # Position is the whole of a move; the content did not change.
@@ -258,6 +270,13 @@ def change_message(title: str, ops: Iterable[Mapping[str, Any]]) -> str:
     lines = [CHANGE_MESSAGE_OPEN.format(title)]
     for op in ops:
         verb = _OP_VERBS.get(str(op.get("op")), "Changed")
+        if str(op.get("op")) == "rename":
+            # The names ARE the change, so they go on the summary line: the title
+            # in the header is the NEW one, which would make a bare "Renamed" say
+            # nothing about what the document used to be called.
+            was = op.get("from_title") or "?"
+            lines.append(f"- {verb} from '{was}' to '{title}'")
+            continue
         block_id = op.get("block_id") or "?"
         header = f"- {verb} {_block_label(op.get('block_type'))} (id: {block_id})"
         body = _truncate_lines(_render_block_diff(op))
@@ -525,17 +544,32 @@ def _deliver_notification(slug: str) -> bool:
     buffered, because the browser was told they were accepted and has already
     discarded its own copy.
 
+    Only the PINNED note is delivered. The agent's block tools resolve their
+    target from the pin and take no slug, so a change to any other note is
+    something it can neither act on nor reach: injecting it would spend context
+    on a document it cannot open. The pin is re-read here rather than at accept
+    time, because the user may pin a different note while a burst is settling.
+    A change to an unpinned note is dropped as "nothing to deliver" (True) and
+    not retried -- the pin is not expected to change back, and retrying would
+    hold the buffer indefinitely.
+
     Args:
         slug: The document slug.
 
     Returns:
-        True when delivered (or deliberately dropped as a duplicate), False when
-        delivery should be retried.
+        True when delivered, dropped as unpinned, or deliberately dropped as a
+        duplicate; False when delivery should be retried.
     """
     ops = peek_pending_notification(slug)
     if not ops:
         return True
     version = pending_notification_version(slug)
+
+    from wichy.tools.notes import get_scratchpad_slug
+
+    if get_scratchpad_slug() != slug:
+        # Not the pinned document. Reportable to nobody the agent can act for.
+        return True
 
     # A retry of an already-notified version is the same notification: the browser
     # parks ops on a transient failure and re-sends them, and a retry that arrives
@@ -767,6 +801,10 @@ def register_routes(bp: Blueprint):
         # says nothing changed.
         target_slug = slug
         rename_to: list[str] = []
+        # The title as it was BEFORE the body ran. Captured here rather than read
+        # inside `mutate`, which overwrites it -- and the notification needs the
+        # old name to say what the document was called.
+        title_before_rename: list[str] = [current.meta.title]
 
         def mutate(document):
             nonlocal target_slug
@@ -794,6 +832,31 @@ def register_routes(bp: Blueprint):
         document, error = _apply_locked(slug, expected, "user", mutate)
         if error is not None:
             return error
+
+        # A rename is a change the agent is told about, like any other: without
+        # this the document the agent has been editing silently changes name, and
+        # a notification describing an edit to the OLD name would arrive pointing
+        # at something that no longer exists under it. Buffered through the same
+        # channel, so it settles and is filtered by the pin like a block edit.
+        #
+        # Buffered under the NEW slug, because that is the name the document now
+        # has -- and the one the pin points at, since `_move_marker` repointed it.
+        if rename_to:
+            renamed_title = document.meta.title
+            buffer_notification(
+                target_slug,
+                [
+                    {
+                        "op": "rename",
+                        "from_title": (
+                            title_before_rename[0] if title_before_rename else None
+                        ),
+                        "to_title": renamed_title,
+                    }
+                ],
+                document.meta.version,
+            )
+
         return jsonify(
             {
                 "slug": target_slug,
