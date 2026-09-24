@@ -40,7 +40,8 @@ from wichy.tools.notes.agent_tools import (
     MoveBlockTool,
     ReadBlocksTool,
     ReadRevisionsTool,
-    ReplaceBlockTool,
+    WriteBlockTool,
+    ChangeBlockTypeTool,
 )
 from wichy.tools.read_scratchpad import ReadScratchpadTool
 from wichy.tools.registry import (
@@ -102,7 +103,8 @@ __all__ = [
     "ReadFileTool",
     "ReadScratchpadTool",
     "ReadBlocksTool",
-    "ReplaceBlockTool",
+    "WriteBlockTool",
+    "ChangeBlockTypeTool",
     "InsertBlockTool",
     "DeleteBlockTool",
     "MoveBlockTool",

@@ -28,7 +28,8 @@ schema, and its contents are checked by the tool body.
 from __future__ import annotations
 
 import json
-from typing import Any
+import re
+from typing import Any, Mapping
 
 from pydantic import Field
 
@@ -56,9 +57,18 @@ from wichy.tools.notes.models import (
     BLOCK_DATA_MODELS,
     BlockDataError,
     is_valid_slug,
-    schema_summary,
 )
 from wichy.tools.notes.revisions import read_revisions
+
+#: Marker patterns for reading plain text as a block. Shared with the markdown
+#: converter so text the agent copies out of a read is accepted back as input.
+HEADER_RE = re.compile(r"^(#{1,6})\s+(.*)$")
+LIST_MARKER_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
+ORDERED_MARKER_RE = re.compile(r"^\s*\d+[.)]\s+")
+CHECKLIST_MARKER_RE = re.compile(r"^\s*[-*+]\s+\[([ xX])\]\s*(.*)$")
+QUOTE_MARKER_RE = re.compile(r"^\s*>\s?")
+CODE_FENCE_RE = re.compile(r"^(`{3,}|~{3,})\s*([\w+-]*)\s*$")
+CODE_CLOSE_RE = re.compile(r"\n?(`{3,}|~{3,})\s*$")
 
 #: Returned by every tool when no document is pinned.
 NO_SCRATCHPAD = "No scratchpad is pinned. Pin a note in the notes UI first."
@@ -259,6 +269,189 @@ def _render_typed(block_type: str, data: dict[str, Any]) -> str:
         state = "checked" if data.get("checked") else "unchecked"
         return f"[TODO {state}] {data.get('text', '')}"
     return str(data)
+
+
+def _lines_of(text: str) -> list[str]:
+    """The non-empty, stripped lines of a body of text.
+
+    A trailing blank line is an artefact of pasting, not an item the user wants,
+    so it is dropped rather than becoming an empty list entry.
+    """
+    return [line.strip() for line in text.splitlines() if line.strip()]
+
+
+def text_to_data(block_type: str, text: str) -> dict[str, Any]:
+    """Build a block's data from plain text.
+
+    Plain text is what a caller writes without thinking about the block's schema.
+    The text is interpreted by the target type, and every type has a defined
+    reading of it -- there is no input that maps to nothing:
+
+    - ``paragraph``, ``header``, ``quote``, ``question``, ``decision``, ``todo``:
+      the text is the block's ``text``. A leading markdown heading marker sets a
+      header's level, and a ``|`` gives a quote its caption.
+    - ``list``, ``checklist``: one item per non-empty line, with a leading
+      ``-``, ``*``, ``1.`` or ``- [ ]`` marker tolerated and stripped so text
+      copied out of a rendered read works as input.
+    - ``code``: the body verbatim, with a leading ```` ```lang ```` fence read
+      for its language.
+    - ``delimiter``: no content, so the text is ignored.
+
+    Args:
+        block_type: The type to build data for.
+        text: The plain text.
+
+    Returns:
+        A data mapping that validates against the type's model.
+    """
+    if block_type == "delimiter":
+        return {}
+
+    if block_type == "list":
+        list_items = [LIST_MARKER_RE.sub("", line) for line in _lines_of(text)]
+        ordered = bool(ORDERED_MARKER_RE.match(text.strip()))
+        return {
+            "items": list_items,
+            "style": "ordered" if ordered else "unordered",
+        }
+
+    if block_type == "checklist":
+        checklist_items: list[dict[str, Any]] = []
+        for line in _lines_of(text):
+            marker = CHECKLIST_MARKER_RE.match(line)
+            if marker:
+                checklist_items.append(
+                    {
+                        "text": marker.group(2),
+                        "checked": marker.group(1).lower() == "x",
+                    }
+                )
+            else:
+                checklist_items.append(
+                    {"text": LIST_MARKER_RE.sub("", line), "checked": False}
+                )
+        return {"items": checklist_items}
+
+    if block_type == "code":
+        code_body = text
+        language = ""
+        trimmed = text.strip("\n")
+        first_line, _, remainder = trimmed.partition("\n")
+        # Matched against the FIRST LINE, not the whole body: the pattern is
+        # anchored, and a body that happens to contain a fence would otherwise
+        # never match its own opening one.
+        fence = CODE_FENCE_RE.match(first_line.strip())
+        if fence:
+            language = fence.group(2)
+            # Drop the opening line and any closing fence, keeping the body as
+            # written -- indentation inside code is content, not formatting.
+            code_body = remainder
+            code_body = CODE_CLOSE_RE.sub("", code_body)
+        return {"code": code_body.rstrip("\n"), "language": language}
+
+    if block_type == "header":
+        match = HEADER_RE.match(text.strip())
+        if match:
+            return {"text": match.group(2).strip(), "level": len(match.group(1))}
+        return {"text": text.strip(), "level": 1}
+
+    if block_type == "quote":
+        lines = []
+        for line in text.splitlines():
+            lines.append(QUOTE_MARKER_RE.sub("", line))
+        body = "\n".join(lines).strip()
+        caption = ""
+        if "|" in body:
+            body, _, tail = body.rpartition("|")
+            caption = tail.strip()
+        return {"text": body.strip(), "caption": caption}
+
+    # paragraph, question, decision, todo, and anything unknown: the text itself.
+    return {"text": text.strip()}
+
+
+def text_to_checklist_items(text: str) -> list[dict[str, Any]]:
+    """Turn text into checklist items, one per non-empty line.
+
+    Used when converting a non-checklist block into a checklist: the block's text
+    is its content, and each line of it becomes an item.
+
+    Args:
+        text: The source text.
+
+    Returns:
+        One ``{text, checked}`` mapping per line.
+    """
+    items: list[dict[str, Any]] = []
+    for line in _lines_of(text):
+        match = CHECKLIST_MARKER_RE.match(line)
+        if match:
+            items.append(
+                {"text": match.group(2), "checked": match.group(1).lower() == "x"}
+            )
+        else:
+            items.append({"text": LIST_MARKER_RE.sub("", line), "checked": False})
+    return items or [{"text": "", "checked": False}]
+
+
+def plain_text_of(block_type: str, data: Mapping[str, Any]) -> str:
+    """A block's content as plain text, without markdown decoration.
+
+    Distinct from ``render_data``, which renders FOR READING: a header renders as
+    ``## Title`` so it looks like the markdown a reader expects, but its text IS
+    "Title". Carrying the rendering across a type change would leak the ``##``
+    into the new block's content, so conversion reads the text from here.
+
+    Args:
+        block_type: The block's type.
+        data: Its data.
+
+    Returns:
+        The block's text, with no syntax markers.
+    """
+    if block_type in ("paragraph", "header", "quote", "question", "decision", "todo"):
+        return str(data.get("text", ""))
+    if block_type in ("list", "checklist"):
+        parts = []
+        for item in data.get("items") or []:
+            parts.append(
+                str(item.get("text", "")) if isinstance(item, dict) else str(item)
+            )
+        return "\n".join(parts)
+    if block_type == "code":
+        return str(data.get("code", ""))
+    if block_type == "delimiter":
+        return ""
+    # Unknown type: the rendering is the only content there is.
+    return render_data(block_type, dict(data))
+
+
+def convert_data(
+    old_type: str, old_data: Mapping[str, Any], new_type: str
+) -> dict[str, Any]:
+    """Carry a block's content across a type change.
+
+    Every conversion is defined, so changing a block's type never loses its
+    content: the block's own text is taken and read as the new type. That is why
+    a paragraph becoming a list yields a one-item list rather than an error -- the
+    text is the content, and the new type says how to hold it.
+
+    Args:
+        old_type: The block's current type.
+        old_data: Its current data.
+        new_type: The type to convert to.
+
+    Returns:
+        Data for *new_type* carrying the block's text.
+    """
+    if old_type == new_type:
+        return dict(old_data)
+    if new_type == "delimiter":
+        return {}
+    text = plain_text_of(old_type, dict(old_data))
+    if new_type == "checklist":
+        return {"items": text_to_checklist_items(text)}
+    return text_to_data(new_type, text)
 
 
 def scratchpad_header(document: Any) -> str:
@@ -473,7 +666,7 @@ class ReadBlocksTool(BaseTool):
     description = (
         "Read the pinned scratchpad's blocks. Filter by type, by a single block "
         "id, or by an index range. Returns each block's id so you can target it "
-        "with replace_block, delete_block or move_block."
+        "with write_block, change_block_type, delete_block or move_block."
     )
     parameters_model = ReadBlocksParams
     needs_verification_in_api = False
@@ -535,43 +728,51 @@ class ReadBlocksTool(BaseTool):
         return render_document(document, selected, include_metadata=include_metadata)
 
 
-class ReplaceBlockParams(ParametersModel):
-    """Parameters for replace_block."""
+class WriteBlockParams(ParametersModel):
+    """Parameters for write_block."""
 
-    block_id: str
-    block_type: str
-    data: dict[str, Any]
+    block_id: str = Field(description="The id of the block to change.")
+    new_content: str = Field(
+        description=(
+            "The block's new content as plain text. Line breaks are kept. For a "
+            "list or checklist, write one item per line (a leading '- ', '* ' or "
+            "'1. ' is stripped). For a header, a leading '##' sets its level."
+        )
+    )
     expected_version: int | None = None
 
 
-class ReplaceBlockTool(BaseTool):
-    """Replace one block's content, keeping its id."""
+class WriteBlockTool(BaseTool):
+    """Replace one block's content."""
 
-    name = "replace_block"
+    name = "write_block"
     description = (
-        "Replace the content of one existing block, keeping its id. Use this to "
-        "edit a block you have already read."
+        "Replace the content of one block, keeping its id and its type. Pass the "
+        "new content as plain text -- not JSON. Use this to edit a block you have "
+        "already read."
     )
-    parameters_model = ReplaceBlockParams
+    parameters_model = WriteBlockParams
     needs_verification_in_api = False
 
     def execute(self, **kwargs: Any) -> str:
-        """Replace a block."""
+        """Write a block's content."""
         try:
             slug = _scratchpad_slug()
         except ScratchpadUnavailable as e:
             return str(e)
 
         block_id = str(kwargs.get("block_id") or "")
-        block_type = str(kwargs.get("block_type") or "")
-        data = kwargs.get("data")
-
+        new_content = kwargs.get("new_content")
         if not block_id:
             return "block_id is required."
-        if not block_type:
-            return f"block_type is required. Valid types: {VALID_TYPES}."
-        if not isinstance(data, dict):
-            return f"data must be an object. Expected {schema_summary(block_type)}."
+        if new_content is None:
+            return "new_content is required."
+        new_content = str(new_content)
+        if not new_content.strip():
+            # Checked BEFORE the document is opened: writing nothing is almost
+            # certainly a caller meaning to remove the block, and saying so is
+            # more useful than a version bump that stores an empty string.
+            return "new_content must not be empty. Use delete_block to remove a block."
 
         expected, version_error = _parse_expected_version(
             kwargs.get("expected_version")
@@ -582,17 +783,17 @@ class ReplaceBlockTool(BaseTool):
         committed = None
         try:
             with locked_document(slug, expected, author="agent") as document:
-                # Snapshot before the mutate, so an edit that changes nothing can
-                # be recognised and refused WITHOUT the version bump: an empty-op
-                # revision would move the version the browser never learns about,
-                # and its next save would be rejected as stale.
+                block = document.get_block(block_id)
+                if block is None:
+                    raise BlockNotFoundError(f"No block '{block_id}' in this document.")
+                # The type is KEPT, which is the point of this tool: the caller
+                # supplies content, not a schema. The text is read using the
+                # block's own type, so a header written "## T" gets level 2.
+                block_type = block.type
+                data = text_to_data(block_type, new_content)
                 before = block_snapshot_of(document)
                 replace_block(
-                    document,
-                    block_id,
-                    data=data,
-                    author="agent",
-                    block_type=block_type,
+                    document, block_id, data=data, author="agent", block_type=block_type
                 )
                 if block_snapshot_of(document) == before:
                     raise _NoChange(
@@ -621,15 +822,117 @@ class ReplaceBlockTool(BaseTool):
         except OSError as e:
             return _write_error(slug, e)
 
-        return f"Replaced block {block_id} with {block_type} (version {new_version})."
+        return f"Updated block {block_id} ({block_type}) (version {new_version})."
+
+
+class ChangeBlockTypeParams(ParametersModel):
+    """Parameters for change_block_type."""
+
+    block_id: str = Field(description="The id of the block to convert.")
+    new_type: str = Field(description=f"One of: {VALID_TYPES}.")
+    expected_version: int | None = None
+
+
+class ChangeBlockTypeTool(BaseTool):
+    """Change one block's type, keeping its content."""
+
+    name = "change_block_type"
+    description = (
+        "Change an existing block's type while keeping its content. Use this "
+        "instead of deleting and re-inserting. The content carries over: a "
+        "paragraph becoming a list becomes a one-item list, and a "
+        "multi-line block becoming a checklist becomes one item per line."
+    )
+    parameters_model = ChangeBlockTypeParams
+    needs_verification_in_api = False
+
+    def execute(self, **kwargs: Any) -> str:
+        """Convert a block's type."""
+        try:
+            slug = _scratchpad_slug()
+        except ScratchpadUnavailable as e:
+            return str(e)
+
+        block_id = str(kwargs.get("block_id") or "")
+        new_type = str(kwargs.get("new_type") or "").strip()
+        if not block_id:
+            return "block_id is required."
+        if not new_type:
+            return f"new_type is required. Valid types: {VALID_TYPES}."
+        if new_type not in BLOCK_DATA_MODELS:
+            return f"Unknown block type '{new_type}'. Valid types: {VALID_TYPES}."
+
+        expected, version_error = _parse_expected_version(
+            kwargs.get("expected_version")
+        )
+        if version_error is not None:
+            return version_error
+
+        committed = None
+        old_type = ""
+        try:
+            with locked_document(slug, expected, author="agent") as document:
+                block = document.get_block(block_id)
+                if block is None:
+                    raise BlockNotFoundError(f"No block '{block_id}' in this document.")
+                old_type = block.type
+                if old_type == new_type:
+                    raise _NoChange(
+                        f"Block {block_id} is already a {new_type} (nothing changed)."
+                    )
+                data = convert_data(old_type, block.data, new_type)
+                before = block_snapshot_of(document)
+                replace_block(
+                    document, block_id, data=data, author="agent", block_type=new_type
+                )
+                if block_snapshot_of(document) == before:
+                    raise _NoChange(
+                        f"Block {block_id} is already a {new_type} (nothing changed)."
+                    )
+                committed = document
+            new_version = committed.meta.version
+        except _NoChange as e:
+            return e.message
+        except StaleVersionError as e:
+            return _stale_message(e)
+        except BlockNotFoundError:
+            return f"No block '{block_id}' in this document."
+        except BlockDataError as e:
+            return str(e)
+        except MarkdownDocumentError:
+            return MARKDOWN_WRITE_REFUSED
+        except DocumentNotFoundError:
+            return f"The pinned scratchpad '{slug}' no longer exists."
+        except (
+            InvalidDocumentError,
+            InvalidSlugError,
+            UnicodeDecodeError,
+        ) as e:
+            return _read_error(slug, e)
+        except OSError as e:
+            return _write_error(slug, e)
+
+        return (
+            f"Changed block {block_id} from {old_type} to {new_type} "
+            f"(version {new_version})."
+        )
 
 
 class InsertBlockParams(ParametersModel):
     """Parameters for insert_block."""
 
-    block_type: str
-    data: dict[str, Any]
-    after_block_id: str | None = None
+    block_type: str = Field(description=f"One of: {VALID_TYPES}.")
+    new_content: str = Field(
+        description=(
+            "The new block's content as plain text. For a list or checklist, one "
+            "item per line. For a header, a leading '##' sets its level. Ignored "
+            "for a delimiter."
+        )
+    )
+    after_block_id: str | None = Field(
+        default=None,
+        description="Insert after this block id. Empty appends at the end.",
+    )
     expected_version: int | None = None
 
 
@@ -638,8 +941,9 @@ class InsertBlockTool(BaseTool):
 
     name = "insert_block"
     description = (
-        "Insert a new block into the pinned scratchpad. Leave after_block_id "
-        "empty to append at the end. Returns the new block's id."
+        "Insert a new block into the pinned scratchpad, with its content as plain "
+        "text. Leave after_block_id empty to append at the end. Returns the new "
+        "block's id."
     )
     parameters_model = InsertBlockParams
     needs_verification_in_api = False
@@ -652,13 +956,16 @@ class InsertBlockTool(BaseTool):
             return str(e)
 
         block_type = str(kwargs.get("block_type") or "")
-        data = kwargs.get("data")
+        new_content = kwargs.get("new_content")
         after = kwargs.get("after_block_id")
 
         if not block_type:
             return f"block_type is required. Valid types: {VALID_TYPES}."
-        if not isinstance(data, dict):
-            return f"data must be an object. Expected {schema_summary(block_type)}."
+        if block_type not in BLOCK_DATA_MODELS:
+            return f"Unknown block type '{block_type}'. Valid types: {VALID_TYPES}."
+        if new_content is None:
+            return "new_content is required."
+        data = text_to_data(block_type, str(new_content))
 
         expected, version_error = _parse_expected_version(
             kwargs.get("expected_version")
@@ -1080,7 +1387,7 @@ class AnswerQuestionTool(BaseTool):
                     )
                 if block.data.get("answered"):
                     raise _NoChange(f"Block {block_id} is already marked answered.")
-                # A copy, not the stored dict: replace_block validates the whole
+                # A copy, not the stored dict: the block write validates the whole
                 # data object against the question schema, and QuestionData
                 # forbids extra fields, so the agent must not resend (and thereby
                 # risk clobbering) the text the user typed.
@@ -1131,7 +1438,8 @@ def all_tools() -> list[type[BaseTool]]:
         ReadBlocksTool,
         GetBlockTool,
         FindBlockIdsTool,
-        ReplaceBlockTool,
+        WriteBlockTool,
+        ChangeBlockTypeTool,
         InsertBlockTool,
         DeleteBlockTool,
         MoveBlockTool,
@@ -1151,7 +1459,8 @@ __all__ = [
     "NO_SCRATCHPAD",
     "ReadBlocksTool",
     "ReadRevisionsTool",
-    "ReplaceBlockTool",
+    "WriteBlockTool",
+    "ChangeBlockTypeTool",
     "all_tools",
     "render_block",
     "render_data",

@@ -31,7 +31,8 @@ from wichy.tools.notes.agent_tools import (
     MoveBlockTool,
     ReadBlocksTool,
     ReadRevisionsTool,
-    ReplaceBlockTool,
+    WriteBlockTool,
+    ChangeBlockTypeTool,
     render_data,
 )
 from wichy.tools.notes.agent_tools import FindBlockIdsTool, GetBlockTool
@@ -48,7 +49,8 @@ from wichy.tools.read_scratchpad import ReadScratchpadTool
 
 BLOCK_TOOLS = [
     ReadBlocksTool,
-    ReplaceBlockTool,
+    WriteBlockTool,
+    ChangeBlockTypeTool,
     InsertBlockTool,
     DeleteBlockTool,
     MoveBlockTool,
@@ -113,7 +115,7 @@ class TestNoScratchpadPinned:
 
     def test_a_write_tool_writes_nothing(self, notes_dir):
         before = sorted(p.name for p in notes_dir.iterdir())
-        run(InsertBlockTool, block_type="todo", data={"text": "x"})
+        run(InsertBlockTool, block_type="todo", new_content="x")
         assert sorted(p.name for p in notes_dir.iterdir()) == before
 
     def test_the_message_says_what_to_do(self, notes_dir):
@@ -151,10 +153,10 @@ class TestMarkdownScratchpad:
         "tool,kwargs",
         [
             (
-                ReplaceBlockTool,
-                {"block_id": "blk-x", "block_type": "paragraph", "data": {"text": "x"}},
+                WriteBlockTool,
+                {"block_id": "blk-x", "new_content": "x"},
             ),
-            (InsertBlockTool, {"block_type": "paragraph", "data": {"text": "x"}}),
+            (InsertBlockTool, {"block_type": "paragraph", "new_content": "x"}),
             (DeleteBlockTool, {"block_id": "blk-x"}),
             (MoveBlockTool, {"block_id": "blk-x"}),
             (AnswerQuestionTool, {"block_id": "blk-x"}),
@@ -194,7 +196,7 @@ class TestMarkdownScratchpad:
         assert run(DeleteBlockTool, block_id="x") == MARKDOWN_WRITE_REFUSED
 
     def test_a_write_tool_makes_no_json(self, notes_dir, markdown_pinned):
-        run(InsertBlockTool, block_type="paragraph", data={"text": "x"})
+        run(InsertBlockTool, block_type="paragraph", new_content="x")
         assert not (notes_dir / "legacy.json").exists()
 
     def test_read_scratchpad_explains_rather_than_reporting_empty(
@@ -320,107 +322,130 @@ class TestReadBlocks:
 # ---------------------------------------------------------------------------
 
 
-class TestReplaceBlock:
+class TestWriteBlock:
     def test_replaces_and_reports_the_id_and_type(self, scratchpad):
         slug, ids = scratchpad
-        result = run(
-            ReplaceBlockTool,
-            block_id=ids[1],
-            block_type="paragraph",
-            data={"text": "rewritten"},
-        )
+        result = run(WriteBlockTool, block_id=ids[1], new_content="rewritten")
         assert ids[1] in result
         assert "paragraph" in result
         assert load_document(slug).get_block(ids[1]).data["text"] == "rewritten"
 
     def test_the_block_keeps_its_id(self, scratchpad):
         slug, ids = scratchpad
-        run(
-            ReplaceBlockTool,
-            block_id=ids[1],
-            block_type="paragraph",
-            data={"text": "x"},
-        )
+        run(WriteBlockTool, block_id=ids[1], new_content="x")
         assert load_document(slug).get_block(ids[1]) is not None
+
+    def test_the_block_keeps_its_type(self, scratchpad):
+        """That is the difference from change_block_type: content, not shape."""
+        slug, ids = scratchpad
+        run(WriteBlockTool, block_id=ids[0], new_content="new heading")
+        assert load_document(slug).get_block(ids[0]).type == "header"
+
+    def test_the_content_is_plain_text_not_json(self, scratchpad):
+        """A caller writing JSON by habit must not get JSON stored as the text."""
+        slug, ids = scratchpad
+        run(WriteBlockTool, block_id=ids[1], new_content='{"text": "nope"}')
+        assert load_document(slug).get_block(ids[1]).data["text"] == '{"text": "nope"}'
+
+    def test_a_header_keeps_its_level_from_a_markdown_marker(self, scratchpad):
+        slug, ids = scratchpad
+        run(WriteBlockTool, block_id=ids[0], new_content="### Deep")
+        block = load_document(slug).get_block(ids[0])
+        assert block.data["text"] == "Deep"
+        assert block.data["level"] == 3
+
+    def test_a_list_block_gets_one_item_per_line(self, scratchpad):
+        slug, ids = scratchpad
+        run(WriteBlockTool, block_id=ids[2], new_content="a\nb\nc")
+        block = load_document(slug).get_block(ids[2])
+        assert block.type == "todo"
+        # A todo holds one text, so the lines are joined rather than lost.
+        assert "a" in block.data["text"]
 
     def test_the_version_advances(self, scratchpad):
         slug, ids = scratchpad
-        run(
-            ReplaceBlockTool,
-            block_id=ids[0],
-            block_type="header",
-            data={"text": "T", "level": 1},
-        )
+        run(WriteBlockTool, block_id=ids[0], new_content="T")
         assert load_document(slug).meta.version == 2
 
     def test_the_agent_is_recorded_as_the_author(self, scratchpad):
         slug, ids = scratchpad
-        run(
-            ReplaceBlockTool,
-            block_id=ids[1],
-            block_type="paragraph",
-            data={"text": "x"},
-        )
+        run(WriteBlockTool, block_id=ids[1], new_content="x")
         block = load_document(slug).get_block(ids[1])
         assert "agent" in block.meta.touched_by
 
-    def test_a_type_change_is_allowed(self, scratchpad):
-        slug, ids = scratchpad
-        run(
-            ReplaceBlockTool,
-            block_id=ids[1],
-            block_type="todo",
-            data={"text": "now a todo"},
-        )
-        assert load_document(slug).get_block(ids[1]).type == "todo"
-
     def test_unknown_block_is_reported(self, scratchpad):
-        result = run(
-            ReplaceBlockTool,
-            block_id="blk-nope",
-            block_type="paragraph",
-            data={"text": "x"},
-        )
-        assert "No block" in result
-
-    def test_invalid_data_names_the_schema(self, scratchpad):
-        slug, ids = scratchpad
-        result = run(
-            ReplaceBlockTool,
-            block_id=ids[0],
-            block_type="header",
-            data={"text": "no level"},
-        )
-        assert "HeaderData" in result
-
-    def test_an_invalid_replace_writes_nothing(self, scratchpad):
-        slug, ids = scratchpad
-        before = load_document(slug)
-        result = run(
-            ReplaceBlockTool, block_id=ids[0], block_type="header", data={"extra": 1}
-        )
-        # The refusal names the schema, so the agent learns what to send instead.
-        assert "HeaderData" in result
-        after = load_document(slug)
-        assert after.meta.version == before.meta.version
-        assert after.get_block(ids[0]).data == before.get_block(ids[0]).data
-
-    def test_a_non_object_data_is_rejected(self, scratchpad):
-        slug, ids = scratchpad
-        assert "must be an object" in run(
-            ReplaceBlockTool, block_id=ids[0], block_type="paragraph", data="nope"
-        )
+        assert "No block" in run(WriteBlockTool, block_id="blk-nope", new_content="x")
 
     def test_an_empty_block_id_is_rejected(self, scratchpad):
-        assert "required" in run(
-            ReplaceBlockTool, block_id="", block_type="paragraph", data={"text": "x"}
+        assert "required" in run(WriteBlockTool, block_id="", new_content="x")
+
+    def test_empty_content_is_refused_with_a_pointer_to_delete(self, scratchpad):
+        """Writing nothing is almost certainly a caller meaning to remove it."""
+        result = run(WriteBlockTool, block_id="blk-x", new_content="")
+        assert "delete_block" in result
+
+    def test_writing_the_same_content_changes_nothing(self, scratchpad):
+        slug, ids = scratchpad
+        before = load_document(slug)
+        run(WriteBlockTool, block_id=ids[1], new_content="some text")
+        after = load_document(slug)
+        assert after.meta.version == before.meta.version
+
+
+class TestChangeBlockType:
+    def test_changes_the_type_and_keeps_the_id(self, scratchpad):
+        slug, ids = scratchpad
+        result = run(ChangeBlockTypeTool, block_id=ids[1], new_type="todo")
+        assert ids[1] in result
+        assert load_document(slug).get_block(ids[1]).type == "todo"
+
+    def test_a_paragraph_becoming_a_list_becomes_a_one_item_list(self, scratchpad):
+        slug, ids = scratchpad
+        run(ChangeBlockTypeTool, block_id=ids[1], new_type="list")
+        block = load_document(slug).get_block(ids[1])
+        assert block.data["items"] == ["some text"]
+
+    def test_a_paragraph_becoming_a_checklist_becomes_one_item(self, scratchpad):
+        slug, ids = scratchpad
+        run(ChangeBlockTypeTool, block_id=ids[1], new_type="checklist")
+        block = load_document(slug).get_block(ids[1])
+        assert block.data["items"] == [{"text": "some text", "checked": False}]
+
+    def test_a_header_becoming_a_paragraph_loses_its_marker(self, scratchpad):
+        """The content carries over as TEXT, not as its markdown rendering."""
+        slug, ids = scratchpad
+        run(ChangeBlockTypeTool, block_id=ids[0], new_type="paragraph")
+        assert load_document(slug).get_block(ids[0]).data["text"] == "Title"
+
+    def test_a_delimiter_conversion_carries_no_content(self, scratchpad):
+        slug, ids = scratchpad
+        run(ChangeBlockTypeTool, block_id=ids[1], new_type="delimiter")
+        assert load_document(slug).get_block(ids[1]).data == {}
+
+    def test_the_type_is_unchanged_for_an_unknown_block(self, scratchpad):
+        assert "No block" in run(
+            ChangeBlockTypeTool, block_id="blk-nope", new_type="todo"
         )
+
+    def test_an_unknown_new_type_lists_the_valid_ones(self, scratchpad):
+        result = run(ChangeBlockTypeTool, block_id="blk-x", new_type="wat")
+        assert "paragraph" in result
+
+    def test_converting_to_the_same_type_changes_nothing(self, scratchpad):
+        slug, ids = scratchpad
+        before = load_document(slug)
+        result = run(ChangeBlockTypeTool, block_id=ids[1], new_type="paragraph")
+        assert "already" in result
+        assert load_document(slug).meta.version == before.meta.version
+
+    def test_an_empty_new_type_is_rejected(self, scratchpad):
+        assert "required" in run(ChangeBlockTypeTool, block_id="blk-x", new_type="")
 
 
 class TestInsertBlock:
     def test_appends_at_the_end_by_default(self, scratchpad):
         slug, ids = scratchpad
-        result = run(InsertBlockTool, block_type="todo", data={"text": "new task"})
+        result = run(InsertBlockTool, block_type="todo", new_content="new task")
         assert "at the end" in result
         blocks = load_document(slug).blocks
         assert len(blocks) == 4
@@ -428,7 +453,7 @@ class TestInsertBlock:
 
     def test_the_result_names_the_new_block(self, scratchpad):
         slug, ids = scratchpad
-        result = run(InsertBlockTool, block_type="todo", data={"text": "new task"})
+        result = run(InsertBlockTool, block_type="todo", new_content="new task")
         new_id = load_document(slug).blocks[-1].id
         assert new_id in result
 
@@ -437,7 +462,7 @@ class TestInsertBlock:
         run(
             InsertBlockTool,
             block_type="paragraph",
-            data={"text": "middle"},
+            new_content="middle",
             after_block_id=ids[0],
         )
         blocks = load_document(slug).blocks
@@ -445,54 +470,65 @@ class TestInsertBlock:
 
     def test_a_new_id_is_generated(self, scratchpad):
         slug, ids = scratchpad
-        run(InsertBlockTool, block_type="todo", data={"text": "n"})
+        run(InsertBlockTool, block_type="todo", new_content="n")
         new_id = load_document(slug).blocks[-1].id
         assert new_id not in ids
 
     def test_the_version_advances_once(self, scratchpad):
         slug, ids = scratchpad
-        run(InsertBlockTool, block_type="todo", data={"text": "n"})
+        run(InsertBlockTool, block_type="todo", new_content="n")
         assert load_document(slug).meta.version == 2
 
     def test_a_missing_anchor_is_reported(self, scratchpad):
         result = run(
             InsertBlockTool,
             block_type="todo",
-            data={"text": "n"},
+            new_content="n",
             after_block_id="blk-nope",
         )
         assert "no such block" in result
 
-    def test_invalid_data_is_rejected(self, scratchpad):
-        slug, ids = scratchpad
-        assert "ListData" in run(
-            InsertBlockTool, block_type="list", data={"items": ["a"]}
-        )
-
     def test_an_unknown_type_lists_the_valid_ones(self, scratchpad):
-        result = run(InsertBlockTool, block_type="wat", data={})
+        result = run(InsertBlockTool, block_type="wat", new_content="x")
         assert "paragraph" in result
 
     def test_a_missing_type_is_rejected(self, scratchpad):
-        assert "required" in run(InsertBlockTool, block_type="", data={})
+        assert "required" in run(InsertBlockTool, block_type="", new_content="x")
 
-    def test_every_block_type_can_be_inserted(self, scratchpad):
+    def test_missing_content_is_rejected(self, scratchpad):
+        assert "required" in run(InsertBlockTool, block_type="paragraph")
+
+    def test_every_block_type_can_be_inserted_from_plain_text(self, scratchpad):
+        """The point of plain-text content: no type needs a JSON object."""
         slug, ids = scratchpad
         samples = {
-            "paragraph": {"text": "p"},
-            "header": {"text": "h", "level": 1},
-            "list": {"items": ["a"], "style": "unordered"},
-            "code": {"code": "x", "language": ""},
-            "quote": {"text": "q", "caption": ""},
-            "checklist": {"items": [{"text": "c", "checked": False}]},
-            "delimiter": {},
-            "question": {"text": "q"},
-            "decision": {"text": "d"},
-            "todo": {"text": "t"},
+            "paragraph": "p",
+            "header": "## h",
+            "list": "- a\n- b",
+            "code": "```py\nx = 1\n```",
+            "quote": "q | cite",
+            "checklist": "- [x] c",
+            "delimiter": "",
+            "question": "q",
+            "decision": "d",
+            "todo": "t",
         }
-        for block_type, data in samples.items():
-            result = run(InsertBlockTool, block_type=block_type, data=data)
+        for block_type, text in samples.items():
+            result = run(InsertBlockTool, block_type=block_type, new_content=text)
             assert "Inserted block" in result, f"{block_type}: {result}"
+
+    def test_the_plain_text_is_interpreted_per_type(self, scratchpad):
+        slug, ids = scratchpad
+        run(
+            InsertBlockTool,
+            block_type="checklist",
+            new_content="- [x] done\n- [ ] todo",
+        )
+        block = load_document(slug).blocks[-1]
+        assert block.data["items"] == [
+            {"text": "done", "checked": True},
+            {"text": "todo", "checked": False},
+        ]
 
 
 class TestDeleteBlock:
@@ -561,10 +597,9 @@ class TestReadRevisions:
     def test_shows_an_agents_edit(self, scratchpad):
         slug, ids = scratchpad
         run(
-            ReplaceBlockTool,
+            WriteBlockTool,
             block_id=ids[1],
-            block_type="paragraph",
-            data={"text": "x"},
+            new_content="x",
         )
         result = run(ReadRevisionsTool)
         assert "agent" in result
@@ -573,16 +608,14 @@ class TestReadRevisions:
     def test_newest_first(self, scratchpad):
         slug, ids = scratchpad
         run(
-            ReplaceBlockTool,
+            WriteBlockTool,
             block_id=ids[1],
-            block_type="paragraph",
-            data={"text": "a"},
+            new_content="a",
         )
         run(
-            ReplaceBlockTool,
+            WriteBlockTool,
             block_id=ids[1],
-            block_type="paragraph",
-            data={"text": "b"},
+            new_content="b",
         )
         result = run(ReadRevisionsTool)
         assert result.index("[rev 3]") < result.index("[rev 1]")
@@ -591,10 +624,9 @@ class TestReadRevisions:
         slug, ids = scratchpad
         for index in range(3):
             run(
-                ReplaceBlockTool,
+                WriteBlockTool,
                 block_id=ids[1],
-                block_type="paragraph",
-                data={"text": str(index)},
+                new_content=str(index),
             )
         result = run(ReadRevisionsTool, limit=2)
         assert result.count("[rev ") == 2
@@ -613,10 +645,9 @@ class TestReadRevisions:
     def test_filter_by_author(self, scratchpad):
         slug, ids = scratchpad
         run(
-            ReplaceBlockTool,
+            WriteBlockTool,
             block_id=ids[1],
-            block_type="paragraph",
-            data={"text": "x"},
+            new_content="x",
         )
         result = run(ReadRevisionsTool, author="agent")
         assert "agent" in result
@@ -629,10 +660,9 @@ class TestReadRevisions:
         """Only entries with an id strictly greater are returned."""
         slug, ids = scratchpad
         run(
-            ReplaceBlockTool,
+            WriteBlockTool,
             block_id=ids[1],
-            block_type="paragraph",
-            data={"text": "x"},
+            new_content="x",
         )
 
         result = run(ReadRevisionsTool, since_id=1)
@@ -660,7 +690,7 @@ class TestToolsAndApiAgree:
     def test_a_tool_edit_is_visible_through_the_loaded_document(self, scratchpad):
         """The tools write the same format the API serves."""
         slug, ids = scratchpad
-        run(InsertBlockTool, block_type="quote", data={"text": "q", "caption": "c"})
+        run(InsertBlockTool, block_type="quote", new_content="q | c")
         block = load_document(slug).blocks[-1]
         assert block.type == "quote"
         assert block.data == {"text": "q", "caption": "c"}
@@ -679,14 +709,13 @@ class TestToolsAndApiAgree:
 
         before = revision_count()
         run(
-            ReplaceBlockTool,
+            WriteBlockTool,
             block_id=ids[1],
-            block_type="paragraph",
-            data={"text": "a"},
+            new_content="a",
         )
         assert revision_count() == before + 1
 
-        run(InsertBlockTool, block_type="todo", data={"text": "b"})
+        run(InsertBlockTool, block_type="todo", new_content="b")
         assert revision_count() == before + 2
 
         run(MoveBlockTool, block_id=ids[2])
@@ -697,9 +726,9 @@ class TestToolsAndApiAgree:
 
     def test_the_version_advances_once_per_tool_call(self, scratchpad):
         slug, ids = scratchpad
-        run(InsertBlockTool, block_type="todo", data={"text": "a"})
-        run(InsertBlockTool, block_type="todo", data={"text": "b"})
-        run(InsertBlockTool, block_type="todo", data={"text": "c"})
+        run(InsertBlockTool, block_type="todo", new_content="a")
+        run(InsertBlockTool, block_type="todo", new_content="b")
+        run(InsertBlockTool, block_type="todo", new_content="c")
         assert load_document(slug).meta.version == 4
 
 
@@ -764,13 +793,14 @@ class TestRendering:
 
 
 class TestRegistry:
-    def test_the_six_block_tools_are_registered(self):
+    def test_the_block_tools_are_registered(self):
         from wichy.tools.registry import get_all_tools
 
         names = {tool.name for tool in get_all_tools()}
         assert {
             "read_blocks",
-            "replace_block",
+            "write_block",
+            "change_block_type",
             "insert_block",
             "delete_block",
             "move_block",
@@ -837,16 +867,12 @@ class TestSuccessMessagesReportThePersistedVersion:
         "tool,make_kwargs",
         [
             (
-                ReplaceBlockTool,
-                lambda ids: {
-                    "block_id": ids[1],
-                    "block_type": "paragraph",
-                    "data": {"text": "x"},
-                },
+                WriteBlockTool,
+                lambda ids: {"block_id": ids[1], "new_content": "x"},
             ),
             (
                 InsertBlockTool,
-                lambda ids: {"block_type": "todo", "data": {"text": "x"}},
+                lambda ids: {"block_type": "todo", "new_content": "x"},
             ),
             (DeleteBlockTool, lambda ids: {"block_id": ids[0]}),
             (MoveBlockTool, lambda ids: {"block_id": ids[0]}),
@@ -869,7 +895,7 @@ class TestSuccessMessagesReportThePersistedVersion:
     def test_the_reported_version_matches_after_several_calls(self, scratchpad):
         slug, ids = scratchpad
         for expected in (2, 3, 4):
-            result = run(InsertBlockTool, block_type="todo", data={"text": "x"})
+            result = run(InsertBlockTool, block_type="todo", new_content="x")
             assert f"(version {expected})" in result
             assert load_document(slug).meta.version == expected
 
@@ -889,23 +915,23 @@ class TestRefusalsChangeNothing:
         slug, ids = scratchpad
         before = self._state(slug)
 
-        result = run(InsertBlockTool, block_type="list", data={"items": ["a"]})
+        result = run(
+            InsertBlockTool,
+            block_type="list",
+            new_content="a",
+            after_block_id="blk-nope",
+        )
 
-        assert "ListData" in result
+        assert "no such block" in result
         assert self._state(slug) == before
 
-    def test_a_rejected_replace_persists_nothing(self, scratchpad):
+    def test_a_rejected_write_persists_nothing(self, scratchpad):
         slug, ids = scratchpad
         before = self._state(slug)
 
-        result = run(
-            ReplaceBlockTool,
-            block_id=ids[0],
-            block_type="header",
-            data={"text": "no level"},
-        )
+        result = run(WriteBlockTool, block_id="blk-nope", new_content="x")
 
-        assert "HeaderData" in result
+        assert "No block" in result
         assert self._state(slug) == before
 
     def test_an_unknown_block_does_not_advance_the_version(self, scratchpad):
@@ -914,10 +940,9 @@ class TestRefusalsChangeNothing:
 
         assert "No block" in run(DeleteBlockTool, block_id="blk-nope")
         assert "No block" in run(
-            ReplaceBlockTool,
+            WriteBlockTool,
             block_id="blk-nope",
-            block_type="paragraph",
-            data={"text": "x"},
+            new_content="x",
         )
         assert "No block" in run(MoveBlockTool, block_id="blk-nope")
 
@@ -930,7 +955,7 @@ class TestRefusalsChangeNothing:
         assert "no such block" in run(
             InsertBlockTool,
             block_type="todo",
-            data={"text": "x"},
+            new_content="x",
             after_block_id="blk-nope",
         )
 
@@ -944,39 +969,43 @@ class TestRefusalsChangeNothing:
 
 class TestInsertPersistsEveryType:
     @pytest.mark.parametrize(
-        "block_type,data",
+        "block_type,text",
         [
-            ("paragraph", {"text": "p"}),
-            ("header", {"text": "h", "level": 1}),
-            ("list", {"items": ["a"], "style": "unordered"}),
-            ("code", {"code": "x", "language": ""}),
-            ("quote", {"text": "q", "caption": ""}),
-            ("checklist", {"items": [{"text": "c", "checked": False}]}),
-            ("delimiter", {}),
-            ("question", {"text": "q"}),
-            ("decision", {"text": "d"}),
-            ("todo", {"text": "t"}),
+            ("paragraph", "p"),
+            ("header", "## h"),
+            ("list", "- a\n- b"),
+            ("code", "```py\nx = 1\n```"),
+            ("quote", "q | cite"),
+            ("checklist", "- [x] c"),
+            ("delimiter", ""),
+            ("question", "q"),
+            ("decision", "d"),
+            ("todo", "t"),
         ],
     )
     def test_the_block_is_really_stored_with_its_own_type_and_data(
-        self, scratchpad, block_type, data
+        self, scratchpad, block_type, text
     ):
-        """A message that echoes the requested type proves nothing on its own."""
+        """A message that echoes the requested type proves nothing on its own.
+
+        The expected data is recomputed from the plain text through the same
+        coercion the tool uses, then validated against the type's model, so the
+        assertion is about the STORED shape rather than about a literal this test
+        wrote by hand.
+        """
         slug, ids = scratchpad
 
-        result = run(InsertBlockTool, block_type=block_type, data=data)
+        result = run(InsertBlockTool, block_type=block_type, new_content=text)
 
         blocks = load_document(slug).blocks
         stored = blocks[-1]
         assert stored.id in result
         assert stored.type == block_type
-        # Compared against the validated model, so a defaulted field is expected
-        # rather than merely tolerated.
+        from wichy.tools.notes.agent_tools import text_to_data
         from wichy.tools.notes.models import validate_block_data
 
-        assert stored.data == validate_block_data(block_type, data).model_dump(
-            mode="json"
-        )
+        expected = validate_block_data(block_type, text_to_data(block_type, text))
+        assert stored.data == expected.model_dump(mode="json")
 
 
 class TestReplaceKeepsExactlyTheSameBlocks:
@@ -984,16 +1013,15 @@ class TestReplaceKeepsExactlyTheSameBlocks:
         """`is not None` would miss an implementation that duplicates the block."""
         slug, ids = scratchpad
         run(
-            ReplaceBlockTool,
+            WriteBlockTool,
             block_id=ids[1],
-            block_type="paragraph",
-            data={"text": "x"},
+            new_content="x",
         )
         assert [b.id for b in load_document(slug).blocks] == ids
 
     def test_insert_adds_exactly_one(self, scratchpad):
         slug, ids = scratchpad
-        run(InsertBlockTool, block_type="todo", data={"text": "x"})
+        run(InsertBlockTool, block_type="todo", new_content="x")
         assert len(load_document(slug).blocks) == len(ids) + 1
 
 
@@ -1003,10 +1031,9 @@ class TestLimitCap:
         slug, ids = scratchpad
         for index in range(4):
             run(
-                ReplaceBlockTool,
+                WriteBlockTool,
                 block_id=ids[1],
-                block_type="paragraph",
-                data={"text": str(index)},
+                new_content=str(index),
             )
         # Five entries exist; a cap of 2 must return two of them.
         monkeypatch.setattr(ReadRevisionsTool, "MAX_LIMIT", 2)
@@ -1017,10 +1044,9 @@ class TestLimitCap:
         slug, ids = scratchpad
         for index in range(3):
             run(
-                ReplaceBlockTool,
+                WriteBlockTool,
                 block_id=ids[1],
-                block_type="paragraph",
-                data={"text": str(index)},
+                new_content=str(index),
             )
         monkeypatch.setattr(ReadRevisionsTool, "MAX_LIMIT", 100)
         assert run(ReadRevisionsTool, limit=2).count("[rev ") == 2
@@ -1089,10 +1115,10 @@ class TestUnreadableScratchpad:
         set_scratchpad_state("binary")
         for tool, kwargs in [
             (
-                ReplaceBlockTool,
-                {"block_id": "b", "block_type": "paragraph", "data": {}},
+                WriteBlockTool,
+                {"block_id": "b", "new_content": "x"},
             ),
-            (InsertBlockTool, {"block_type": "paragraph", "data": {}}),
+            (InsertBlockTool, {"block_type": "paragraph", "new_content": "x"}),
             (DeleteBlockTool, {"block_id": "b"}),
             (MoveBlockTool, {"block_id": "b"}),
         ]:
@@ -1103,25 +1129,18 @@ class TestUnreadableScratchpad:
             assert "could not read" in result.lower(), f"{tool.__name__}: {result}"
 
 
-class TestReplaceRequiresBlockType:
-    def test_an_empty_block_type_is_rejected(self, scratchpad):
-        """Claiming to replace with a type it did not use would mislead the agent."""
+class TestChangeBlockTypeRequiresAValidType:
+    def test_an_empty_new_type_is_rejected(self, scratchpad):
+        """Claiming to convert to a type it did not use would mislead the agent."""
         slug, ids = scratchpad
         before = load_document(slug).meta.version
-        result = run(
-            ReplaceBlockTool, block_id=ids[0], block_type="", data={"text": "x"}
-        )
-        assert "block_type is required" in result
+        result = run(ChangeBlockTypeTool, block_id=ids[0], new_type="")
+        assert "new_type is required" in result
         assert load_document(slug).meta.version == before
 
     def test_the_reported_type_matches_the_stored_type_on_a_change(self, scratchpad):
         slug, ids = scratchpad
-        result = run(
-            ReplaceBlockTool,
-            block_id=ids[1],
-            block_type="todo",
-            data={"text": "converted"},
-        )
+        result = run(ChangeBlockTypeTool, block_id=ids[1], new_type="todo")
         assert "todo" in result
         assert load_document(slug).get_block(ids[1]).type == "todo"
 
@@ -1134,7 +1153,7 @@ class TestToolOutputMatchesTheApi:
         from wichy.tools.notes import api
 
         slug, ids = scratchpad
-        run(InsertBlockTool, block_type="decision", data={"text": "we chose this"})
+        run(InsertBlockTool, block_type="decision", new_content="we chose this")
 
         app = Flask(__name__)
         app.config["TESTING"] = True
@@ -1157,9 +1176,9 @@ class TestAnswerQuestion:
     Nothing in the codebase ever set ``answered``: it was read and rendered in
     five places and written in none, so a question block the agent had already
     dealt with kept reading as open and kept prompting for the same answer. The
-    obvious workaround -- resending the whole block through replace_block -- is
-    also the clobbering one, because QuestionData forbids extra fields and the
-    agent would have to reproduce the user's text exactly.
+    obvious workaround -- resending the whole block -- is also the clobbering
+    one, because QuestionData forbids extra fields and the agent would have to
+    reproduce the user's text exactly.
     """
 
     @pytest.fixture
@@ -1270,13 +1289,12 @@ class TestExpectedVersion:
         slug, ids = scratchpad
         current = load_document(slug).meta.version
         result = run(
-            ReplaceBlockTool,
+            WriteBlockTool,
             block_id=ids[1],
-            block_type="paragraph",
-            data={"text": "quoted"},
+            new_content="quoted",
             expected_version=current,
         )
-        assert "Replaced" in result
+        assert "Updated" in result
         assert load_document(slug).get_block(ids[1]).data["text"] == "quoted"
 
     def test_quoting_a_stale_version_refuses_and_names_both(self, scratchpad):
@@ -1288,10 +1306,9 @@ class TestExpectedVersion:
             replace_block(document, ids[1], data={"text": "user edit"}, author="user")
 
         result = run(
-            ReplaceBlockTool,
+            WriteBlockTool,
             block_id=ids[2],
-            block_type="todo",
-            data={"text": "agent edit", "checked": False},
+            new_content="agent edit",
             expected_version=stale,
         )
         assert "changed since you read it" in result
@@ -1307,10 +1324,9 @@ class TestExpectedVersion:
         before = load_document(slug).meta.version
 
         run(
-            ReplaceBlockTool,
+            WriteBlockTool,
             block_id=ids[2],
-            block_type="todo",
-            data={"text": "agent edit", "checked": False},
+            new_content="agent edit",
             expected_version=stale,
         )
         assert load_document(slug).meta.version == before
@@ -1322,22 +1338,21 @@ class TestExpectedVersion:
         with locked_document(slug, None, author="user") as document:
             replace_block(document, ids[1], data={"text": "user edit"}, author="user")
         result = run(
-            ReplaceBlockTool,
+            WriteBlockTool,
             block_id=ids[2],
-            block_type="todo",
-            data={"text": "agent edit", "checked": False},
+            new_content="agent edit",
         )
-        assert "Replaced" in result
+        assert "Updated" in result
         assert load_document(slug).get_block(ids[2]).data["text"] == "agent edit"
 
     @pytest.mark.parametrize(
         "tool,kwargs",
         [
             (
-                ReplaceBlockTool,
-                {"block_id": "blk-a", "block_type": "paragraph", "data": {"text": "x"}},
+                WriteBlockTool,
+                {"block_id": "blk-a", "new_content": "x"},
             ),
-            (InsertBlockTool, {"block_type": "paragraph", "data": {"text": "x"}}),
+            (InsertBlockTool, {"block_type": "paragraph", "new_content": "x"}),
             (DeleteBlockTool, {"block_id": "blk-a"}),
             (MoveBlockTool, {"block_id": "blk-a"}),
             (AnswerQuestionTool, {"block_id": "blk-a"}),
@@ -1378,16 +1393,12 @@ class TestWriteErrorsAreNotReadErrors:
         "tool,kwargs_for",
         [
             (
-                ReplaceBlockTool,
-                lambda ids: {
-                    "block_id": ids[1],
-                    "block_type": "paragraph",
-                    "data": {"text": "x"},
-                },
+                WriteBlockTool,
+                lambda ids: {"block_id": ids[1], "new_content": "x"},
             ),
             (
                 InsertBlockTool,
-                lambda ids: {"block_type": "paragraph", "data": {"text": "x"}},
+                lambda ids: {"block_type": "paragraph", "new_content": "x"},
             ),
             (DeleteBlockTool, lambda ids: {"block_id": ids[1]}),
             (MoveBlockTool, lambda ids: {"block_id": ids[1]}),
@@ -1418,10 +1429,9 @@ class TestWriteErrorsAreNotReadErrors:
         slug, ids = scratchpad
         before = load_document(slug).meta.version
         run(
-            ReplaceBlockTool,
+            WriteBlockTool,
             block_id="blk-nope",
-            block_type="paragraph",
-            data={"text": "x"},
+            new_content="x",
         )
         assert load_document(slug).meta.version == before
 
@@ -1432,10 +1442,9 @@ class TestBothAuthorshipFieldsAreReported:
     def test_read_blocks_reports_author_and_last_writer(self, scratchpad):
         slug, ids = scratchpad
         run(
-            ReplaceBlockTool,
+            WriteBlockTool,
             block_id=ids[1],
-            block_type="paragraph",
-            data={"text": "agent wrote this"},
+            new_content="agent wrote this",
         )
         result = run(ReadBlocksTool, block_id=ids[1])
         assert "author=user" in result
@@ -1445,10 +1454,9 @@ class TestBothAuthorshipFieldsAreReported:
         """In block style, which is where metadata lives."""
         slug, ids = scratchpad
         run(
-            ReplaceBlockTool,
+            WriteBlockTool,
             block_id=ids[1],
-            block_type="paragraph",
-            data={"text": "agent wrote this"},
+            new_content="agent wrote this",
         )
         result = run(ReadScratchpadTool, style="block")
         assert "author=user" in result
@@ -1472,22 +1480,20 @@ class TestNoOpWritesDoNotBump:
     revision is also a lie in the history.
     """
 
-    def test_a_repeated_replace_reports_nothing_changed(self, scratchpad):
+    def test_a_repeated_write_reports_nothing_changed(self, scratchpad):
         slug, ids = scratchpad
         first = run(
-            ReplaceBlockTool,
+            WriteBlockTool,
             block_id=ids[1],
-            block_type="paragraph",
-            data={"text": "same"},
+            new_content="same",
         )
-        assert "Replaced" in first
+        assert "Updated" in first
         after_first = load_document(slug).meta.version
 
         second = run(
-            ReplaceBlockTool,
+            WriteBlockTool,
             block_id=ids[1],
-            block_type="paragraph",
-            data={"text": "same"},
+            new_content="same",
         )
         assert "nothing changed" in second
         assert load_document(slug).meta.version == after_first
@@ -1495,19 +1501,17 @@ class TestNoOpWritesDoNotBump:
     def test_a_noop_revision_is_not_recorded(self, scratchpad):
         slug, ids = scratchpad
         run(
-            ReplaceBlockTool,
+            WriteBlockTool,
             block_id=ids[1],
-            block_type="paragraph",
-            data={"text": "same"},
+            new_content="same",
         )
         before = run(ReadRevisionsTool)
         count_before = before.count("[rev ")
 
         run(
-            ReplaceBlockTool,
+            WriteBlockTool,
             block_id=ids[1],
-            block_type="paragraph",
-            data={"text": "same"},
+            new_content="same",
         )
         assert run(ReadRevisionsTool).count("[rev ") == count_before
 
@@ -1517,18 +1521,16 @@ class TestNoOpWritesDoNotBump:
 
         slug, ids = scratchpad
         run(
-            ReplaceBlockTool,
+            WriteBlockTool,
             block_id=ids[1],
-            block_type="paragraph",
-            data={"text": "same"},
+            new_content="same",
         )
         describe_pending(slug)  # drain the first write's op by reading it
 
         run(
-            ReplaceBlockTool,
+            WriteBlockTool,
             block_id=ids[1],
-            block_type="paragraph",
-            data={"text": "same"},
+            new_content="same",
         )
         # Nothing NEW was queued by the second call: the first op is still the
         # only one, and it describes the first (real) change.
@@ -1536,10 +1538,9 @@ class TestNoOpWritesDoNotBump:
 
         clear_agent_changes(slug)
         run(
-            ReplaceBlockTool,
+            WriteBlockTool,
             block_id=ids[1],
-            block_type="paragraph",
-            data={"text": "same"},
+            new_content="same",
         )
         assert peek_agent_changes(slug) == []
 
