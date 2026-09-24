@@ -1889,3 +1889,83 @@ class TestRevisionContentAndRestore:
         )
         assert response.status_code == 409
         assert response.get_json()["error"] == MARKDOWN_WRITE_REFUSED
+
+
+class TestDivergentHistoryIsDisclosed:
+    """A log damaged before anchors existed replays to a DIFFERENT document.
+
+    The information is gone from the file, so no anchor can recover it -- but the
+    mismatch is detectable, and the browser must say so rather than present a
+    rebuilt state as the revision's content.
+    """
+
+    def _damage(self, client, notes_dir, slug, block_id):
+        """Drop an entry whose only job was removing a block.
+
+        The block's `add` survives, so a replay resurrects it -- exactly the
+        shape of a log pruned by the old buggy version.
+        """
+        import json
+
+        path = notes_dir / f"{slug}.revisions.jsonl"
+        rows = [
+            json.loads(line) for line in path.read_text().splitlines() if line.strip()
+        ]
+        # Remove the last entry that takes a block away, and append a fresh one so
+        # the write path runs.
+        for index in range(len(rows) - 1, -1, -1):
+            if any(op.get("op") == "remove" for op in rows[index].get("ops", [])):
+                rows.pop(index)
+                break
+        path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+
+    def test_a_healthy_history_matches_the_document(self, client):
+        create(client, "Healthy", "one")
+        body = client.get(f"{PREFIX}/api/notes/healthy/revisions/1").get_json()
+        assert body["matches_document"] is True
+
+    def test_a_divergent_history_is_reported(self, client, notes_dir):
+        create(client, "Diverges", "one")
+        blocks = client.get(f"{PREFIX}/api/notes/diverges/blocks").get_json()["blocks"]
+        # Add then remove a block, so the log holds both an add and a remove.
+        body = client.get(f"{PREFIX}/api/notes/diverges").get_json()
+        added = client.post(
+            f"{PREFIX}/api/notes/diverges/blocks",
+            json={
+                "version": body["meta"]["version"],
+                "block_type": "paragraph",
+                "data": {"text": "temporary"},
+            },
+        ).get_json()
+        body = client.get(f"{PREFIX}/api/notes/diverges").get_json()
+        client.delete(
+            f"{PREFIX}/api/notes/diverges/blocks/{added['block']['id']}"
+            f"?version={body['meta']['version']}"
+        )
+        # A write, so pruning/anchor work runs as it would in real use.
+        body = client.get(f"{PREFIX}/api/notes/diverges").get_json()
+        client.patch(
+            f"{PREFIX}/api/notes/diverges/blocks/{blocks[0]['id']}",
+            json={
+                "version": body["meta"]["version"],
+                "block_type": "paragraph",
+                "data": {"text": "edited"},
+            },
+        )
+        self._damage(client, notes_dir, "diverges", blocks[0]["id"])
+
+        response = client.get(f"{PREFIX}/api/notes/diverges/revisions/1").get_json()
+        assert response["matches_document"] is False
+
+    def test_the_other_fields_are_still_present(self, client):
+        create(client, "Fields", "one")
+        body = client.get(f"{PREFIX}/api/notes/fields/revisions/1").get_json()
+        for key in (
+            "revision",
+            "blocks",
+            "complete",
+            "reason",
+            "is_anchor",
+            "matches_document",
+        ):
+            assert key in body, key

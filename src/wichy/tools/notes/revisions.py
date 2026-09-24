@@ -386,30 +386,36 @@ def rotate_now(slug: str) -> Path | None:
     return target
 
 
-def _baseline_entry(slug: str, upto_id: int) -> dict | None:
-    """A snapshot entry standing in for history that ends at *upto_id*.
+def _anchor_entry(slug: str, before_id: int) -> dict:
+    """A snapshot entry standing in for history before *before_id*.
 
     Replay rebuilds state by applying the log from the beginning, so a log whose
     earliest entries are gone cannot be rebuilt: any block first created in a
-    dropped entry is simply absent afterwards, and the reconstruction looks like
-    a real (but wrong) document. That is what an unbounded FIFO does to history.
+    dropped entry is absent afterwards, and the reconstruction looks like a real
+    (but wrong) document.
 
-    This writes the state AT *upto_id* as a single entry of ``add`` ops, so the
-    surviving entries replay onto a correct starting point. The entry carries
-    ``upto_id`` itself, which is free: the file holding that original entry is
-    the one being deleted, so the id is not duplicated anywhere.
+    This records the state as it stood immediately BEFORE *before_id* -- the
+    first surviving entry -- so every surviving entry replays onto a correct
+    starting point. Everything from there is then exact, which is the point:
+    dropping old history should cost the ability to go back before a point, not
+    the ability to rebuild what remains.
+
+    The snapshot is keyed on ``before_id - 1``, an id no surviving entry uses
+    (this one is the smallest that survives), so ids stay unique. An empty state
+    still gets an entry, with no ops: it is the marker that says history starts
+    here, which is what tells a reader the earliest revision is a boundary rather
+    than a gap.
 
     Args:
         slug: The document slug.
-        upto_id: The last revision id that is about to be dropped.
+        before_id: The earliest surviving revision id.
 
     Returns:
-        The entry, or None when there is nothing to record (an empty state, or a
-        log too incomplete to know the state).
+        The entry, not yet written.
     """
-    state = replay(slug, upto_id=upto_id + 1)
-    if not state.blocks:
-        return None
+    # Strictly before the first survivor: its own ops are applied by its own
+    # entry, so including them here would apply them twice.
+    state = replay(slug, upto_id=before_id)
     ops = [
         {
             "op": "add",
@@ -421,7 +427,7 @@ def _baseline_entry(slug: str, upto_id: int) -> dict | None:
         for index, block in enumerate(state.blocks)
     ]
     return {
-        "id": upto_id,
+        "id": max(before_id - 1, 0),
         "timestamp": now_iso(),
         "author": "system",
         # Explicit, so a reader can tell a snapshot from a change someone made
@@ -431,75 +437,145 @@ def _baseline_entry(slug: str, upto_id: int) -> dict | None:
         "version_to": 0,
         "ops": ops,
         "summary": (
-            f"Baseline: {len(ops)} block{'s' if len(ops) != 1 else ''} as of "
-            "revision %d. Earlier history was dropped." % upto_id
+            "History starts here. Earlier revisions were dropped; the document "
+            "can be rebuilt from this point on."
         ),
     }
 
 
 def prune_rotated(slug: str) -> list[Path]:
-    """Enforce the history limit, oldest entries first.
+    """Enforce the history limit and keep what survives rebuildable.
 
-    Counted in ENTRIES, across every file, because that is what the limit means
-    to the user: how many revisions are available. File rotation is only a
-    storage detail, so pruning is driven by the total rather than by how many
-    files happen to exist.
+    Two things, in order:
 
-    A baseline entry is written for the boundary being dropped, so the surviving
-    entries still replay onto a correct state -- without it, dropping the oldest
-    entries removes the block creations they contain and any block not mentioned
-    again vanishes from the reconstruction.
+    1. Drop the oldest entries so at most ``_history_limit`` states remain.
+    2. If the log no longer reaches the document's start, write an anchor entry
+       describing the state just before the earliest survivor. Without it every
+       later revision is unbuildable -- dropping the oldest entries removes the
+       block creations they contain, and anything not mentioned again is absent
+       from a replay.
+
+    Step 2 is NOT conditional on step 1 having dropped something. A log can fail
+    to reach the document's start without this function ever trimming it: the log
+    may have been pruned by an older build, hand-copied, or truncated. Gating the
+    anchor on "did I drop something this run" is what left a real document with a
+    50-entry log, no anchor, and every revision reported as unbuildable.
 
     Returns:
         The paths deleted.
     """
     require_valid_slug(slug)
-    # The limit counts STATES the user can browse. A baseline entry is overhead
-    # that makes those states replayable, so it is not counted against the limit
-    # -- otherwise a baseline would silently cost the user one revision.
+    # The limit counts STATES the user can browse. An anchor is overhead that
+    # makes those states replayable, so it is not counted against the limit --
+    # otherwise it would silently cost the user one revision.
     limit = _history_limit()
     entries = [e for e in all_entries(slug) if e.get("author") != "system"]
-    if len(entries) <= limit:
-        return []
+    deleted: list[Path] = []
 
-    # Keep the newest `limit`. Entries have unique monotonic ids, so the cut is
-    # by id rather than by position.
-    keep_ids = {_entry_id(e) for e in entries[len(entries) - limit :]}
-    dropped = [e for e in entries if _entry_id(e) not in keep_ids]
-    last_dropped = max(
-        (_entry_id(e) for e in dropped if isinstance(e.get("id"), int)), default=None
-    )
-    kept = [e for e in entries if _entry_id(e) in keep_ids]
+    if len(entries) > limit:
+        # Keep the newest `limit`. Ids are unique and monotonic, so the cut is by
+        # id rather than by position.
+        keep_ids = {_entry_id(e) for e in entries[len(entries) - limit :]}
+        kept = [e for e in entries if _entry_id(e) in keep_ids]
+        # The anchor is built FIRST, while the entries it describes are still on
+        # disk. Replay reads the files, so trimming before snapshotting destroys
+        # the state the anchor exists to record -- which is exactly how a log
+        # ends up trimmed with no anchor and every revision unbuildable.
+        anchor = _anchor_for(slug, _entry_id(kept[0])) if kept else None
+        # Rewritten into the LIVE log and every rotated file removed: one file is
+        # simpler than keeping a rotated set in step with a moving boundary, and
+        # the limit bounds it to `limit` lines.
+        deleted = rotated_logs(slug)
+        for path in deleted:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+        _write_log(slug, [anchor, *kept] if anchor else kept)
+    else:
+        # Nothing dropped this run -- but the log may STILL not reach the
+        # document's start (pruned by an older build, hand-copied, truncated).
+        # Repairing that is not conditional on having trimmed something: without
+        # this, such a log stays unbuildable forever, which is precisely the
+        # state a real document was found in.
+        anchor = _anchor_for(slug, _entry_id(entries[0]), entries) if entries else None
+        if anchor is not None:
+            _write_log(slug, [anchor, *entries])
+    return deleted
 
-    # The baseline stands in for everything before the surviving window. Its id
-    # is the last dropped one, which is now unused anywhere, so ids stay unique
-    # and monotonic.
-    if last_dropped is not None:
-        baseline = _baseline_entry(slug, last_dropped)
-        if baseline is not None:
-            kept.insert(0, baseline)
 
-    # Rewritten into the LIVE log and every rotated file removed: one file is
-    # simpler than keeping a rotated set in step with a moving boundary, and the
-    # limit bounds it to `limit` lines.
-    deleted = rotated_logs(slug)
-    for path in deleted:
-        try:
-            path.unlink()
-        except OSError:
-            pass
+def _anchor_for(
+    slug: str, before_id: int, kept: list[dict] | None = None
+) -> dict | None:
+    """The anchor entry for a log whose earliest survivor is *before_id*.
 
+    Returns None when the history already reaches the document's start, or when
+    an anchor is already present -- so this is safe to call on every write.
+    """
+    if before_id == 1:
+        return None
+    if kept and kept[0].get("baseline"):
+        return None
+    return _anchor_entry(slug, before_id)
+
+
+def _write_log(slug: str, entries: list[dict]) -> None:
+    """Replace the live log with *entries*, oldest first."""
     path = revisions_path(slug)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
-            "".join(json.dumps(e, ensure_ascii=False) + "\n" for e in kept),
+            "".join(json.dumps(e, ensure_ascii=False) + "\n" for e in entries),
             encoding="utf-8",
         )
     except OSError:
         # Not worth failing a write over: the document change already succeeded.
         pass
-    return deleted
+
+
+def replay_matches_document(slug: str) -> bool | None:
+    """Whether replaying the whole log reproduces the live document.
+
+    A reconstruction is only trustworthy if it agrees with the document the log
+    is supposed to describe. It can disagree when the log lost information: a
+    block whose ``add`` survives but whose later ``remove`` was dropped is
+    resurrected by a replay, so the rebuilt state contains a block the document
+    no longer has.
+
+    This is exactly what a log damaged by an older, buggy prune looks like. The
+    information is gone from the file, so no anchor can recover it -- but the
+    mismatch IS detectable, and a caller must be able to say "this history is
+    approximate" rather than presenting a wrong past as fact.
+
+    Args:
+        slug: The document slug.
+
+    Returns:
+        True when they agree. False when they disagree. None when the comparison
+        cannot be made (no document, or an unreadable one) -- which is NOT a
+        mismatch, and must not be reported as one.
+    """
+    from wichy.tools.notes.blocks import (
+        DocumentNotFoundError,
+        InvalidDocumentError,
+        load_document,
+    )
+
+    try:
+        document = load_document(slug)
+    except (DocumentNotFoundError, InvalidDocumentError, OSError):
+        return None
+
+    state = replay(slug)
+    rebuilt = [
+        {"id": block.id, "type": block.type, "data": dict(block.data)}
+        for block in state.blocks
+    ]
+    live = [
+        {"id": block.id, "type": block.type, "data": dict(block.data)}
+        for block in document.blocks
+    ]
+    return rebuilt == live
 
 
 def _describe_ops(ops: Iterable[Mapping[str, Any]]) -> str:
@@ -850,17 +926,28 @@ def replay(slug: str, upto_id: int | None = None) -> HistoryState:
     # refuse a perfectly good target.
     real_ids = [_entry_id(e) for e in entries if isinstance(e.get("id"), int)]
     first_id = min(real_ids) if real_ids else None
-    # Complete when the log starts where history begins, OR at a baseline: a
-    # baseline IS the missing starting point, restated. Without this, a pruned
-    # log replayed perfectly and still reported itself unusable, which would make
-    # revert refuse a target it could restore exactly.
     first_entry = entries[0] if entries else None
-    complete = first_id == 1 or bool(first_entry and first_entry.get("baseline"))
+
+    # A log is "complete" when replaying it reproduces the document exactly.
+    #
+    # Two ways that happens:
+    # - it reaches the document's start (revision 1), or
+    # - its earliest entry is an anchor: the anchor IS the missing starting
+    #   point, restated, so everything from it replays exactly.
+    #
+    # What is NOT complete is a log that begins part-way through with no anchor:
+    # its earliest entry was built on a state the log never records, so the
+    # blocks it added cannot be recovered. That is the case that must be refused,
+    # and it is distinct from "an anchor is present but older history is gone" --
+    # which is a boundary, not a defect.
+    at_anchor = bool(first_entry and first_entry.get("baseline"))
+    complete = first_id == 1 or at_anchor
     reason = None
     if not complete:
         reason = (
-            f"History starts at revision {first_id}, so changes before it are "
-            "not recorded and the state cannot be rebuilt exactly."
+            f"The earliest surviving revision is {first_id}, and there is no "
+            "history anchor, so the state it was built from is unknown. Revisions "
+            "from the next anchor onward can be rebuilt."
             if first_id is not None
             else "No revision in this log has a usable id."
         )
@@ -1050,6 +1137,7 @@ __all__ = [
     "prepare_revision",
     "record_revision",
     "replay",
+    "replay_matches_document",
     "revert_document",
     "restore_document",
     "revert_ops",

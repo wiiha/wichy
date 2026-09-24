@@ -888,7 +888,20 @@ class TestTheHistoryBrowser:
         body = self.script()
         body = body[body.index("async function selectHistoryRevision") :]
         body = body[: body.index("function renderBlocksAsText")]
-        assert "restore.disabled = response.complete === false" in body
+        assert "restore.disabled" in body
+        assert "response.complete === false" in body
+        # An anchor is trustworthy, so it alone must not disable the control:
+        # being the oldest rebuildable state is not a defect.
+        assert "!response.is_anchor" in body
+
+    def test_a_history_that_disagrees_with_the_document_is_disclosed(self):
+        """A log that lost a removal replays a block the note no longer has."""
+        body = self.script()
+        body = body[body.index("async function selectHistoryRevision") :]
+        body = body[: body.index("function renderBlocksAsText")]
+        assert "response.matches_document === false" in body
+        # And restoring is refused, since the rebuilt state is not what is shown.
+        assert "response.matches_document === false ||" in body
 
     def test_restore_states_its_scope_before_acting(self):
         """It replaces the WHOLE document; the dialog must say so first."""

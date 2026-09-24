@@ -1264,9 +1264,10 @@
             meta.textContent = `${who} - ${formatTimestamp(entry.timestamp)}`;
 
             if (entry.baseline) {
-                // Not a change anyone made: a snapshot restating the state at
-                // the point older history was dropped.
-                meta.textContent += " - earlier history dropped";
+                // Not a change anyone made: a snapshot restating the state where
+                // the surviving history begins.
+                summary.textContent = "History starts here";
+                meta.textContent = "earlier revisions were dropped";
             }
             row.append(summary, meta);
             list.appendChild(row);
@@ -1337,23 +1338,47 @@
         }
         const note = document.getElementById("history-incomplete");
         if (note) {
-            // Only when the replay could not be trusted. A partial history that
-            // is never mentioned would present a wrong past as fact.
-            if (response.complete === false) {
+            if (response.is_anchor) {
+                // The boundary, not a fault: this is the earliest state the log
+                // can rebuild, and everything from here on replays exactly.
                 note.textContent =
-                    "This revision cannot be rebuilt exactly: " +
+                    "History starts here. Earlier revisions were dropped, so " +
+                    "this is the oldest state that can be rebuilt.";
+                note.classList.remove("hidden");
+                note.classList.add("history-boundary");
+            } else if (response.matches_document === false) {
+                // The log replays to a DIFFERENT document, which means it lost
+                // information: a block whose removal was dropped comes back. The
+                // rebuilt state cannot be trusted as that revision's content.
+                note.textContent =
+                    "This note's history no longer matches the document: some " +
+                    "recorded changes were lost, so a rebuilt revision may show " +
+                    "blocks the note does not have. Browsing still works; " +
+                    "restoring is disabled.";
+                note.classList.remove("hidden");
+                note.classList.remove("history-boundary");
+            } else if (response.complete === false) {
+                // A log with no anchor: the state this revision was built on is
+                // unknown, so showing content would present a wrong past as fact.
+                note.textContent =
+                    "This revision cannot be rebuilt: " +
                     (response.reason || "earlier history is missing.");
                 note.classList.remove("hidden");
+                note.classList.remove("history-boundary");
             } else {
                 note.classList.add("hidden");
+                note.classList.remove("history-boundary");
                 note.textContent = "";
             }
         }
         const restore = document.getElementById("history-restore");
         if (restore) {
-            // Refused for a revision that cannot be rebuilt: restoring it would
-            // write a document the log never described.
-            restore.disabled = response.complete === false;
+            // Refused only when the content is NOT trustworthy. An anchor is
+            // trustworthy -- it is the rebuilt starting point -- so a revision at
+            // or after it is restorable, which is the whole point of writing one.
+            restore.disabled =
+                response.matches_document === false ||
+                (response.complete === false && !response.is_anchor);
         }
     }
 

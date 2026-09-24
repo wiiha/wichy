@@ -51,6 +51,7 @@ from wichy.tools.notes.revisions import (
     read_log_entries,
     read_revisions,
     replay,
+    restore_document,
     revert_document,
     rotate_if_needed,
     rotate_now,
@@ -104,6 +105,18 @@ def drop_log(slug):
     revisions_path(slug).unlink(missing_ok=True)
     for path in rotated_logs(slug):
         path.unlink(missing_ok=True)
+
+
+def write_damaged_log(slug, entries):
+    """Write a log directly, bypassing the repair append_entry performs.
+
+    For tests about what a READER does with a log that is already missing its
+    start. Going through append_entry would anchor it, which is correct
+    behaviour and exactly what these tests must avoid.
+    """
+    revisions_path(slug).write_text(
+        "".join(json.dumps(e) + "\n" for e in entries), encoding="utf-8"
+    )
 
 
 def append_entries(slug, count, start=1):
@@ -685,10 +698,27 @@ class TestReplay:
     def test_a_log_starting_after_revision_one_is_incomplete(self, notes_dir, doc):
         slug, _ = doc
         drop_log(slug)
-        append_entries(slug, 1, start=5)
+        # Written directly: an anchor is what makes a gap recoverable, so going
+        # through append_entry would repair the very state under test.
+        write_damaged_log(
+            slug,
+            [
+                make_entry(
+                    revision_id=5,
+                    author="user",
+                    version_from=1,
+                    version_to=2,
+                    ops=[],
+                    summary="synthetic",
+                )
+            ],
+        )
         state = replay(slug)
         assert not state.complete
-        assert "starts at revision 5" in (state.reason or "")
+        # Names the boundary and says what IS recoverable, rather than a bare
+        # "cannot be rebuilt".
+        assert "earliest surviving revision is 5" in (state.reason or "")
+        assert "anchor" in (state.reason or "")
 
     def test_state_before_raises_for_an_unknown_revision(self, notes_dir, doc):
         slug, _ = doc
@@ -698,7 +728,20 @@ class TestReplay:
     def test_state_before_a_missing_log_is_incomplete(self, notes_dir, doc):
         slug, _ = doc
         drop_log(slug)
-        append_entries(slug, 2, start=3)
+        write_damaged_log(
+            slug,
+            [
+                make_entry(
+                    revision_id=offset,
+                    author="user",
+                    version_from=1,
+                    version_to=2,
+                    ops=[],
+                    summary="synthetic",
+                )
+                for offset in (3, 4)
+            ],
+        )
         state = state_before(slug, 4)
         assert not state.complete
 
@@ -819,10 +862,22 @@ class TestRevert:
         """A partial history must not silently produce a wrong revert."""
         slug, ids = doc
         drop_log(slug)
-        append_entries(slug, 1, start=7)
+        write_damaged_log(
+            slug,
+            [
+                make_entry(
+                    revision_id=7,
+                    author="user",
+                    version_from=1,
+                    version_to=2,
+                    ops=[],
+                    summary="synthetic",
+                )
+            ],
+        )
         with pytest.raises(IncompleteHistoryError) as err:
             revert_document(slug, 7, expected_version=1)
-        assert "starts at revision 7" in str(err.value)
+        assert "earliest surviving revision is 7" in str(err.value)
 
     def test_revert_allows_partial_when_explicitly_permitted(self, notes_dir, doc):
         slug, ids = doc
@@ -1449,3 +1504,133 @@ class TestHistoryLimitAndBaseline:
         prune_rotated(slug)
         prune_rotated(slug)
         assert [e["id"] for e in all_entries(slug)] == before
+
+
+class TestTheHistoryAnchor:
+    """The anchor must make the SURVIVING history rebuildable.
+
+    Anchoring on the last DROPPED entry looks equivalent and is not: that entry
+    is often the document's creation, whose state is the empty document, so the
+    snapshot records nothing -- and then every later revision is unbuildable
+    because the blocks created since have no recorded origin.
+    """
+
+    def grow(self, slug, block_id, count):
+        for index in range(count):
+            with locked_document(slug, None, author="user") as document:
+                replace_block(
+                    document, block_id, data={"text": f"v{index}"}, author="user"
+                )
+
+    def test_the_anchor_describes_the_first_surviving_state(
+        self, notes_dir, monkeypatch
+    ):
+        monkeypatch.setattr(settings, "notes_revisions_max_count", 5)
+        document = create_document(
+            "Anchored",
+            [
+                {"type": "paragraph", "data": {"text": "v0"}},
+                {"type": "paragraph", "data": {"text": "B stays"}},
+            ],
+        )
+        slug = document.meta.slug
+        self.grow(slug, document.blocks[0].id, 12)
+
+        first = all_entries(slug)[0]
+        assert first.get("baseline") is True
+        # Two blocks, so the anchor is NOT empty. An anchor keyed on the dropped
+        # creation entry would carry no ops at all.
+        assert len(first["ops"]) == 2
+
+    def test_the_anchor_does_not_duplicate_the_first_survivors_id(
+        self, notes_dir, monkeypatch
+    ):
+        """Ids address entries, so two entries sharing one would be ambiguous."""
+        monkeypatch.setattr(settings, "notes_revisions_max_count", 5)
+        document = create_document(
+            "Ids", [{"type": "paragraph", "data": {"text": "x"}}]
+        )
+        slug = document.meta.slug
+        self.grow(slug, document.blocks[0].id, 12)
+
+        ids = [e["id"] for e in all_entries(slug)]
+        assert len(ids) == len(set(ids)), "ids must stay unique"
+
+    def test_a_block_never_edited_after_the_drop_still_replays(
+        self, notes_dir, monkeypatch
+    ):
+        monkeypatch.setattr(settings, "notes_revisions_max_count", 5)
+        document = create_document(
+            "KeptBlock",
+            [
+                {"type": "paragraph", "data": {"text": "edited a lot"}},
+                {"type": "paragraph", "data": {"text": "never touched"}},
+            ],
+        )
+        slug = document.meta.slug
+        self.grow(slug, document.blocks[0].id, 12)
+
+        rebuilt = replay(slug)
+        assert rebuilt.complete is True
+        assert any(b.data.get("text") == "never touched" for b in rebuilt.blocks)
+
+    def test_the_anchor_is_written_even_when_nothing_was_dropped_this_time(
+        self, notes_dir, monkeypatch
+    ):
+        """A log can be missing its start without this run having trimmed it.
+
+        An older build, a hand-copied log or a truncated file all produce a log
+        that begins part-way through. Gating the anchor on "did I drop something"
+        left such a log permanently unbuildable.
+        """
+        monkeypatch.setattr(settings, "notes_revisions_max_count", 50)
+        document = create_document(
+            "Gap", [{"type": "paragraph", "data": {"text": "x"}}]
+        )
+        slug = document.meta.slug
+        self.grow(slug, document.blocks[0].id, 3)
+        # Simulate the damage: remove the earliest entries by hand.
+        entries = [e for e in all_entries(slug) if e["id"] > 1]
+        revisions_path(slug).write_text(
+            "".join(json.dumps(e) + "\n" for e in entries), encoding="utf-8"
+        )
+        assert replay(slug).complete is False
+
+        # One more write must repair it: the anchor is not conditional on a drop.
+        self.grow(slug, document.blocks[0].id, 1)
+        assert all_entries(slug)[0].get("baseline") is True
+        assert replay(slug).complete is True
+
+    def test_the_anchor_says_history_starts_here(self, notes_dir, monkeypatch):
+        monkeypatch.setattr(settings, "notes_revisions_max_count", 5)
+        document = create_document(
+            "Words", [{"type": "paragraph", "data": {"text": "x"}}]
+        )
+        slug = document.meta.slug
+        self.grow(slug, document.blocks[0].id, 12)
+        summary = all_entries(slug)[0]["summary"]
+        assert "History starts here" in summary
+        assert "can be rebuilt" in summary
+
+    def test_a_revision_after_the_anchor_is_restorable(self, notes_dir, monkeypatch):
+        """The boundary is a floor on how far back you can go, not a fault."""
+        monkeypatch.setattr(settings, "notes_revisions_max_count", 5)
+        document = create_document(
+            "Restorable", [{"type": "paragraph", "data": {"text": "v0"}}]
+        )
+        slug = document.meta.slug
+        self.grow(slug, document.blocks[0].id, 12)
+
+        surviving = [e for e in all_entries(slug) if e.get("author") != "system"]
+        target = surviving[1]["id"]
+        # `at=True` means "the state AS OF this revision", so the expectation is
+        # the replay up to and INCLUDING it -- not `state_before`, which is
+        # deliberately one revision earlier.
+        expected = replay(slug, upto_id=target + 1)
+        assert expected.complete is True
+        restored, _entry = restore_document(
+            slug, target, expected_version=load_document(slug).meta.version, at=True
+        )
+        assert [(b.id, b.data) for b in restored.blocks] == [
+            (b.id, b.data) for b in expected.blocks
+        ]

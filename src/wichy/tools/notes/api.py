@@ -103,6 +103,7 @@ from wichy.tools.notes.revisions import (
     count_revisions,
     get_revision,
     read_revisions,
+    replay_matches_document,
     restore_document,
     revert_document,
 )
@@ -1272,6 +1273,15 @@ def register_routes(bp: Blueprint):
             payload["blocks"] = [block.to_editor_block() for block in state.blocks]
             payload["complete"] = state.complete
             payload["reason"] = state.reason
+            # True when this revision is the boundary itself: the earliest state
+            # the log can rebuild. Shown as "history starts here" rather than as
+            # a problem, because it is not one -- it is where the record begins.
+            payload["is_anchor"] = bool(entry.get("baseline"))
+        # Whether the rebuilt history agrees with the document on screen. A log
+        # damaged before the anchor existed can replay to a different document,
+        # and a caller must be able to say so rather than present a wrong past as
+        # fact. None means "could not compare", which is not a mismatch.
+        payload["matches_document"] = replay_matches_document(slug)
         return jsonify(payload)
 
     @bp.route("/api/notes/<slug>/revisions/<int:revision_id>/revert", methods=["POST"])
