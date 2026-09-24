@@ -473,14 +473,27 @@
    revision -- comparing entries is what browsing is for. */
 .modal-content.modal-wide {
     max-width: 900px;
+    /* Bounded by the viewport as well, so the modal cannot grow taller than the
+       screen and take the page scrollbar with it. */
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
 }
 
 .history-layout {
     display: grid;
     grid-template-columns: minmax(200px, 320px) 1fr;
     gap: 12px;
-    max-height: 55vh;
+    /* A fixed height, not just a max: the grid must be a container the panes
+       scroll INSIDE. With only a max-height, a grid item's default
+       `min-height: auto` let the revision list grow to its full content height
+       (1300px+ for a long history) and spill out past the modal's rounded
+       corner, down the page. */
+    height: 55vh;
     min-height: 240px;
+    /* The panes below rely on this: a grid item is not scrollable unless its
+       track constrains it, and `min-height: 0` is what allows that. */
+    align-items: stretch;
 }
 
 @media (max-width: 640px) {
@@ -491,6 +504,9 @@
 }
 
 .history-list {
+    /* min-height: 0 overrides the grid item default `auto`, which would size the
+       pane to its content and defeat the scroll container. */
+    min-height: 0;
     overflow-y: auto;
     border: 1px solid var(--border);
     border-radius: var(--radius-sm, 4px);
@@ -541,6 +557,8 @@
     display: flex;
     flex-direction: column;
     min-width: 0;
+    /* Same reason as the list: without it the pane grows past the grid. */
+    min-height: 0;
     overflow: hidden;
 }
 

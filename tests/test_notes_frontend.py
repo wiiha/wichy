@@ -835,6 +835,34 @@ class TestTheHistoryBrowser:
         assert "disabled" in button
         assert 'format !== "editorjs"' in self.script()
 
+    def test_the_list_scrolls_inside_the_modal(self):
+        """A long history must scroll in its pane, not spill down the page.
+
+        A grid item's default `min-height: auto` sizes it to its content, so an
+        `overflow-y: auto` pane with no constraint grew to its full height (1300px
+        for a long history) and escaped the modal entirely.
+        """
+        css = (STATIC / "notes.css").read_text(encoding="utf-8")
+        layout = css[css.index(".history-layout {") :]
+        layout = layout[: layout.index("}")]
+        # A definite height, not only a max: the panes scroll inside it.
+        assert "height: 55vh" in layout
+
+        for selector in (".history-list {", ".history-detail {"):
+            body = css[css.index(selector) :]
+            body = body[: body.index("}")]
+            assert "min-height: 0" in body, f"{selector} can outgrow the grid"
+
+        list_body = css[css.index(".history-list {") :]
+        list_body = list_body[: list_body.index("}")]
+        assert "overflow-y: auto" in list_body
+
+    def test_the_modal_cannot_grow_past_the_viewport(self):
+        css = (STATIC / "notes.css").read_text(encoding="utf-8")
+        body = css[css.index(".modal-content.modal-wide") :]
+        body = body[: body.index("}")]
+        assert "max-height: 90vh" in body
+
     def test_it_lists_revisions_newest_first(self):
         """The server returns them newest first; the list must not re-sort."""
         body = self.script()
