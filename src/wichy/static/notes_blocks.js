@@ -763,8 +763,9 @@
         await markAgentBlocks();
         if (untouched.length) {
             const distinct = new Set(untouched.map((op) => op.block_id)).size;
+            // The status line is the notice now. It already said this, which is
+            // why a separate popup was redundant as well as intrusive.
             setStatus(`Agent updated ${distinct} block(s).`);
-            showAgentToast(distinct);
         }
         if (blocked.length) {
             // Those blocks are being edited here, so applying the agent's
@@ -847,19 +848,32 @@
         blocksNode.querySelectorAll(".ce-block").forEach((element, index) => {
             const block = blocks[index];
             const id = block && block.id ? block.id : null;
+            // The conflict mark stays on the block, because its border is the
+            // thing that reads as "this whole block is contested".
             element.classList.toggle("conflicted", !!(id && conflictedIds.has(id)));
+            // The agent mark goes on the CONTENT wrapper instead, so the bar and
+            // its label sit at the text column rather than out in the margin.
+            // `.ce-block__content` is the element Editor.js wraps each block's
+            // body in; without it (a block type that renders none) the mark falls
+            // back to the block itself rather than being dropped.
+            const target = element.querySelector(".ce-block__content") || element;
             if (id && agentTouched.has(id)) {
-                element.classList.add("agent-touched");
-                element.classList.toggle("agent-created", agentCreated.has(id));
+                target.classList.add("agent-touched");
+                target.classList.toggle("agent-created", agentCreated.has(id));
                 // The flash is a separate class so the mark survives its end.
-                element.classList.add("agent-flash");
-                element.title = describeAgentChange(id);
-                window.setTimeout(() => element.classList.remove("agent-flash"), 2000);
+                target.classList.add("agent-flash");
+                target.title = describeAgentChange(id);
+                window.setTimeout(
+                    () => target.classList.remove("agent-flash"), 2000
+                );
             } else {
-                element.classList.remove("agent-touched", "agent-created", "agent-flash");
-                element.removeAttribute("title");
+                target.classList.remove(
+                    "agent-touched", "agent-created", "agent-flash"
+                );
+                target.removeAttribute("title");
             }
         });
+        updateAgentLegend();
     }
 
     /**
@@ -1140,46 +1154,20 @@
     }
 
     /**
-     * Show the "Agent updated N blocks" toast.
+     * Show or hide the marks' legend.
      *
-     * `count` is distinct blocks, not ops: it matches what the marks show and
-     * what the conflict cap counts, so the number the user reads is the number of
-     * blocks they can see changed.
+     * Hidden when nothing is marked, so it does not describe a state the document
+     * is not in. Shown, it stays until the marks go -- which is why there is no
+     * dismiss: the legend is not a notice to wave away, it is the key to marks
+     * that are still on screen.
      */
-    function showAgentToast(count) {
-        const toast = document.getElementById("agent-toast");
-        const text = document.getElementById("agent-toast-text");
-        if (!toast) {
+    function updateAgentLegend() {
+        const legend = document.getElementById("agent-legend");
+        if (!legend) {
             return;
         }
-        if (text) {
-            text.textContent = `Agent updated ${count} block${count === 1 ? "" : "s"}`;
-        }
-        toast.classList.remove("hidden");
-    }
-
-    function hideAgentToast() {
-        const toast = document.getElementById("agent-toast");
-        if (toast) {
-            toast.classList.add("hidden");
-        }
-    }
-
-    /** Scroll the first marked block into view and flash it again. */
-    function viewAgentChange() {
-        if (!blocksNode) {
-            return;
-        }
-        const marked = blocksNode.querySelector(".ce-block.agent-touched");
-        if (!marked) {
-            setStatus("No agent changes are marked in this document.");
-            return;
-        }
-        marked.scrollIntoView({ behavior: "smooth", block: "center" });
-        marked.classList.remove("agent-flash");
-        // Reflow between removing and re-adding, or the animation does not restart.
-        void marked.offsetWidth;
-        marked.classList.add("agent-flash");
+        legend.classList.toggle("hidden", agentTouched.size === 0);
+        updateUndoAgentButton();
     }
 
     /**
@@ -1264,7 +1252,6 @@
         // reorder blocks at once, so re-reading is the only way to be sure the
         // page matches the document.
         await open(targetSlug);
-        hideAgentToast();
         setStatus("Undid the agent's last edit.");
     }
 
@@ -1530,6 +1517,23 @@
         }
     }
 
+    /**
+     * Enable the undo control only when there is an agent edit to undo.
+     *
+     * The control is one toolbar button rather than a per-block action, because a
+     * revert restores the WHOLE document to its state before that revision -- it
+     * can undo more than the one block the user saw marked. Enabling it only when
+     * a mark exists keeps it from offering an action with nothing behind it.
+     */
+    function updateUndoAgentButton() {
+        const button = document.querySelector(
+            '#toolbar button[data-action="undo-agent"]'
+        );
+        if (button) {
+            button.disabled = agentTouched.size === 0;
+        }
+    }
+
     /** The toolbar, wired to the document-level actions. */
     function initToolbar() {
         if (!toolbarNode) {
@@ -1558,6 +1562,8 @@
                 await togglePin();
             } else if (action === "delete") {
                 await removeDocument();
+            } else if (action === "undo-agent") {
+                await undoLastAgentEdit();
             }
         });
     }
@@ -1703,29 +1709,6 @@
         }
     }
 
-    /** The agent toast's three actions. */
-    function initAgentToast() {
-        const toast = document.getElementById("agent-toast");
-        if (!toast) {
-            return;
-        }
-        toast.addEventListener("click", async (event) => {
-            const button = event.target.closest("button[data-toast]");
-            if (!button) {
-                return;
-            }
-            if (button.dataset.toast === "view") {
-                viewAgentChange();
-            } else if (button.dataset.toast === "undo") {
-                await undoLastAgentEdit();
-            } else if (button.dataset.toast === "dismiss") {
-                // Dismissal hides the notice only: the marks stay, so the user can
-                // still see what changed after waving the toast away.
-                hideAgentToast();
-            }
-        });
-    }
-
     /** Start polling for agent changes. */
     function startPolling() {
         if (pollTimer) {
@@ -1736,7 +1719,6 @@
 
     function init() {
         initToolbar();
-        initAgentToast();
         initConflictBanner();
         startPolling();
         // The notes list decides which document is open; it publishes the slug

@@ -719,33 +719,23 @@ class TestAgentChangeVisualization:
         assert "function clockNow" in source
         assert "at ${time}" in source
 
-    def test_the_toast_counts_distinct_blocks_not_ops(self):
+    def test_the_status_line_counts_distinct_blocks_not_ops(self):
         """Five ops on one block is one block, and the marks show one block."""
         source = self.script()
         body = source[source.index("async function applyAgentChanges") :]
         body = body[: body.index("async function applyOneOp")]
         assert "new Set(untouched.map((op) => op.block_id)).size" in body
 
-    def test_the_toast_pluralizes_correctly(self):
-        source = self.script()
-        body = source[source.index("function showAgentToast") :]
-        body = body[: body.index("function hideAgentToast")]
-        assert 'count === 1 ? "" : "s"' in body
-
-    def test_dismissing_the_toast_keeps_the_marks(self):
-        """Waving the notice away must not erase what it was pointing at."""
-        source = self.script()
-        body = source[source.index("function initAgentToast") :]
-        body = body[: body.index("function startPolling")]
-        dismiss = body[body.index('"dismiss"') :]
-        assert "hideAgentToast()" in dismiss
-        assert "agentTouched = new Set()" not in dismiss
+    def test_there_is_no_popup_notice(self):
+        """The status line and the marks say it; a popup said it again."""
+        assert "agent-toast" not in template()
+        assert "showAgentToast" not in self.script()
 
     def test_undo_confirms_with_the_scope_and_the_summary_before_reverting(self):
         """A revert is whole-document; the dialog must say so first."""
         source = self.script()
         body = source[source.index("async function undoLastAgentEdit") :]
-        body = body[: body.index("function initAgentToast")]
+        body = body[: body.index("async function poll")]
         assert "window.confirm" in body
         assert "restores the whole document" in body
         assert body.index("window.confirm") < body.index("/revert")
@@ -754,14 +744,14 @@ class TestAgentChangeVisualization:
     def test_undo_targets_the_latest_agent_revision(self):
         source = self.script()
         body = source[source.index("async function undoLastAgentEdit") :]
-        body = body[: body.index("function initAgentToast")]
+        body = body[: body.index("async function poll")]
         assert "author=agent" in body
         assert "revisions/${latest.id}/revert" in body
 
     def test_a_refused_undo_issues_no_request(self):
         source = self.script()
         body = source[source.index("async function undoLastAgentEdit") :]
-        body = body[: body.index("function initAgentToast")]
+        body = body[: body.index("async function poll")]
         confirm_at = body.index("window.confirm")
         guard_at = body.index("if (!confirmed)")
         revert_at = body.index("/revert")
@@ -787,19 +777,98 @@ class TestAgentChangeVisualization:
         assert "@media (prefers-reduced-motion: no-preference)" in css
 
 
-class TestTheToastIsAnnouncedPolitely:
-    def test_the_toast_uses_aria_live_polite(self):
-        body = template()
-        assert 'id="agent-toast"' in body
-        toast = body[body.index('id="agent-toast"') :]
-        toast = toast[: toast.index("</div>")]
-        assert 'aria-live="polite"' in toast
-        assert 'role="status"' in toast
+class TestTheMarksAreExplained:
+    """The two marks need a stated meaning, not only a hover tooltip."""
 
-    def test_the_toast_offers_view_dismiss_and_undo(self):
+    def script(self) -> str:
+        return (STATIC / "notes_blocks.js").read_text(encoding="utf-8")
+
+    def test_the_legend_names_both_marks(self):
         body = template()
-        for action in ("view", "dismiss", "undo"):
-            assert f'data-toast="{action}"' in body
+        assert 'id="agent-legend"' in body
+        assert "[AGENT]" in body
+        assert "[AGENT NEW]" in body
+
+    def test_the_legend_says_what_each_mark_means_in_words(self):
+        body = template()
+        legend = body[body.index('id="agent-legend"') :]
+        legend = legend[: legend.index("</span>\n")]
+        assert "changed by the agent" in legend
+        assert "created by the agent" in legend
+
+    def test_the_legend_starts_hidden(self):
+        """It must not describe a state the document is not in."""
+        body = template()
+        legend = body[body.index('id="agent-legend"') :]
+        assert "hidden" in legend[: legend.index(">")]
+
+    def test_the_mark_is_anchored_to_the_text_column_not_the_block_edge(self):
+        """The block spans the full editor width while its content is a centred
+        column, so a mark on the outer edge sits far from the text it describes,
+        and -- at the block's vertical spacing -- looks attached to the block
+        above it. It must be applied to the content wrapper."""
+        source = self.script()
+        body = source[source.index("async function markAgentBlocks") :]
+        body = body[: body.index("function describeAgentChange")]
+        assert 'element.querySelector(".ce-block__content")' in body
+        # And the CSS must key off that wrapper, or the class lands on an
+        # element the stylesheet does not target.
+        css = (STATIC / "notes.css").read_text(encoding="utf-8")
+        assert ".ce-block__content.agent-touched" in css
+        # No rule may target the outer block edge for this mark.
+        assert ".ce-block.agent-touched" not in css
+
+    def test_the_editor_column_is_wider_than_the_vendor_default(self):
+        """Editor.js caps its content at 650px and centres it, leaving most of a
+        wide panel empty -- and widening that margin pushed the marks further
+        from the text."""
+        css = (STATIC / "notes.css").read_text(encoding="utf-8")
+        body = css[css.index(".block-editor .codex-editor__redactor") :]
+        body = body[: body.index("}")]
+        assert "max-width" in body
+        # Centred, or the saving shows up as empty space on one side only.
+        assert "margin: 0 auto" in body
+        # A measure, not the vendor's cap: 650 is what is being overridden.
+        assert "650px" not in body
+
+    def test_the_legend_is_shown_and_hidden_with_the_marks(self):
+        source = self.script()
+        body = source[source.index("function updateAgentLegend") :]
+        body = body[: body.index("/**")] if "/**" in body else body
+        assert "agentTouched.size === 0" in body
+
+
+class TestTheUndoControlLivesInTheToolbar:
+    """The toast's undo was the only GUI path to a revert; removing the toast
+    must not remove the capability."""
+
+    def script(self) -> str:
+        return (STATIC / "notes_blocks.js").read_text(encoding="utf-8")
+
+    def test_the_toolbar_offers_an_undo(self):
+        body = template()
+        assert 'data-action="undo-agent"' in body
+
+    def test_it_is_disabled_until_there_is_something_to_undo(self):
+        body = template()
+        button = body[body.index('data-action="undo-agent"') :]
+        button = button[: button.index(">")]
+        assert "disabled" in button
+        source = self.script()
+        assert "agentTouched.size === 0" in source
+
+    def test_it_runs_the_whole_document_revert(self):
+        source = self.script()
+        body = source[source.index("function initToolbar") :]
+        body = body[: body.index("function askToConvert")]
+        assert 'action === "undo-agent"' in body
+        assert "undoLastAgentEdit" in body
+
+    def test_the_confirmation_still_states_the_scope(self):
+        """Moving the control must not lose the warning about its breadth."""
+        source = self.script()
+        body = source[source.index("async function undoLastAgentEdit") :]
+        assert "restores the whole document" in body
 
 
 class TestTheConflictBannerResolves:

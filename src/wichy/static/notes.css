@@ -343,6 +343,25 @@
     padding: 4px 0;
 }
 
+/* Editor.js caps its content column at a fixed 650px and centres it, which in a
+   ~1100px panel left roughly 450px of dead space. That did not only look narrow:
+   the agent marks below hang off the OUTER block edge, so the wider the side
+   margin, the further those marks floated from the text they describe.
+
+   The cap is lifted to a readable measure rather than to the full width. 860px
+   holds about 105 characters at this page's 16px body size -- a little beyond
+   the classic 60-80 ideal, because a notes tool carries lists, code and tables
+   that suffer more from a narrow column than prose suffers from a wide one. The
+   value is a character measure, not a magic pixel count: if the body font size
+   changes, revisit it. */
+.block-editor .codex-editor__redactor {
+    /* Centred, so the leftover space is shared rather than all landing on one
+       side. Without the auto margins the column butts against the left edge and
+       the whole saving appears as one wide empty strip on the right. */
+    max-width: 860px;
+    margin: 0 auto;
+}
+
 .block-editor.hidden {
     display: none;
 }
@@ -361,8 +380,15 @@
     display: none;
 }
 
-/* Blocks the agent changed, until the user acknowledges them. */
-.block-editor .agent-touched {
+/* Blocks the agent changed, until the user acknowledges them.
+ *
+ * Anchored to the TEXT COLUMN, not to the outer block edge. The block spans the
+ * full editor width while its content sits in a centred column, so a marker on
+ * the outer edge landed ~230px away from the paragraph it described -- and, at
+ * the block's vertical rhythm, visually closer to the block above it. Marking
+ * the content wrapper instead puts the bar and its label exactly where the
+ * reader's eye already is. */
+.block-editor .ce-block__content.agent-touched {
     border-left: 3px solid #a855f7;
     padding-left: 8px;
 }
@@ -370,7 +396,7 @@
 /* The robot marker. Text rather than a glyph or a colour, so the meaning
    survives a monochrome display and a missing icon font: the tooltip says the
    same thing in words. */
-.block-editor .agent-touched::before {
+.block-editor .ce-block__content.agent-touched::before {
     content: "[AGENT]";
     display: inline-block;
     margin-right: 6px;
@@ -383,11 +409,11 @@
 
 /* A block the agent CREATED, as opposed to one it edited, is marked differently
    enough to tell apart without relying on hue alone. */
-.block-editor .agent-touched.agent-created::before {
+.block-editor .ce-block__content.agent-touched.agent-created::before {
     content: "[AGENT NEW]";
 }
 
-.block-editor .agent-touched.agent-created {
+.block-editor .ce-block__content.agent-touched.agent-created {
     border-left-style: dotted;
 }
 
@@ -399,29 +425,39 @@
     padding-left: 8px;
 }
 
-/* The toast. Positioned so it does not cover the block the user is editing. */
-.agent-toast {
-    position: fixed;
-    right: 16px;
-    bottom: 16px;
-    z-index: 40;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 14px;
-    border-left: 4px solid #a855f7;
-    background: var(--surface, #fff);
-    color: var(--text, #111);
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
-    font-size: 14px;
+/* The agent-change legend. Sits in the toolbar so the two marks have a stated
+   meaning rather than relying on the user hovering a block to discover it.
+ *
+ * Plain inline, NOT inline-flex: a flex container turns the text between the two
+ * mark spans into anonymous flex items, which then wrap internally while the
+ * container keeps a one-line height -- the legend rendered as overlapping
+ * doubled text. A single non-wrapping run is what this is. */
+.agent-legend {
+    display: inline-block;
+    white-space: nowrap;
+    font-size: 12px;
+    color: var(--text-muted, #666);
+    vertical-align: middle;
 }
 
-.agent-toast.hidden {
+.agent-legend.hidden {
     display: none;
 }
 
-.agent-toast button {
-    font-size: 12px;
+/* The same markers the blocks use, so the legend needs no second vocabulary. */
+.agent-legend .legend-mark {
+    font-weight: 700;
+    color: #7c3aed;
+    letter-spacing: 0.04em;
+    margin-left: 6px;
+}
+
+.agent-legend .legend-mark:first-child {
+    margin-left: 0;
+}
+
+.agent-legend .legend-created {
+    border-bottom: 2px dotted #a855f7;
 }
 
 /* The conflict banner's actions. It carries text, so it stays readable with the
@@ -479,7 +515,7 @@
         }
     }
 
-    .block-editor .agent-flash {
+    .block-editor .ce-block__content.agent-flash {
         animation: wichy-agent-flash 2s ease-out;
     }
 }
@@ -571,7 +607,7 @@
 /* Skip the flash for anyone who asked for reduced motion: the marker still
    appears, so the information is not lost. */
 @media (prefers-reduced-motion: reduce) {
-    .block-editor .agent-flash {
+    .block-editor .ce-block__content.agent-flash {
         animation: none;
     }
 }
