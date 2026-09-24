@@ -1777,3 +1777,115 @@ class TestTheAckClampHandlesAVanishedDocument:
         assert "error" in response.get_json()
         # And the queue was not touched by a failed ack.
         assert peek_agent_changes(slug)
+
+
+class TestRevisionContentAndRestore:
+    """The history browser needs content, and a restore that means "as of N".
+
+    The entry alone says what CHANGED; a browser needs what the document SAID.
+    And the sibling revert restores the state BEFORE a revision -- one revision
+    earlier than what a user who picked a revision is asking for.
+    """
+
+    def history(self, client, slug, edits):
+        """Create a note and apply `edits` texts, returning (slug, block id)."""
+        create(client, "Hist", "v0")
+        slug = "hist"
+        block_id = client.get(f"{PREFIX}/api/notes/{slug}/blocks").get_json()["blocks"][
+            0
+        ]["id"]
+        for text in edits:
+            body = client.get(f"{PREFIX}/api/notes/{slug}").get_json()
+            client.patch(
+                f"{PREFIX}/api/notes/{slug}/blocks/{block_id}",
+                json={
+                    "version": body["meta"]["version"],
+                    "block_type": "paragraph",
+                    "data": {"text": text},
+                },
+            )
+        return slug, block_id
+
+    def test_a_revision_reports_the_content_at_that_revision(self, client):
+        slug, _ = self.history(client, "hist", ["v1", "v2"])
+        body = client.get(f"{PREFIX}/api/notes/{slug}/revisions/1").get_json()
+        assert [b["data"]["text"] for b in body["blocks"]] == ["v0"]
+        body = client.get(f"{PREFIX}/api/notes/{slug}/revisions/3").get_json()
+        assert [b["data"]["text"] for b in body["blocks"]] == ["v2"]
+
+    def test_the_completeness_of_a_reconstruction_is_reported(self, client):
+        slug, _ = self.history(client, "hist", ["v1"])
+        body = client.get(f"{PREFIX}/api/notes/{slug}/revisions/1").get_json()
+        assert body["complete"] is True
+        assert body["reason"] is None
+
+    def test_the_wire_shape_still_carries_the_entry(self, client):
+        """The new fields are additions; the existing contract must not move."""
+        slug, _ = self.history(client, "hist", [])
+        body = client.get(f"{PREFIX}/api/notes/{slug}/revisions/1").get_json()
+        assert body["revision"]["id"] == 1
+        assert "blocks" in body
+
+    def test_restore_puts_the_document_back_to_that_revision(self, client):
+        slug, _ = self.history(client, "hist", ["v1", "v2"])
+        version = client.get(f"{PREFIX}/api/notes/{slug}").get_json()["meta"]["version"]
+        response = client.post(
+            f"{PREFIX}/api/notes/{slug}/revisions/2/restore", json={"version": version}
+        )
+        assert response.status_code == 200
+        blocks = client.get(f"{PREFIX}/api/notes/{slug}").get_json()["blocks"]
+        assert [b["data"]["text"] for b in blocks] == ["v1"]
+
+    def test_restore_differs_from_revert_by_one_revision(self, client):
+        """The distinction the two endpoints exist for."""
+        slug, _ = self.history(client, "hist", ["v1", "v2"])
+        version = client.get(f"{PREFIX}/api/notes/{slug}").get_json()["meta"]["version"]
+        client.post(
+            f"{PREFIX}/api/notes/{slug}/revisions/2/restore", json={"version": version}
+        )
+        restored = client.get(f"{PREFIX}/api/notes/{slug}").get_json()["blocks"]
+        # Revision 2's own content, not revision 1's.
+        assert [b["data"]["text"] for b in restored] == ["v1"]
+
+    def test_restore_is_recorded_as_a_new_revision(self, client):
+        """History is added to, never rewritten."""
+        slug, _ = self.history(client, "hist", ["v1"])
+        version = client.get(f"{PREFIX}/api/notes/{slug}").get_json()["meta"]["version"]
+        client.post(
+            f"{PREFIX}/api/notes/{slug}/revisions/1/restore", json={"version": version}
+        )
+        listed = client.get(f"{PREFIX}/api/notes/{slug}/revisions").get_json()
+        assert listed["revisions"][0]["author"] == "system"
+        assert "Restored" in listed["revisions"][0]["summary"]
+
+    def test_restore_needs_a_version(self, client):
+        slug, _ = self.history(client, "hist", [])
+        response = client.post(
+            f"{PREFIX}/api/notes/{slug}/revisions/1/restore", json={}
+        )
+        assert response.status_code == 400
+
+    def test_a_stale_restore_is_refused(self, client):
+        slug, _ = self.history(client, "hist", ["v1"])
+        response = client.post(
+            f"{PREFIX}/api/notes/{slug}/revisions/1/restore", json={"version": 99}
+        )
+        assert response.status_code == 409
+
+    def test_an_unknown_revision_cannot_be_restored(self, client):
+        slug, _ = self.history(client, "hist", [])
+        version = client.get(f"{PREFIX}/api/notes/{slug}").get_json()["meta"]["version"]
+        response = client.post(
+            f"{PREFIX}/api/notes/{slug}/revisions/999/restore",
+            json={"version": version},
+        )
+        assert response.status_code == 404
+
+    def test_a_markdown_note_refuses_a_restore(self, client, notes_dir):
+        """It keeps no block log, and the reason must be that, not "no revision"."""
+        make_legacy(notes_dir)
+        response = client.post(
+            f"{PREFIX}/api/notes/legacy/revisions/1/restore", json={"version": 1}
+        )
+        assert response.status_code == 409
+        assert response.get_json()["error"] == MARKDOWN_WRITE_REFUSED

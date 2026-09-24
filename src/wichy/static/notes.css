@@ -468,6 +468,116 @@
     font-size: 12px;
 }
 
+/* The revision browser: a list of revisions beside the content of the selected
+   one. Two panes rather than one, so the list stays visible while reading a
+   revision -- comparing entries is what browsing is for. */
+.modal-content.modal-wide {
+    max-width: 900px;
+}
+
+.history-layout {
+    display: grid;
+    grid-template-columns: minmax(200px, 320px) 1fr;
+    gap: 12px;
+    max-height: 55vh;
+    min-height: 240px;
+}
+
+@media (max-width: 640px) {
+    /* Stacked on a narrow screen: two panes side by side leave neither usable. */
+    .history-layout {
+        grid-template-columns: 1fr;
+    }
+}
+
+.history-list {
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm, 4px);
+}
+
+.history-row {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 8px 10px;
+    border: 0;
+    border-bottom: 1px solid var(--border);
+    background: transparent;
+    cursor: pointer;
+    font: inherit;
+    color: inherit;
+}
+
+.history-row:hover {
+    background: var(--surface-hover, #f5f5f7);
+}
+
+/* The selected row carries a left bar as well as a tint, so the current choice
+   is legible without relying on colour alone. */
+.history-row.selected {
+    background: var(--surface-hover, #f5f5f7);
+    border-left: 3px solid #a855f7;
+}
+
+.history-row-summary {
+    display: block;
+    font-size: 13px;
+}
+
+.history-row-meta {
+    display: block;
+    font-size: 11px;
+    color: var(--text-muted, #666);
+}
+
+.history-empty {
+    padding: 12px;
+    font-size: 13px;
+    color: var(--text-muted, #666);
+}
+
+.history-detail {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.history-detail-heading {
+    font-size: 13px;
+    margin: 0 0 8px 0;
+}
+
+/* The content is a preformatted block: block text is shown as written, so
+   indentation and wrapping do not silently change what the note said. */
+.history-content {
+    flex: 1;
+    overflow: auto;
+    margin: 0;
+    padding: 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm, 4px);
+    background: var(--surface-muted, #fafafa);
+    font-size: 13px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+/* States why a revision is not restorable, rather than leaving a disabled
+   button unexplained. */
+.history-incomplete {
+    margin-bottom: 8px;
+    padding: 6px 10px;
+    border-left: 4px solid var(--accent-warning, #b26a00);
+    background: var(--surface-warning, #fff7e6);
+    font-size: 12px;
+}
+
+.history-incomplete.hidden {
+    display: none;
+}
+
 /* The compare view. Two columns side by side so the difference is read across,
    wrapping to one column when there is not room for both. */
 .compare-grid {

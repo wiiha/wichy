@@ -57,15 +57,9 @@
                 <span class="legend-mark">[AGENT]</span> = changed by the agent
                 <span class="legend-mark legend-created">[AGENT NEW]</span> = created by the agent
             </span>
-            {# Replaces the toast's undo action. The toast itself is gone: its
-               notice duplicated the status line and the block marks, and its
-               "View" action only re-flashed a block that is already marked. The
-               undo it offered was worth keeping, so it moved here -- and it is
-               whole-document scope, which the confirmation states before
-               anything is reverted. #}
-            <button class="btn btn-secondary" data-action="undo-agent" disabled
-                    title="Revert the document to before the agent's last edit.">
-                Undo last agent edit
+            <button class="btn btn-secondary" data-action="history" disabled
+                    title="Browse this note's revision history.">
+                History
             </button>
             <span id="editor-status" class="editor-status" role="status" aria-live="polite"></span>
         </div>
@@ -126,6 +120,33 @@
             </div>
         </div>
 
+        {# The revision browser. Read-only apart from Restore, which is offered
+           per revision so the user picks a state rather than trusting a label:
+           the confirmation inside names the scope before anything changes. #}
+        <div id="history-modal" class="modal-overlay hidden" role="dialog"
+             aria-modal="true" aria-labelledby="history-modal-title">
+            <div class="modal-content modal-wide">
+                <h3 id="history-modal-title" class="modal-title">Revision history</h3>
+                <div class="history-layout">
+                    <div class="history-list" id="history-list" role="listbox"
+                         aria-label="Revisions, newest first"></div>
+                    <div class="history-detail">
+                        <h4 class="history-detail-heading" id="history-detail-heading"></h4>
+                        <div class="history-incomplete hidden" id="history-incomplete"></div>
+                        <pre id="history-content" class="history-content"></pre>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button id="history-restore" class="btn btn-danger" disabled>
+                        Restore to this revision
+                    </button>
+                    <button id="history-modal-close" class="btn btn-secondary">Close</button>
+                </div>
+            </div>
+        </div>
+
+        {# Announced politely: a restore is the user's own action, but its result
+           should not interrupt what they were typing. #}
         <div class="main-layout">
             <aside class="sidebar">
                 <div class="sidebar-section">

@@ -286,6 +286,7 @@
         // would show a banner describing conflicts in the old one.
         pendingConflicts = [];
         hideConflict();
+        closeHistory();
         updateQueueIndicator();
     }
 
@@ -1167,31 +1168,37 @@
             return;
         }
         legend.classList.toggle("hidden", agentTouched.size === 0);
-        updateUndoAgentButton();
+    }
+
+    /** Where the history modal's state lives while it is open. */
+    let historyEntries = [];
+    let historySelectedId = null;
+
+    /** Format an ISO timestamp as local time, or return it unchanged if not ISO. */
+    function formatTimestamp(raw) {
+        if (!raw) {
+            return "";
+        }
+        const parsed = new Date(raw);
+        if (Number.isNaN(parsed.getTime())) {
+            return String(raw);
+        }
+        return parsed.toLocaleString();
     }
 
     /**
-     * Revert the most recent agent revision.
+     * Open the revision browser for the document in the editor.
      *
-     * The whole-document scope is surfaced before anything happens: a revert
-     * restores the document as it was before that revision, which can undo more
-     * than the single block the user saw flash. Saying so is the difference
-     * between an undo and a surprise.
+     * A save is flushed first. The history shows what the SERVER recorded, and
+     * an unsaved edit is not in it yet -- opening the browser and seeing one's
+     * own last sentence missing would read as data loss.
      */
-    async function undoLastAgentEdit() {
+    async function openHistory() {
         if (!slug) {
             return;
         }
-        // Captured on entry. A revert is a write to a document named by slug, and
-        // this function awaits (a save, a history fetch, a confirmation dialog),
-        // so a note switch part-way through would revert the note the user just
-        // opened rather than the one they were looking at.
         const epoch = openEpoch;
         const targetSlug = slug;
-        // A save is armed by the debounce and this function rebuilds the editor
-        // on success, which clears that timer: edits typed in the last couple of
-        // seconds were silently dropped by an undo. Persist them first, so the
-        // revert lands on top of what the user actually wrote.
         if (saveTimer) {
             clearTimeout(saveTimer);
             saveTimer = null;
@@ -1200,59 +1207,272 @@
         if (epoch !== openEpoch || slug !== targetSlug) {
             return;
         }
+        const modal = document.getElementById("history-modal");
+        if (!modal) {
+            return;
+        }
         const listed = await fetchJson(
-            `${PREFIX}/api/notes/${targetSlug}/revisions?author=agent&limit=1`
+            `${PREFIX}/api/notes/${targetSlug}/revisions`
         );
+        if (epoch !== openEpoch || slug !== targetSlug) {
+            return;
+        }
         if (listed.error) {
             setStatus("Could not read the revision history.");
             return;
         }
+        historyEntries = listed.revisions || [];
+        historySelectedId = null;
+        renderHistoryList();
+        clearHistoryDetail();
+        modal.classList.remove("hidden");
+        document.getElementById("history-modal-close")?.focus();
+    }
+
+    /** The list of revisions, newest first. */
+    function renderHistoryList() {
+        const list = document.getElementById("history-list");
+        if (!list) {
+            return;
+        }
+        list.replaceChildren();
+        if (!historyEntries.length) {
+            const empty = document.createElement("p");
+            empty.className = "history-empty";
+            // Names the reason rather than showing a bare blank panel: a legacy
+            // markdown note keeps no log at all, which is not a bug.
+            empty.textContent = "No revision history is recorded for this note.";
+            list.appendChild(empty);
+            return;
+        }
+        for (const entry of historyEntries) {
+            const row = document.createElement("button");
+            row.type = "button";
+            row.className = "history-row";
+            row.dataset.revisionId = String(entry.id);
+            row.setAttribute("role", "option");
+            row.setAttribute("aria-selected", "false");
+
+            const summary = document.createElement("span");
+            summary.className = "history-row-summary";
+            // textContent, not innerHTML: a summary contains user text.
+            summary.textContent = entry.summary || `Revision ${entry.id}`;
+
+            const meta = document.createElement("span");
+            meta.className = "history-row-meta";
+            const who = entry.author || "unknown";
+            meta.textContent = `${who} - ${formatTimestamp(entry.timestamp)}`;
+
+            if (entry.baseline) {
+                // Not a change anyone made: a snapshot restating the state at
+                // the point older history was dropped.
+                meta.textContent += " - earlier history dropped";
+            }
+            row.append(summary, meta);
+            list.appendChild(row);
+        }
+    }
+
+    /** Empty the detail pane, so no stale content reads as the new selection. */
+    function clearHistoryDetail() {
+        const heading = document.getElementById("history-detail-heading");
+        const content = document.getElementById("history-content");
+        const note = document.getElementById("history-incomplete");
+        const restore = document.getElementById("history-restore");
+        if (heading) {
+            heading.textContent = "Select a revision to see its content.";
+        }
+        if (content) {
+            content.textContent = "";
+        }
+        if (note) {
+            note.classList.add("hidden");
+            note.textContent = "";
+        }
+        if (restore) {
+            restore.disabled = true;
+        }
+    }
+
+    /** Show one revision: the document's content as of that revision. */
+    async function selectHistoryRevision(revisionId) {
+        if (!slug) {
+            return;
+        }
+        const epoch = openEpoch;
+        const targetSlug = slug;
+        const response = await fetchJson(
+            `${PREFIX}/api/notes/${targetSlug}/revisions/${revisionId}`
+        );
         if (epoch !== openEpoch || slug !== targetSlug) {
             return;
         }
-        const latest = (listed.revisions || [])[0];
-        if (!latest) {
-            setStatus("There is no agent edit to undo.");
+        if (response.error) {
+            setStatus("Could not read that revision.");
             return;
         }
-        const summary = latest.summary || "the agent's last change";
-        const when = latest.timestamp || "";
+        historySelectedId = revisionId;
+
+        const list = document.getElementById("history-list");
+        if (list) {
+            for (const row of list.querySelectorAll(".history-row")) {
+                const selected = row.dataset.revisionId === String(revisionId);
+                row.classList.toggle("selected", selected);
+                row.setAttribute("aria-selected", selected ? "true" : "false");
+            }
+        }
+
+        const entry = response.revision || {};
+        const heading = document.getElementById("history-detail-heading");
+        if (heading) {
+            heading.textContent = `Revision ${entry.id} - ${
+                entry.summary || ""
+            } (${entry.author || "unknown"}, ${formatTimestamp(
+                entry.timestamp
+            )})`;
+        }
+        const content = document.getElementById("history-content");
+        if (content) {
+            content.textContent = renderBlocksAsText(response.blocks || []);
+        }
+        const note = document.getElementById("history-incomplete");
+        if (note) {
+            // Only when the replay could not be trusted. A partial history that
+            // is never mentioned would present a wrong past as fact.
+            if (response.complete === false) {
+                note.textContent =
+                    "This revision cannot be rebuilt exactly: " +
+                    (response.reason || "earlier history is missing.");
+                note.classList.remove("hidden");
+            } else {
+                note.classList.add("hidden");
+                note.textContent = "";
+            }
+        }
+        const restore = document.getElementById("history-restore");
+        if (restore) {
+            // Refused for a revision that cannot be rebuilt: restoring it would
+            // write a document the log never described.
+            restore.disabled = response.complete === false;
+        }
+    }
+
+    /** The content of a revision, as plain text for the detail pane. */
+    function renderBlocksAsText(blocks) {
+        if (!blocks.length) {
+            return "(the document was empty at this revision)";
+        }
+        return blocks
+            .map((block) => {
+                const data = block.data || {};
+                const body =
+                    data.text !== undefined
+                        ? String(data.text)
+                        : data.items !== undefined
+                          ? data.items
+                                .map((item) =>
+                                    typeof item === "string"
+                                        ? item
+                                        : String(item.text ?? "")
+                                )
+                                .join("\n")
+                          : data.code !== undefined
+                            ? String(data.code)
+                            : JSON.stringify(data);
+                return `[${block.type}] ${body}`;
+            })
+            .join("\n\n");
+    }
+
+    /**
+     * Restore the document to the revision the user selected.
+     *
+     * The scope is stated before anything happens: this replaces the WHOLE
+     * document with that revision's content, so edits made since are discarded.
+     * Saying so is the difference between a restore and a surprise.
+     */
+    async function restoreSelectedRevision() {
+        if (!slug || historySelectedId === null) {
+            return;
+        }
+        const epoch = openEpoch;
+        const targetSlug = slug;
+        const revisionId = historySelectedId;
         const confirmed = window.confirm(
-            `Undo the agent's last edit?\n\n${summary}\n${when}\n\n` +
-                "This restores the whole document to how it was before that " +
-                "change. Any edits made here since then are kept only if you " +
-                "saved them."
+            `Restore this note to revision ${revisionId}?\n\n` +
+                "This replaces the whole document with its content at that " +
+                "revision. Changes made since then are discarded, and the " +
+                "restore is recorded as a new revision."
         );
         if (!confirmed) {
             return;
         }
-        // The dialog is modal but not instant, and the user can switch notes by
-        // other means while it is up.
         if (epoch !== openEpoch || slug !== targetSlug) {
             return;
         }
         const result = await fetchJson(
-            `${PREFIX}/api/notes/${targetSlug}/revisions/${latest.id}/revert`,
+            `${PREFIX}/api/notes/${targetSlug}/revisions/${revisionId}/restore`,
             { method: "POST", body: JSON.stringify({ version }) }
         );
         if (result.error) {
             if (String(result.error).includes("409")) {
-                // The document moved on since this editor last knew its version.
-                // Refresh and tell the user to try again, as save() does --
-                // before, this path only said "could not undo", with no way
-                // forward and no hint that retrying would work.
+                // The document moved on since this editor knew its version.
                 await refreshVersion();
-                setStatus("The note changed. Try the undo again.");
+                setStatus("The note changed. Open the history again and retry.");
                 return;
             }
-            setStatus("Could not undo that edit.");
+            setStatus("Could not restore that revision.");
             return;
         }
-        // Reloaded rather than patched in place: a revert can restore, remove and
+        closeHistory();
+        // Reloaded rather than patched in place: a restore can add, remove and
         // reorder blocks at once, so re-reading is the only way to be sure the
         // page matches the document.
         await open(targetSlug);
-        setStatus("Undid the agent's last edit.");
+        setStatus(`Restored the note to revision ${revisionId}.`);
+    }
+
+    function closeHistory() {
+        const modal = document.getElementById("history-modal");
+        if (modal) {
+            modal.classList.add("hidden");
+        }
+        historyEntries = [];
+        historySelectedId = null;
+    }
+
+    /** The history modal's controls. */
+    function initHistory() {
+        const modal = document.getElementById("history-modal");
+        if (!modal) {
+            return;
+        }
+        modal.addEventListener("click", async (event) => {
+            if (event.target === modal) {
+                // Backdrop click closes, matching the other modals on this page.
+                closeHistory();
+                return;
+            }
+            const row = event.target.closest(".history-row");
+            if (row) {
+                await selectHistoryRevision(Number(row.dataset.revisionId));
+                return;
+            }
+            const button = event.target.closest("button");
+            if (!button) {
+                return;
+            }
+            if (button.id === "history-restore") {
+                await restoreSelectedRevision();
+            } else if (button.id === "history-modal-close") {
+                closeHistory();
+            }
+        });
+        document.addEventListener("keydown", (event) => {
+            if (event.key === "Escape" && !modal.classList.contains("hidden")) {
+                closeHistory();
+            }
+        });
     }
 
     /** One poll: retry unsent ops, hand back what the agent changed, then ack it. */
@@ -1439,6 +1659,7 @@
         // the block path left the control disabled for the only document it
         // applies to.
         updateConvertButton(document_.format);
+        updateHistoryButton(document_.format);
 
         if (document_.format !== "editorjs") {
             await destroyEditor();
@@ -1518,19 +1739,16 @@
     }
 
     /**
-     * Enable the undo control only when there is an agent edit to undo.
+     * The History control follows the format, not the agent's activity.
      *
-     * The control is one toolbar button rather than a per-block action, because a
-     * revert restores the WHOLE document to its state before that revision -- it
-     * can undo more than the one block the user saw marked. Enabling it only when
-     * a mark exists keeps it from offering an action with nothing behind it.
+     * A markdown note keeps no revision log at all, so offering history for one
+     * would promise something that does not exist. Disabled rather than hidden,
+     * like the other controls, so the toolbar does not reflow.
      */
-    function updateUndoAgentButton() {
-        const button = document.querySelector(
-            '#toolbar button[data-action="undo-agent"]'
-        );
+    function updateHistoryButton(format) {
+        const button = document.querySelector('#toolbar button[data-action="history"]');
         if (button) {
-            button.disabled = agentTouched.size === 0;
+            button.disabled = format !== "editorjs";
         }
     }
 
@@ -1562,8 +1780,8 @@
                 await togglePin();
             } else if (action === "delete") {
                 await removeDocument();
-            } else if (action === "undo-agent") {
-                await undoLastAgentEdit();
+            } else if (action === "history") {
+                await openHistory();
             }
         });
     }
@@ -1719,6 +1937,7 @@
 
     function init() {
         initToolbar();
+        initHistory();
         initConflictBanner();
         startPolling();
         // The notes list decides which document is open; it publishes the slug

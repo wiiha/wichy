@@ -731,32 +731,6 @@ class TestAgentChangeVisualization:
         assert "agent-toast" not in template()
         assert "showAgentToast" not in self.script()
 
-    def test_undo_confirms_with_the_scope_and_the_summary_before_reverting(self):
-        """A revert is whole-document; the dialog must say so first."""
-        source = self.script()
-        body = source[source.index("async function undoLastAgentEdit") :]
-        body = body[: body.index("async function poll")]
-        assert "window.confirm" in body
-        assert "restores the whole document" in body
-        assert body.index("window.confirm") < body.index("/revert")
-        assert "latest.summary" in body
-
-    def test_undo_targets_the_latest_agent_revision(self):
-        source = self.script()
-        body = source[source.index("async function undoLastAgentEdit") :]
-        body = body[: body.index("async function poll")]
-        assert "author=agent" in body
-        assert "revisions/${latest.id}/revert" in body
-
-    def test_a_refused_undo_issues_no_request(self):
-        source = self.script()
-        body = source[source.index("async function undoLastAgentEdit") :]
-        body = body[: body.index("async function poll")]
-        confirm_at = body.index("window.confirm")
-        guard_at = body.index("if (!confirmed)")
-        revert_at = body.index("/revert")
-        assert confirm_at < guard_at < revert_at
-
     def test_a_status_message_survives_the_next_poll(self):
         """The poll runs every 2s and would wipe a notice before it is read."""
         source = self.script()
@@ -838,37 +812,87 @@ class TestTheMarksAreExplained:
         assert "agentTouched.size === 0" in body
 
 
-class TestTheUndoControlLivesInTheToolbar:
-    """The toast's undo was the only GUI path to a revert; removing the toast
-    must not remove the capability."""
+class TestTheHistoryBrowser:
+    """The toolbar's History control opens a read-only revision browser.
+
+    It replaces the per-agent-undo control: the revision log holds EVERY
+    revision, so browsing it and restoring is both more general and more
+    honest than a button that silently meant "the agent's last change".
+    """
 
     def script(self) -> str:
         return (STATIC / "notes_blocks.js").read_text(encoding="utf-8")
 
-    def test_the_toolbar_offers_an_undo(self):
+    def test_the_toolbar_offers_history(self):
         body = template()
-        assert 'data-action="undo-agent"' in body
+        assert 'data-action="history"' in body
 
-    def test_it_is_disabled_until_there_is_something_to_undo(self):
+    def test_it_is_disabled_for_a_markdown_note(self):
+        """A markdown note keeps no revision log, so history is not on offer."""
         body = template()
-        button = body[body.index('data-action="undo-agent"') :]
+        button = body[body.index('data-action="history"') :]
         button = button[: button.index(">")]
         assert "disabled" in button
-        source = self.script()
-        assert "agentTouched.size === 0" in source
+        assert 'format !== "editorjs"' in self.script()
 
-    def test_it_runs_the_whole_document_revert(self):
-        source = self.script()
-        body = source[source.index("function initToolbar") :]
-        body = body[: body.index("function askToConvert")]
-        assert 'action === "undo-agent"' in body
-        assert "undoLastAgentEdit" in body
+    def test_it_lists_revisions_newest_first(self):
+        """The server returns them newest first; the list must not re-sort."""
+        body = self.script()
+        body = body[body.index("function renderHistoryList") :]
+        body = body[: body.index("function clearHistoryDetail")]
+        assert "for (const entry of historyEntries)" in body
 
-    def test_the_confirmation_still_states_the_scope(self):
-        """Moving the control must not lose the warning about its breadth."""
+    def test_selecting_a_revision_shows_its_content(self):
+        body = self.script()
+        body = body[body.index("async function selectHistoryRevision") :]
+        body = body[: body.index("function renderBlocksAsText")]
+        assert "response.blocks" in body
+
+    def test_an_unbuildable_revision_is_stated_not_hidden(self):
+        """A partial replay produces a state that looks real but is not."""
+        body = self.script()
+        body = body[body.index("async function selectHistoryRevision") :]
+        body = body[: body.index("function renderBlocksAsText")]
+        assert "response.complete === false" in body
+        assert "history-incomplete" in body
+
+    def test_restore_is_refused_for_an_unbuildable_revision(self):
+        body = self.script()
+        body = body[body.index("async function selectHistoryRevision") :]
+        body = body[: body.index("function renderBlocksAsText")]
+        assert "restore.disabled = response.complete === false" in body
+
+    def test_restore_states_its_scope_before_acting(self):
+        """It replaces the WHOLE document; the dialog must say so first."""
         source = self.script()
-        body = source[source.index("async function undoLastAgentEdit") :]
-        assert "restores the whole document" in body
+        body = source[source.index("async function restoreSelectedRevision") :]
+        body = body[: body.index("function closeHistory")]
+        assert "window.confirm" in body
+        assert "replaces the whole document" in body
+        confirm_at = body.index("window.confirm")
+        assert confirm_at < body.index("if (!confirmed)")
+        assert body.index("if (!confirmed)") < body.index("/restore")
+
+    def test_a_refused_restore_issues_no_request(self):
+        source = self.script()
+        body = source[source.index("async function restoreSelectedRevision") :]
+        body = body[: body.index("function closeHistory")]
+        guard_at = body.index("if (!confirmed)")
+        assert guard_at < body.index("/restore")
+
+    def test_restore_posts_to_the_restore_endpoint(self):
+        """Not /revert: that one means "undo this change", one revision earlier."""
+        source = self.script()
+        body = source[source.index("async function restoreSelectedRevision") :]
+        body = body[: body.index("function closeHistory")]
+        assert "/restore" in body
+        assert "/revert" not in body
+
+    def test_switching_notes_closes_the_browser(self):
+        """A modal left up would describe the previous document's history."""
+        body = self.script()
+        body = body[body.index("async function destroyEditor") :]
+        assert "closeHistory()" in body
 
 
 class TestTheConflictBannerResolves:
@@ -1392,13 +1416,13 @@ class TestTheOpenEpoch:
 
     def test_open_bumps_before_its_first_await(self):
         source = self.script()
-        body = source[source.index("async function open") :]
+        body = source[source.index("async function open(nextSlug)") :]
         body = body[: body.index("function toEditorBlock")]
         assert body.index("++openEpoch") < body.index("await fetchJson")
 
     def test_open_abandons_when_superseded(self):
         source = self.script()
-        body = source[source.index("async function open") :]
+        body = source[source.index("async function open(nextSlug)") :]
         body = body[: body.index("function toEditorBlock")]
         assert "epoch !== openEpoch" in body
 
@@ -1451,14 +1475,14 @@ class TestEditorInitFailureFallsBack:
 
     def test_the_construction_is_guarded(self):
         source = self.script()
-        body = source[source.index("async function open") :]
+        body = source[source.index("async function open(nextSlug)") :]
         body = body[: body.index("function toEditorBlock")]
         assert "try {" in body
         assert "new window.EditorJS" in body[body.index("try {") :]
 
     def test_a_failure_clears_the_editor_and_shows_the_fallback(self):
         source = self.script()
-        body = source[source.index("async function open") :]
+        body = source[source.index("async function open(nextSlug)") :]
         body = body[: body.index("function toEditorBlock")]
         catch = body[body.index("} catch (e) {") :]
         assert "editor = null;" in catch
@@ -1466,7 +1490,7 @@ class TestEditorInitFailureFallsBack:
 
     def test_a_failure_says_what_happened(self):
         source = self.script()
-        body = source[source.index("async function open") :]
+        body = source[source.index("async function open(nextSlug)") :]
         body = body[: body.index("function toEditorBlock")]
         catch = body[body.index("} catch (e) {") :]
         assert "setStatus(" in catch
@@ -1474,7 +1498,7 @@ class TestEditorInitFailureFallsBack:
     def test_a_superseded_editor_is_destroyed(self):
         """Two editors on one holder would stack."""
         source = self.script()
-        body = source[source.index("async function open") :]
+        body = source[source.index("async function open(nextSlug)") :]
         body = body[: body.index("function toEditorBlock")]
         after_ready = body[body.index("await editor.isReady") :]
         assert "editor.destroy()" in after_ready
@@ -1500,7 +1524,7 @@ class TestSwitchingNotesClearsConflictState:
         """Scoped to the SUCCESS path: the failure branch clears them too, so a
         whole-function search would pass on the branch that returns early."""
         source = self.script()
-        body = source[source.index("async function open") :]
+        body = source[source.index("async function open(nextSlug)") :]
         body = body[: body.index("new window.EditorJS")]
         success = body[body.index("slug = nextSlug;") :]
         assert "pendingConflicts = [];" in success
@@ -1519,7 +1543,7 @@ class TestOpenFailureResetsLocalState:
 
     def failure_branch(self) -> str:
         source = self.script()
-        body = source[source.index("async function open") :]
+        body = source[source.index("async function open(nextSlug)") :]
         body = body[: body.index("slug = nextSlug;")]
         return body[body.index("if (document_.error)") :]
 
@@ -1586,36 +1610,43 @@ class TestConcurrentSendsAreCoalesced:
         assert "!sendInFlight.has(targetSlug)" in body
 
 
-class TestUndoFlushesThePendingSave:
-    """Undo rebuilt the editor, discarding an armed debounced save.
+class TestHistoryFlushesThePendingSave:
+    """Opening the history must not hide an unsaved edit.
 
-    Edits typed within the save debounce were dropped silently: the timer was
-    cleared by the rebuild and the text had never been PUT anywhere.
+    The browser shows what the SERVER recorded, and an edit still sitting in the
+    save debounce has not been recorded yet -- so the user's last sentence would
+    be missing from the newest revision and read as data loss.
     """
 
     def script(self) -> str:
         return (STATIC / "notes_blocks.js").read_text(encoding="utf-8")
 
-    def undo_body(self) -> str:
+    def history_body(self) -> str:
         source = self.script()
-        body = source[source.index("async function undoLastAgentEdit") :]
-        return body[: body.index("async function poll")]
+        body = source[source.index("async function openHistory") :]
+        return body[: body.index("function renderHistoryList")]
 
     def test_the_armed_timer_is_flushed(self):
-        body = self.undo_body()
+        body = self.history_body()
         assert "if (saveTimer)" in body
         assert "clearTimeout(saveTimer)" in body
         assert "await save()" in body
 
     def test_the_flush_precedes_any_request(self):
-        body = self.undo_body()
+        body = self.history_body()
         assert body.index("await save()") < body.index("fetchJson(")
 
+    def restore_body(self) -> str:
+        source = self.script()
+        body = source[source.index("async function restoreSelectedRevision") :]
+        return body[: body.index("function closeHistory")]
+
     def test_a_409_refreshes_the_version_and_invites_a_retry(self):
-        body = self.undo_body()
+        """A restore is a write, so it can lose the version race like any other."""
+        body = self.restore_body()
         assert "409" in body
         assert "refreshVersion()" in body
-        assert "Try the undo again" in body
+        assert "retry" in body.lower()
 
 
 class TestPinFollowThrough:
@@ -1808,16 +1839,23 @@ class TestEveryAsyncActionCarriesTheEpoch:
         assert "api/notes/${targetSlug}" in body
         assert "api/notes/${slug}" not in body
 
-    def test_undo_reverts_the_captured_slug(self):
-        body = self.body_of("undoLastAgentEdit", "async function poll")
+    def test_restore_acts_on_the_captured_slug(self):
+        body = self.body_of("restoreSelectedRevision", "function closeHistory")
         assert "const targetSlug = slug;" in body
-        assert "/revisions/${latest.id}/revert" in body
-        assert "api/notes/${targetSlug}/revisions/${latest.id}/revert" in body
+        assert "/restore" in body
+        assert "api/notes/${targetSlug}/revisions/${revisionId}/restore" in body
 
-    def test_undo_rechecks_after_the_confirmation_dialog(self):
-        body = self.body_of("undoLastAgentEdit", "async function poll")
+    def test_restore_rechecks_after_the_confirmation_dialog(self):
+        """The dialog is modal but not instant, and the note can switch under it."""
+        body = self.body_of("restoreSelectedRevision", "function closeHistory")
         after_confirm = body[body.index("if (!confirmed)") :]
         assert "epoch !== openEpoch" in after_confirm[:400]
+
+    def test_selecting_a_revision_guards_against_a_switch(self):
+        """The fetch is awaited, so the note can change while it is in flight."""
+        body = self.body_of("selectHistoryRevision", "function renderBlocksAsText")
+        assert "const targetSlug = slug;" in body
+        assert "epoch !== openEpoch || slug !== targetSlug" in body
 
     def test_convert_acts_on_the_captured_slug(self):
         """It is destructive and irreversible from the UI."""

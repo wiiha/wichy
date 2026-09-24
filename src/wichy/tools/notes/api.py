@@ -98,10 +98,12 @@ from wichy.tools.notes.state import (
 )
 from wichy.tools.notes.revisions import (
     IncompleteHistoryError,
+    replay,
     RevisionNotFoundError,
     count_revisions,
     get_revision,
     read_revisions,
+    restore_document,
     revert_document,
 )
 
@@ -1231,13 +1233,23 @@ def register_routes(bp: Blueprint):
 
     @bp.route("/api/notes/<slug>/revisions/<int:revision_id>")
     def show_revision(slug: str, revision_id: int):
-        """One revision by id."""
+        """One revision by id, with the document as it stood at that revision.
+
+        The entry alone says what CHANGED; the history browser needs what the
+        document SAID, which is only available by replaying the log. Both are
+        returned so a caller can show either without a second request.
+
+        The content is reported with its completeness: replaying a log whose
+        earliest entries are gone produces a state that looks real but is not, so
+        ``complete`` and ``reason`` travel with it and the caller can say so
+        rather than presenting a partial past as fact.
+        """
         invalid = _validate_slug(slug)
         if invalid is not None:
             return invalid
 
         try:
-            return jsonify({"revision": get_revision(slug, revision_id)})
+            entry = get_revision(slug, revision_id)
         except RevisionNotFoundError as e:
             return _error(str(e), 404)
         except InvalidSlugError as e:
@@ -1247,6 +1259,20 @@ def register_routes(bp: Blueprint):
             # UnicodeDecodeError, which is a ValueError and would otherwise
             # escape as an HTML 500 the browser cannot read.
             return _error(f"Could not read revisions: {e}", 500)
+
+        try:
+            state = replay(slug, upto_id=revision_id + 1)
+        except RevisionNotFoundError:
+            state = None
+        except (InvalidSlugError, UnicodeDecodeError, OSError) as e:
+            return _error(f"Could not read revisions: {e}", 500)
+
+        payload: dict[str, Any] = {"revision": entry}
+        if state is not None:
+            payload["blocks"] = [block.to_editor_block() for block in state.blocks]
+            payload["complete"] = state.complete
+            payload["reason"] = state.reason
+        return jsonify(payload)
 
     @bp.route("/api/notes/<slug>/revisions/<int:revision_id>/revert", methods=["POST"])
     def revert(slug: str, revision_id: int):
@@ -1304,6 +1330,74 @@ def register_routes(bp: Blueprint):
             return _error(str(e), 400)
         except OSError as e:
             return _error(f"Could not revert: {e}", 500)
+
+        return jsonify(
+            {
+                "slug": slug,
+                "version": document.meta.version,
+                "updated": document.meta.updated,
+            }
+        )
+
+    @bp.route("/api/notes/<slug>/revisions/<int:revision_id>/restore", methods=["POST"])
+    def restore(slug: str, revision_id: int):
+        """Restore the document to the state AS OF ``revision_id``.
+
+        Distinct from the sibling ``revert``, which restores the state BEFORE the
+        given revision. This one is what the history browser offers: the user
+        picked a revision they can see, and "put it back to how it looked then"
+        is what that means. A revert is "undo that particular change".
+        """
+        invalid = _validate_slug(slug)
+        if invalid is not None:
+            return invalid
+
+        data = _json_body()
+        if data is None:
+            return _error("The request body must be a JSON object.", 400)
+        expected, version_error = _expected_version(data)
+        if version_error is not None:
+            return _error(version_error, 400)
+        assert expected is not None  # the helper returns a version or an error
+
+        # Format checked before the revision lookup, for the same reason the
+        # revert route does it: a markdown note keeps no log, and answering
+        # "no such revision" would hide the real reason it cannot be written.
+        try:
+            _document, fmt = load_document(slug, with_format=True)
+        except InvalidSlugError as e:
+            return _error(str(e), 400)
+        except DocumentNotFoundError:
+            return _error(NOT_FOUND, 404)
+        except (InvalidDocumentError, UnicodeDecodeError, OSError) as e:
+            return _error(f"Note '{slug}' could not be read: {e}", 500)
+        if fmt == FORMAT_MARKDOWN:
+            return _error(MARKDOWN_WRITE_REFUSED, 409)
+
+        try:
+            document, _entry = restore_document(
+                slug, revision_id, expected_version=expected, at=True
+            )
+        except RevisionNotFoundError as e:
+            return _error(str(e), 404)
+        except IncompleteHistoryError as e:
+            # The surviving history does not reach back far enough to rebuild
+            # that state exactly. A 409 rather than a 500: the request conflicts
+            # with what is recorded, and a partial restore would silently drop
+            # blocks the log never saw.
+            return _error(str(e), 409)
+        except InvalidSlugError as e:
+            return _error(str(e), 400)
+        except DocumentNotFoundError:
+            return _error(NOT_FOUND, 404)
+        except MarkdownDocumentError:
+            return _error(MARKDOWN_WRITE_REFUSED, 409)
+        except StaleVersionError as e:
+            return _error(str(e), 409)
+        except BlockDataError as e:
+            return _error(str(e), 400)
+        except OSError as e:
+            return _error(f"Could not restore: {e}", 500)
 
         return jsonify(
             {

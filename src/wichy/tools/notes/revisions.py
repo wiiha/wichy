@@ -903,11 +903,12 @@ def revert_ops(
     return diff_ops(current, target)
 
 
-def revert_document(
+def restore_document(
     slug: str,
     revision_id: int,
     expected_version: int,
     *,
+    at: bool = False,
     allow_partial: bool = False,
 ):
     """Revert ``slug`` to the state before ``revision_id``.
@@ -935,7 +936,20 @@ def revert_document(
         MarkdownDocumentError: The document is a markdown note.
     """
     require_valid_slug(slug)
-    target_state = state_before(slug, revision_id)
+    # `at=False` restores the state BEFORE the revision -- "undo this change",
+    # which is what the agent's revert means. `at=True` restores the state AS OF
+    # the revision -- "put the document back to how it looked then", which is
+    # what a history browser offers. They differ by exactly one revision, so they
+    # share this implementation rather than diverging into two.
+    if at:
+        target_state = replay(slug, upto_id=revision_id + 1)
+        if not any(_entry_id(e) == revision_id for e in all_entries(slug)):
+            raise RevisionNotFoundError(
+                f"No revision {revision_id} for slug '{slug}'. "
+                "Use read_revisions to list the ids that exist."
+            )
+    else:
+        target_state = state_before(slug, revision_id)
     if not target_state.complete and not allow_partial:
         raise IncompleteHistoryError(
             target_state.reason
@@ -964,7 +978,11 @@ def revert_document(
         slug,
         expected_version,
         author="system",
-        summary=f"Reverted to the state before revision {revision_id}",
+        summary=(
+            f"Restored the document to revision {revision_id}"
+            if at
+            else f"Reverted to the state before revision {revision_id}"
+        ),
         extra_ops=[marker],
         on_commit=capture,
     ) as document:
@@ -991,6 +1009,27 @@ def revert_document(
     return result["document"], result["entry"]
 
 
+def revert_document(
+    slug: str,
+    revision_id: int,
+    expected_version: int,
+    *,
+    allow_partial: bool = False,
+):
+    """Revert ``slug`` to the state BEFORE ``revision_id``.
+
+    Thin wrapper over :func:`restore_document`, which is where the work lives;
+    this keeps the name the agent's revert and the API already call.
+    """
+    return restore_document(
+        slug,
+        revision_id,
+        expected_version,
+        at=False,
+        allow_partial=allow_partial,
+    )
+
+
 __all__ = [
     "BlockState",
     "HistoryState",
@@ -1012,6 +1051,7 @@ __all__ = [
     "record_revision",
     "replay",
     "revert_document",
+    "restore_document",
     "revert_ops",
     "rotate_if_needed",
     "rotate_now",
