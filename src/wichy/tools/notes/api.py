@@ -22,6 +22,7 @@ into the agent's own context, or a turn would be reacting to itself.
 
 from __future__ import annotations
 
+import difflib
 from typing import Any, Callable, Iterable, Mapping
 
 from flask import Blueprint, Response, jsonify, request
@@ -63,6 +64,7 @@ from wichy.tools.notes.blocks import (
     slug_exists,
 )
 from wichy.tools.notes.markdown import (
+    block_text,
     count_blocks,
     export_legacy,
     export_markdown,
@@ -77,15 +79,21 @@ from wichy.tools.notes.models import (
     now_iso,
 )
 from wichy.tools.notes.state import (
+    buffer_notification,
     clear_agent_changes,
     collapse_by_block,
     count_distinct_blocks,
     describe_pending,
     discard_stale_changes,
     forget_injected,
+    forget_pending_notification,
     get_doc_version,
     note_injected,
+    peek_pending_notification,
+    pending_notification_version,
     set_doc_version,
+    set_notify_flush,
+    set_notify_settle_seconds,
     was_injected,
 )
 from wichy.tools.notes.revisions import (
@@ -118,6 +126,151 @@ _OP_VERBS = {
     "remove": "Deleted",
     "move": "Moved",
 }
+
+#: How many lines of one block's diff are shown before it is truncated.
+#:
+#: A change summary exists so the agent need not re-read the document. Pasting a
+#: whole large code block back into the context defeats that -- the summary would
+#: cost as much as the read it was meant to save -- so a long body is cut and
+#: marked, and the agent reads the document when it genuinely needs all of it.
+_MAX_DIFF_LINES = 30
+
+#: Indent for a block's content lines, so they cannot be mistaken for the "- "
+#: bullets that introduce each change. Without it a removed line ("- gone") and a
+#: removal summary ("- Deleted paragraph block") look like the same level.
+_BODY_INDENT = "  "
+
+
+def _truncate_lines(lines: list[str]) -> list[str]:
+    """Cut *lines* to the per-block cap, marking what was dropped."""
+    if len(lines) <= _MAX_DIFF_LINES:
+        return lines
+    dropped = len(lines) - _MAX_DIFF_LINES
+    return lines[:_MAX_DIFF_LINES] + [f"... ({dropped} more lines)"]
+
+
+def _block_label(block_type: Any) -> str:
+    """The noun for a block in a summary line: "paragraph block" or "block"."""
+    # With no type, "Changed block" reads better than "Changed block block".
+    return f"{block_type} block" if block_type else "block"
+
+
+def _render_block_diff(op: Mapping[str, Any]) -> list[str]:
+    """The before/after lines for one op, or [] when there is nothing to show.
+
+    An ``update`` shows a line-level diff of the block's rendered text, so the
+    agent sees what the text BECAME rather than being told which id changed --
+    the same reasoning as the ``replace_text`` tool returning its diff. An ``add``
+    shows the new text, a ``remove`` the deleted text.
+
+    The comparison is on RENDERED text, not on the raw data dict: the agent reads
+    the note as text, and a diff of JSON would be noise it has to decode before it
+    can tell what changed.
+
+    Args:
+        op: One operation, possibly carrying ``before`` and ``data``.
+
+    Returns:
+        Lines ready to be appended under the op's summary line.
+    """
+    kind = str(op.get("op"))
+    block_type = str(op.get("block_type") or "")
+    after_data = op.get("data")
+    before = op.get("before")
+    before_type = block_type
+    before_data = None
+    if isinstance(before, Mapping):
+        before_type = str(before.get("type") or block_type)
+        before_data = before.get("data")
+
+    if kind == "move":
+        # Position is the whole of a move; the content did not change.
+        index = op.get("index")
+        return [f"to position {index}"] if isinstance(index, int) else []
+
+    if kind == "add":
+        if after_data is None:
+            return []
+        return [
+            f"+ {line}" if line else "+"
+            for line in str(block_text(block_type, after_data)).splitlines()
+        ]
+
+    if kind == "remove":
+        if before_data is None:
+            return []
+        return [
+            f"- {line}" if line else "-"
+            for line in str(block_text(before_type, before_data)).splitlines()
+        ]
+
+    # update, or an unrecognised kind: a diff when both sides are known,
+    # otherwise whatever content was supplied.
+    if before_data is not None and after_data is not None:
+        before_text = str(block_text(before_type, before_data))
+        after_text = str(block_text(block_type, after_data))
+        if before_text == after_text and before_type == block_type:
+            # Reachable when only the block's stored metadata moved. Saying
+            # "Updated" above an empty diff would be misleading, so the kind is
+            # reported and the body is left out.
+            return []
+        diff = list(
+            difflib.unified_diff(
+                before_text.splitlines(),
+                after_text.splitlines(),
+                lineterm="",
+                n=2,
+            )
+        )
+        # Drop the two file headers: the op's own line already names the block,
+        # so "--- " and "+++ " repeat it and add nothing. Slicing rather than
+        # filtering on the prefix, because a content line may itself begin with
+        # "--- " (a delimiter, a horizontal rule) and must not be dropped.
+        body = diff[2:] if len(diff) >= 2 else []
+        return [line if line else " " for line in body]
+
+    if after_data is not None:
+        return [
+            f"+ {line}" if line else "+"
+            for line in str(block_text(block_type, after_data)).splitlines()
+        ]
+    return []
+
+
+def change_message(title: str, ops: Iterable[Mapping[str, Any]]) -> str:
+    """The message injected into the agent's context when a document changes.
+
+    Names the document because the agent may have switched documents since it
+    last looked: a bare list of ops would not say which document they describe.
+    Each op is followed by the CONTENT it produced -- a diff for an update, the
+    new text for an addition, the deleted text for a removal -- so the agent
+    learns what the note now says without re-reading it. "Updated block (id:
+    blk-3)" told it that something moved, which is exactly the fact it cannot act
+    on.
+
+    Args:
+        title: The document's title.
+        ops: The user's operations, one entry per changed block.
+
+    Returns:
+        The message, with one summary line per operation and its content beneath.
+    """
+    lines = [CHANGE_MESSAGE_OPEN.format(title)]
+    for op in ops:
+        verb = _OP_VERBS.get(str(op.get("op")), "Changed")
+        block_id = op.get("block_id") or "?"
+        header = f"- {verb} {_block_label(op.get('block_type'))} (id: {block_id})"
+        body = _truncate_lines(_render_block_diff(op))
+        if body:
+            # The colon marks a summary line that has content beneath it, so the
+            # agent can tell a described change from one with no text to show.
+            header += ":"
+            lines.append(header)
+            lines.extend(_BODY_INDENT + line if line else "" for line in body)
+        else:
+            lines.append(header)
+    lines.append(CHANGE_MESSAGE_CLOSE)
+    return "\n".join(lines)
 
 
 def _error(message: str, status: int):
@@ -255,31 +408,6 @@ def _build_document(
     return document
 
 
-def change_message(title: str, ops: Iterable[Mapping[str, Any]]) -> str:
-    """The message injected into the agent's context when a document changes.
-
-    Names the document because the agent may have switched documents since it
-    last looked: a bare list of ops would not say which document they describe.
-
-    Args:
-        title: The document's title.
-        ops: The user's operations.
-
-    Returns:
-        The message, with one line per operation.
-    """
-    lines = [CHANGE_MESSAGE_OPEN.format(title)]
-    for op in ops:
-        verb = _OP_VERBS.get(str(op.get("op")), "Changed")
-        block_type = op.get("block_type")
-        block_id = op.get("block_id") or "?"
-        # With no type, "Changed block" reads better than "Changed block block".
-        described = f"{block_type} block" if block_type else "block"
-        lines.append(f"- {verb} {described} (id: {block_id})")
-    lines.append(CHANGE_MESSAGE_CLOSE)
-    return "\n".join(lines)
-
-
 def _move_marker(old_slug: str, new_slug: str) -> None:
     """Repoint the scratchpad marker after a rename.
 
@@ -385,6 +513,92 @@ def _document_payload(document, fmt: str) -> dict:
     }
 
 
+def _deliver_notification(slug: str) -> bool:
+    """Inject *slug*'s buffered ops into the agent's context.
+
+    Called from the settle timer's thread, after the edits have stopped, so the
+    message describes a finished burst rather than every intermediate keystroke.
+
+    Everything the injection needs is re-read here rather than captured when the
+    ops were accepted: the buffered batch may have grown since, and the session
+    may have been replaced. Returns False to ask for a retry -- the ops stay
+    buffered, because the browser was told they were accepted and has already
+    discarded its own copy.
+
+    Args:
+        slug: The document slug.
+
+    Returns:
+        True when delivered (or deliberately dropped as a duplicate), False when
+        delivery should be retried.
+    """
+    ops = peek_pending_notification(slug)
+    if not ops:
+        return True
+    version = pending_notification_version(slug)
+
+    # A retry of an already-notified version is the same notification: the browser
+    # parks ops on a transient failure and re-sends them, and a retry that arrives
+    # after a lost response must not append a second copy of the summary. Checked
+    # here, immediately before the injection it guards, because this is the moment
+    # the two could otherwise both get through. Dropped as a duplicate returns
+    # True: there is nothing to retry, the notification has been delivered once.
+    if was_injected(slug, version):
+        return True
+
+    from wichy.wichy_server.api import get_active_session
+
+    session = get_active_session()
+    root_agent = getattr(session, "root_agent", None) if session is not None else None
+    if root_agent is None:
+        # No agent to deliver to right now. NOT a failure of the ops: the user may
+        # simply not have sent anything yet. Returning False keeps them buffered
+        # for the retry, which is what stops a notification going missing when the
+        # agent is momentarily unreachable.
+        return False
+
+    try:
+        title = load_document(slug).meta.title
+    except (DocumentNotFoundError, InvalidDocumentError, OSError):
+        # The document is gone or unreadable. Retrying cannot help and the ops
+        # describe nothing, so they are dropped rather than re-buffered forever.
+        return True
+
+    message = change_message(title, ops)
+    try:
+        # context.add(), not steer(): steer prints to the console on every call,
+        # and this is an automatic notification, not a user command.
+        root_agent.context.add("user", message)
+    except Exception as e:  # pragma: no cover - depends on context internals
+        print(f"[wichy] could not inject a note change notification: {e}")
+        return False
+
+    # Recorded only AFTER the injection succeeded. Recording first would let a
+    # failed injection suppress its own retry: the client would be told its retry
+    # was a duplicate of a notification the agent never received.
+    note_injected(slug, version)
+    return True
+
+
+def install_notification_delivery() -> None:
+    """Point the notification buffer at the code that can reach the agent.
+
+    Registered from :func:`register_routes`, which runs at app setup in every
+    mode. It cannot be done from the state module itself: delivering a
+    notification means importing the server API and the agent, and the state
+    module is imported by the agent base class, so the dependency has to point
+    this way or it becomes a cycle.
+
+    Idempotent, because the server can be created more than once in one process
+    (a REPL starts a background Flask app) and each creation re-registers
+    blueprints.
+    """
+    from wichy.config import settings as app_settings
+
+    set_notify_settle_seconds(app_settings.notes_change_settle_seconds)
+    set_notify_flush(_deliver_notification)
+
+
 def register_routes(bp: Blueprint):
     """Register all API routes on the given blueprint.
 
@@ -397,6 +611,7 @@ def register_routes(bp: Blueprint):
     non-browser client, and removing them would make the HTTP API an incomplete
     mirror of what a document supports.
     """
+    install_notification_delivery()
 
     # -------------------------------------------------------------------------
     # Documents
@@ -615,6 +830,10 @@ def register_routes(bp: Blueprint):
         # so the new document's first notification is not suppressed as a repeat.
         clear_agent_changes(slug)
         forget_injected(slug)
+        # A buffered notification for a deleted document would be delivered as a
+        # change to a slug that no longer names anything, and the slug is
+        # reusable -- so it must not carry over to whatever is created next.
+        forget_pending_notification(slug)
 
         # A marker left pointing at a deleted slug would aim the agent tools at a
         # document that no longer exists.
@@ -1266,24 +1485,18 @@ def register_routes(bp: Blueprint):
         if not user_ops:
             return jsonify({"status": "ok", "injected": False})
 
-        # Idempotency, not de-duplication of genuine edits: a retry of the SAME
-        # version is the same notification. A client that parked its ops on a 503
-        # and re-sends after a lost response must not append a second copy of the
-        # summary to the agent's context. Checked BEFORE and recorded AFTER the
-        # injection, so a failed injection cannot suppress its own retry.
-        if was_injected(slug, version):
-            return jsonify({"status": "ok", "injected": False, "duplicate": True})
-
-        message = change_message(document.meta.title, user_ops)
-        try:
-            # context.add(), not steer(): steer prints to the console on every
-            # call, and this is an automatic notification, not a user command.
-            root_agent.context.add("user", message)
-        except Exception as e:  # pragma: no cover - depends on context internals
-            return _error(f"Could not inject the change: {e}", 500)
-
-        note_injected(slug, version)
-        return jsonify({"status": "ok", "injected": True})
+        # The session and root agent are checked HERE, at accept time, so the 503
+        # contract the browser branches on is unchanged: a client that is told its
+        # ops were accepted can rely on there being an agent to deliver them to.
+        # The delivery itself is deferred and re-reads the session, which may have
+        # been replaced by then.
+        #
+        # Idempotency is checked at DELIVERY, not here, because that is when the
+        # notification is actually injected: a retry of the same version that
+        # arrives while the first is still buffered must merge into the same
+        # notification rather than be pre-emptively judged a duplicate.
+        buffer_notification(slug, user_ops, version)
+        return jsonify({"status": "ok", "injected": False, "pending": True})
 
     # -------------------------------------------------------------------------
     # Settings for the frontend

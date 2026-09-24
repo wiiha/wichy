@@ -153,6 +153,16 @@ class Settings(BaseSettings):
     # Quiet period before a browser edit is auto-notified to the agent (ms)
     notes_change_debounce_ms: int = 1000
 
+    # How long the server waits, after the last change batch for one document,
+    # before it delivers a single notification describing them all (seconds).
+    #
+    # A user types in bursts, and every pause longer than the browser debounce
+    # posted its own batch -- so one sentence produced several notifications, all
+    # about the same block. This is the server-side settle window that folds those
+    # batches into one message with a before/after diff. It is deliberately longer
+    # than the browser debounce, so a mid-sentence pause does not split the edit.
+    notes_change_settle_seconds: float = 2.5
+
     # Quiet period before a browser edit is auto-saved (ms)
     notes_save_debounce_ms: int = 2000
 

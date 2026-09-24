@@ -301,6 +301,24 @@ def lossy_features(body: str) -> list[str]:
     return found
 
 
+def block_text(block_type: str, data: Mapping[str, Any] | None) -> str:
+    """Render one block's data as plain text, for describing it to the agent.
+
+    The same renderer the markdown export uses, exposed so a change summary can
+    show what a block's text actually IS rather than only its type and id. One
+    renderer rather than two, because a second one would drift from the export
+    and the agent would then be told something the document does not say.
+
+    Args:
+        block_type: The block's type.
+        data: The block's data, or None for a block that carries none.
+
+    Returns:
+        The block's text. Empty for a block with no body, such as a delimiter.
+    """
+    return _render_block({"type": block_type, "data": dict(data or {})})
+
+
 def blocks_to_markdown(
     blocks: Iterable[Mapping[str, Any]], *, include_frontmatter: bool = False
 ) -> str:

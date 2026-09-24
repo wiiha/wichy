@@ -128,6 +128,28 @@ def post_changes(client, slug, ops, version=1):
     )
 
 
+def post_and_flush(client, slug, ops, version=1):
+    """Post change operations and deliver the notification immediately.
+
+    A real POST buffers its ops and returns; the message is injected once the
+    user stops editing, after the settle window. Almost every test here is about
+    WHAT the notification says rather than when it arrives, so they post and then
+    flush, which is exactly what the settle timer does.
+
+    The deferral itself is covered by TestNotificationIsDeferred.
+    """
+    response = post_changes(client, slug, ops, version=version)
+    flush_changes(slug)
+    return response
+
+
+def flush_changes(slug):
+    """Deliver a document's buffered notification now."""
+    from wichy.tools.notes.state import flush_pending_notification
+
+    return flush_pending_notification(slug)
+
+
 def bump_to_version_2(slug, block_id):
     """Move the document to version 2, so an op at version 2 is ackable.
 
@@ -293,9 +315,8 @@ class TestLostUpdate:
 class TestPostChanges:
     def test_a_user_change_is_injected(self, client, doc, session):
         slug, ids = doc
-        response = post_changes(client, slug, [op(block_id=ids[0])])
+        response = post_and_flush(client, slug, [op(block_id=ids[0])])
         assert response.status_code == 200
-        assert response.get_json()["injected"] is True
 
         assert len(session.root_agent.context.injected) == 1
         role, content = session.root_agent.context.injected[0]
@@ -305,13 +326,13 @@ class TestPostChanges:
 
     def test_the_message_names_the_document_title(self, client, doc, session):
         slug, ids = doc
-        post_changes(client, slug, [op(block_id=ids[0])])
+        post_and_flush(client, slug, [op(block_id=ids[0])])
         content = session.root_agent.context.injected[0][1]
         assert "Change Doc" in content
 
     def test_the_message_describes_each_op(self, client, doc, session):
         slug, ids = doc
-        post_changes(
+        post_and_flush(
             client,
             slug,
             [
@@ -332,7 +353,7 @@ class TestPostChanges:
         arriving here is filtered out -- including an op that claims otherwise.
         """
         slug, ids = doc
-        response = post_changes(
+        post_and_flush(
             client,
             slug,
             [
@@ -340,8 +361,6 @@ class TestPostChanges:
                 op(block_id=ids[1], author="user"),
             ],
         )
-        assert response.status_code == 200
-        assert response.get_json()["injected"] is True
         assert len(session.root_agent.context.injected) == 1
         content = session.root_agent.context.injected[0][1]
         assert ids[0] in content
@@ -884,10 +903,9 @@ class TestInjectionAuthorshipIsStampedByTheServer:
         operation = op(block_id=ids[0])
         operation["author"] = author
 
-        response = post_changes(client, slug, [operation])
+        response = post_and_flush(client, slug, [operation])
 
         assert response.status_code == 200
-        assert response.get_json()["injected"] is True
         assert len(session.root_agent.context.injected) == 1
 
     def test_a_forged_user_author_cannot_smuggle_agent_content(
@@ -899,14 +917,13 @@ class TestInjectionAuthorshipIsStampedByTheServer:
         user's because the route it arrived on is the user's.
         """
         slug, ids = doc
-        post_changes(client, slug, [op(block_id=ids[0], author="user")])
+        post_and_flush(client, slug, [op(block_id=ids[0], author="user")])
         assert len(session.root_agent.context.injected) == 1
 
     def test_an_agent_labelled_op_is_still_injected(self, client, doc, session):
         """Suppression was the other half of the same hole."""
         slug, ids = doc
-        response = post_changes(client, slug, [op(block_id=ids[0], author="agent")])
-        assert response.get_json()["injected"] is True
+        post_and_flush(client, slug, [op(block_id=ids[0], author="agent")])
         assert len(session.root_agent.context.injected) == 1
 
     def test_an_op_with_no_author_at_all_is_injected(self, client, doc, session):
@@ -914,7 +931,7 @@ class TestInjectionAuthorshipIsStampedByTheServer:
         slug, ids = doc
         operation = op(block_id=ids[0])
         del operation["author"]
-        assert post_changes(client, slug, [operation]).get_json()["injected"] is True
+        post_and_flush(client, slug, [operation])
         assert len(session.root_agent.context.injected) == 1
 
     def test_the_injected_message_describes_the_op_on_this_route(
@@ -926,7 +943,7 @@ class TestInjectionAuthorshipIsStampedByTheServer:
         at all, so there is nothing for a client to forge into it either.
         """
         slug, ids = doc
-        post_changes(client, slug, [op(block_id=ids[0], author="agent")])
+        post_and_flush(client, slug, [op(block_id=ids[0], author="agent")])
         content = session.root_agent.context.injected[0][1]
         assert ids[0] in content
         assert "Updated paragraph block" in content
@@ -1286,11 +1303,11 @@ class TestDeleteClearsPerSlugState:
     def test_delete_clears_the_injection_bookkeeping(self, client, doc, session):
         """A new document's first notification must not look like a repeat."""
         slug, ids = doc
-        post_changes(client, slug, [op(block_id=ids[0])])
+        post_and_flush(client, slug, [op(block_id=ids[0])])
         assert len(session.root_agent.context.injected) == 1
         client.delete(f"{PREFIX}/api/notes/{slug}")
         create_document("Change Doc", [{"type": "paragraph", "data": {"text": "new"}}])
-        post_changes(client, slug, [op(block_id=ids[0])])
+        post_and_flush(client, slug, [op(block_id=ids[0])])
         assert len(session.root_agent.context.injected) == 2
 
 
@@ -1407,26 +1424,37 @@ class TestInjectionIsIdempotent:
     def test_a_retry_of_the_same_version_injects_once(self, client, doc, session):
         slug, ids = doc
         payload = [op(block_id=ids[0])]
-        first = post_changes(client, slug, payload)
-        second = post_changes(client, slug, payload)
-        assert first.get_json()["injected"] is True
-        assert second.get_json()["injected"] is False
-        assert second.get_json()["duplicate"] is True
+        post_and_flush(client, slug, payload)
+        post_and_flush(client, slug, payload)
+        assert len(session.root_agent.context.injected) == 1
+
+    def test_a_retry_arriving_before_the_delivery_merges(self, client, doc, session):
+        """The retry is buffered with the original, so there is one notification.
+
+        Checked here rather than at accept time for exactly this case: the browser
+        re-sends while the first batch is still waiting out the settle window, and
+        the two must become one message rather than two.
+        """
+        slug, ids = doc
+        payload = [op(block_id=ids[0])]
+        post_changes(client, slug, payload)
+        post_changes(client, slug, payload)
+        flush_changes(slug)
         assert len(session.root_agent.context.injected) == 1
 
     def test_a_newer_version_still_injects(self, client, doc, session):
         slug, ids = doc
-        post_changes(client, slug, [op(block_id=ids[0])])
+        post_and_flush(client, slug, [op(block_id=ids[0])])
         bump_to_version_2(slug, ids[0])
-        post_changes(client, slug, [op(block_id=ids[1])], version=2)
+        post_and_flush(client, slug, [op(block_id=ids[1])], version=2)
         assert len(session.root_agent.context.injected) == 2
 
     def test_an_older_version_does_not_inject(self, client, doc, session):
         """A late retry of a superseded notification is still a duplicate."""
         slug, ids = doc
         bump_to_version_2(slug, ids[0])
-        post_changes(client, slug, [op(block_id=ids[1])], version=2)
-        post_changes(client, slug, [op(block_id=ids[0])], version=1)
+        post_and_flush(client, slug, [op(block_id=ids[1])], version=2)
+        post_and_flush(client, slug, [op(block_id=ids[0])], version=1)
         assert len(session.root_agent.context.injected) == 1
 
     def test_a_failed_injection_does_not_suppress_its_retry(self, client, doc, session):
@@ -1454,13 +1482,12 @@ class TestInjectionIsIdempotent:
         # retry as well.
         session.root_agent.context.add = flaky_add
 
-        first = post_changes(client, slug, payload)
-        assert first.status_code == 500
+        # The first delivery fails and leaves the ops buffered for a retry; the
+        # second delivers. Nothing is lost, and nothing is injected twice.
+        post_changes(client, slug, payload)
+        flush_changes(slug)
         assert session.root_agent.context.injected == []
-
-        # The retry must inject: the first attempt never reached the agent.
-        second = post_changes(client, slug, payload)
-        assert second.get_json()["injected"] is True
+        flush_changes(slug)
         assert len(session.root_agent.context.injected) == 1
 
 
@@ -1526,3 +1553,402 @@ class TestBoolVersionIsNotAVersion:
             f"{PREFIX}/api/notes/{slug}", json={"version": 1, "blocks": []}
         )
         assert response.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Deferred delivery: one notification per burst, not per keystroke batch
+# ---------------------------------------------------------------------------
+
+
+class TestNotificationIsDeferred:
+    """A POST buffers; the message is injected once the edits stop.
+
+    The browser posts a batch on every pause longer than its own debounce, so one
+    sentence produced several notifications about the SAME block. The server holds
+    the burst instead and delivers one message describing the final state.
+    """
+
+    def test_a_post_does_not_inject_immediately(self, client, doc, session):
+        """Accepting an edit must not also notify: that is what flooded context."""
+        slug, ids = doc
+        response = post_changes(client, slug, [op(block_id=ids[0])])
+        assert response.status_code == 200
+        assert response.get_json()["pending"] is True
+        assert session.root_agent.context.injected == []
+
+    def test_the_buffered_ops_are_visible_before_delivery(self, client, doc, session):
+        from wichy.tools.notes.state import peek_pending_notification
+
+        slug, ids = doc
+        post_changes(client, slug, [op(block_id=ids[0])])
+        buffered = peek_pending_notification(slug)
+        assert [entry["block_id"] for entry in buffered] == [ids[0]]
+
+    def test_flushing_delivers_one_message(self, client, doc, session):
+        slug, ids = doc
+        post_changes(client, slug, [op(block_id=ids[0])])
+        flush_changes(slug)
+        assert len(session.root_agent.context.injected) == 1
+
+    def test_the_buffer_is_emptied_by_delivery(self, client, doc, session):
+        from wichy.tools.notes.state import peek_pending_notification
+
+        slug, ids = doc
+        post_changes(client, slug, [op(block_id=ids[0])])
+        flush_changes(slug)
+        assert peek_pending_notification(slug) == []
+
+    def test_successive_batches_of_one_block_become_one_notification(
+        self, client, doc, session
+    ):
+        """The reported flood: one sentence, several batches, several messages.
+
+        Each batch describes the same block. They must arrive as a single message
+        describing what the text finally became.
+        """
+        slug, ids = doc
+        for text in ("Hel", "Hello", "Hello wor", "Hello world"):
+            post_changes(
+                client,
+                slug,
+                [op(block_id=ids[0], data={"text": text})],
+            )
+        flush_changes(slug)
+        assert len(session.root_agent.context.injected) == 1
+        content = session.root_agent.context.injected[0][1]
+        assert content.count(f"id: {ids[0]}") == 1
+
+    def test_a_later_batch_replaces_an_earlier_one_for_the_same_block(
+        self, client, doc, session
+    ):
+        """Only the final state is reported; intermediate keystrokes are not."""
+        slug, ids = doc
+        post_changes(client, slug, [op(block_id=ids[0], data={"text": "draft"})])
+        post_changes(client, slug, [op(block_id=ids[0], data={"text": "final"})])
+        flush_changes(slug)
+        content = session.root_agent.context.injected[0][1]
+        assert "final" in content
+        assert "draft" not in content
+
+    def test_batches_of_different_blocks_are_all_reported(self, client, doc, session):
+        """Merging is per block; a second block is a second entry, not a loss."""
+        slug, ids = doc
+        post_changes(client, slug, [op(block_id=ids[0], data={"text": "one"})])
+        post_changes(client, slug, [op(block_id=ids[1], data={"text": "two"})])
+        flush_changes(slug)
+        content = session.root_agent.context.injected[0][1]
+        assert ids[0] in content
+        assert ids[1] in content
+
+    def test_first_touch_order_is_preserved(self, client, doc, session):
+        slug, ids = doc
+        post_changes(client, slug, [op(block_id=ids[2], data={"text": "c"})])
+        post_changes(client, slug, [op(block_id=ids[0], data={"text": "a"})])
+        post_changes(client, slug, [op(block_id=ids[2], data={"text": "c2"})])
+        flush_changes(slug)
+        content = session.root_agent.context.injected[0][1]
+        assert content.index(ids[2]) < content.index(ids[0])
+
+    def test_delivery_with_no_session_keeps_the_ops_buffered(
+        self, client, doc, session
+    ):
+        """A notification must not be lost because the agent was unreachable."""
+        from wichy.tools.notes.state import peek_pending_notification
+        from wichy.wichy_server import api as server_api
+
+        slug, ids = doc
+        post_changes(client, slug, [op(block_id=ids[0])])
+        server_api.set_active_session(None)
+        try:
+            flush_changes(slug)
+            assert len(peek_pending_notification(slug)) == 1
+        finally:
+            server_api.set_active_session(session)
+
+    def test_a_later_flush_delivers_what_was_kept(self, client, doc, session):
+        from wichy.wichy_server import api as server_api
+
+        slug, ids = doc
+        post_changes(client, slug, [op(block_id=ids[0])])
+        server_api.set_active_session(None)
+        try:
+            flush_changes(slug)
+        finally:
+            server_api.set_active_session(session)
+        flush_changes(slug)
+        assert len(session.root_agent.context.injected) == 1
+
+    def test_deleting_cancels_a_buffered_notification(self, client, doc, session):
+        slug, ids = doc
+        post_changes(client, slug, [op(block_id=ids[0])])
+        client.delete(f"{PREFIX}/api/notes/{slug}")
+        flush_changes(slug)
+        assert session.root_agent.context.injected == []
+
+    def test_a_rename_carries_the_buffer_to_the_new_slug(self, client, doc, session):
+        slug, ids = doc
+        post_changes(client, slug, [op(block_id=ids[0], data={"text": "x"})])
+        response = client.put(
+            f"{PREFIX}/api/notes/{slug}",
+            json={"version": 1, "meta": {"title": "Renamed Doc"}},
+        )
+        new_slug = response.get_json()["slug"]
+        flush_changes(new_slug)
+        assert len(session.root_agent.context.injected) == 1
+        assert "Renamed Doc" in session.root_agent.context.injected[0][1]
+
+
+class TestTheMessageShowsWhatChanged:
+    """The message must say what the note now SAYS, not just that it moved.
+
+    "Updated paragraph block (id: blk-3)" told the agent something changed and
+    nothing it could act on, so it had to re-read the document to find out --
+    exactly the read the notification exists to save.
+    """
+
+    def message(self, client, slug, ops, session):
+        post_and_flush(client, slug, ops)
+        return session.root_agent.context.injected[-1][1]
+
+    def test_an_update_shows_a_before_and_after_diff(self, client, doc, session):
+        slug, ids = doc
+        content = self.message(
+            client,
+            slug,
+            [
+                op(
+                    block_id=ids[0],
+                    before={"type": "paragraph", "data": {"text": "one"}},
+                    data={"text": "one and a half"},
+                )
+            ],
+            session,
+        )
+        assert "-one" in content
+        assert "+one and a half" in content
+
+    def test_an_update_without_a_before_still_shows_the_new_text(
+        self, client, doc, session
+    ):
+        """A client that sends no previous content is not left with a bare line."""
+        slug, ids = doc
+        content = self.message(
+            client, slug, [op(block_id=ids[0], data={"text": "fresh"})], session
+        )
+        assert "fresh" in content
+
+    def test_an_add_shows_the_new_text(self, client, doc, session):
+        slug, ids = doc
+        content = self.message(
+            client,
+            slug,
+            [op("add", ids[1], "todo", data={"text": "buy milk"})],
+            session,
+        )
+        assert "buy milk" in content
+
+    def test_a_remove_shows_the_deleted_text(self, client, doc, session):
+        slug, ids = doc
+        content = self.message(
+            client,
+            slug,
+            [
+                op(
+                    "remove",
+                    ids[0],
+                    "paragraph",
+                    before={"type": "paragraph", "data": {"text": "goodbye"}},
+                )
+            ],
+            session,
+        )
+        assert "goodbye" in content
+
+    def test_a_header_shows_its_level_and_text(self, client, doc, session):
+        """Rendered through the same renderer the export uses, so they agree."""
+        slug, ids = doc
+        content = self.message(
+            client,
+            slug,
+            [op("add", ids[1], "header", data={"text": "Title", "level": 2})],
+            session,
+        )
+        assert "## Title" in content
+
+    def test_a_very_long_block_is_truncated(self, client, doc, session):
+        """A summary that pastes a whole document back in saves nothing."""
+        slug, ids = doc
+        body = "\n".join(f"line {i}" for i in range(200))
+        content = self.message(
+            client,
+            slug,
+            [op("add", ids[1], "code", data={"code": body, "language": ""})],
+            session,
+        )
+        assert "more lines" in content
+        assert content.count("line ") < 200
+
+    def test_a_move_reports_its_new_position(self, client, doc, session):
+        slug, ids = doc
+        content = self.message(client, slug, [op("move", ids[0], index=2)], session)
+        assert "to position 2" in content
+
+    def test_the_summary_line_precedes_its_content(self, client, doc, session):
+        slug, ids = doc
+        content = self.message(
+            client, slug, [op(block_id=ids[0], data={"text": "after"})], session
+        )
+        assert content.index(f"id: {ids[0]}") < content.index("after")
+
+
+class TestMergingWithinABurst:
+    """What a merged burst reports, when the op kinds differ.
+
+    The merge is not a plain "keep the last op": the kind decides what the agent
+    should be told, and a wrong answer is a diff against the wrong baseline.
+    """
+
+    def message(self, client, slug, ops_list, session):
+        for ops in ops_list:
+            post_changes(client, slug, ops)
+        flush_changes(slug)
+        return session.root_agent.context.injected[-1][1]
+
+    def test_the_earliest_before_is_kept(self, client, doc, session):
+        """A burst's diff must span the whole edit, not just its last keystroke."""
+        slug, ids = doc
+        content = self.message(
+            client,
+            slug,
+            [
+                [
+                    op(
+                        block_id=ids[0],
+                        before={"type": "paragraph", "data": {"text": "Hel"}},
+                        data={"text": "Hello"},
+                    )
+                ],
+                [
+                    op(
+                        block_id=ids[0],
+                        before={"type": "paragraph", "data": {"text": "Hello"}},
+                        data={"text": "Hello world"},
+                    )
+                ],
+            ],
+            session,
+        )
+        assert "+Hello world" in content
+        assert "-Hel" in content
+
+    def test_a_block_added_then_edited_stays_an_addition(self, client, doc, session):
+        slug, ids = doc
+        content = self.message(
+            client,
+            slug,
+            [
+                [op("add", "blk-new", "paragraph", data={"text": "first"})],
+                [
+                    op(
+                        "update",
+                        "blk-new",
+                        "paragraph",
+                        before={"type": "paragraph", "data": {"text": "first"}},
+                        data={"text": "second"},
+                    )
+                ],
+            ],
+            session,
+        )
+        assert "Added paragraph block (id: blk-new)" in content
+        assert "+ second" in content
+
+    def test_a_block_added_then_removed_is_a_removal(self, client, doc, session):
+        slug, ids = doc
+        content = self.message(
+            client,
+            slug,
+            [
+                [op("add", "blk-new", "paragraph", data={"text": "transient"})],
+                [op("remove", "blk-new", "paragraph")],
+            ],
+            session,
+        )
+        assert "Deleted paragraph block (id: blk-new)" in content
+
+    def test_a_removed_block_keeps_its_pre_burst_text(self, client, doc, session):
+        """The removal must show the text from BEFORE the burst, not a later one."""
+        slug, ids = doc
+        content = self.message(
+            client,
+            slug,
+            [
+                [
+                    op(
+                        block_id=ids[0],
+                        before={"type": "paragraph", "data": {"text": "original"}},
+                        data={"text": "edited"},
+                    )
+                ],
+                [
+                    op(
+                        "remove",
+                        ids[0],
+                        "paragraph",
+                        before={"type": "paragraph", "data": {"text": "edited"}},
+                    )
+                ],
+            ],
+            session,
+        )
+        assert "original" in content
+
+
+class TestTheSettleTimerItself:
+    """The buffer's actual delivery path: a real timer thread, not the flush call.
+
+    Every other test here delivers with `flush_pending_notification`, which
+    bypasses the timer. That left the timer's own bookkeeping -- clearing the
+    buffer after a delivery -- untested, and it was wrong: the ops were delivered
+    but stayed buffered, so the next timer would deliver the same change again.
+
+    The settle window is set INSIDE each test, after the client fixture has built
+    the app, because registration installs the value from settings and setting it
+    any earlier would be overwritten.
+    """
+
+    def test_a_burst_is_delivered_once_and_the_buffer_cleared(
+        self, client, doc, session
+    ):
+        import time
+
+        from wichy.tools.notes.state import (
+            peek_pending_notification,
+            set_notify_settle_seconds,
+        )
+
+        set_notify_settle_seconds(0.05)
+        slug, ids = doc
+        post_changes(client, slug, [op(block_id=ids[0], data={"text": "a"})])
+        post_changes(client, slug, [op(block_id=ids[0], data={"text": "ab"})])
+        # Comfortably past the settle window, so a second delivery would have
+        # happened by now if the buffer were not cleared.
+        time.sleep(0.5)
+        assert len(session.root_agent.context.injected) == 1
+        assert peek_pending_notification(slug) == []
+
+    def test_the_delivered_message_describes_the_merged_burst(
+        self, client, doc, session
+    ):
+        import time
+
+        from wichy.tools.notes.state import set_notify_settle_seconds
+
+        set_notify_settle_seconds(0.05)
+        slug, ids = doc
+        post_changes(client, slug, [op(block_id=ids[0], data={"text": "a"})])
+        post_changes(client, slug, [op(block_id=ids[0], data={"text": "ab"})])
+        time.sleep(0.5)
+        content = session.root_agent.context.injected[0][1]
+        assert content.count(f"id: {ids[0]}") == 1
+        assert "ab" in content

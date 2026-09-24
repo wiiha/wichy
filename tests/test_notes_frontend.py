@@ -2060,3 +2060,39 @@ class TestTheQueueSurvivesAReload:
         source = self.script()
         start = source.index("async function postPendingOps")
         return source[start : source.index("function updateQueueIndicator")]
+
+
+class TestTheBrowserSendsThePreviousContent:
+    """A diff needs the before-state, and only the browser still has it.
+
+    The server's copy of a block is already the edited text, so an update sent
+    without its previous content can only be reported as "something changed" --
+    which is what made the notification useless.
+    """
+
+    def script(self) -> str:
+        return (STATIC / "notes_blocks.js").read_text(encoding="utf-8")
+
+    def diff_body(self) -> str:
+        source = self.script()
+        body = source[source.index("function diffAgainstSnapshot") :]
+        return body[: body.index("/** Record the current blocks")]
+
+    def test_an_update_carries_the_previous_content(self):
+        body = self.diff_body()
+        assert 'op: "update"' in body
+        assert "before: { type: previous.type, data: previous.data }" in body
+
+    def test_a_removal_carries_the_deleted_content(self):
+        body = self.diff_body()
+        assert 'op: "remove"' in body
+        assert "before: { type: entry.type, data: entry.data }" in body
+
+    def test_the_before_state_comes_from_the_snapshot_not_the_editor(self):
+        """`previous` is the snapshot entry, which is what the server last took.
+
+        Reading the before-state from anywhere else would describe a different
+        baseline than the one the diff was computed against.
+        """
+        body = self.diff_body()
+        assert "const previous = beforeById.get(block.id);" in body

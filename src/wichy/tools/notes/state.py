@@ -24,6 +24,7 @@ stdlib-only is what makes that safe.
 from __future__ import annotations
 
 import threading
+from typing import Callable, Iterable
 
 # -------------------------------------------------------------------------
 # Containers
@@ -60,6 +61,83 @@ last_injected: dict[str, int] = {}
 # Guards the three containers above. Re-entrant so a caller already inside may
 # call another accessor. Never hold this across I/O.
 _state_lock = threading.RLock()
+# -------------------------------------------------------------------------
+# Deferred change notification
+# -------------------------------------------------------------------------
+
+#: slug -> user ops held for the next notification.
+#:
+#: A user types in bursts: one sentence produces several editor change events,
+#: and every pause longer than the browser's debounce posted its own batch. Each
+#: batch was injected on arrival, so the agent received three or four messages
+#: describing the SAME block, none of them saying what the text had become. The
+#: buffer holds the burst instead, and one notification is delivered once the
+#: edits stop.
+#:
+#: Ops are merged per block on arrival (see ``buffer_notification``), so a
+#: sentence's worth of keystrokes costs one line per block rather than one line
+#: per keystroke batch.
+_pending_ops: dict[str, list[dict]] = {}
+
+#: slug -> the version the buffered ops were computed against.
+#:
+#: Kept so the flushed notification carries the version of the write it
+#: describes, which is what the injection idempotency check runs on.
+_pending_version: dict[str, int] = {}
+
+#: slug -> the timer counting down the quiet period for that slug.
+_notify_timers: dict[str, threading.Timer] = {}
+
+#: Delivers a slug's buffered notification once its quiet period elapses.
+#:
+#: Registered by the API layer, because delivering means reaching the agent and
+#: this module must stay stdlib-only (the agent base class imports it). Until a
+#: callback is registered nothing is delivered, which is why registration
+#: happens at app setup rather than lazily.
+#:
+#: Returns True when the notification was delivered, False to keep the ops and
+#: retry -- the browser has already been told they were accepted, so a failure
+#: here must not drop them.
+_notify_flush: "Callable[[str], bool] | None" = None
+
+#: Quiet period, in seconds, before a buffered notification is delivered.
+_notify_settle_seconds: float = 2.5
+
+#: How many times one buffered notification is re-armed after a failed delivery.
+#:
+#: Delivery can fail (no session, a context error). Giving up on the first
+#: failure would drop a notification the browser has already been told was
+#: accepted, and the browser deletes its queue on that answer -- so the edit
+#: would be lost with nothing reporting it. Retrying keeps the ops until they are
+#: either delivered or the budget runs out, and running out is logged.
+_MAX_NOTIFY_ATTEMPTS = 4
+
+
+def set_notify_flush(callback: "Callable[[str], bool] | None") -> None:
+    """Register the callback that delivers one slug's notification.
+
+    Args:
+        callback: Called with a slug when its quiet period elapses. It returns
+            True once the notification has been delivered, or False to keep the
+            ops buffered and retry. None to unregister, which is what tests use
+            to keep a stray timer from reaching a later test's state.
+    """
+    global _notify_flush
+    with _state_lock:
+        _notify_flush = callback
+
+
+def set_notify_settle_seconds(seconds: float) -> None:
+    """Set the quiet period applied to notifications buffered from now on.
+
+    Args:
+        seconds: Time to wait for further edits before delivering. Zero delivers
+            on the next timer tick rather than synchronously -- the flush still
+            runs off the request thread.
+    """
+    global _notify_settle_seconds
+    with _state_lock:
+        _notify_settle_seconds = max(0.0, float(seconds))
 
 
 # -------------------------------------------------------------------------
@@ -328,6 +406,251 @@ def forget_injected(slug: str) -> None:
         last_injected.pop(slug, None)
 
 
+def merge_pending_ops(existing: Iterable[dict], incoming: Iterable[dict]) -> list[dict]:
+    """Fold a new batch of user ops into a buffered batch, one entry per block.
+
+    Only a block's FINAL state is worth reporting: the agent is told what the
+    text became, not every intermediate keystroke. So a later op for a block
+    replaces the earlier one, keeping its position, exactly as the agent-op queue
+    collapses (see ``queue_agent_changes``). First-touch order is preserved so the
+    message lists blocks in the order the user reached them.
+
+    The merged entry keeps the EARLIEST ``before``. A later batch's ``before`` is
+    the text an earlier batch of the same burst already produced, so keeping it
+    would show a diff of the last keystroke alone ("Hello" -> "Hello world")
+    rather than the whole edit ("Hel" -> "Hello world") -- which is the flood
+    again, one level down.
+
+    A block added during the burst reads as ``add`` however many updates followed,
+    because the block did not exist beforehand and a diff against nothing would
+    be noise. A block added and then deleted reads as ``remove``: it is gone.
+
+    Args:
+        existing: Ops already buffered, oldest first.
+        incoming: The new batch to fold in.
+
+    Returns:
+        The merged ops, one per block, in first-touch order.
+    """
+    order: list[str] = []
+    merged: dict[str, dict] = {}
+    for op in list(existing) + list(incoming):
+        key = str(op.get("block_id") or "")
+        first = merged.get(key)
+        if first is None:
+            order.append(key)
+            merged[key] = dict(op)
+            continue
+        combined = dict(op)
+        # A later op may carry none of the descriptive fields a move lacks, so
+        # they are carried forward rather than lost.
+        for field in ("data", "block_type", "index"):
+            if field not in combined and field in first:
+                combined[field] = first[field]
+        if str(first.get("op")) == "add" and str(op.get("op")) != "remove":
+            # Still an addition: the block did not exist before the burst, so a
+            # diff against a previous state would be against nothing.
+            combined["op"] = "add"
+            combined.pop("before", None)
+        elif "before" in first:
+            # Keep the EARLIEST before, including on a removal: what was deleted
+            # is the text the burst started from, not the intermediate state.
+            combined["before"] = first["before"]
+        merged[key] = combined
+    return [merged[key] for key in order]
+
+
+def buffer_notification(slug: str, ops: Iterable[dict], version: int) -> None:
+    """Hold *slug*'s ops and (re)start its quiet period.
+
+    Called from the request thread. Nothing is delivered here: the ops wait until
+    the user stops editing. Each call restarts the timer, so a burst of batches
+    becomes one delivery.
+
+    Args:
+        slug: The document slug.
+        ops: The user's ops from this request.
+        version: The document version the ops were computed against. The LAST
+            batch's version wins, because the ops buffered so far describe the
+            document as it now stands.
+    """
+    with _state_lock:
+        merged = merge_pending_ops(_pending_ops.get(slug, []), ops)
+        _pending_ops[slug] = merged
+        _pending_version[slug] = version
+        # A fresh edit gets a fresh delivery budget: the counter exists to stop an
+        # undeliverable notification retrying forever, not to punish a later edit
+        # for an earlier failure.
+        _notify_attempts.pop(slug, None)
+        _arm_notify_timer_locked(slug)
+
+
+#: slug -> how many delivery attempts its current buffer has had.
+#:
+#: Delivery can fail (no session yet, a context error). Each failure re-arms the
+#: timer rather than dropping the ops, because the browser has already been told
+#: they were accepted and has deleted its copy -- losing them here loses the edit.
+#: The counter is what stops that retrying forever, and is reset whenever new ops
+#: arrive, since a fresh edit deserves a fresh budget.
+_notify_attempts: dict[str, int] = {}
+
+
+def _arm_notify_timer_locked(slug: str) -> None:
+    """Restart *slug*'s quiet-period timer. Caller holds ``_state_lock``."""
+    existing = _notify_timers.pop(slug, None)
+    if existing is not None:
+        existing.cancel()
+    delay = _notify_settle_seconds
+    timer = threading.Timer(delay, _fire_notification, args=(slug,))
+    # A timer thread must never hold the process open: it is background work
+    # whose remaining lifetime is a debounce interval, not a task to wait on.
+    timer.daemon = True
+    _notify_timers[slug] = timer
+    timer.start()
+
+
+def _fire_notification(slug: str) -> None:
+    """Deliver *slug*'s buffered notification, or re-arm to try again.
+
+    Runs on the timer's own thread, never the request thread, so a slow agent
+    cannot delay the HTTP response.
+
+    A successful delivery clears the buffer. A failed one re-arms the timer, up
+    to a bounded number of attempts, because the browser has already been told the
+    ops were accepted and has discarded its copy -- dropping them here is how an
+    edit disappears with nothing reporting it.
+    """
+    with _state_lock:
+        delivered_batch = _pending_ops.get(slug)
+    delivered = deliver_pending_notification(slug)
+    with _state_lock:
+        _notify_timers.pop(slug, None)
+        if delivered:
+            # Clear only what was delivered. A batch that arrived while this one
+            # was in flight is newer and must survive to its own notification, or
+            # the newest edits are the ones that go missing.
+            if (
+                delivered_batch is not None
+                and _pending_ops.get(slug) is delivered_batch
+            ):
+                _pending_ops.pop(slug, None)
+                _pending_version.pop(slug, None)
+                _notify_attempts.pop(slug, None)
+            else:
+                # Newer ops are waiting; report those too, after another pause.
+                _arm_notify_timer_locked(slug)
+            return
+        if slug not in _pending_ops:
+            return
+        attempts = _notify_attempts.get(slug, 0) + 1
+        _notify_attempts[slug] = attempts
+        if attempts >= _MAX_NOTIFY_ATTEMPTS:
+            print(
+                f"[wichy] gave up delivering a note change notification for "
+                f"'{slug}' after {attempts} attempts; the edits stay queued."
+            )
+            return
+        _arm_notify_timer_locked(slug)
+
+
+def deliver_pending_notification(slug: str) -> bool:
+    """Inject *slug*'s buffered notification into the agent's context.
+
+    Does NOT touch the buffer: the caller decides whether to clear it, because a
+    delivery that happens while new ops are arriving must not discard them. See
+    ``_fire_notification`` and ``flush_pending_notification``.
+
+    Args:
+        slug: The document slug.
+
+    Returns:
+        True when the buffered ops were delivered or there were none to deliver,
+        False when delivery failed and should be retried.
+    """
+    ops = peek_pending_notification(slug)
+    if not ops:
+        return True
+    flush = _notify_flush
+    if flush is None:
+        return False
+    try:
+        return bool(flush(slug))
+    except Exception as e:  # pragma: no cover - depends on agent internals
+        print(f"[wichy] could not deliver a note change notification: {e}")
+        return False
+
+
+def flush_pending_notification(slug: str) -> bool:
+    """Deliver *slug*'s buffered notification immediately, cancelling its timer.
+
+    The synchronous entry point. The timer uses it, and so do tests and any
+    caller that needs the delivery to have happened before returning rather than
+    after a quiet period.
+
+    Args:
+        slug: The document slug.
+
+    Returns:
+        True when the ops were delivered, or there was nothing to deliver.
+    """
+    with _state_lock:
+        timer = _notify_timers.pop(slug, None)
+        ops = _pending_ops.get(slug)
+    if timer is not None:
+        timer.cancel()
+    if ops is None:
+        return True
+    delivered = deliver_pending_notification(slug)
+    if delivered:
+        with _state_lock:
+            # Clear only what was delivered: a batch that arrived during delivery
+            # is newer than this one and must survive to its own notification.
+            if _pending_ops.get(slug) is ops:
+                _pending_ops.pop(slug, None)
+                _pending_version.pop(slug, None)
+                _notify_attempts.pop(slug, None)
+    return delivered
+
+
+def peek_pending_notification(slug: str) -> list[dict]:
+    """Return a copy of *slug*'s buffered ops without clearing them.
+
+    Args:
+        slug: The document slug.
+
+    Returns:
+        The buffered ops, oldest first, one per block.
+    """
+    with _state_lock:
+        return list(_pending_ops.get(slug, []))
+
+
+def pending_notification_version(slug: str) -> int:
+    """Return the version the buffered notification describes, or 0."""
+    with _state_lock:
+        return _pending_version.get(slug, 0)
+
+
+def forget_pending_notification(slug: str) -> None:
+    """Drop and cancel *slug*'s buffered notification.
+
+    Called when the slug stops naming the document the ops were made against
+    (delete, rename). The browser is polling under the old slug, so a
+    notification left behind there would describe a document that is gone, and
+    its delivery would be attributed to the wrong name.
+
+    Args:
+        slug: The document slug.
+    """
+    with _state_lock:
+        _pending_ops.pop(slug, None)
+        _pending_version.pop(slug, None)
+        _notify_attempts.pop(slug, None)
+        timer = _notify_timers.pop(slug, None)
+    if timer is not None:
+        timer.cancel()
+
+
 # -------------------------------------------------------------------------
 # Versions
 # -------------------------------------------------------------------------
@@ -425,13 +748,14 @@ def has_state(slug: str) -> bool:
         slug: The document slug.
 
     Returns:
-        True when a lock, queued ops, a cached version or an injection mark
-        exists for the slug.
+        True when a lock, queued ops, a buffered notification, a cached version
+        or an injection mark exists for the slug.
     """
     with _state_lock:
         return (
             slug in doc_locks
             or slug in agent_changes
+            or slug in _pending_ops
             or slug in doc_versions
             or slug in last_injected
         )
@@ -483,6 +807,24 @@ def rename_document(old_slug: str, new_slug: str, version: int) -> None:
         if injected is not None:
             last_injected.pop(new_slug, None)
             last_injected[new_slug] = injected
+
+        # A buffered notification follows its document too. Left under the old
+        # slug it would be delivered as a change to a document that no longer has
+        # that name -- and the agent would be told to edit the wrong one.
+        buffered = _pending_ops.pop(old_slug, None)
+        buffered_version = _pending_version.pop(old_slug, None)
+        timer = _notify_timers.pop(old_slug, None)
+        if buffered is not None:
+            _pending_ops[new_slug] = merge_pending_ops(
+                _pending_ops.get(new_slug, []), buffered
+            )
+            if buffered_version is not None:
+                _pending_version[new_slug] = buffered_version
+            _arm_notify_timer_locked(new_slug)
+    # Cancelled outside the lock, like ``reset_state``: a timer that already fired
+    # is waiting for this lock, so cancelling it under the lock would deadlock.
+    if timer is not None:
+        timer.cancel()
 
 
 # -------------------------------------------------------------------------
@@ -571,6 +913,16 @@ def reset_state() -> None:
         doc_versions.clear()
         doc_locks.clear()
         last_injected.clear()
+        pending_timers = list(_notify_timers.values())
+        _pending_ops.clear()
+        _pending_version.clear()
+        _notify_attempts.clear()
+        _notify_timers.clear()
+    # Cancelled OUTSIDE the lock: a timer that has already fired is waiting for
+    # this lock inside ``_fire_notification``, so cancelling while holding it
+    # would deadlock the reset against the very thread it is trying to stop.
+    for timer in pending_timers:
+        timer.cancel()
     with _busy_lock:
         _busy_turns = 0
     agent_busy.clear()

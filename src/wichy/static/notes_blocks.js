@@ -324,6 +324,11 @@
                     op: "remove",
                     block_id: entry.id,
                     block_type: entry.type,
+                    // The content as it was. The server cannot recover this from
+                    // the document, which already holds the AFTER state, and a
+                    // deletion reported with no text tells the agent only that
+                    // something it cannot see is gone.
+                    before: { type: entry.type, data: entry.data },
                 });
             }
         }
@@ -360,6 +365,12 @@
                     block_type: block.type,
                     data: block.data,
                     index: index,
+                    // The content before this edit, so the server can show the
+                    // agent a real before/after diff instead of naming the block
+                    // it changed. Only the browser has it: the snapshot is what
+                    // the last accepted send recorded, and the server's copy is
+                    // already the new text.
+                    before: { type: previous.type, data: previous.data },
                 });
             }
         });
