@@ -114,6 +114,11 @@ class HistoryState:
     complete: bool = True
     #: Why the state is incomplete, when it is.
     reason: str | None = None
+    #: True when the history is missing an entry in the MIDDLE, as opposed to
+    #: merely beginning part-way through. A gap means entries exist on both sides
+    #: of a lost change, so every state built after it is inexact -- and unlike a
+    #: missing start, no anchor can recover it, because the information is gone.
+    has_gap: bool = False
 
     def by_id(self) -> dict[str, BlockState]:
         """State keyed by block id."""
@@ -767,6 +772,46 @@ def replay(slug: str, upto_id: int | None = None) -> HistoryState:
     first_id = min(real_ids) if real_ids else None
     first_entry = entries[0] if entries else None
 
+    # Starting at revision 1 (or at an anchor) is not the whole story: the ids
+    # from the earliest entry up to the target must also be CONTIGUOUS. A missing
+    # id in between means an entry was lost in the MIDDLE -- dropped by an older
+    # build or removed by hand -- so every state built after it was rebuilt
+    # without that change and is not exact. A first-id check alone cannot see
+    # this: ids [1, 2, 4, 5] still "start at 1", which is how middle damage used
+    # to be served as fact.
+    #
+    # A legacy anchor is NOT a gap: it reuses a real id and restates the state
+    # there, so ids continuing A, A+1, A+2 ... from an anchor are contiguous. A
+    # missing entry AFTER an anchor is still a gap.
+    walk_end = (
+        upto_id if upto_id is not None else (max(real_ids) + 1 if real_ids else None)
+    )
+    gaps: list[tuple[int, int]] = []
+    if first_id is not None and walk_end is not None and walk_end > first_id:
+        previous = first_id
+        for present in sorted(rid for rid in real_ids if rid < walk_end):
+            if present > previous + 1:
+                gaps.append((previous + 1, present - 1))
+            previous = present
+        # A run of missing ids that reaches the target: no surviving entry marks
+        # its end, so the walk itself supplies the upper bound.
+        if previous + 1 < walk_end:
+            gaps.append((previous + 1, walk_end - 1))
+    if gaps:
+        start, end = gaps[0]
+        if start == end:
+            named = f"revision {start} between {start - 1} and {end + 1}"
+        else:
+            named = f"revisions {start} through {end}"
+        if len(gaps) > 1:
+            named += f" (and {len(gaps) - 1} more)"
+        gap_reason = (
+            f"The log is missing {named}, so states after the gap are rebuilt "
+            "from an incomplete history."
+        )
+    else:
+        gap_reason = None
+
     # A log is "complete" when replaying it reproduces the document exactly.
     #
     # Two ways that happens:
@@ -790,6 +835,13 @@ def replay(slug: str, upto_id: int | None = None) -> HistoryState:
             if first_id is not None
             else "No revision in this log has a usable id."
         )
+    # A gap OVERRIDES either way of being complete: a log that starts at 1 but
+    # lost an entry in the middle is missing that change, so a state built after
+    # it is not exact. The gap is named in plain words so the caller, the
+    # browser and the refusal can all say what is missing.
+    if gap_reason is not None:
+        complete = False
+        reason = gap_reason
 
     state: list[BlockState] = []
     for entry in entries:
@@ -797,7 +849,12 @@ def replay(slug: str, upto_id: int | None = None) -> HistoryState:
             break
         for op in entry.get("ops", []):
             _apply_op(state, op)
-    return HistoryState(blocks=state, complete=complete, reason=reason)
+    return HistoryState(
+        blocks=state,
+        complete=complete,
+        reason=reason,
+        has_gap=gap_reason is not None,
+    )
 
 
 def _entry_is_anchor(entry: Mapping[str, Any]) -> bool:
@@ -906,6 +963,17 @@ def restore_document(
     else:
         target_state = state_before(slug, revision_id)
     if not target_state.complete and not allow_partial:
+        if target_state.has_gap:
+            # Distinct from "earlier history is unknown": the log HAS entries on
+            # both sides of a lost change, so replaying it silently omits that
+            # change and the rebuilt state is wrong rather than merely partial.
+            # No anchor can recover it -- the information is gone -- so this is
+            # refused even though the log reaches revision 1.
+            raise IncompleteHistoryError(
+                f"{target_state.reason} That revision cannot be rebuilt exactly, "
+                "so the history is refused rather than recording a state that "
+                "never existed."
+            )
         raise IncompleteHistoryError(
             target_state.reason
             or "History is incomplete, so this state cannot be rebuilt exactly."

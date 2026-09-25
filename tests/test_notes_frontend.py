@@ -894,6 +894,22 @@ class TestTheHistoryBrowser:
         # being the oldest rebuildable state is not a defect.
         assert "!response.is_anchor" in body
 
+    def test_the_revision_browser_discloses_an_unrebuildable_state(self):
+        """A gap in the MIDDLE: the state after it is rebuilt without a change.
+
+        The browser must say the state cannot be rebuilt exactly and disable
+        restoring, because a restore would write that incomplete past over the
+        note and hide the mismatch. Presence-only: this asserts the shipped
+        source carries the marker and the disabled-restore logic.
+        """
+        body = self.script()
+        body = body[body.index("async function selectHistoryRevision") :]
+        body = body[: body.index("function renderBlocksAsText")]
+        assert "This state cannot be rebuilt exactly" in body
+        assert "Restoring is disabled." in body
+        assert "response.complete === false" in body
+        assert "restore.disabled" in body
+
     def test_a_history_that_disagrees_with_the_document_is_disclosed(self):
         """A log that lost a removal replays a block the note no longer has."""
         body = self.script()

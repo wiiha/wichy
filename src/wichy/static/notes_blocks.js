@@ -1358,11 +1358,19 @@
                 note.classList.remove("hidden");
                 note.classList.remove("history-boundary");
             } else if (response.complete === false) {
-                // A log with no anchor: the state this revision was built on is
-                // unknown, so showing content would present a wrong past as fact.
-                note.textContent =
-                    "This revision cannot be rebuilt: " +
-                    (response.reason || "earlier history is missing.");
+                // Incomplete: either the log never reached revision 1 (no anchor
+                // to rebuild from) or it lost an entry in the MIDDLE. The second
+                // is worse -- entries exist on both sides of the lost change, so
+                // every state after it was rebuilt without that change, and no
+                // anchor can recover it. Both are stated plainly and both disable
+                // restoring, because a rebuild that silently omits a change is
+                // not the revision the user selected.
+                note.textContent = response.reason
+                    ? `This state cannot be rebuilt exactly: ${
+                          response.reason
+                      } Restoring is disabled.`
+                    : "This state cannot be rebuilt exactly: the recorded " +
+                      "history is incomplete. Restoring is disabled.";
                 note.classList.remove("hidden");
                 note.classList.remove("history-boundary");
             } else {

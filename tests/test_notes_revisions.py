@@ -1584,3 +1584,124 @@ class TestRevertToALegacyAnchorIsRefused:
         ]
         assert entry["author"] == "system"
         assert replay_matches_document(slug) is True
+
+
+class TestAMiddleGapIsIncomplete:
+    """An entry lost in the MIDDLE breaks every state rebuilt after it.
+
+    Completeness used to be positional only: ``first_id == 1`` was enough, so a
+    log whose ids ran [1, 2, 4, 5] -- entry 3 deleted by hand or by an older
+    build -- still replayed as authoritative. The replay silently omitted
+    revision 3's change, and the rebuilt state was served as the document's past.
+    A missing id between surviving ones is what a first-id check cannot see.
+    """
+
+    def _gap_log(self, notes_dir, doc):
+        """A five-revision log with the middle entry (id 3) removed by hand."""
+        slug, ids = doc
+        for text in ("a", "b", "c", "d"):
+            with locked_document(slug, None, author="user") as document:
+                replace_block(document, ids[0], data={"text": text}, author="user")
+
+        path = revisions_path(slug)
+        rows = [
+            json.loads(line)
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        assert [row["id"] for row in rows] == [1, 2, 3, 4, 5]
+        rows = [row for row in rows if row["id"] != 3]
+        write_damaged_log(slug, rows)
+        assert [e["id"] for e in all_entries(slug)] == [1, 2, 4, 5]
+        return slug
+
+    def test_a_gap_in_the_middle_is_reported_incomplete(self, notes_dir, doc):
+        slug = self._gap_log(notes_dir, doc)
+
+        # A revision BEFORE the gap replays everything up to that point, which is
+        # untouched history, so it is still complete.
+        before = replay(slug, upto_id=3)
+        assert before.complete is True
+        assert before.reason is None
+        assert before.has_gap is False
+
+        # A revision AFTER the gap was rebuilt without revision 3's change.
+        after = replay(slug, upto_id=5)
+        assert after.complete is False
+        assert after.has_gap is True
+        # The reason names the gap in plain words rather than a bare "incomplete".
+        assert "missing revision 3" in (after.reason or "")
+        assert "between 2 and 4" in (after.reason or "")
+
+    def test_restore_from_a_gap_is_refused(self, notes_dir, doc):
+        slug = self._gap_log(notes_dir, doc)
+        version = load_document(slug).meta.version
+        log_before = len(all_entries(slug))
+        blocks_before = [(b.id, b.data) for b in load_document(slug).blocks]
+
+        with pytest.raises(IncompleteHistoryError) as raised:
+            restore_document(slug, 5, expected_version=version, at=True)
+
+        # The message names the missing revision and says it cannot be rebuilt.
+        message = str(raised.value)
+        assert "missing revision 3" in message
+        assert "cannot be rebuilt exactly" in message
+
+        # The refusal wrote NOTHING: no revert entry, live document untouched.
+        assert len(all_entries(slug)) == log_before
+        assert [(b.id, b.data) for b in load_document(slug).blocks] == blocks_before
+        assert load_document(slug).meta.version == version
+
+    def test_restore_from_a_gap_succeeds_when_partial_is_permitted(
+        self, notes_dir, doc
+    ):
+        slug = self._gap_log(notes_dir, doc)
+        version = load_document(slug).meta.version
+        log_before = len(all_entries(slug))
+
+        document, entry = restore_document(
+            slug, 5, expected_version=version, at=True, allow_partial=True
+        )
+
+        assert entry is not None
+        assert document.meta.version == version + 1
+        # The explicit opt-in is the only path that writes the incomplete past.
+        assert len(all_entries(slug)) == log_before + 1
+
+    def test_an_anchor_is_not_a_gap(self, notes_dir):
+        """A legacy anchor restates the state there, so contiguous ids are whole.
+
+        The Stage-1 semantics: an anchor is the rebuilt starting point, not a
+        missing entry, so ids continuing A, A+1, A+2 ... from it are contiguous
+        and the state replays exactly. A missing entry AFTER an anchor would
+        still be a gap; an anchor itself is not.
+        """
+        document = create_document(
+            "Anchored", [{"type": "paragraph", "data": {"text": "v0"}}]
+        )
+        slug = document.meta.slug
+        block_id = document.blocks[0].id
+        for index in range(3):
+            with locked_document(slug, None, author="user") as open_document:
+                replace_block(
+                    open_document,
+                    block_id,
+                    data={"text": f"v{index + 1}"},
+                    author="user",
+                )
+        # Anchor at id 2 restating the state before revision 3; ids 3 and 4 stay,
+        # so the walk from the anchor is 2, 3, 4 -- contiguous, no gap.
+        anchor = write_legacy_anchor_log(slug, anchor_id=2, keep_ids=[3, 4])
+        assert [e["id"] for e in all_entries(slug)] == [2, 3, 4]
+
+        state = replay(slug)
+        assert state.complete is True
+        assert state.has_gap is False
+        assert state.reason is None
+        assert all_entries(slug)[0]["id"] == anchor["id"]
+
+        # A real append after the anchor keeps the walk contiguous.
+        record(slug)
+        after = replay(slug)
+        assert after.complete is True
+        assert after.has_gap is False

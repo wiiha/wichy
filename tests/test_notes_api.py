@@ -2056,3 +2056,102 @@ class TestRevertToALegacyAnchor:
         # content -- so restoring at the anchor rebuilds "v1", not the empty state
         # the sibling revert would have wrongly produced.
         assert [b["data"]["text"] for b in blocks] == ["v1"]
+
+
+class TestAMiddleGapIsDisclosedAndRefused:
+    """An entry lost in the MIDDLE must reach the browser and block a restore.
+
+    The replay payload reported a log as complete whenever it started at
+    revision 1, so a hand-deleted middle entry was served as authoritative
+    content and a restore then WROTE that corrupt past back over the note,
+    laundering the mismatch away. The gap is now named and the restore refused.
+    """
+
+    def _gap_note(self, client, notes_dir):
+        """A note whose MIDDLE log entry -- one block's only edit -- is deleted.
+
+        Three blocks, each edited once, then a fourth edit to the first. Removing
+        the middle entry (id 3, the second block's edit) leaves that block's
+        change out of the replay while the live document keeps it, so the rebuilt
+        history and the document disagree -- the laundering signal.
+        """
+        create(client, "Gap", "A")
+        slug = "gap"
+        blocks = client.get(f"{PREFIX}/api/notes/{slug}/blocks").get_json()["blocks"]
+        first = blocks[0]["id"]
+        second_ids = []
+        for text in ("B", "C"):
+            body = client.get(f"{PREFIX}/api/notes/{slug}").get_json()
+            added = client.post(
+                f"{PREFIX}/api/notes/{slug}/blocks",
+                json={
+                    "version": body["meta"]["version"],
+                    "block_type": "paragraph",
+                    "data": {"text": text},
+                },
+            ).get_json()
+            second_ids.append(added["block"]["id"])
+        targets = [first, second_ids[0], second_ids[1], first]
+        for block_id, text in zip(targets, ("A2", "B3", "C4", "A5")):
+            body = client.get(f"{PREFIX}/api/notes/{slug}").get_json()
+            client.patch(
+                f"{PREFIX}/api/notes/{slug}/blocks/{block_id}",
+                json={
+                    "version": body["meta"]["version"],
+                    "block_type": "paragraph",
+                    "data": {"text": text},
+                },
+            )
+        path = revisions_path(slug)
+        rows = [
+            json.loads(line)
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        # ids: 1 create, 2 add B, 3 add C, 4 edit A, 5 edit B, 6 edit C, 7 edit A.
+        assert [row["id"] for row in rows] == [1, 2, 3, 4, 5, 6, 7]
+        # Drop id 5: the second block's only edit, lost in the MIDDLE.
+        rows = [row for row in rows if row["id"] != 5]
+        path.write_text("".join(json.dumps(row) + "\n" for row in rows), "utf-8")
+        return slug
+
+    def test_revision_payload_discloses_a_gap(self, client, notes_dir):
+        slug = self._gap_note(client, notes_dir)
+
+        body = client.get(f"{PREFIX}/api/notes/{slug}/revisions/7").get_json()
+
+        assert body["complete"] is False
+        assert "missing revision 5" in (body["reason"] or "")
+        assert body["is_anchor"] is False
+
+    def test_restore_route_refuses_a_gap_state(self, client, notes_dir):
+        slug = self._gap_note(client, notes_dir)
+        version = client.get(f"{PREFIX}/api/notes/{slug}").get_json()["meta"]["version"]
+        log_before = len(revisions_path(slug).read_text(encoding="utf-8").splitlines())
+
+        response = client.post(
+            f"{PREFIX}/api/notes/{slug}/revisions/7/restore", json={"version": version}
+        )
+
+        assert response.status_code == 409, response.get_data(as_text=True)
+        assert "missing revision 5" in response.get_json()["error"]
+
+        # The document is unchanged and no revert entry was written.
+        body = client.get(f"{PREFIX}/api/notes/{slug}").get_json()
+        assert body["meta"]["version"] == version
+        assert [b["data"]["text"] for b in body["blocks"]] == ["A5", "B3", "C4"]
+        after = revisions_path(slug).read_text(encoding="utf-8").splitlines()
+        assert len(after) == log_before
+
+    def test_the_gap_does_not_launder_the_mismatch(self, client, notes_dir):
+        """The refusal keeps the log from agreeing with the live document."""
+        slug = self._gap_note(client, notes_dir)
+        version = client.get(f"{PREFIX}/api/notes/{slug}").get_json()["meta"]["version"]
+
+        client.post(
+            f"{PREFIX}/api/notes/{slug}/revisions/7/restore", json={"version": version}
+        )
+
+        # Before the fix the restore wrote the replayed state, flipping this True.
+        body = client.get(f"{PREFIX}/api/notes/{slug}/revisions/7").get_json()
+        assert body["matches_document"] is False
