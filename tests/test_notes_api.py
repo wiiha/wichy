@@ -19,6 +19,8 @@ Grouped by what each group defends:
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from flask import Blueprint, Flask
 
@@ -1951,3 +1953,106 @@ class TestDivergentHistoryIsDisclosed:
             "matches_document",
         ):
             assert key in body, key
+
+
+class TestRevertToALegacyAnchor:
+    """A revert to an anchor id must be refused; a restore at it must still work.
+
+    A legacy log may carry an anchor: an entry that reuses a real id and
+    restates the state where the old build's recorded history begins. The state
+    BEFORE it was never recorded, so reverting to that id would replay to an
+    empty state and write it back over the note. The route must refuse with a
+    4xx and change nothing, while restoring AT the anchor stays supported.
+    """
+
+    def _legacy_anchor(self, client):
+        """Create a note, edit it twice, then rewrite its log with an anchor."""
+        body = create(client, "Anchored", "v0")
+        slug = body["slug"]
+        block_id = client.get(f"{PREFIX}/api/notes/{slug}/blocks").get_json()["blocks"][
+            0
+        ]["id"]
+        for text in ("v1", "v2"):
+            current = client.get(f"{PREFIX}/api/notes/{slug}").get_json()
+            client.patch(
+                f"{PREFIX}/api/notes/{slug}/blocks/{block_id}",
+                json={
+                    "version": current["meta"]["version"],
+                    "block_type": "paragraph",
+                    "data": {"text": text},
+                },
+            )
+        # Hand-write a legacy-shaped log: an anchor at id 2 restating the state
+        # before revision 3, with revision 3 surviving after it. Nothing writes
+        # an anchor now, so it is written directly rather than via the API.
+        from wichy.tools.notes.revisions import all_entries, replay
+
+        entries = all_entries(slug)
+        before = replay(slug, upto_id=3)
+        anchor_ops = [
+            {
+                "op": "add",
+                "block_id": block.id,
+                "block_type": block.type,
+                "data": dict(block.data),
+                "index": index,
+            }
+            for index, block in enumerate(before.blocks)
+        ]
+        anchor = {
+            "id": 2,
+            "timestamp": "2026-01-01T00:00:00Z",
+            "author": "system",
+            "baseline": True,
+            "version_from": 0,
+            "version_to": 0,
+            "ops": anchor_ops,
+            "summary": "History starts here.",
+        }
+        survivors = [e for e in entries if e["id"] == 3]
+        revisions_path(slug).write_text(
+            "".join(json.dumps(e) + "\n" for e in [anchor, *survivors]),
+            encoding="utf-8",
+        )
+        return slug
+
+    def _state(self, client, slug):
+        body = client.get(f"{PREFIX}/api/notes/{slug}").get_json()
+        return (
+            body["meta"]["version"],
+            [(b["id"], b["data"]) for b in body["blocks"]],
+        )
+
+    def test_reverting_to_a_legacy_anchor_is_409_and_changes_nothing(
+        self, client, notes_dir
+    ):
+        slug = self._legacy_anchor(client)
+        before = self._state(client, slug)
+        version = before[0]
+
+        response = client.post(
+            f"{PREFIX}/api/notes/{slug}/revisions/2/revert", json={"version": version}
+        )
+
+        assert response.status_code == 409, response.get_data(as_text=True)
+        assert "history anchor" in response.get_json()["error"]
+        # The document is untouched: same version and blocks, and no revert
+        # entry was appended to the log.
+        assert self._state(client, slug) == before
+        listed = client.get(f"{PREFIX}/api/notes/{slug}/revisions").get_json()
+        assert listed["revisions"][0]["author"] != "system"
+
+    def test_restoring_at_a_legacy_anchor_is_still_200(self, client, notes_dir):
+        slug = self._legacy_anchor(client)
+        version = client.get(f"{PREFIX}/api/notes/{slug}").get_json()["meta"]["version"]
+
+        response = client.post(
+            f"{PREFIX}/api/notes/{slug}/revisions/2/restore", json={"version": version}
+        )
+
+        assert response.status_code == 200, response.get_data(as_text=True)
+        blocks = client.get(f"{PREFIX}/api/notes/{slug}").get_json()["blocks"]
+        # The anchor restates the state before revision 3, which is revision 2's
+        # content -- so restoring at the anchor rebuilds "v1", not the empty state
+        # the sibling revert would have wrongly produced.
+        assert [b["data"]["text"] for b in blocks] == ["v1"]

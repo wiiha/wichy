@@ -73,6 +73,19 @@ class IncompleteHistoryError(RuntimeError):
     """
 
 
+class HistoryAnchorError(RuntimeError):
+    """The requested state sits behind a history anchor and was never recorded.
+
+    An anchor is the marker for where the recorded history of an older build
+    begins: it restates the state at that point, so everything from it onward
+    replays exactly, but the state *before* it was dropped and cannot be
+    rebuilt. A revert means "the state before this revision", which is exactly
+    that unrecorded state, so it is refused rather than silently producing an
+    empty document. Restoring *at* the anchor is supported, because the anchor
+    itself is a rebuilt state.
+    """
+
+
 @dataclass
 class BlockState:
     """One block as it existed at some point in the log."""
@@ -787,6 +800,16 @@ def replay(slug: str, upto_id: int | None = None) -> HistoryState:
     return HistoryState(blocks=state, complete=complete, reason=reason)
 
 
+def _entry_is_anchor(entry: Mapping[str, Any]) -> bool:
+    """True when an entry is a history anchor rather than a recorded change.
+
+    ``baseline`` marks the entry an older build wrote to restate the state at
+    the point its recorded history begins. New logs never gain one, but legacy
+    logs still carry them and a reader must recognise them.
+    """
+    return bool(entry.get("baseline"))
+
+
 def state_before(slug: str, revision_id: int) -> HistoryState:
     """Rebuild the document's state as it was *before* ``revision_id``.
 
@@ -796,11 +819,27 @@ def state_before(slug: str, revision_id: int) -> HistoryState:
 
     Raises:
         RevisionNotFoundError: No such revision.
+        HistoryAnchorError: ``revision_id`` names the history anchor. The state
+            before an anchor was never recorded, so a replay would break at the
+            anchor and report an empty state -- which is not what the user
+            asked for. Use ``restore_document(..., at=True)`` instead.
     """
-    if not any(_entry_id(e) == revision_id for e in all_entries(slug)):
+    entries = all_entries(slug)
+    target = next((e for e in entries if _entry_id(e) == revision_id), None)
+    if target is None:
         raise RevisionNotFoundError(
             f"No revision {revision_id} for slug '{slug}'. "
             "Use read_revisions to list the ids that exist."
+        )
+    if _entry_is_anchor(target):
+        # Refused where both the library caller and the API route pass through,
+        # so neither can quietly write an empty document. Restoring AT the
+        # anchor is a different request and stays supported.
+        raise HistoryAnchorError(
+            f"Revision {revision_id} is the history anchor: the marker for "
+            "where the recorded history of an older build begins. The state "
+            "before it was never recorded, so reverting to it is refused. "
+            "Restore at the anchor instead (at=True), which is supported."
         )
     return replay(slug, upto_id=revision_id)
 
@@ -845,6 +884,9 @@ def restore_document(
         InvalidSlugError: The slug is not valid.
         RevisionNotFoundError: No such revision.
         IncompleteHistoryError: The history does not reach back far enough.
+        HistoryAnchorError: ``at`` is False and the target names the history
+            anchor, whose preceding state was never recorded. Restoring at the
+            anchor (``at=True``) is supported and does not raise.
         StaleVersionError: ``expected_version`` does not match.
         MarkdownDocumentError: The document is a markdown note.
     """
@@ -946,6 +988,7 @@ def revert_document(
 __all__ = [
     "BlockState",
     "HistoryState",
+    "HistoryAnchorError",
     "IncompleteHistoryError",
     "RevisionNotFoundError",
     "all_entries",

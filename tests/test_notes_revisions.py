@@ -39,6 +39,7 @@ from wichy.tools.notes.blocks import (
 )
 from wichy.tools.notes.models import BlockDataError
 from wichy.tools.notes.revisions import (
+    HistoryAnchorError,
     IncompleteHistoryError,
     RevisionNotFoundError,
     all_entries,
@@ -53,6 +54,7 @@ from wichy.tools.notes.revisions import (
     read_revisions,
     replay,
     replay_matches_document,
+    restore_document,
     revert_document,
     rotate_if_needed,
     rotate_now,
@@ -134,6 +136,55 @@ def append_entries(slug, count, start=1):
                 summary="synthetic",
             ),
         )
+
+
+def write_legacy_anchor_log(slug, *, anchor_id, keep_ids):
+    """Rewrite ``slug``'s log so an anchor restates the state before a survivor.
+
+    Legacy logs from the old build carry such an anchor: it was written where
+    earlier revisions had been dropped, restating the state at that point so
+    everything onward still replays exactly. Nothing writes one now, so the log
+    is written directly -- going through ``append_entry`` never produces it.
+
+    Args:
+        slug: The document slug.
+        anchor_id: The id the anchor reuses.
+        keep_ids: Ids of the surviving entries to keep after the anchor.
+
+    Returns:
+        The anchor entry as written.
+    """
+    entries = all_entries(slug)
+    before = replay(slug, upto_id=min(keep_ids))
+    anchor_ops = [
+        {
+            "op": "add",
+            "block_id": block.id,
+            "block_type": block.type,
+            "data": dict(block.data),
+            "index": index,
+        }
+        for index, block in enumerate(before.blocks)
+    ]
+    anchor = {
+        "id": anchor_id,
+        "timestamp": "2026-01-01T00:00:00Z",
+        "author": "system",
+        "baseline": True,
+        "version_from": 0,
+        "version_to": 0,
+        "ops": anchor_ops,
+        "summary": (
+            "History starts here. Earlier revisions were dropped; the document "
+            "can be rebuilt from this point on."
+        ),
+    }
+    survivors = [e for e in entries if e["id"] in keep_ids]
+    revisions_path(slug).write_text(
+        "".join(json.dumps(e) + "\n" for e in [anchor, *survivors]),
+        encoding="utf-8",
+    )
+    return anchor
 
 
 # ---------------------------------------------------------------------------
@@ -1465,3 +1516,71 @@ class TestAppendOnlyHistory:
         assert [(b.id, b.data) for b in state.blocks] == [
             (b.id, b.data) for b in load_document(slug).blocks
         ]
+
+
+class TestRevertToALegacyAnchorIsRefused:
+    """A legacy anchor's preceding state was never recorded, so it is refused.
+
+    An anchor reuses a real id and restates the state where the old build's
+    recorded history begins. Reverting to that id asks for the state BEFORE it,
+    which the log never held: replay breaks at the anchor as its first entry and
+    reports an empty document. Writing that back would silently destroy the note.
+    """
+
+    def _legacy_anchor(self, notes_dir):
+        document = create_document(
+            "Anchored", [{"type": "paragraph", "data": {"text": "v0"}}]
+        )
+        slug = document.meta.slug
+        block_id = document.blocks[0].id
+        for index in range(2):
+            with locked_document(slug, None, author="user") as open_document:
+                replace_block(
+                    open_document,
+                    block_id,
+                    data={"text": f"v{index + 1}"},
+                    author="user",
+                )
+        # Anchor at id 2 restating the state before revision 3; revision 3 stays.
+        anchor = write_legacy_anchor_log(slug, anchor_id=2, keep_ids=[3])
+        return slug, anchor
+
+    def test_reverting_to_a_legacy_anchor_is_refused(self, notes_dir):
+        slug, anchor = self._legacy_anchor(notes_dir)
+        before = load_document(slug)
+        log_before = len(all_entries(slug))
+        assert replay_matches_document(slug) is True
+
+        with pytest.raises(HistoryAnchorError) as raised:
+            revert_document(slug, anchor["id"], expected_version=before.meta.version)
+
+        # The message names the anchor and points at the supported alternative.
+        message = str(raised.value)
+        assert "history anchor" in message
+        assert "at=True" in message
+
+        # Nothing changed: same blocks, same version, no revert entry written.
+        after = load_document(slug)
+        assert [(b.id, b.data) for b in after.blocks] == [
+            (b.id, b.data) for b in before.blocks
+        ]
+        assert after.meta.version == before.meta.version
+        assert len(all_entries(slug)) == log_before
+        assert replay_matches_document(slug) is True
+
+    def test_restoring_at_a_legacy_anchor_still_works(self, notes_dir):
+        """Restoring AT the anchor is a different request, and it is supported."""
+        slug, anchor = self._legacy_anchor(notes_dir)
+        before = load_document(slug)
+
+        restored, entry = restore_document(
+            slug, anchor["id"], expected_version=before.meta.version, at=True
+        )
+
+        # The anchor restates the state before revision 3, so restoring at it
+        # rebuilds that state and records a new system revision.
+        assert [(b.id, b.data) for b in restored.blocks] == [
+            (b.id, b.data) for b in replay(slug, upto_id=3).blocks
+        ]
+        assert entry["author"] == "system"
+        assert replay_matches_document(slug) is True

@@ -97,6 +97,7 @@ from wichy.tools.notes.state import (
     was_injected,
 )
 from wichy.tools.notes.revisions import (
+    HistoryAnchorError,
     IncompleteHistoryError,
     replay,
     RevisionNotFoundError,
@@ -1327,6 +1328,12 @@ def register_routes(bp: Blueprint):
             # exactly. Reported as a conflict with the request rather than a
             # server fault, because a revert built on a partial history would
             # silently drop blocks the log never saw.
+            return _error(str(e), 409)
+        except HistoryAnchorError as e:
+            # The target names the history anchor, so "the state before it" was
+            # never recorded. A 409 rather than a 404: the revision exists and is
+            # readable, but reverting to it conflicts with how the history
+            # begins. Restoring AT the anchor is a different request and works.
             return _error(str(e), 409)
         except InvalidSlugError as e:
             return _error(str(e), 400)

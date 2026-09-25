@@ -1326,6 +1326,14 @@ class ReadRevisionsTool(BaseTool):
                 if op.get("block_id")
             ]
             suffix = f" (blocks: {', '.join(block_ids)})" if block_ids else ""
+            # An anchor is the marker for where the recorded history of an older
+            # build begins, not a state the agent can browse or revert to. Marked
+            # distinctly so the agent does not read it as an ordinary revision.
+            if entry.get("baseline"):
+                suffix += (
+                    " [history anchor -- the start of recorded history; "
+                    "not a browsable state]"
+                )
             lines.append(
                 f"[rev {entry.get('id')}] {entry.get('timestamp')} "
                 f"{entry.get('author')} v{entry.get('version_from')}->"

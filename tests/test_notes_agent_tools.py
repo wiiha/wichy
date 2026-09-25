@@ -1732,3 +1732,53 @@ class TestFindBlockIds:
         assert "No block" in run(FindBlockIdsTool, search_str="checked")
         # And the visible text does match.
         assert document.blocks[0].id in run(FindBlockIdsTool, search_str="milk")
+
+
+class TestReadRevisionsMarksAnchors:
+    """An anchor row is marked distinctly; ordinary rows keep their exact shape.
+
+    An anchor is the marker for where the recorded history of an older build
+    begins -- not a state the agent can browse or revert to -- so the agent must
+    not read it as an ordinary revision.
+    """
+
+    def _write_log_with_anchor(self, slug):
+        anchor = {
+            "id": 1,
+            "timestamp": "2026-01-01T00:00:00Z",
+            "author": "system",
+            "baseline": True,
+            "version_from": 0,
+            "version_to": 0,
+            "ops": [],
+            "summary": "History starts here.",
+        }
+        normal = {
+            "id": 2,
+            "timestamp": "2026-01-02T00:00:00Z",
+            "author": "agent",
+            "version_from": 1,
+            "version_to": 2,
+            "ops": [],
+            "summary": "An edit",
+        }
+        revisions_path(slug).write_text(
+            "".join(json.dumps(e) + "\n" for e in [anchor, normal]),
+            encoding="utf-8",
+        )
+
+    def test_read_revisions_marks_anchors(self, scratchpad):
+        slug, _ = scratchpad
+        self._write_log_with_anchor(slug)
+
+        result = run(ReadRevisionsTool)
+        lines = result.splitlines()
+
+        # Newest first: the ordinary row is byte-identical to today's shape.
+        assert "[rev 2] 2026-01-02T00:00:00Z agent v1->v2 -- An edit" in lines
+        # The anchor row carries the distinct marker as a suffix.
+        assert (
+            "[rev 1] 2026-01-01T00:00:00Z system v0->v0 -- History starts here."
+            " [history anchor -- the start of recorded history; not a browsable"
+            " state]" in lines
+        )
