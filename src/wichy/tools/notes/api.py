@@ -102,9 +102,8 @@ from wichy.tools.notes.revisions import (
     IncompleteHistoryError,
     replay,
     RevisionNotFoundError,
-    count_revisions,
+    browse_entries_with_filters,
     get_revision,
-    read_revisions,
     replay_matches_document,
     restore_document,
     revert_document,
@@ -1218,7 +1217,7 @@ def register_routes(bp: Blueprint):
             return _error(NOT_FOUND, 404)
 
         try:
-            revisions = read_revisions(
+            revisions, warning, total = browse_entries_with_filters(
                 slug,
                 limit=request.args.get("limit", type=int),
                 since_id=request.args.get("since_id", type=int),
@@ -1226,16 +1225,25 @@ def register_routes(bp: Blueprint):
             )
         except InvalidSlugError as e:
             return _error(str(e), 400)
-        except (CorruptRevisionLogError, UnicodeDecodeError, OSError) as e:
+        except (UnicodeDecodeError, OSError) as e:
             # The revision log is a file on disk too: a non-UTF-8 one raises
             # UnicodeDecodeError, which is a ValueError and would otherwise
-            # escape as an HTML 500 the browser cannot read. A torn live-log tail
-            # (CorruptRevisionLogError) is reported with its own message so the
-            # user learns the history ended mid-entry rather than seeing it
-            # silently truncated.
+            # escape as an HTML 500 the browser cannot read.
             return _error(f"Could not read revisions: {e}", 500)
 
-        return jsonify({"revisions": revisions, "total": count_revisions(slug)})
+        payload: dict[str, Any] = {
+            "revisions": revisions,
+            # The total comes from the same tolerant read, before filtering: a
+            # torn tail must not turn the count into a refusal either.
+            "total": total,
+        }
+        # A torn live-log tail does not hide the rest: the readable history is
+        # served WITH its warning, because a browse that blanks on the newest
+        # line would cost the user everything still intact. Restoring still
+        # refuses; only browsing degrades.
+        if warning is not None:
+            payload["history_warning"] = warning
+        return jsonify(payload)
 
     @bp.route("/api/notes/<slug>/revisions/<int:revision_id>")
     def show_revision(slug: str, revision_id: int):

@@ -1224,6 +1224,19 @@
         historyEntries = listed.revisions || [];
         historySelectedId = null;
         renderHistoryList();
+        // A torn tail on the live log is served WITH its warning: the readable
+        // history is still shown, and the reason the newest entries are absent
+        // is stated beside them rather than the whole browser going blank.
+        const torn = document.getElementById("history-incomplete");
+        if (torn) {
+            if (listed.history_warning) {
+                torn.textContent = listed.history_warning;
+                torn.classList.remove("hidden");
+                torn.classList.remove("history-boundary");
+            } else {
+                torn.classList.add("hidden");
+            }
+        }
         clearHistoryDetail();
         modal.classList.remove("hidden");
         document.getElementById("history-modal-close")?.focus();

@@ -2158,16 +2158,40 @@ class TestAMiddleGapIsDisclosedAndRefused:
 
 
 class TestCorruptRevisionLog:
-    def test_a_corrupt_log_surfaces_as_an_explained_500(self, client, notes_dir):
-        """A torn live-log tail is a readable JSON 500, not an HTML crash."""
+    def test_browsing_serves_readable_history_with_the_warning(self, client, notes_dir):
+        """A torn tail must not blank the browse: serve what is still readable.
+
+        The list keeps working and carries the reason, because refusing the
+        browse would cost the user every intact rotated entry to disclose one
+        bad line -- disclosure that destroys what it discloses.
+        """
         create(client, "Corrupt", "a")
         path = revisions_path("corrupt")
         with open(path, "a", encoding="utf-8") as handle:
             handle.write('{"id": 99, "ops": [')
 
         response = client.get(f"{PREFIX}/api/notes/corrupt/revisions")
+        assert response.status_code == 200
+        body = response.get_json()
+        assert body is not None, response.get_data(as_text=True)
+        # The creation entry is intact and still served.
+        assert [entry["id"] for entry in body["revisions"]] == [1]
+        assert "mid-entry" in body["history_warning"]
+        assert "corrupt.revisions.jsonl" in body["history_warning"]
+
+    def test_state_routes_still_refuse_a_corrupt_log(self, client, notes_dir):
+        """Restoring from a torn log is refused: a state that cannot be rebuilt
+        exactly must not be written, unlike the browse above."""
+        create(client, "Corrupt", "a")
+        path = revisions_path("corrupt")
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write('{"id": 99, "ops": [')
+
+        response = client.post(
+            f"{PREFIX}/api/notes/corrupt/revisions/1/restore",
+            json={"version": 1},
+        )
         assert response.status_code == 500
         body = response.get_json()
         assert body is not None, response.get_data(as_text=True)
         assert "mid-entry" in body["error"]
-        assert "corrupt.revisions.jsonl" in body["error"]

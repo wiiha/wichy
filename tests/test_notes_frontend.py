@@ -2260,3 +2260,20 @@ class TestTheBrowserSendsThePreviousContent:
         """
         body = self.diff_body()
         assert "const previous = beforeById.get(block.id);" in body
+
+
+class TestTheTornTailWarningIsShown:
+    """A torn log tail must not blank the history browser.
+
+    The server serves the readable entries WITH a warning, so the front end
+    must read that warning and show it; a browser that ignores it would hide
+    both the warning and, without the entries, the reason history ends early.
+    """
+
+    def script(self) -> str:
+        return (STATIC / "notes_blocks.js").read_text(encoding="utf-8")
+
+    def test_the_browser_renders_the_history_warning(self):
+        source = self.script()
+        assert "history_warning" in source
+        assert "torn.textContent = listed.history_warning" in source

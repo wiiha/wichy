@@ -321,6 +321,82 @@ def count_revisions(slug: str) -> int:
     return len(all_entries(slug))
 
 
+def browse_entries(slug: str) -> tuple[list[dict], str | None]:
+    """Entries for BROWSING history, oldest first, surviving a torn tail.
+
+    Browsing is not the same job as restoring. A torn final line must stop a
+    restore, because a state that cannot be rebuilt exactly must not be
+    written -- but it must not cost the user the history that is still
+    readable. Refusing the whole browse because the newest line is
+    half-written would blank the history browser even when every rotated file
+    is intact: disclosure that destroys what it discloses. This reads what is
+    there and reports the tear beside it; the caller decides how to show it.
+
+    Args:
+        slug: The document slug.
+
+    Returns:
+        (entries, warning): the readable entries, oldest first, and the
+        plain-words reason the history ends where it does. The warning is None
+        when the log is intact.
+    """
+    warning: str | None = None
+    entries: list[dict] = []
+    for path in rotated_logs(slug):
+        entries.extend(read_log_entries(path))
+    live_path = revisions_path(slug)
+    try:
+        entries.extend(read_log_entries(live_path, live=True))
+    except CorruptRevisionLogError as e:
+        warning = str(e)
+        # The raise happens before the reader can return the lines before the
+        # tear, and those are intact: re-read tolerantly, which skips only the
+        # torn line. Dropping them would punish the browse for a bad tail the
+        # warning already names.
+        entries.extend(read_log_entries(live_path))
+    entries.sort(key=_entry_id)
+    return entries, warning
+
+
+def browse_entries_with_filters(
+    slug: str,
+    *,
+    limit: int | None = None,
+    since_id: int | None = None,
+    author: str | None = None,
+) -> tuple[list[dict], str | None, int]:
+    """Read a document's revisions for BROWSING, newest first, with filters.
+
+    The same filtering ``read_revisions`` applies, over the tolerant
+    ``browse_entries`` read, so the history LIST keeps serving everything
+    still readable when the live log ends in a torn line -- with the reason
+    attached for the caller to show. Restoring is a different job and keeps
+    its strict refusal.
+
+    Args:
+        slug: The document slug.
+        limit: Return at most this many entries.
+        since_id: Return only entries with a strictly greater id.
+        author: Return only entries by this author.
+
+    Returns:
+        (entries, warning, total): filtered entries, newest first, the
+        plain-words history warning (None when the log is intact), and the
+        count BEFORE filtering -- so a caller can show a total without a
+        second read, and a torn tail cannot turn the count into a refusal.
+    """
+    entries, warning = browse_entries(slug)
+    total = len(entries)
+    if since_id is not None:
+        entries = [e for e in entries if _entry_id(e) > since_id]
+    if author is not None:
+        entries = [e for e in entries if e.get("author") == author]
+    entries.reverse()
+    if limit is not None:
+        entries = entries[: max(limit, 0)]
+    return entries, warning, total
+
+
 def get_revision(slug: str, revision_id: int) -> dict:
     """One revision by id, searching rotated logs too.
 
@@ -837,6 +913,12 @@ def replay(slug: str, upto_id: int | None = None) -> HistoryState:
     walk_end = (
         upto_id if upto_id is not None else (max(real_ids) + 1 if real_ids else None)
     )
+    # The walk checks the log's own contiguity, never the caller's reach: an
+    # explicit target past the newest surviving entry must not manufacture a
+    # "gap" out of ids the log simply never had. Asking for a state after the
+    # newest entry walks only to what exists.
+    if walk_end is not None and real_ids:
+        walk_end = min(walk_end, max(real_ids) + 1)
     gaps: list[tuple[int, int]] = []
     if first_id is not None and walk_end is not None and walk_end > first_id:
         previous = first_id

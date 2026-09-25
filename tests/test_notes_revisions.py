@@ -46,6 +46,7 @@ from wichy.tools.notes.revisions import (
     all_entries,
     append_entry,
     block_snapshot,
+    browse_entries,
     count_revisions,
     describe_ops,
     diff_ops,
@@ -1760,3 +1761,78 @@ class TestTornLogTailDisclosure:
         # Reading the live path still returns the rotated survivors, no raise.
         ids = [e["id"] for e in all_entries(slug)]
         assert ids == [2, 3, 4]
+
+
+class TestBrowsingSurvivesATornTail:
+    """A torn live-log tail must not cost the user their readable history.
+
+    Browsing and restoring are different jobs. Restoring a state that cannot
+    be rebuilt exactly must refuse; BROWSING must still show the entries that
+    are intact, with the reason the newest ones are absent, because a browse
+    that blanks on one bad line destroys the very history it exists to show.
+    """
+
+    def test_browse_keeps_the_readable_history_with_a_warning(self, notes_dir, doc):
+        slug, _ = doc
+        append_entries(slug, 3, start=2)
+        rotated = rotate_now(slug)
+        assert rotated is not None
+        append_entries(slug, 2, start=5)
+        # A crash mid-append leaves a half line with no trailing newline.
+        with open(revisions_path(slug), "a", encoding="utf-8") as handle:
+            handle.write('{"id": 99, "ops": [')
+
+        entries, warning = browse_entries(slug)
+
+        # The rotated history survives; only the torn live tail is missing.
+        assert [e["id"] for e in entries] == [1, 2, 3, 4, 5, 6]
+        assert warning is not None
+        assert "mid-entry" in warning
+        assert "crash" in warning
+
+        # The strict read still refuses: restoring must never see a torn log
+        # as ordinary history.
+        with pytest.raises(CorruptRevisionLogError):
+            all_entries(slug)
+
+    def test_browse_is_silent_when_the_log_is_intact(self, notes_dir, doc):
+        slug, _ = doc
+        append_entries(slug, 3, start=2)
+
+        entries, warning = browse_entries(slug)
+
+        assert [e["id"] for e in entries] == [1, 2, 3, 4]
+        assert warning is None
+
+
+class TestReplayDoesNotInventGaps:
+    """The contiguity walk checks the log, never the caller's reach.
+
+    An explicit target past the newest surviving entry is not evidence of
+    missing history: the walk must stop at what exists, or replaying a
+    perfectly intact log would report a gap out of ids the log never had.
+    """
+
+    def test_replaying_past_the_newest_entry_reports_no_gap(self, notes_dir, doc):
+        slug, _ = doc
+        append_entries(slug, 3, start=2)
+
+        state = replay(slug, upto_id=999)
+
+        assert state.has_gap is False
+        assert state.complete is True
+        assert state.reason is None
+
+    def test_a_real_gap_is_still_reported(self, notes_dir, doc):
+        slug, _ = doc
+        append_entries(slug, 3, start=2)
+        # Delete the middle entry by hand: damage an older build could leave.
+        rows = revisions_path(slug).read_text(encoding="utf-8").splitlines()
+        keep = [row for row in rows if '"id": 3' not in row]
+        revisions_path(slug).write_text("\n".join(keep) + "\n", encoding="utf-8")
+
+        state = replay(slug, upto_id=4)
+
+        assert state.has_gap is True
+        assert state.complete is False
+        assert "revision 3" in (state.reason or "")
