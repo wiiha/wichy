@@ -1075,6 +1075,35 @@
     }
 
     /**
+     * One block's content as plain text, for ANY block type -- the same
+     * reading order the history pane uses. The compare readers once each had
+     * their own copy that read only `text` and `caption`, so a list, checklist
+     * or code block rendered as "(no text content)" in BOTH compare columns,
+     * which reads as "nothing changed" -- the opposite of the truth. One
+     * renderer, used by both, is what stops the copies drifting apart again.
+     */
+    function blockDataAsText(data) {
+        const d = data || {};
+        const body =
+            d.text !== undefined
+                ? String(d.text)
+                : d.caption !== undefined
+                  ? String(d.caption)
+                  : d.items !== undefined
+                    ? d.items
+                          .map((item) =>
+                              typeof item === "string"
+                                  ? item
+                                  : String(item.text ?? "")
+                          )
+                          .join("\n")
+                    : d.code !== undefined
+                      ? String(d.code)
+                      : JSON.stringify(d);
+        return body;
+    }
+
+    /**
      * The local content of a block, as plain text for the compare view.
      *
      * The block is read through `save()`, not through a `data` property: the
@@ -1093,8 +1122,8 @@
         }
         const saved = await editor.blocks.getBlockByIndex(index).save();
         const data = (saved && saved.data) || {};
-        const content = data.text || data.caption || "";
-        return content ? String(content) : "(no text content)";
+        const content = blockDataAsText(data);
+        return content ? content : "(no text content)";
     }
 
     /** The agent's content for an op, as plain text for the compare view. */
@@ -1103,8 +1132,8 @@
             return "(the agent removed this block)";
         }
         const data = op.data || {};
-        const content = data.text || data.caption || "";
-        return content ? String(content) : `(${op.op} op, no text content)`;
+        const content = blockDataAsText(data);
+        return content ? content : `(${op.op} op, no text content)`;
     }
 
     function hideCompare() {

@@ -1035,6 +1035,40 @@ class TestTheConflictBannerResolves:
         assert ".save()" in body
         assert "block.data" not in body
 
+    def test_both_compare_readers_share_one_plain_text_renderer(self):
+        """List, checklist and code blocks must render, not read as empty."""
+        source = self.script()
+        block = source[source.index("function blockDataAsText") :]
+        block = block[: block.index("async function describeBlockForCompare")]
+        # The reading order the history pane uses: text, caption, items, code.
+        assert "d.text !== undefined" in block
+        assert "d.caption !== undefined" in block
+        assert "d.items !== undefined" in block
+        assert "d.code !== undefined" in block
+        # Both compare readers route through the shared renderer.
+        mine = source[source.index("async function describeBlockForCompare") :]
+        mine = mine[: mine.index("function describeOpForCompare")]
+        assert "blockDataAsText(data)" in mine
+        theirs = source[source.index("function describeOpForCompare") :]
+        theirs = theirs[: theirs.index("function hideCompare")]
+        assert "blockDataAsText(data)" in theirs
+
+    def test_the_compare_readers_no_longer_have_their_own_text_readers(self):
+        """The private copies drifted apart from the real renderer once."""
+        source = self.script()
+        assert "data.text || data.caption" not in source
+
+    def test_the_shared_renderer_keeps_the_empty_content_fallbacks(self):
+        """An empty body must still read as absent, not as an empty column."""
+        source = self.script()
+        mine = source[source.index("async function describeBlockForCompare") :]
+        mine = mine[: mine.index("function describeOpForCompare")]
+        assert '"(no text content)"' in mine
+        theirs = source[source.index("function describeOpForCompare") :]
+        theirs = theirs[: theirs.index("function hideCompare")]
+        assert "no text content" in theirs
+        assert "the agent removed this block" in theirs
+
     def test_a_conflicted_block_gets_its_own_border_class(self):
         source = self.script()
         assert 'classList.toggle("conflicted"' in source
