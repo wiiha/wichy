@@ -43,6 +43,7 @@ from wichy.tools.notes.blocks import (
     locked_document,
     replace_block,
     revisions_path,
+    save_document,
 )
 from wichy.tools.notes.state import reset_state
 from wichy.tools.read_scratchpad import ReadScratchpadTool
@@ -217,7 +218,7 @@ class TestReadBlocks:
     def test_reads_all_blocks_with_metadata(self, scratchpad):
         slug, ids = scratchpad
         result = run(ReadBlocksTool)
-        assert "[Scratchpad | version 1 | 3 blocks]" in result
+        assert "[Scratchpad: Scratch | version 1 | 3 blocks]" in result
         for block_id in ids:
             assert block_id in result
 
@@ -1638,6 +1639,24 @@ class TestReadScratchpadStyles:
 
     def test_the_header_reports_the_version(self, scratchpad):
         assert "version 1" in run(ReadScratchpadTool)
+
+    def test_the_header_names_the_title(self, scratchpad):
+        result = run(ReadScratchpadTool)
+        assert "[Scratchpad: Scratch | version 1 | 3 blocks]" in result
+
+    def test_an_untitled_note_degrades_to_the_unnamed_header(self, notes_dir):
+        # ``create_document`` refuses an empty title (the sidebar must be able
+        # to label a note), so an untitled document is one whose title was
+        # blanked after creation. Loading it back gives meta.title == "".
+        untitled = create_document(
+            "Provisional", [{"type": "paragraph", "data": {"text": "x"}}]
+        )
+        untitled.meta.title = ""
+        save_document(untitled)
+        set_scratchpad_state(untitled.meta.slug)
+        result = run(ReadScratchpadTool)
+        assert "[Scratchpad | version 1 | 1 blocks]" in result
+        assert "Scratchpad: " not in result
 
 
 class TestGetBlock:

@@ -461,10 +461,20 @@ def scratchpad_header(document: Any) -> str:
         document: The document being read.
 
     Returns:
-        The header line, naming no slug: the agent has no word for a note's name.
+        The header line: the note's title, but never its slug. The title is
+        context the agent can quote to the user; the internal slug is a
+        filename it has no word for. An untitled note keeps the unnamed
+        shape rather than an empty one.
     """
+    title = str(getattr(document.meta, "title", "") or "")
+    if not title:
+        # A missing title is a state to show as unnamed, not as `Scratchpad: `.
+        return (
+            f"[Scratchpad | version {document.meta.version} | "
+            f"{len(document.blocks)} blocks]"
+        )
     return (
-        f"[Scratchpad | version {document.meta.version} | "
+        f"[Scratchpad: {title} | version {document.meta.version} | "
         f"{len(document.blocks)} blocks]"
     )
 
