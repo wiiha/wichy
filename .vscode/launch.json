@@ -20,7 +20,7 @@
       "console": "integratedTerminal",
       "args": [
         "--model-str",
-        "ollama/glm-5.2:cloud",
+        "ollama/deepseek-v4.1-flash:cloud",
         // "ollama/deepseek-v4-flash:cloud"
         "--first"
       ]
