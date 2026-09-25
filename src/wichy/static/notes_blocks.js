@@ -1253,6 +1253,11 @@
         historyEntries = listed.revisions || [];
         historySelectedId = null;
         renderHistoryList();
+        // The detail pane is emptied FIRST: a torn-tail warning is a property
+        // of the LIST, not of any selected revision, so it must survive the
+        // clear. Rendering the warning and then clearing hid it immediately --
+        // the disclosure existed in the data and never on the page.
+        clearHistoryDetail();
         // A torn tail on the live log is served WITH its warning: the readable
         // history is still shown, and the reason the newest entries are absent
         // is stated beside them rather than the whole browser going blank.
@@ -1266,7 +1271,6 @@
                 torn.classList.add("hidden");
             }
         }
-        clearHistoryDetail();
         modal.classList.remove("hidden");
         document.getElementById("history-modal-close")?.focus();
     }

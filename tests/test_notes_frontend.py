@@ -2311,3 +2311,19 @@ class TestTheTornTailWarningIsShown:
         source = self.script()
         assert "history_warning" in source
         assert "torn.textContent = listed.history_warning" in source
+
+    def test_the_warning_is_rendered_after_the_detail_pane_is_cleared(self):
+        """Order matters: the clear hides the note element, the warning shows it.
+
+        The warning is a property of the whole log, not of the selected
+        revision, so it must not be cleared by the detail pane being emptied.
+        Rendering it before the clear meant it was hidden again in the same
+        tick -- the disclosure existed in the data and never on the page,
+        invisible to every presence guard but the first browser run.
+        """
+        source = self.script()
+        body = source[source.index("async function openHistory") :]
+        body = body[: body.index("/** The list of revisions, newest first.")]
+        clear_at = body.index("clearHistoryDetail();")
+        warning_at = body.index("torn.textContent = listed.history_warning")
+        assert warning_at > clear_at, "the warning must render after the clear"
