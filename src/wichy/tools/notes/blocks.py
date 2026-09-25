@@ -67,8 +67,18 @@ _NESTED = threading.local()
 
 #: Serialises slug allocation. Uniqueness is a property of the directory as a
 #: whole, so it cannot be guarded by a per-document lock: two creators would
-#: hold locks for different slugs and never serialise. Always acquired BEFORE
-#: a document lock, never after, so the two cannot deadlock.
+#: hold locks for different slugs and never serialise.
+#:
+#: Lock order is NOT uniform, and the old claim that this is "always
+#: acquired BEFORE a document lock" was false. create_document takes this
+#: lock first, then the new document's lock (ALLOC -> doc:new). A rename
+#: takes the old document's lock first -- the caller enters
+#: locked_document -- then this lock, then the target's (doc:old -> ALLOC
+#: -> doc:new). That inversion cannot deadlock: this lock only guards slugs
+#: that do not exist yet (make_unique_slug and unique_slug_for_title skip
+#: taken slugs), so a creator never holds it while waiting on a document
+#: lock that a renamer holds. The two never wait on each other's
+#: documents.
 _SLUG_ALLOCATION_LOCK = threading.Lock()
 
 
@@ -1077,12 +1087,17 @@ def rename_document_files(old_slug: str, new_slug: str) -> None:
     # both passed the old check and then clobbered the target -- os.rename over a
     # live document is data loss reported as a 200.
     #
-    # Order is allocation -> old slug -> target slug, the same everywhere a
-    # rename touches files, so two renames crossing in opposite directions
-    # cannot deadlock.
-    # The allocation lock is taken by the CALLER too (the rename route needs it
-    # before it takes the old document's lock, so the two orderings agree); this
-    # is the same lock object in-process, so nesting here is free.
+    # Actual order on this path: the CALLER already holds the old document's
+    # lock (it entered through locked_document), so this body takes ALLOC and
+    # then doc:old (already held, re-entrant) and doc:new. The real sequence
+    # is doc:old -> ALLOC -> doc:new, the same as the instrumented trace
+    # shows -- NOT the allocation-first order create_document uses, and the
+    # old comment claiming the caller took the allocation lock first was
+    # wrong. The inversion is safe because the allocation lock only guards
+    # slugs that do not exist yet: make_unique_slug skips taken slugs, so a
+    # creator can never hold ALLOC while waiting on a document lock a
+    # renamer holds. No behaviour depends on this ordering; only the
+    # comments were untruthful.
     with _SLUG_ALLOCATION_LOCK, _file_lock("slug-allocation"):
         # Both refusals happen HERE, before any document lock is taken and before
         # any file moves, so a refused rename leaves the operation a no-op rather

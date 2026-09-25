@@ -58,7 +58,7 @@ from wichy.tools.notes.models import (
     BlockDataError,
     is_valid_slug,
 )
-from wichy.tools.notes.revisions import read_revisions
+from wichy.tools.notes.revisions import CorruptRevisionLogError, read_revisions
 
 #: Marker patterns for reading plain text as a block. Shared with the markdown
 #: converter so text the agent copies out of a read is accepted back as input.
@@ -1306,10 +1306,16 @@ class ReadRevisionsTool(BaseTool):
             entries = read_revisions(
                 slug, limit=limit, since_id=since_id, author=author
             )
-        except (InvalidSlugError, UnicodeDecodeError, OSError) as e:
+        except (
+            CorruptRevisionLogError,
+            InvalidSlugError,
+            UnicodeDecodeError,
+            OSError,
+        ) as e:
             # The revision log is read off disk as UTF-8 text: a non-UTF-8 file
             # raises UnicodeDecodeError, and leaving it out would let a read tool
-            # raise despite promising a string result.
+            # raise despite promising a string result. A torn live-log tail is
+            # reported the same way, disclosing a history that ends mid-entry.
             return f"Could not read revisions: {e}"
 
         if not entries:

@@ -97,6 +97,7 @@ from wichy.tools.notes.state import (
     was_injected,
 )
 from wichy.tools.notes.revisions import (
+    CorruptRevisionLogError,
     HistoryAnchorError,
     IncompleteHistoryError,
     replay,
@@ -1225,10 +1226,13 @@ def register_routes(bp: Blueprint):
             )
         except InvalidSlugError as e:
             return _error(str(e), 400)
-        except (UnicodeDecodeError, OSError) as e:
+        except (CorruptRevisionLogError, UnicodeDecodeError, OSError) as e:
             # The revision log is a file on disk too: a non-UTF-8 one raises
             # UnicodeDecodeError, which is a ValueError and would otherwise
-            # escape as an HTML 500 the browser cannot read.
+            # escape as an HTML 500 the browser cannot read. A torn live-log tail
+            # (CorruptRevisionLogError) is reported with its own message so the
+            # user learns the history ended mid-entry rather than seeing it
+            # silently truncated.
             return _error(f"Could not read revisions: {e}", 500)
 
         return jsonify({"revisions": revisions, "total": count_revisions(slug)})
@@ -1256,17 +1260,24 @@ def register_routes(bp: Blueprint):
             return _error(str(e), 404)
         except InvalidSlugError as e:
             return _error(str(e), 400)
-        except (UnicodeDecodeError, OSError) as e:
+        except (CorruptRevisionLogError, UnicodeDecodeError, OSError) as e:
             # The revision log is a file on disk too: a non-UTF-8 one raises
             # UnicodeDecodeError, which is a ValueError and would otherwise
-            # escape as an HTML 500 the browser cannot read.
+            # escape as an HTML 500 the browser cannot read. A torn live-log
+            # tail is reported with its own message, so a truncated history
+            # is disclosed rather than served as if nothing were missing.
             return _error(f"Could not read revisions: {e}", 500)
 
         try:
             state = replay(slug, upto_id=revision_id + 1)
         except RevisionNotFoundError:
             state = None
-        except (InvalidSlugError, UnicodeDecodeError, OSError) as e:
+        except (
+            CorruptRevisionLogError,
+            InvalidSlugError,
+            UnicodeDecodeError,
+            OSError,
+        ) as e:
             return _error(f"Could not read revisions: {e}", 500)
 
         payload: dict[str, Any] = {"revision": entry}
@@ -1345,7 +1356,10 @@ def register_routes(bp: Blueprint):
             return _error(str(e), 409)
         except BlockDataError as e:
             return _error(str(e), 400)
-        except OSError as e:
+        except (CorruptRevisionLogError, OSError) as e:
+            # The state to revert to is rebuilt by reading the log; a torn
+            # live tail is reported here too rather than reverted from a
+            # history that silently ends early.
             return _error(f"Could not revert: {e}", 500)
 
         return jsonify(
@@ -1413,7 +1427,7 @@ def register_routes(bp: Blueprint):
             return _error(str(e), 409)
         except BlockDataError as e:
             return _error(str(e), 400)
-        except OSError as e:
+        except (CorruptRevisionLogError, OSError) as e:
             return _error(f"Could not restore: {e}", 500)
 
         return jsonify(

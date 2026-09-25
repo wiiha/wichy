@@ -86,6 +86,18 @@ class HistoryAnchorError(RuntimeError):
     """
 
 
+class CorruptRevisionLogError(RuntimeError):
+    """The live revision log ends in a torn, half-written entry.
+
+    Raised on READ, not on write. Appends are fsynced, so a torn tail is rare,
+    but a crash mid-append or a disk that filled up -- by this build, an older
+    one, or anything else editing the file -- leaves the last line incomplete.
+    Tolerant parsing would skip it silently: the history would simply appear to
+    end earlier, with no sign that an entry went missing. Refused instead, so
+    the user is told to inspect the line before trusting the history.
+    """
+
+
 @dataclass
 class BlockState:
     """One block as it existed at some point in the log."""
@@ -166,15 +178,27 @@ def rotated_logs(slug: str) -> list[Path]:
     return [path for _, path in found]
 
 
-def read_log_entries(path: Path) -> list[dict]:
+def read_log_entries(path: Path, *, live: bool = False) -> list[dict]:
     """Read one JSONL file, skipping blank and malformed lines.
 
-    Deliberately tolerant, matching the context handler's reader: a truncated
-    final line is what a crash mid-append looks like, and refusing to read the
-    rest of the file would turn one bad line into total history loss.
+    Deliberately tolerant, matching the context handler's reader: an old
+    malformed line in the middle of a file is corruption that predates this
+    read, and refusing the rest would turn one bad line into total history
+    loss. That middle-line behaviour is unchanged.
+
+    ``live`` marks the file as the document's CURRENT log, the one an append
+    writes to now. There a malformed LAST line, or a file that does not end in a
+    newline, is a torn write: a crash mid-append or a full disk. The line is
+    reported rather than skipped, because skipping it would make history end
+    earlier with no sign anything was lost, and the gap check cannot catch it --
+    a torn tail leaves no missing id in the middle, only an absent one at the
+    end. Rotated logs stay tolerant: rotation renames a COMPLETE file aside, so a
+    torn line there is older corruption the reader must still get past, not a
+    write that failed under it. See :class:`CorruptRevisionLogError`.
 
     Args:
         path: The JSONL file to read.
+        live: True when ``path`` is the live log rather than a rotated one.
 
     Returns:
         Parsed entries in file order; empty when the file is absent, blank or
@@ -184,19 +208,28 @@ def read_log_entries(path: Path) -> list[dict]:
 
     Raises:
         OSError: The file exists but could not be read.
+        CorruptRevisionLogError: ``live`` is set and the file ends mid-entry.
     """
     if not path.exists():
         return []
-    lines = path.read_text(encoding="utf-8").splitlines()
+    text = path.read_text(encoding="utf-8")
+    lines = text.splitlines()
 
     entries: list[dict] = []
-    for raw in lines:
+    for index, raw in enumerate(lines):
         raw = raw.strip()
         if not raw:
             continue
         try:
             parsed = json.loads(raw)
         except json.JSONDecodeError:
+            if live and index == len(lines) - 1:
+                raise CorruptRevisionLogError(
+                    f"The revision log '{path.name}' ends mid-entry at line "
+                    f"{index + 1}: the recorded history ends part way through a "
+                    "change, which usually means a crash during a save. That "
+                    "line must be inspected before the history can be trusted."
+                )
             continue
         # Only objects are entries. A line holding a bare number, string or
         # array is valid JSON but cannot be a revision, and letting it through
@@ -204,6 +237,18 @@ def read_log_entries(path: Path) -> list[dict]:
         # whole history, which is what the tolerance above exists to prevent.
         if isinstance(parsed, dict):
             entries.append(parsed)
+
+    # A live log is appended to one complete line at a time, so a file that does
+    # not end in a newline stopped in the middle of a write. The last line may
+    # still parse (only its tail is missing), which is why this is checked
+    # separately from the parse failure above.
+    if live and text and not text.endswith("\n"):
+        raise CorruptRevisionLogError(
+            f"The revision log '{path.name}' does not end with a newline: the "
+            f"recorded history ends mid-entry at line {len(lines)}, which "
+            "usually means a crash during a save. That line must be inspected "
+            "before the history can be trusted."
+        )
     return entries
 
 
@@ -223,9 +268,15 @@ def all_entries(slug: str) -> list[dict]:
     Concatenation order across files is not trusted: ids are unique and
     monotonic, so they are the only ordering that is correct across several
     files.
+
+    The live log is read strictly (``live=True``): a torn final line is
+    reported rather than skipped, because everything downstream -- replay,
+    revert, the history browser -- would otherwise present a history that just
+    ends earlier, with the lost entry invisible. Rotated logs are read
+    tolerantly, since a torn line there predates the rotation.
     """
     require_valid_slug(slug)
-    entries = read_log_entries(revisions_path(slug))
+    entries = read_log_entries(revisions_path(slug), live=True)
     for path in rotated_logs(slug):
         entries.extend(read_log_entries(path))
     entries.sort(key=_entry_id)
@@ -1056,6 +1107,7 @@ def revert_document(
 __all__ = [
     "BlockState",
     "HistoryState",
+    "CorruptRevisionLogError",
     "HistoryAnchorError",
     "IncompleteHistoryError",
     "RevisionNotFoundError",

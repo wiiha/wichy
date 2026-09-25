@@ -39,6 +39,7 @@ from wichy.tools.notes.blocks import (
 )
 from wichy.tools.notes.models import BlockDataError
 from wichy.tools.notes.revisions import (
+    CorruptRevisionLogError,
     HistoryAnchorError,
     IncompleteHistoryError,
     RevisionNotFoundError,
@@ -1705,3 +1706,57 @@ class TestAMiddleGapIsIncomplete:
         after = replay(slug)
         assert after.complete is True
         assert after.has_gap is False
+
+
+class TestTornLogTailDisclosure:
+    """A torn FINAL line of the LIVE log is disclosed, not silently dropped.
+
+    Tolerant parsing made history simply end earlier when a crash or a full disk
+    left the last append half-written: no missing id in the middle, so the gap
+    check could not see it either. The READER now refuses, naming the file and
+    line, while rotated logs stay tolerant.
+    """
+
+    def test_a_torn_live_log_tail_is_disclosed(self, notes_dir, doc):
+        slug, _ = doc
+        path = revisions_path(slug)
+        # A real baseline entry exists; then a crash mid-append leaves a half
+        # line with NO trailing newline.
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write('{"id": 99, "ops": [')
+
+        with pytest.raises(CorruptRevisionLogError) as excinfo:
+            all_entries(slug)
+        message = str(excinfo.value)
+        assert path.name in message
+        # Line 2: the baseline is line 1, the torn half-line is line 2.
+        assert "line 2" in message
+        assert "crash" in message
+
+        # The note file itself is untouched and still readable.
+        assert load_document(slug).meta.slug == slug
+
+    def test_a_missing_trailing_newline_is_also_disclosed(self, notes_dir, doc):
+        """A last line that still parses can be torn too: only its tail is gone."""
+        slug, _ = doc
+        path = revisions_path(slug)
+        raw = path.read_text(encoding="utf-8")
+        path.write_text(raw.rstrip("\n"), encoding="utf-8")
+
+        with pytest.raises(CorruptRevisionLogError):
+            read_log_entries(path, live=True)
+
+    def test_rotated_logs_stay_tolerant(self, notes_dir, doc):
+        """Immutable once rotated: a torn line there predates the rotation."""
+        slug, _ = doc
+        append_entries(slug, 3, start=2)
+        rotated = rotate_now(slug)
+        assert rotated is not None
+        # Corrupt the FIRST (middle) line of the rotated file, by hand.
+        rows = rotated.read_text(encoding="utf-8").splitlines()
+        rows[0] = "{not json"
+        rotated.write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+        # Reading the live path still returns the rotated survivors, no raise.
+        ids = [e["id"] for e in all_entries(slug)]
+        assert ids == [2, 3, 4]

@@ -2155,3 +2155,19 @@ class TestAMiddleGapIsDisclosedAndRefused:
         # Before the fix the restore wrote the replayed state, flipping this True.
         body = client.get(f"{PREFIX}/api/notes/{slug}/revisions/7").get_json()
         assert body["matches_document"] is False
+
+
+class TestCorruptRevisionLog:
+    def test_a_corrupt_log_surfaces_as_an_explained_500(self, client, notes_dir):
+        """A torn live-log tail is a readable JSON 500, not an HTML crash."""
+        create(client, "Corrupt", "a")
+        path = revisions_path("corrupt")
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write('{"id": 99, "ops": [')
+
+        response = client.get(f"{PREFIX}/api/notes/corrupt/revisions")
+        assert response.status_code == 500
+        body = response.get_json()
+        assert body is not None, response.get_data(as_text=True)
+        assert "mid-entry" in body["error"]
+        assert "corrupt.revisions.jsonl" in body["error"]
