@@ -37,6 +37,7 @@ from wichy.tools.read_file import ReadFileTool
 from wichy.tools.notes.agent_tools import (
     DeleteBlockTool,
     InsertBlockTool,
+    ListNotesTool,
     MoveBlockTool,
     ReadBlocksTool,
     ReadRevisionsTool,
@@ -109,6 +110,7 @@ __all__ = [
     "DeleteBlockTool",
     "MoveBlockTool",
     "ReadRevisionsTool",
+    "ListNotesTool",
     "ReplaceTextTool",
     "WebSearchTool",
     "TaskAgentTool",

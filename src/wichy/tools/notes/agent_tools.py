@@ -4,10 +4,16 @@ Seven tools that read and edit block documents. `read_scratchpad` is a separate
 module (`wichy.tools.read_scratchpad`) with its own rendering of the same
 document.
 
-**Every tool operates on the pinned scratchpad and takes no slug.** That is not
-a limitation to work around: there is one shared document, and the agent and the
-user edit the same one. A slug parameter would let the agent wander into notes
-the user has not opened, and the pin is the single place that decision is made.
+**Writes operate on the pinned scratchpad and take no slug.** That is not a
+limitation to work around: there is one shared document, and the agent and the
+user edit the same one. The pin is the single place the decision about where
+the agent may ACT is made -- a write must never reach past it.
+
+**Reads may name a note.** Every read tool takes an optional ``slug``:
+omitted, it reads the pinned scratchpad as before; given, it reads that
+note. The pin gates where the agent edits, not what it can see -- the
+notification channel names notes the agent has never had pinned, and a read
+that cannot follow one leaves those notifications unactionable.
 
 Two refusals are normal states rather than errors, and every tool returns the
 same sentence for each:
@@ -46,6 +52,7 @@ from wichy.tools.notes.blocks import (
     StaleVersionError,
     block_snapshot_of,
     delete_block,
+    list_documents,
     load_document,
     locked_document,
     insert_block,
@@ -123,6 +130,38 @@ def _scratchpad_slug() -> str:
     return slug
 
 
+def _read_slug(kwargs: Mapping[str, Any]) -> tuple[str, str | None]:
+    """Resolve the target of a READ, which may name a note explicitly.
+
+    The pin gates where the agent ACTS, not where it reads: a write stays on
+    the pinned scratchpad, while a read may name any note -- the notification
+    channel names slugs the agent has never had pinned, and a read tool that
+    cannot follow one makes those notifications unactionable.
+
+    Args:
+        kwargs: The tool call's arguments, which may carry a ``slug``.
+
+    Returns:
+        ``(slug, error)``. With no ``slug`` argument the pinned scratchpad is
+        the target, exactly as before: the pin is cleared on every CLI start,
+        so an unpinned session reads the same sentence every read tool has
+        always returned.
+    """
+    requested = kwargs.get("slug")
+    if requested is None or (isinstance(requested, str) and not requested.strip()):
+        try:
+            return _scratchpad_slug(), None
+        except ScratchpadUnavailable as e:
+            return "", str(e)
+    slug = str(requested).strip()
+    if not is_valid_slug(slug):
+        return "", (
+            f"'{slug}' is not a valid note name. "
+            "Call list_notes to see the notes that exist."
+        )
+    return slug, None
+
+
 def _open(slug: str, *, for_write: bool = True) -> tuple[Any, str | None]:
     """Load the scratchpad.
 
@@ -141,12 +180,16 @@ def _open(slug: str, *, for_write: bool = True) -> tuple[Any, str | None]:
     try:
         document, fmt = load_document(slug, with_format=True)
     except DocumentNotFoundError:
+        # A write tool reaches here only through the pin, so "pin another
+        # note" is the right advice; a read tool reaches here through an
+        # explicit slug as well, where the note is the one that was named.
         return None, (
-            f"The pinned scratchpad '{slug}' no longer exists. "
-            "Pin another note in the notes UI."
+            f"The note '{slug}' no longer exists. "
+            "Pin another note in the notes UI, or call list_notes to see "
+            "the notes that exist."
         )
     except (InvalidDocumentError, InvalidSlugError, UnicodeDecodeError, OSError) as e:
-        return None, f"The pinned scratchpad '{slug}' could not be read: {e}"
+        return None, f"The note '{slug}' could not be read: {e}"
 
     if fmt == FORMAT_MARKDOWN and for_write:
         return None, MARKDOWN_WRITE_REFUSED
@@ -667,6 +710,13 @@ class ReadBlocksParams(ParametersModel):
         default=None, description="Last block to return, inclusive."
     )
     include_metadata: bool = True
+    slug: str | None = Field(
+        default=None,
+        description=(
+            "Optional: the name of the note to read. Omit to read the pinned "
+            "scratchpad."
+        ),
+    )
 
 
 class ReadBlocksTool(BaseTool):
@@ -676,17 +726,18 @@ class ReadBlocksTool(BaseTool):
     description = (
         "Read the pinned scratchpad's blocks. Filter by type, by a single block "
         "id, or by an index range. Returns each block's id so you can target it "
-        "with write_block, change_block_type, delete_block or move_block."
+        "with write_block, change_block_type, delete_block or move_block. Pass "
+        "slug='<note name>' to read another note; omit it to read the pinned "
+        "scratchpad."
     )
     parameters_model = ReadBlocksParams
     needs_verification_in_api = False
 
     def execute(self, **kwargs: Any) -> str:
         """Read blocks."""
-        try:
-            slug = _scratchpad_slug()
-        except ScratchpadUnavailable as e:
-            return str(e)
+        slug, slug_error = _read_slug(kwargs)
+        if slug_error is not None:
+            return slug_error
 
         block_id = kwargs.get("block_id")
         filter_type = kwargs.get("filter_type")
@@ -1159,6 +1210,13 @@ class GetBlockParams(ParametersModel):
     """Parameters for get_block."""
 
     block_id: str = Field(description="The id of the block to read.")
+    slug: str | None = Field(
+        default=None,
+        description=(
+            "Optional: the name of the note to read. Omit to read the pinned "
+            "scratchpad."
+        ),
+    )
 
 
 class GetBlockTool(BaseTool):
@@ -1169,17 +1227,17 @@ class GetBlockTool(BaseTool):
         "Read one block by id, showing its type, author, last writer and raw "
         "data object. Use this when you need the exact field names to build a "
         "write, or the block's metadata. For seeing what the scratchpad says, "
-        "prefer read_scratchpad."
+        "prefer read_scratchpad. Pass slug='<note name>' to read another note; "
+        "omit it to read the pinned scratchpad."
     )
     parameters_model = GetBlockParams
     needs_verification_in_api = False
 
     def execute(self, **kwargs: Any) -> str:
         """Read one block."""
-        try:
-            slug = _scratchpad_slug()
-        except ScratchpadUnavailable as e:
-            return str(e)
+        slug, slug_error = _read_slug(kwargs)
+        if slug_error is not None:
+            return slug_error
 
         block_id = str(kwargs.get("block_id") or "")
         if not block_id:
@@ -1201,6 +1259,13 @@ class FindBlocksParams(ParametersModel):
     search_str: str = Field(
         description="Text to look for. Case-insensitive, matches substrings."
     )
+    slug: str | None = Field(
+        default=None,
+        description=(
+            "Optional: the name of the note to read. Omit to read the pinned "
+            "scratchpad."
+        ),
+    )
 
 
 class FindBlockIdsTool(BaseTool):
@@ -1211,17 +1276,17 @@ class FindBlockIdsTool(BaseTool):
         "Find every block whose content contains the given text (case-insensitive "
         "substring match) and return those blocks in full detail, exactly as "
         "get_block renders one. Use this to locate a block by something it says "
-        "when you do not know its id."
+        "when you do not know its id. Pass slug='<note name>' to read another "
+        "note; omit it to read the pinned scratchpad."
     )
     parameters_model = FindBlocksParams
     needs_verification_in_api = False
 
     def execute(self, **kwargs: Any) -> str:
         """Find matching blocks."""
-        try:
-            slug = _scratchpad_slug()
-        except ScratchpadUnavailable as e:
-            return str(e)
+        slug, slug_error = _read_slug(kwargs)
+        if slug_error is not None:
+            return slug_error
 
         search = str(kwargs.get("search_str") or "")
         if not search:
@@ -1258,6 +1323,13 @@ class ReadRevisionsParams(ParametersModel):
     limit: int | None = 20
     since_id: int | None = None
     author: str | None = None
+    slug: str | None = Field(
+        default=None,
+        description=(
+            "Optional: the name of the note to read. Omit to read the pinned "
+            "scratchpad."
+        ),
+    )
 
 
 class ReadRevisionsTool(BaseTool):
@@ -1266,7 +1338,9 @@ class ReadRevisionsTool(BaseTool):
     name = "read_revisions"
     description = (
         "Read the pinned scratchpad's revision history, newest first. Shows who "
-        "changed what and when, so you can see recent edits by the user."
+        "changed what and when, so you can see recent edits by the user. Pass "
+        "slug='<note name>' to read another note; omit it to read the pinned "
+        "scratchpad."
     )
     parameters_model = ReadRevisionsParams
     needs_verification_in_api = False
@@ -1276,10 +1350,9 @@ class ReadRevisionsTool(BaseTool):
 
     def execute(self, **kwargs: Any) -> str:
         """Read revisions."""
-        try:
-            slug = _scratchpad_slug()
-        except ScratchpadUnavailable as e:
-            return str(e)
+        slug, slug_error = _read_slug(kwargs)
+        if slug_error is not None:
+            return slug_error
 
         limit = kwargs.get("limit", 20)
         if limit is None:
@@ -1456,6 +1529,46 @@ class AnswerQuestionTool(BaseTool):
         )
 
 
+class ListNotesParams(ParametersModel):
+    """Parameters for list_notes."""
+
+
+class ListNotesTool(BaseTool):
+    """List every note the read tools can name."""
+
+    name = "list_notes"
+    description = (
+        "List every note: its name, title, version, when it was last updated "
+        "and its format. Use this to find the name to pass as the slug of a "
+        "read tool, or to see what notes exist at all."
+    )
+    parameters_model = ListNotesParams
+    needs_verification_in_api: bool = False
+
+    def execute(self, **kwargs: Any) -> str:
+        """List the notes."""
+        try:
+            rows = list_documents()
+        except (
+            InvalidSlugError,
+            InvalidDocumentError,
+            UnicodeDecodeError,
+            OSError,
+        ) as e:
+            return f"Could not list notes: {e}"
+        if not rows:
+            return "There are no notes yet."
+        lines = ["[Notes]", ""]
+        for row in rows:
+            title = row.get("title") or "(untitled)"
+            lines.append(
+                f"- {row.get('slug')} -- {title} "
+                f"(version {row.get('version')}, updated {row.get('updated')}, "
+                f"{row.get('format')})"
+            )
+        return "\n".join(lines)
+
+
 def all_tools() -> list[type[BaseTool]]:
     """Every block tool, in the order they are worth showing the agent."""
     return [
@@ -1469,6 +1582,7 @@ def all_tools() -> list[type[BaseTool]]:
         MoveBlockTool,
         AnswerQuestionTool,
         ReadRevisionsTool,
+        ListNotesTool,
     ]
 
 
@@ -1485,6 +1599,7 @@ __all__ = [
     "ReadRevisionsTool",
     "WriteBlockTool",
     "ChangeBlockTypeTool",
+    "ListNotesTool",
     "all_tools",
     "render_block",
     "render_data",

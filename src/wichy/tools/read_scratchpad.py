@@ -9,7 +9,8 @@ read as a block document and a legacy note is still read as markdown.
 
 The tool is deliberately forgiving, because "nothing is pinned" is a normal state
 rather than an error: the pin is cleared on every CLI start, and the UI is the
-only thing that sets it.
+only thing that sets it. A read may also name a note explicitly through the
+``slug`` parameter -- the pin gates where the agent writes, not what it reads.
 """
 
 from __future__ import annotations
@@ -17,7 +18,6 @@ from __future__ import annotations
 from pydantic import Field
 
 from wichy.tools.base import BaseTool, ParametersModel
-from wichy.tools.notes import get_scratchpad_slug
 from wichy.tools.notes.blocks import (
     FORMAT_MARKDOWN,
     MARKDOWN_WRITE_REFUSED,
@@ -27,15 +27,11 @@ from wichy.tools.notes.blocks import (
     load_document,
 )
 from wichy.tools.notes.agent_tools import (
+    _read_slug,
     normalize_style,
     render_document,
     render_markdown_document,
 )
-from wichy.tools.notes.models import is_valid_slug
-
-#: Returned when nothing is pinned. Every block tool returns this same message,
-#: so the agent learns one state from one sentence.
-NO_SCRATCHPAD = "No scratchpad is pinned. Pin a note in the notes UI first."
 
 
 class ScratchpadParams(ParametersModel):
@@ -51,23 +47,31 @@ class ScratchpadParams(ParametersModel):
             "exact field names. 'md' is accepted as a synonym for 'markdown'."
         ),
     )
+    slug: str | None = Field(
+        default=None,
+        description=(
+            "Optional: the name of the note to read. Omit to read the pinned "
+            "scratchpad."
+        ),
+    )
 
 
 class ReadScratchpadTool(BaseTool):
-    """Read the content of the pinned scratchpad document."""
+    """Read a note: the pinned scratchpad by default, or the slug it names."""
 
     name = "read_scratchpad"
     description = (
         "Read the pinned scratchpad. Returns its content as markdown by default, "
         "with every block wrapped in a tag naming its block id so you can target "
         "it with a write tool. Pass style='block' when you need each block's "
-        "author, last writer and raw data object instead."
+        "author, last writer and raw data object instead. Pass slug='<note "
+        "name>' to read another note; omit it to read the pinned scratchpad."
     )
     parameters_model = ScratchpadParams
     needs_verification_in_api: bool = False
 
     def execute(self, **kwargs) -> str:
-        """Render the pinned scratchpad.
+        """Render the note this call names.
 
         Returns:
             The document as text, or a message explaining why nothing was read.
@@ -78,26 +82,17 @@ class ReadScratchpadTool(BaseTool):
         if style_error is not None:
             return style_error
 
-        slug = get_scratchpad_slug()
-        if not slug:
-            return NO_SCRATCHPAD
-
-        if not is_valid_slug(slug):
-            # The marker is a user-editable file, so a pin can name something no
-            # document resolver would accept. Say so rather than reporting the
-            # scratchpad as empty, which would send the user looking in the wrong
-            # place.
-            return (
-                f"The pinned scratchpad name '{slug}' is not a valid note name. "
-                "Pin a note in the notes UI to fix it."
-            )
+        slug, slug_error = _read_slug(kwargs)
+        if slug_error is not None:
+            return slug_error
 
         try:
             document, fmt = load_document(slug, with_format=True)
         except DocumentNotFoundError:
             return (
-                f"The pinned scratchpad '{slug}' no longer exists. "
-                "Pin another note in the notes UI."
+                f"The note '{slug}' no longer exists. "
+                "Pin another note in the notes UI, or call list_notes to see "
+                "the notes that exist."
             )
         except (
             InvalidDocumentError,
@@ -109,7 +104,7 @@ class ReadScratchpadTool(BaseTool):
             # out made this tool raise on a non-UTF-8 file despite its documented
             # promise never to. The message names the file, so the user can find
             # the one that needs fixing.
-            return f"The pinned scratchpad '{slug}' could not be read: {e}"
+            return f"The note '{slug}' could not be read: {e}"
 
         if fmt == FORMAT_MARKDOWN:
             # The same sentence every block tool returns, so the agent reads one

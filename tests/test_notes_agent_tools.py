@@ -1,9 +1,11 @@
 """Tests for the agent's block tools.
 
-The tools are the agent's only way into a document, and they act on the pinned
-scratchpad alone -- there is no slug parameter, so a tool cannot reach a note the
-user has not opened. That, and the two normal refusals (nothing pinned, and a
-markdown-format scratchpad), are what most of this file defends.
+The tools are the agent's only way into a document. WRITES act on the pinned
+scratchpad alone -- no write tool takes a slug, so a write cannot reach a note
+the user has not opened. READS may name a note: each read tool takes an
+optional slug, omitted for the pinned scratchpad. That, and the two normal
+refusals (nothing pinned, and a markdown-format scratchpad), are what most of
+this file defends.
 
 Grouped by what each group defends:
 
@@ -12,7 +14,8 @@ Grouped by what each group defends:
 - the four mutating tools: what each returns, and that it writes what it says
 - validation: invalid data is refused with a message naming the schema
 - output format: the rendering rules from the appendix
-- the registry: the six tools are present and `write_scratchpad` is gone
+- the registry: the writes are pinned-only, the reads take an optional slug,
+  and `list_notes` lists every note
 """
 
 from __future__ import annotations
@@ -35,7 +38,7 @@ from wichy.tools.notes.agent_tools import (
     ChangeBlockTypeTool,
     render_data,
 )
-from wichy.tools.notes.agent_tools import FindBlockIdsTool, GetBlockTool
+from wichy.tools.notes.agent_tools import FindBlockIdsTool, GetBlockTool, ListNotesTool
 from wichy.tools.notes.blocks import (
     MARKDOWN_WRITE_REFUSED,
     create_document,
@@ -137,6 +140,130 @@ class TestNoScratchpadPinned:
         assert "not a valid note name" in result
         # And it does not pretend the scratchpad is empty.
         assert result != NO_SCRATCHPAD
+
+
+class TestReadsMayNameANote:
+    """A read may name a note; the pin gates writes, not sight.
+
+    The notification channel names notes the agent has never had pinned, so a
+    read that could only reach the pin would leave those notifications
+    unactionable. Every read tool therefore takes an optional slug, which wins
+    over the pin.
+    """
+
+    def test_a_read_names_another_note(self, scratchpad, notes_dir):
+        other = create_document(
+            "Other", [{"type": "paragraph", "data": {"text": "other content"}}]
+        )
+        result = run(ReadBlocksTool, slug=other.meta.slug)
+        assert "other content" in result
+        # The pinned document was not read, even though it is pinned.
+        assert "some text" not in result
+
+    def test_a_read_by_slug_works_when_nothing_is_pinned(self, notes_dir):
+        solo = create_document(
+            "Solo", [{"type": "paragraph", "data": {"text": "solo content"}}]
+        )
+        result = run(ReadScratchpadTool, slug=solo.meta.slug)
+        assert "solo content" in result
+
+    def test_no_pin_and_no_slug_still_returns_the_refusal(self, notes_dir):
+        assert run(ReadBlocksTool) == NO_SCRATCHPAD
+
+    def test_an_invalid_slug_is_refused_not_crashed(self, notes_dir):
+        result = run(ReadBlocksTool, slug="bad slug")
+        assert "not a valid note name" in result
+        assert "list_notes" in result
+
+    def test_a_missing_note_is_reported(self, notes_dir):
+        result = run(GetBlockTool, block_id="blk-1", slug="ghost")
+        assert "no longer exists" in result
+        assert "ghost" in result
+
+    def test_a_slug_beats_the_pin(self, scratchpad, notes_dir):
+        other = create_document(
+            "Other", [{"type": "paragraph", "data": {"text": "other content"}}]
+        )
+        result = run(ReadScratchpadTool, slug=other.meta.slug)
+        assert "other content" in result
+        # The header names the OTHER note's title, so the pinned one was not read.
+        assert "Scratchpad: Scratch" not in result
+
+    def test_all_five_read_tools_accept_the_slug(self, scratchpad, notes_dir):
+        """Every read tool follows the slug, and none falls back to the pin."""
+        other = create_document(
+            "Other", [{"type": "paragraph", "data": {"text": "other content"}}]
+        )
+        slug = other.meta.slug
+        results = {
+            "read_blocks": run(ReadBlocksTool, slug=slug),
+            "get_block": run(GetBlockTool, block_id=other.blocks[0].id, slug=slug),
+            "find_block_id_for_string": run(
+                FindBlockIdsTool, search_str="other", slug=slug
+            ),
+            "read_revisions": run(ReadRevisionsTool, slug=slug),
+            "read_scratchpad": run(ReadScratchpadTool, slug=slug),
+        }
+        # The OTHER note's header names it in every rendering. This is a
+        # positive signal from the document itself, not a substring of the
+        # failure message: a tool that fell back to the pinned document used
+        # to satisfy the needle-quoting "No block contains 'other'" sentence
+        # here, because the searched string and the slug are the same word.
+        other_header = "[Scratchpad: Other"
+        for name, result in results.items():
+            if name == "read_revisions":
+                # A revision read names the slug, not the title:
+                # "[Document: other | ...]".
+                assert f"[Document: {slug}" in result, name
+            else:
+                assert other_header in result, name
+            # And never the pinned document's content.
+            assert "some text" not in result, name
+        # The search tool additionally found the OTHER note's block, which is
+        # the strongest proof it searched there rather than the pin.
+        assert "other content" in results["find_block_id_for_string"]
+
+    def test_writes_still_refuse_when_unpinned(self, notes_dir):
+        """The slug is a READ affordance; a write gains no bypass from it."""
+        create_document(
+            "Solo", [{"type": "paragraph", "data": {"text": "solo content"}}]
+        )
+        assert run(WriteBlockTool, block_id="blk-x", new_content="y") == NO_SCRATCHPAD
+        assert (
+            run(InsertBlockTool, block_type="paragraph", new_content="z")
+            == NO_SCRATCHPAD
+        )
+        assert run(MoveBlockTool, block_id="a") == NO_SCRATCHPAD
+
+    def test_list_notes_lists_every_note(self, scratchpad, notes_dir):
+        scratch_slug, _ = scratchpad
+        beta = create_document("Beta", [{"type": "paragraph", "data": {"text": "b"}}])
+        gamma = create_document("Gamma", [{"type": "paragraph", "data": {"text": "g"}}])
+        result = run(ListNotesTool)
+        assert "[Notes]" in result
+        # Sorted by slug, so the row order follows the sorted slugs.
+        slugs = sorted([scratch_slug, beta.meta.slug, gamma.meta.slug])
+        positions = []
+        for slug in slugs:
+            assert slug in result
+            positions.append(result.index(slug))
+        assert positions == sorted(positions)
+        # The pinned note's title is shown too.
+        assert "Scratch" in result
+
+    def test_list_notes_survives_an_unreadable_file(self, notes_dir):
+        good = create_document(
+            "Good", [{"type": "paragraph", "data": {"text": "good content"}}]
+        )
+        (notes_dir / "bad.json").write_bytes(b"\xff\xfe\x00\x01")
+        result = run(ListNotesTool)
+        # The good note survives; the bad file costs one row, not the listing.
+        assert good.meta.slug in result
+        # And the unreadable file is skipped, not listed as a broken row.
+        assert "bad" not in result
+
+    def test_list_notes_when_there_are_none(self, notes_dir):
+        assert run(ListNotesTool) == "There are no notes yet."
 
 
 class TestMarkdownScratchpad:
@@ -807,6 +934,7 @@ class TestRegistry:
             "move_block",
             "notes_answer_question",
             "read_revisions",
+            "list_notes",
         } <= names
 
     def test_write_scratchpad_is_gone(self):
@@ -827,10 +955,35 @@ class TestRegistry:
             importlib.import_module("wichy.tools.write_scratchpad")
 
     def test_no_tool_takes_a_slug(self):
-        """The tools edit the pinned scratchpad only; a slug would reach past it."""
-        for tool_class in BLOCK_TOOLS:
+        """The pin gates writes; reads may name a note explicitly.
+
+        A write must never reach past the pin, so the write tools take no
+        ``slug``. Reads DO take one: the notification channel names notes the
+        agent has never had pinned. ``list_notes`` takes none either -- it lists
+        everything.
+        """
+        write_tools = [
+            WriteBlockTool,
+            ChangeBlockTypeTool,
+            InsertBlockTool,
+            DeleteBlockTool,
+            MoveBlockTool,
+            AnswerQuestionTool,
+        ]
+        read_tools = [
+            ReadBlocksTool,
+            GetBlockTool,
+            FindBlockIdsTool,
+            ReadRevisionsTool,
+            ReadScratchpadTool,
+        ]
+        for tool_class in write_tools:
             fields = set(tool_class.parameters_model.model_fields)
             assert "slug" not in fields, tool_class.__name__
+        for tool_class in read_tools:
+            fields = set(tool_class.parameters_model.model_fields)
+            assert "slug" in fields, tool_class.__name__
+        assert "slug" not in set(ListNotesTool.parameters_model.model_fields)
 
     def test_every_tool_has_a_description(self):
         for tool_class in [*BLOCK_TOOLS, ReadScratchpadTool]:
