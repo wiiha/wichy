@@ -1,9 +1,10 @@
 """Append-only revision log for block documents.
 
 Every mutation writes exactly one revision entry describing what changed.
-Entries are never modified or deleted; rotation is the only removal. That makes
-the log an audit trail rather than a cache: reverting to an earlier state
-appends a NEW entry, so a mistake stays visible.
+History is append-only: entries are never modified, and the only thing that
+removes a revision log is deleting the note it belongs to. That makes the log an
+audit trail rather than a cache: reverting to an earlier state appends a NEW
+entry, so a mistake stays visible.
 
 Three properties carry the weight here:
 
@@ -12,8 +13,10 @@ Three properties carry the weight here:
   rotating a file cannot restart numbering. Without that, ``since_id`` and
   get-by-id become ambiguous the moment a log rotates, because two different
   entries would share an id.
-- **Rotation is count-based.** Retention by age would let a quiet document keep
-  history forever while a busy one lost it within days.
+- **Rotation is a pure storage detail.** Once the live file reaches a size
+  threshold it is renamed aside, so appends stay bounded and the live file stays
+  small; nothing is dropped. Rotating does not decide how much history survives,
+  because all of it does, for the life of the note.
 - **Past states are rebuilt by replaying forward, never by undoing an op in
   place.** An entry records the data a block ended up with, not the data it had
   before, so the pre-change content exists only in the earlier entries. Replay
@@ -34,13 +37,13 @@ resets its counter on rotation, so it cannot back per-document revisions.
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Literal, Mapping
 
-from wichy.config import settings
 from wichy.tools.notes.blocks import require_valid_slug, revisions_path
 from wichy.tools.notes.models import Author, now_iso
 
@@ -104,8 +107,9 @@ class HistoryState:
         return {block.id: block for block in self.blocks}
 
 
-#: Entries in the live log before it is moved aside. An internal file-size
-#: detail; how MUCH history survives is the limit in ``_history_limit``.
+#: Entries in the live log before it is moved aside. Purely an internal
+#: file-size detail: it decides when the live file becomes a rotated one, not
+#: how much history survives.
 ROTATE_AT_ENTRIES = 50
 
 
@@ -118,41 +122,6 @@ def _rotation_stamp() -> str:
     very unlikely rather than routine.
     """
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
-
-
-def _history_limit() -> int:
-    """How many revisions are kept in total, across every log file.
-
-    Counted in STATES, not files: the newest N revisions survive and older ones
-    are dropped, oldest first. A single number rather than "entries before
-    rotation" plus "rotated files to keep", because the user-visible fact is how
-    much history is available and two settings made that a multiplication the
-    user had to do themselves.
-    """
-    return max(int(settings.notes_revisions_max_count), 1)
-
-
-def _max_entries() -> int:
-    """Entries allowed in the live log before it is rotated away.
-
-    Rotation is an internal file-size mechanism, not a history length: it decides
-    when the live file is moved aside, and the history LIMIT is what decides how
-    much of it survives. Kept well below the limit so a rotation does not throw
-    away history the limit still allows -- at the limit, a rotation would discard
-    everything the user asked to keep. Capped at the limit for the degenerate
-    case where the limit is smaller.
-    """
-    return min(ROTATE_AT_ENTRIES, _history_limit())
-
-
-def _retention() -> int:
-    """How many rotated logs to keep, derived from the history limit.
-
-    Not a user setting: the limit counts revisions, and this is just enough files
-    to hold them. One rotated log is added of slack so a rotation never prunes a
-    file the limit still needs.
-    """
-    return max(_history_limit() // ROTATE_AT_ENTRIES, 0) + 1
 
 
 def rotated_logs(slug: str) -> list[Path]:
@@ -325,9 +294,18 @@ def make_entry(
 def append_entry(slug: str, entry: Mapping[str, Any]) -> None:
     """Append one entry to the document's live log.
 
+    History is append-only: the only thing that ever removes a revision is
+    deleting the note. Nothing here trims, drops or rewrites an entry -- rotating
+    the file aside is a storage detail that keeps the live file small and does
+    not discard history.
+
     Append mode rather than a read-modify-write of the whole file: the log is
     only ever added to, so a single-line append is atomic on a POSIX filesystem
     and does not need the temp-and-rename treatment a document write does.
+
+    The write is flushed and fsynced before returning, so the line is durable on
+    disk. A crash after this returns cannot lose an edit the caller has already
+    acknowledged.
 
     Rotation is checked first, so the new entry lands in the fresh log rather
     than immediately overflowing the old one.
@@ -339,19 +317,15 @@ def append_entry(slug: str, entry: Mapping[str, Any]) -> None:
     with open(path, "a", encoding="utf-8") as handle:
         handle.write(json.dumps(dict(entry), ensure_ascii=False) + "\n")
         handle.flush()
-    # AFTER the append: pruning first left the window one short, so the entry
-    # just written pushed the total past the limit and the file only shrank on
-    # the NEXT write.
-    prune_rotated(slug)
+        os.fsync(handle.fileno())
 
 
 def rotate_if_needed(slug: str) -> Path | None:
-    """Move the live log aside once it holds a rotation's worth of entries, then
-    enforce the history limit.
+    """Move the live log aside once it holds a rotation's worth of entries.
 
     Rotation is a storage detail: it keeps the live file small and bounds the
-    cost of an append. What survives is decided by ``prune_rotated`` against the
-    entry limit, which runs on every write once history is at that limit.
+    cost of an append. Nothing is dropped when it happens -- every entry stays
+    readable, spread across the live log and the rotated ones.
 
     Returns:
         The rotated file's path, or None when no rotation happened.
@@ -382,155 +356,7 @@ def rotate_now(slug: str) -> Path | None:
         counter += 1
 
     path.rename(target)
-    prune_rotated(slug)
     return target
-
-
-def _anchor_entry(slug: str, before_id: int) -> dict:
-    """A snapshot entry standing in for history before *before_id*.
-
-    Replay rebuilds state by applying the log from the beginning, so a log whose
-    earliest entries are gone cannot be rebuilt: any block first created in a
-    dropped entry is absent afterwards, and the reconstruction looks like a real
-    (but wrong) document.
-
-    This records the state as it stood immediately BEFORE *before_id* -- the
-    first surviving entry -- so every surviving entry replays onto a correct
-    starting point. Everything from there is then exact, which is the point:
-    dropping old history should cost the ability to go back before a point, not
-    the ability to rebuild what remains.
-
-    The snapshot is keyed on ``before_id - 1``, an id no surviving entry uses
-    (this one is the smallest that survives), so ids stay unique. An empty state
-    still gets an entry, with no ops: it is the marker that says history starts
-    here, which is what tells a reader the earliest revision is a boundary rather
-    than a gap.
-
-    Args:
-        slug: The document slug.
-        before_id: The earliest surviving revision id.
-
-    Returns:
-        The entry, not yet written.
-    """
-    # Strictly before the first survivor: its own ops are applied by its own
-    # entry, so including them here would apply them twice.
-    state = replay(slug, upto_id=before_id)
-    ops = [
-        {
-            "op": "add",
-            "block_id": block.id,
-            "block_type": block.type,
-            "data": dict(block.data),
-            "index": index,
-        }
-        for index, block in enumerate(state.blocks)
-    ]
-    return {
-        "id": max(before_id - 1, 0),
-        "timestamp": now_iso(),
-        "author": "system",
-        # Explicit, so a reader can tell a snapshot from a change someone made
-        # without inferring it from the author.
-        "baseline": True,
-        "version_from": 0,
-        "version_to": 0,
-        "ops": ops,
-        "summary": (
-            "History starts here. Earlier revisions were dropped; the document "
-            "can be rebuilt from this point on."
-        ),
-    }
-
-
-def prune_rotated(slug: str) -> list[Path]:
-    """Enforce the history limit and keep what survives rebuildable.
-
-    Two things, in order:
-
-    1. Drop the oldest entries so at most ``_history_limit`` states remain.
-    2. If the log no longer reaches the document's start, write an anchor entry
-       describing the state just before the earliest survivor. Without it every
-       later revision is unbuildable -- dropping the oldest entries removes the
-       block creations they contain, and anything not mentioned again is absent
-       from a replay.
-
-    Step 2 is NOT conditional on step 1 having dropped something. A log can fail
-    to reach the document's start without this function ever trimming it: the log
-    may have been pruned by an older build, hand-copied, or truncated. Gating the
-    anchor on "did I drop something this run" is what left a real document with a
-    50-entry log, no anchor, and every revision reported as unbuildable.
-
-    Returns:
-        The paths deleted.
-    """
-    require_valid_slug(slug)
-    # The limit counts STATES the user can browse. An anchor is overhead that
-    # makes those states replayable, so it is not counted against the limit --
-    # otherwise it would silently cost the user one revision.
-    limit = _history_limit()
-    entries = [e for e in all_entries(slug) if e.get("author") != "system"]
-    deleted: list[Path] = []
-
-    if len(entries) > limit:
-        # Keep the newest `limit`. Ids are unique and monotonic, so the cut is by
-        # id rather than by position.
-        keep_ids = {_entry_id(e) for e in entries[len(entries) - limit :]}
-        kept = [e for e in entries if _entry_id(e) in keep_ids]
-        # The anchor is built FIRST, while the entries it describes are still on
-        # disk. Replay reads the files, so trimming before snapshotting destroys
-        # the state the anchor exists to record -- which is exactly how a log
-        # ends up trimmed with no anchor and every revision unbuildable.
-        anchor = _anchor_for(slug, _entry_id(kept[0])) if kept else None
-        # Rewritten into the LIVE log and every rotated file removed: one file is
-        # simpler than keeping a rotated set in step with a moving boundary, and
-        # the limit bounds it to `limit` lines.
-        deleted = rotated_logs(slug)
-        for path in deleted:
-            try:
-                path.unlink()
-            except OSError:
-                pass
-        _write_log(slug, [anchor, *kept] if anchor else kept)
-    else:
-        # Nothing dropped this run -- but the log may STILL not reach the
-        # document's start (pruned by an older build, hand-copied, truncated).
-        # Repairing that is not conditional on having trimmed something: without
-        # this, such a log stays unbuildable forever, which is precisely the
-        # state a real document was found in.
-        anchor = _anchor_for(slug, _entry_id(entries[0]), entries) if entries else None
-        if anchor is not None:
-            _write_log(slug, [anchor, *entries])
-    return deleted
-
-
-def _anchor_for(
-    slug: str, before_id: int, kept: list[dict] | None = None
-) -> dict | None:
-    """The anchor entry for a log whose earliest survivor is *before_id*.
-
-    Returns None when the history already reaches the document's start, or when
-    an anchor is already present -- so this is safe to call on every write.
-    """
-    if before_id == 1:
-        return None
-    if kept and kept[0].get("baseline"):
-        return None
-    return _anchor_entry(slug, before_id)
-
-
-def _write_log(slug: str, entries: list[dict]) -> None:
-    """Replace the live log with *entries*, oldest first."""
-    path = revisions_path(slug)
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            "".join(json.dumps(e, ensure_ascii=False) + "\n" for e in entries),
-            encoding="utf-8",
-        )
-    except OSError:
-        # Not worth failing a write over: the document change already succeeded.
-        pass
 
 
 def replay_matches_document(slug: str) -> bool | None:
@@ -1130,7 +956,6 @@ __all__ = [
     "diff_ops",
     "get_revision",
     "make_entry",
-    "prune_rotated",
     "read_log_entries",
     "read_revisions",
     "baseline_entry",

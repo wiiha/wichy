@@ -1532,35 +1532,17 @@ class TestRejectedSlugDoesNotDelete:
 
 
 class TestUnhandledRevertErrors:
-    def test_a_revert_on_a_pruned_history_is_a_conflict_not_a_crash(
-        self, client, monkeypatch
-    ):
-        """A revision dropped by the history limit is not revertable.
-
-        Either answer is acceptable -- 404 when the revision no longer exists, or
-        409 when the state before it cannot be rebuilt exactly. What must not
-        happen is an HTML 500 the browser cannot read.
-        """
-        monkeypatch.setattr(settings, "notes_revisions_max_count", 1)
-        create(client, "Pruned", "a")
-        for _ in range(3):
-            body = client.get(f"{PREFIX}/api/notes/pruned").get_json()
-            block = client.get(f"{PREFIX}/api/notes/pruned/blocks").get_json()[
-                "blocks"
-            ][0]
-            client.patch(
-                f"{PREFIX}/api/notes/pruned/blocks/{block['id']}",
-                json={
-                    "version": body["meta"]["version"],
-                    "block_type": "paragraph",
-                    "data": {"text": "x"},
-                },
-            )
-        version = client.get(f"{PREFIX}/api/notes/pruned").get_json()["meta"]["version"]
+    def test_a_revert_of_a_revision_the_log_no_longer_has_is_not_a_crash(self, client):
+        """An unknown revision id must answer as data, never as an HTML 500."""
+        create(client, "Missing", "a")
+        version = client.get(f"{PREFIX}/api/notes/missing").get_json()["meta"][
+            "version"
+        ]
         response = client.post(
-            f"{PREFIX}/api/notes/pruned/revisions/1/revert", json={"version": version}
+            f"{PREFIX}/api/notes/missing/revisions/999/revert",
+            json={"version": version},
         )
-        # 409 (cannot rebuild exactly) is acceptable; an HTML 500 is not.
+        # 404 is the honest answer; an HTML 500 is not acceptable.
         assert response.status_code in (404, 409)
         assert "error" in response.get_json()
 

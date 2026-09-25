@@ -19,6 +19,7 @@ document is therefore revision 2.
 from __future__ import annotations
 
 import json
+import os
 import threading
 
 import pytest
@@ -27,6 +28,7 @@ from wichy.config import settings
 from wichy.tools.notes.blocks import (
     StaleVersionError,
     create_document,
+    delete_document_files,
     delete_block,
     insert_block,
     load_document,
@@ -47,11 +49,10 @@ from wichy.tools.notes.revisions import (
     diff_ops,
     get_revision,
     make_entry,
-    prune_rotated,
     read_log_entries,
     read_revisions,
     replay,
-    restore_document,
+    replay_matches_document,
     revert_document,
     rotate_if_needed,
     rotate_now,
@@ -291,7 +292,6 @@ class TestRevisionIds:
 
         slug, _ = doc
         drop_log(slug)
-        monkeypatch.setattr(settings, "notes_revisions_max_count", 1000)
         append_entries(slug, ROTATE_AT_ENTRIES + 1)
 
         rotated = rotated_logs(slug)
@@ -340,24 +340,20 @@ class TestRevisionIds:
 
 
 class TestRotation:
-    def test_no_rotation_below_the_threshold(self, notes_dir, doc, monkeypatch):
+    def test_no_rotation_below_the_threshold(self, notes_dir, doc):
         slug, _ = doc
         drop_log(slug)
-        monkeypatch.setattr(settings, "notes_revisions_max_count", 5)
         append_entries(slug, 4)
         assert rotated_logs(slug) == []
 
     def test_rotation_fires_once_the_log_has_reached_the_threshold(
-        self, notes_dir, doc, monkeypatch
+        self, notes_dir, doc
     ):
         """Rotation is checked before each append, not after."""
         from wichy.tools.notes.revisions import ROTATE_AT_ENTRIES
 
         slug, _ = doc
         drop_log(slug)
-        # The history limit is raised so pruning does not remove what this test
-        # is inspecting: rotation SIZE and history LENGTH are separate now.
-        monkeypatch.setattr(settings, "notes_revisions_max_count", 1000)
 
         append_entries(slug, ROTATE_AT_ENTRIES)  # exactly the threshold
         assert rotated_logs(slug) == []
@@ -391,50 +387,22 @@ class TestRotation:
         # Both survive: neither rotation destroyed the other's history.
         assert first.exists() and second.exists()
 
-    def test_only_the_newest_revisions_survive(self, notes_dir, doc, monkeypatch):
-        """The limit counts revisions, oldest dropped first."""
-        slug, _ = doc
-        drop_log(slug)
-        monkeypatch.setattr(settings, "notes_revisions_max_count", 3)
-        append_entries(slug, 10)
+    def test_rotation_preserves_every_entry(self, notes_dir, doc):
+        """Nothing is lost by ROTATING: every entry remains readable.
 
-        ids = [e["id"] for e in all_entries(slug)]
-        # Three user states survive. A baseline may be added on top of them; it
-        # is not one of the three.
-        user_ids = [e["id"] for e in all_entries(slug) if e.get("author") != "system"]
-        assert user_ids == ids[-3:] or user_ids == [8, 9, 10]
-        assert len(rotated_logs(slug)) == 0, "pruning consolidates into the live log"
-
-    def test_prune_is_idempotent(self, notes_dir, doc, monkeypatch):
-        from wichy.tools.notes.revisions import ROTATE_AT_ENTRIES
-
-        slug, _ = doc
-        drop_log(slug)
-        monkeypatch.setattr(settings, "notes_revisions_max_count", 1000)
-        for index in range(3):
-            append_entries(slug, 1, start=index + 1)
-            rotate_now(slug)
-        # Under the limit, pruning removes nothing and removes nothing again.
-        assert prune_rotated(slug) == []
-        assert len(rotated_logs(slug)) == 3
-        assert ROTATE_AT_ENTRIES > 0
-
-    def test_rotation_preserves_every_entry(self, notes_dir, doc, monkeypatch):
-        """Nothing is lost by ROTATING: all entries remain readable.
-
-        Distinct from pruning, which drops old entries on purpose once the
-        history limit is reached.
+        Rotation is a storage detail, so the entries in the rotated file and the
+        live one together still account for the whole history.
         """
         from wichy.tools.notes.revisions import ROTATE_AT_ENTRIES
 
         slug, _ = doc
         drop_log(slug)
-        monkeypatch.setattr(settings, "notes_revisions_max_count", 1000)
         append_entries(slug, ROTATE_AT_ENTRIES + 3)
         assert count_revisions(slug) == ROTATE_AT_ENTRIES + 3
         assert sorted(e["id"] for e in all_entries(slug)) == list(
             range(1, ROTATE_AT_ENTRIES + 4)
         )
+        assert len(rotated_logs(slug)) == 1
 
     def test_rotate_if_needed_is_a_noop_for_a_missing_log(self, notes_dir, doc):
         assert rotate_if_needed("nothing-here") is None
@@ -486,26 +454,22 @@ class TestReading:
             4
         ]
 
-    def test_reading_spans_rotated_logs(self, notes_dir, doc, monkeypatch):
+    def test_reading_spans_rotated_logs(self, notes_dir, doc):
         """History must not appear to vanish the moment it rotates."""
         from wichy.tools.notes.revisions import ROTATE_AT_ENTRIES
 
         slug, _ = doc
         drop_log(slug)
-        # The history limit is high enough to keep everything, so this isolates
-        # reading across files from the separate question of pruning.
-        monkeypatch.setattr(settings, "notes_revisions_max_count", 1000)
         append_entries(slug, ROTATE_AT_ENTRIES + 2)
         ids = sorted(e["id"] for e in read_revisions(slug))
         assert ids == list(range(1, ROTATE_AT_ENTRIES + 3))
         assert len(rotated_logs(slug)) >= 1
 
-    def test_get_revision_finds_a_rotated_entry(self, notes_dir, doc, monkeypatch):
+    def test_get_revision_finds_a_rotated_entry(self, notes_dir, doc):
         from wichy.tools.notes.revisions import ROTATE_AT_ENTRIES
 
         slug, _ = doc
         drop_log(slug)
-        monkeypatch.setattr(settings, "notes_revisions_max_count", 1000)
         append_entries(slug, ROTATE_AT_ENTRIES + 1)
         # Revision 1 is in a rotated file, and still addressable by id.
         assert get_revision(slug, 1)["id"] == 1
@@ -1128,7 +1092,7 @@ class TestEntryOpValues:
 
 class TestCounterSurvivesRotation:
     def test_ids_stay_monotonic_across_a_rotation_driven_by_real_mutations(
-        self, notes_dir, doc, monkeypatch
+        self, notes_dir, doc
     ):
         """The counter lives in meta, so rotating the log cannot reset it.
 
@@ -1139,9 +1103,6 @@ class TestCounterSurvivesRotation:
         from wichy.tools.notes.revisions import ROTATE_AT_ENTRIES
 
         slug, _ = doc
-        # A high history limit, so an id is not simply pruned away: this test is
-        # about the COUNTER, not about retention.
-        monkeypatch.setattr(settings, "notes_revisions_max_count", 1000)
         for _ in range(ROTATE_AT_ENTRIES + 2):
             record(slug)
 
@@ -1152,10 +1113,9 @@ class TestCounterSurvivesRotation:
         assert ids == list(range(1, ROTATE_AT_ENTRIES + 4))
         assert load_document(slug).meta.next_revision_id == ROTATE_AT_ENTRIES + 4
 
-    def test_counter_in_meta_is_never_behind_the_log(self, notes_dir, doc, monkeypatch):
+    def test_counter_in_meta_is_never_behind_the_log(self, notes_dir, doc):
         """The document (and its counter) is written before the entry is appended."""
         slug, _ = doc
-        monkeypatch.setattr(settings, "notes_revisions_max_count", 2)
         for _ in range(6):
             record(slug)
 
@@ -1224,13 +1184,12 @@ class TestReaderTolerance:
 
 
 class TestRotationSizing:
-    def test_rotation_counts_only_the_live_log(self, notes_dir, doc, monkeypatch):
+    def test_rotation_counts_only_the_live_log(self, notes_dir, doc):
         """Counting rotated entries too would rotate on nearly every append."""
         from wichy.tools.notes.revisions import ROTATE_AT_ENTRIES
 
         slug, _ = doc
         drop_log(slug)
-        monkeypatch.setattr(settings, "notes_revisions_max_count", 1000)
         append_entries(slug, ROTATE_AT_ENTRIES + 3)
 
         # One rotated file for the first ROTATE_AT_ENTRIES, then the remainder
@@ -1348,118 +1307,39 @@ class TestWriteOrderPreventsDuplicateIds:
         assert load_document(slug).meta.next_revision_id > max(logged)
 
 
-class TestHistoryLimitAndBaseline:
-    """Dropping old revisions must not corrupt what remains.
+class TestAppendOnlyHistory:
+    """History is never trimmed: the only removal is deleting the note."""
 
-    History is a chain of changes, so deleting the oldest entries removes the
-    block creations they contain. Any block not mentioned again then simply
-    vanishes from a replay -- which looks like a real (but wrong) document. The
-    baseline entry restates the state at the cut so what survives still rebuilds.
-    """
-
-    def test_only_the_newest_states_survive(self, notes_dir, doc, monkeypatch):
+    def test_history_is_append_only(self, notes_dir, doc):
+        """120 states is past any former cap, and rotation happens on the way."""
         slug, _ = doc
         drop_log(slug)
-        monkeypatch.setattr(settings, "notes_revisions_max_count", 5)
-        append_entries(slug, 12)
+        append_entries(slug, 120)
 
-        states = [e for e in all_entries(slug) if e.get("author") != "system"]
-        assert len(states) == 5
-        assert [e["id"] for e in states] == [8, 9, 10, 11, 12]
+        entries = all_entries(slug)
+        assert [e["id"] for e in entries] == list(range(1, 121))
+        assert rotated_logs(slug), "the log should have rotated"
 
-    def test_a_baseline_is_written_when_entries_are_dropped(
-        self, notes_dir, monkeypatch
-    ):
-        """Driven through real writes: the baseline snapshots actual content, so
-        synthetic empty entries have nothing to record."""
-        monkeypatch.setattr(settings, "notes_revisions_max_count", 3)
-        document = create_document(
-            "Baselined", [{"type": "paragraph", "data": {"text": "one"}}]
-        )
-        slug = document.meta.slug
-        target = document.blocks[0].id
-        for index in range(10):
-            with locked_document(slug, None, author="user") as open_document:
-                replace_block(
-                    open_document, target, data={"text": f"v{index}"}, author="user"
-                )
-
-        first = all_entries(slug)[0]
-        assert first.get("baseline") is True
-        assert first["author"] == "system"
-        # And it carries the blocks as they were at the cut.
-        assert first["ops"], "a baseline with no ops restates nothing"
-
-    def test_a_block_not_edited_since_the_cut_survives_replay(
-        self, notes_dir, monkeypatch
-    ):
-        """The defect the baseline exists for.
-
-        Three blocks are created at revision 1; only the first is edited after.
-        Pruning drops revision 1, so without a baseline blocks two and three are
-        absent from the reconstruction entirely.
-        """
-        monkeypatch.setattr(settings, "notes_revisions_max_count", 5)
-        document = create_document(
-            "Keep",
-            [
-                {"type": "paragraph", "data": {"text": "A"}},
-                {"type": "paragraph", "data": {"text": "B stays"}},
-                {"type": "paragraph", "data": {"text": "C stays"}},
-            ],
-        )
-        slug = document.meta.slug
-        first_id = document.blocks[0].id
-        for index in range(10):
-            with locked_document(slug, None, author="user") as open_document:
-                replace_block(
-                    open_document,
-                    first_id,
-                    data={"text": f"A{index}"},
-                    author="user",
-                )
-
-        live = load_document(slug)
-        rebuilt = replay(slug)
-        assert [(b.id, b.data) for b in rebuilt.blocks] == [
-            (b.id, b.data) for b in live.blocks
-        ], "the reconstruction must match the live document"
-
-    def test_replay_of_a_pruned_log_is_reported_complete(self, notes_dir, monkeypatch):
-        """A baseline is the missing starting point, not a gap.
-
-        Without this, a log that replays perfectly still reported itself
-        incomplete -- and revert refuses an incomplete history.
-        """
-        monkeypatch.setattr(settings, "notes_revisions_max_count", 3)
-        document = create_document(
-            "Pruned", [{"type": "paragraph", "data": {"text": "one"}}]
-        )
-        slug = document.meta.slug
-        target = document.blocks[0].id
-        for index in range(10):
-            with locked_document(slug, None, author="user") as open_document:
-                replace_block(
-                    open_document, target, data={"text": f"v{index}"}, author="user"
-                )
-        assert replay(slug).complete is True
-
-    def test_the_baseline_does_not_count_against_the_limit(
-        self, notes_dir, doc, monkeypatch
-    ):
-        """It is overhead that makes the kept states readable, not a state."""
+    def test_rotation_preserves_history(self, notes_dir, doc):
+        """Rotating the file aside must not change what is readable."""
         slug, _ = doc
         drop_log(slug)
-        monkeypatch.setattr(settings, "notes_revisions_max_count", 4)
-        append_entries(slug, 12)
-        states = [e for e in all_entries(slug) if e.get("author") != "system"]
-        assert len(states) == 4
+        append_entries(slug, 3)
+        before_ids = [e["id"] for e in all_entries(slug)]
 
-    def test_a_pruned_history_reverts_exactly(self, notes_dir, monkeypatch):
-        """The point of all of it: restore has to work under the limit."""
-        monkeypatch.setattr(settings, "notes_revisions_max_count", 6)
+        assert rotate_now(slug) is not None
+        append_entries(slug, 1, start=4)
+        assert rotate_now(slug) is not None
+
+        # Every id recorded before the rotations is still readable, in order.
+        after_ids = [e["id"] for e in all_entries(slug)]
+        assert after_ids[: len(before_ids)] == before_ids
+        assert len(rotated_logs(slug)) >= 2
+
+    def test_reverts_survive_indefinitely(self, notes_dir):
+        """A revert is part of the audit trail and is never trimmed away."""
         document = create_document(
-            "Revertable",
+            "Survives",
             [
                 {"type": "paragraph", "data": {"text": "one"}},
                 {"type": "paragraph", "data": {"text": "two"}},
@@ -1467,170 +1347,121 @@ class TestHistoryLimitAndBaseline:
         )
         slug = document.meta.slug
         target = document.blocks[0].id
-        for index in range(10):
-            with locked_document(slug, None, author="user") as open_document:
-                replace_block(
-                    open_document, target, data={"text": f"v{index}"}, author="user"
-                )
+        with locked_document(slug, None, author="user") as open_document:
+            replace_block(open_document, target, data={"text": "v1"}, author="user")
 
-        # A revision inside the surviving window.
-        surviving = [e for e in all_entries(slug) if e.get("author") != "system"]
-        chosen = surviving[1]["id"]
-        expected = state_before(slug, chosen)
-        assert expected.complete is True
+        revert_document(slug, 2, expected_version=load_document(slug).meta.version)
 
-        reverted_document, _entry = revert_document(
-            slug, chosen, expected_version=load_document(slug).meta.version
-        )
-        assert [(b.id, b.data) for b in reverted_document.blocks] == [
-            (b.id, b.data) for b in expected.blocks
+        for _ in range(60):
+            record(slug)
+
+        reverts = [
+            e
+            for e in all_entries(slug)
+            if e.get("author") == "system"
+            and not e.get("baseline")
+            and any(op.get("op") == "revert" for op in e.get("ops", []))
         ]
+        assert reverts, "the revert record must survive later edits"
+        assert replay(slug).complete is True
+        assert replay_matches_document(slug) is True
 
-    def test_nothing_is_dropped_below_the_limit(self, notes_dir, doc, monkeypatch):
-        slug, _ = doc
-        drop_log(slug)
-        monkeypatch.setattr(settings, "notes_revisions_max_count", 50)
-        append_entries(slug, 20)
-        assert count_revisions(slug) == 20
+    def test_delete_is_the_only_history_remover(self, notes_dir):
+        """Revision files, live and rotated, go only when the note does."""
+        document = create_document(
+            "Gone", [{"type": "paragraph", "data": {"text": "x"}}]
+        )
+        slug = document.meta.slug
+        append_entries(slug, 60)
+        assert revisions_path(slug).exists()
+        assert rotated_logs(slug), "the note should have rotated logs"
+
+        delete_document_files(slug)
+
+        assert not revisions_path(slug).exists()
         assert rotated_logs(slug) == []
 
-    def test_pruning_is_idempotent(self, notes_dir, doc, monkeypatch):
-        """Pruning runs on every write once at the limit; it must settle."""
+    def test_append_is_durable(self, notes_dir, doc, monkeypatch):
+        """An acknowledged append is fsynced, so a crash cannot lose it."""
         slug, _ = doc
-        drop_log(slug)
-        monkeypatch.setattr(settings, "notes_revisions_max_count", 3)
-        append_entries(slug, 10)
-        before = [e["id"] for e in all_entries(slug)]
-        prune_rotated(slug)
-        prune_rotated(slug)
-        assert [e["id"] for e in all_entries(slug)] == before
+        calls = {"n": 0}
+        real_fsync = os.fsync
 
+        def counting_fsync(fd):
+            calls["n"] += 1
+            return real_fsync(fd)
 
-class TestTheHistoryAnchor:
-    """The anchor must make the SURVIVING history rebuildable.
+        monkeypatch.setattr(os, "fsync", counting_fsync)
+        append_entry(
+            slug,
+            make_entry(
+                revision_id=99,
+                author="user",
+                version_from=1,
+                version_to=2,
+                ops=[],
+                summary="durable",
+            ),
+        )
+        assert calls["n"] >= 1, "an acknowledged append must be fsynced"
 
-    Anchoring on the last DROPPED entry looks equivalent and is not: that entry
-    is often the document's creation, whose state is the empty document, so the
-    snapshot records nothing -- and then every later revision is unbuildable
-    because the blocks created since have no recorded origin.
-    """
-
-    def grow(self, slug, block_id, count):
-        for index in range(count):
-            with locked_document(slug, None, author="user") as document:
+    def test_legacy_anchor_still_recognised_in_replay(self, notes_dir):
+        """An older build may have written an anchor; replay must still trust it."""
+        document = create_document(
+            "Legacy", [{"type": "paragraph", "data": {"text": "v0"}}]
+        )
+        slug = document.meta.slug
+        block_id = document.blocks[0].id
+        for index in range(2):
+            with locked_document(slug, None, author="user") as open_document:
                 replace_block(
-                    document, block_id, data={"text": f"v{index}"}, author="user"
+                    open_document,
+                    block_id,
+                    data={"text": f"v{index + 1}"},
+                    author="user",
                 )
 
-    def test_the_anchor_describes_the_first_surviving_state(
-        self, notes_dir, monkeypatch
-    ):
-        monkeypatch.setattr(settings, "notes_revisions_max_count", 5)
-        document = create_document(
-            "Anchored",
-            [
-                {"type": "paragraph", "data": {"text": "v0"}},
-                {"type": "paragraph", "data": {"text": "B stays"}},
-            ],
-        )
-        slug = document.meta.slug
-        self.grow(slug, document.blocks[0].id, 12)
-
-        first = all_entries(slug)[0]
-        assert first.get("baseline") is True
-        # Two blocks, so the anchor is NOT empty. An anchor keyed on the dropped
-        # creation entry would carry no ops at all.
-        assert len(first["ops"]) == 2
-
-    def test_the_anchor_does_not_duplicate_the_first_survivors_id(
-        self, notes_dir, monkeypatch
-    ):
-        """Ids address entries, so two entries sharing one would be ambiguous."""
-        monkeypatch.setattr(settings, "notes_revisions_max_count", 5)
-        document = create_document(
-            "Ids", [{"type": "paragraph", "data": {"text": "x"}}]
-        )
-        slug = document.meta.slug
-        self.grow(slug, document.blocks[0].id, 12)
-
-        ids = [e["id"] for e in all_entries(slug)]
-        assert len(ids) == len(set(ids)), "ids must stay unique"
-
-    def test_a_block_never_edited_after_the_drop_still_replays(
-        self, notes_dir, monkeypatch
-    ):
-        monkeypatch.setattr(settings, "notes_revisions_max_count", 5)
-        document = create_document(
-            "KeptBlock",
-            [
-                {"type": "paragraph", "data": {"text": "edited a lot"}},
-                {"type": "paragraph", "data": {"text": "never touched"}},
-            ],
-        )
-        slug = document.meta.slug
-        self.grow(slug, document.blocks[0].id, 12)
-
-        rebuilt = replay(slug)
-        assert rebuilt.complete is True
-        assert any(b.data.get("text") == "never touched" for b in rebuilt.blocks)
-
-    def test_the_anchor_is_written_even_when_nothing_was_dropped_this_time(
-        self, notes_dir, monkeypatch
-    ):
-        """A log can be missing its start without this run having trimmed it.
-
-        An older build, a hand-copied log or a truncated file all produce a log
-        that begins part-way through. Gating the anchor on "did I drop something"
-        left such a log permanently unbuildable.
-        """
-        monkeypatch.setattr(settings, "notes_revisions_max_count", 50)
-        document = create_document(
-            "Gap", [{"type": "paragraph", "data": {"text": "x"}}]
-        )
-        slug = document.meta.slug
-        self.grow(slug, document.blocks[0].id, 3)
-        # Simulate the damage: remove the earliest entries by hand.
-        entries = [e for e in all_entries(slug) if e["id"] > 1]
+        # State as it stood BEFORE revision 3, restated as an anchor with id 2.
+        before_three = replay(slug, upto_id=3)
+        anchor_ops = [
+            {
+                "op": "add",
+                "block_id": block.id,
+                "block_type": block.type,
+                "data": dict(block.data),
+                "index": index,
+            }
+            for index, block in enumerate(before_three.blocks)
+        ]
+        anchor = {
+            "id": 2,
+            "timestamp": "2026-01-01T00:00:00Z",
+            "author": "system",
+            "baseline": True,
+            "version_from": 0,
+            "version_to": 0,
+            "ops": anchor_ops,
+            "summary": (
+                "History starts here. Earlier revisions were dropped; the "
+                "document can be rebuilt from this point on."
+            ),
+        }
+        survivor = [e for e in all_entries(slug) if e["id"] == 3]
         revisions_path(slug).write_text(
-            "".join(json.dumps(e) + "\n" for e in entries), encoding="utf-8"
+            "".join(json.dumps(e) + "\n" for e in [anchor, *survivor]),
+            encoding="utf-8",
         )
-        assert replay(slug).complete is False
 
-        # One more write must repair it: the anchor is not conditional on a drop.
-        self.grow(slug, document.blocks[0].id, 1)
+        # Without anchor recognition this log starts at id 2, not 1, and would
+        # be reported incomplete.
+        state = replay(slug)
+        assert state.complete is True
         assert all_entries(slug)[0].get("baseline") is True
-        assert replay(slug).complete is True
 
-    def test_the_anchor_says_history_starts_here(self, notes_dir, monkeypatch):
-        monkeypatch.setattr(settings, "notes_revisions_max_count", 5)
-        document = create_document(
-            "Words", [{"type": "paragraph", "data": {"text": "x"}}]
-        )
-        slug = document.meta.slug
-        self.grow(slug, document.blocks[0].id, 12)
-        summary = all_entries(slug)[0]["summary"]
-        assert "History starts here" in summary
-        assert "can be rebuilt" in summary
-
-    def test_a_revision_after_the_anchor_is_restorable(self, notes_dir, monkeypatch):
-        """The boundary is a floor on how far back you can go, not a fault."""
-        monkeypatch.setattr(settings, "notes_revisions_max_count", 5)
-        document = create_document(
-            "Restorable", [{"type": "paragraph", "data": {"text": "v0"}}]
-        )
-        slug = document.meta.slug
-        self.grow(slug, document.blocks[0].id, 12)
-
-        surviving = [e for e in all_entries(slug) if e.get("author") != "system"]
-        target = surviving[1]["id"]
-        # `at=True` means "the state AS OF this revision", so the expectation is
-        # the replay up to and INCLUDING it -- not `state_before`, which is
-        # deliberately one revision earlier.
-        expected = replay(slug, upto_id=target + 1)
-        assert expected.complete is True
-        restored, _entry = restore_document(
-            slug, target, expected_version=load_document(slug).meta.version, at=True
-        )
-        assert [(b.id, b.data) for b in restored.blocks] == [
-            (b.id, b.data) for b in expected.blocks
+        # A real append after the hand-written anchor, as a later build would do.
+        record(slug)
+        state = replay(slug)
+        assert state.complete is True
+        assert [(b.id, b.data) for b in state.blocks] == [
+            (b.id, b.data) for b in load_document(slug).blocks
         ]
