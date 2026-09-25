@@ -37,7 +37,7 @@ wichy --load-ctx .wichy/contexts/2026-07-04_1234567890.jsonl
 - **37 Tools**: file operations, shell commands, web search, browser automation, DuckDB queries, graphs, notes, sub-agents, skills, MCP tool proxies, and more
 - **Root & Task Agents**: `RootAgent` runs the REPL; `TaskAgent` handles delegated multi-step work
 - **Skills System**: Markdown-based knowledge bundles with optional scripts; project-local `.wichy/skills/` and shared `~/.wichy/skills/`
-- **Hooks System**: Intercept and modify tool execution and lifecycle events
+- **Hooks System**: Intercept and modify tool execution and lifecycle events, add custom slash commands
 - **Napkin Runbook**: Per-repo curated runbook at `.wichy/napkin.md`
 - **Agent Notebook**: SQLite memory at `.wichy/notebook.db` for cross-session learning
 - **Web Interface**: Chat, notes editor, context editor, graph editor, and data explorer at `http://127.0.0.1:7891`

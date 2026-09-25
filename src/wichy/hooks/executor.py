@@ -40,7 +40,9 @@ class HookExecutionResult:
 
     approved: bool = True
     modified_input: Optional[Dict[str, Any]] = None
-    modified_output: Optional[str] = None
+    # Post-tool hooks produce strings; POST_SLASH_COMMAND hooks may replace a
+    # Rich Table result, so Any covers both without changing existing uses.
+    modified_output: Optional[Any] = None
     error_message: Optional[str] = None
     hooks_executed: List[str] = field(default_factory=list)
     hooks_denied: List[str] = field(default_factory=list)
@@ -301,6 +303,152 @@ class HookExecutor:
         result.total_time_ms = (time.perf_counter() - start_time) * 1000
 
         return result
+
+    @staticmethod
+    def run_slash_hooks(
+        hook_type: HookType,
+        root_agent: Any,
+        command: str,
+        args: str,
+        line: str,
+        source: Optional[str] = None,
+        result: Optional[Any] = None,
+    ) -> HookExecutionResult:
+        """Run slash command hooks (PRE, custom command, or POST).
+
+        One executor path serves all three slash hook families; the
+        differences are in how the caller consumes the HookExecutionResult:
+
+        - PRE_SLASH_COMMAND: honors DENY (approved=False, error_message set,
+          remaining hooks skipped) and MODIFY_INPUT restricted to the
+          "args" key -- any other key is ignored, so the command token can
+          never be rewritten this way.
+        - SLASH_COMMAND (custom commands): chains HookResult.modify_output
+          through ctx.output exactly like PRE_RESPONSE_TO_USER; a control
+          exception (context reset/drop, btw, EOF) raised by a hook
+          PROPAGATES OUT so the caller's existing except-clauses act on it;
+          any other exception is isolated per hook and the run continues.
+        - POST_SLASH_COMMAND: same output chaining starting from the
+          command's own result (str, Rich Table, or None).
+
+        Args:
+            hook_type: PRE_SLASH_COMMAND, SLASH_COMMAND, or POST_SLASH_COMMAND.
+            root_agent: The root agent (may be None in tests/tooling).
+            command: The normalized command token (e.g. "/deploy").
+            args: The argument text after the command token ("" if none).
+            line: The full, possibly pre-hook-rewritten, slash line.
+            source: For PRE/POST: "builtin" | "hook" | "unknown" (None for
+                the SLASH_COMMAND family itself).
+            result: For POST hooks: what the command produced.
+
+        Returns:
+            HookExecutionResult. For PRE: approved=False means a hook denied
+            (error_message carries the reason); modified_input may hold
+            {"args": new_args}. For command/POST: modified_output carries the
+            final chained output when any hook modified it, else None.
+        """
+        from .slash_exceptions import (
+            SlashBtwException,
+            SlashContextDropException,
+            SlashContextResetException,
+        )
+
+        execution_result = HookExecutionResult()
+        start_time = time.perf_counter()
+
+        # Command-specific hooks merge with wildcards (None), priority order.
+        hooks = hook_registry.get_hooks(hook_type, command)
+
+        event_data: Dict[str, Any] = {
+            "root_agent": root_agent,
+            "command": command,
+            "args": args,
+            "line": line,
+        }
+        if source is not None:
+            event_data["source"] = source
+        if hook_type == HookType.POST_SLASH_COMMAND:
+            event_data["result"] = result
+
+        hook_ctx = HookContext(
+            tool_name=None,
+            tool_instance=None,
+            input_args={},
+            raw_input_args={},
+            execution_id=hook_registry.generate_execution_id(),
+            timestamp=datetime.now(),
+            working_directory=Path(os.getcwd()),
+            environment={},
+            output=result,
+            hook_type=hook_type,
+            event_data=event_data,
+        )
+
+        # POST hooks chain modifications starting from the command's own
+        # result; PRE/custom hooks start from nothing.
+        chained_output: Optional[Any] = (
+            result if hook_type == HookType.POST_SLASH_COMMAND else None
+        )
+
+        for hook in hooks:
+            if not hook.enabled:
+                continue
+
+            try:
+                hook_start = time.perf_counter()
+                hook_result: HookResult = hook.function(hook_ctx)
+                hook_result.execution_time_ms = (
+                    time.perf_counter() - hook_start
+                ) * 1000
+
+                execution_result.hooks_executed.append(hook.name)
+
+                if hook_result is None:
+                    continue
+
+                if hook_result.action == HookAction.DENY:
+                    # PRE: block dispatch. For custom/POST the same result
+                    # records a blocked message for the caller to show.
+                    execution_result.approved = False
+                    execution_result.error_message = (
+                        hook_result.error_message or f"Denied by hook {hook.name}"
+                    )
+                    execution_result.hooks_denied.append(hook.name)
+                    break
+                elif hook_result.action == HookAction.MODIFY_INPUT:
+                    # Only the "args" key is honored; the command token is
+                    # never rewritable through modify_input.
+                    if (
+                        hook_type == HookType.PRE_SLASH_COMMAND
+                        and hook_result.modified_input is not None
+                        and "args" in hook_result.modified_input
+                    ):
+                        new_args = hook_result.modified_input["args"]
+                        if isinstance(new_args, str):
+                            execution_result.modified_input = {"args": new_args}
+                            hook_ctx.event_data["args"] = new_args
+                elif hook_result.action == HookAction.MODIFY_OUTPUT:
+                    if hook_result.modified_output is not None:
+                        chained_output = hook_result.modified_output
+                        execution_result.modified_output = chained_output
+                        hook_ctx.output = chained_output
+
+            except (
+                SlashContextResetException,
+                SlashContextDropException,
+                SlashBtwException,
+                EOFError,
+            ):
+                # Control exceptions propagate to the caller (REPL or web
+                # chat) for handling, exactly like built-in commands'.
+                raise
+            except Exception as e:
+                # Any other hook failure is isolated and non-fatal.
+                user_console.print(f"[red]Hook {hook.name} failed: {e}[/red]")
+                continue
+
+        execution_result.total_time_ms = (time.perf_counter() - start_time) * 1000
+        return execution_result
 
     @staticmethod
     def run_post_hooks(

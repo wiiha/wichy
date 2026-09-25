@@ -15,9 +15,9 @@ Usage:
     from wichy.hooks.types import HookType, HookPriority, RegisteredHook
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
-from typing import Callable, Optional, TYPE_CHECKING
+from typing import Any, Callable, Dict, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .context import HookContext
@@ -42,6 +42,15 @@ class HookType(Enum):
         CONTEXT_COMPACT_PRE: Executed before context compaction.
         CONTEXT_COMPACT_POST: Executed after context compaction.
 
+        Slash command hooks (registered with the command string like "/deploy"
+        for command-specific matching, or None for wildcard):
+            SLASH_COMMAND: Custom slash commands. Run when no built-in
+                command matches the typed command name.
+            PRE_SLASH_COMMAND: Executed before any slash command dispatches.
+                May deny (blocks the command) or modify the command arguments.
+            POST_SLASH_COMMAND: Executed after a slash command completes
+                normally. May replace the returned result.
+
     For lifecycle hooks, event-specific data is provided in the HookContext.event_data
     dictionary rather than through tool-related fields.
     """
@@ -56,6 +65,9 @@ class HookType(Enum):
     CONTEXT_COMPACT_POST = "context_compact_post"
     PRE_USER_MESSAGE = "pre_user_message"
     PRE_RESPONSE_TO_USER = "pre_response_to_user"
+    SLASH_COMMAND = "slash_command"
+    PRE_SLASH_COMMAND = "pre_slash_command"
+    POST_SLASH_COMMAND = "post_slash_command"
 
 
 class HookPriority(Enum):
@@ -93,6 +105,10 @@ class RegisteredHook:
         name: Human-readable name for the hook (defaults to function name)
         source: Where the hook was registered from ("python", "yaml", or "shell")
         enabled: Whether the hook is currently active
+        metadata: Extra data for the hook family. For SLASH_COMMAND hooks
+            this carries the user-facing command metadata
+            ({"description": str, "args": dict}) used by /help, list_commands,
+            and completion.
     """
 
     hook_type: HookType
@@ -102,3 +118,4 @@ class RegisteredHook:
     name: str = ""
     source: str = "python"
     enabled: bool = True
+    metadata: Dict[str, Any] = field(default_factory=dict)

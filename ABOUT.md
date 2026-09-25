@@ -257,16 +257,16 @@ Predefined sub-agent types:
 
 #### Notes & Scratchpad
 
-| Tool              | Class                | Description                                                       |
-| ----------------- | -------------------- | ----------------------------------------------------------------- |
-| `read_scratchpad` | `ReadScratchpadTool` | Read the pinned scratchpad document with block ids and metadata   |
-| `read_blocks`     | `ReadBlocksTool`     | Read blocks by type, single id, or index range                    |
-| `replace_block`   | `ReplaceBlockTool`   | Replace one block's content, keeping its id                       |
-| `insert_block`    | `InsertBlockTool`    | Insert a new block, after an anchor or at the end                 |
-| `delete_block`    | `DeleteBlockTool`    | Delete one block by id                                            |
-| `move_block`      | `MoveBlockTool`      | Move one block to a new position                                  |
-| `notes_answer_question` | `AnswerQuestionTool` | Mark a question block answered without touching its text     |
-| `read_revisions`  | `ReadRevisionsTool`  | Read the document's revision history, newest first                |
+| Tool                    | Class                | Description                                                     |
+| ----------------------- | -------------------- | --------------------------------------------------------------- |
+| `read_scratchpad`       | `ReadScratchpadTool` | Read the pinned scratchpad document with block ids and metadata |
+| `read_blocks`           | `ReadBlocksTool`     | Read blocks by type, single id, or index range                  |
+| `replace_block`         | `ReplaceBlockTool`   | Replace one block's content, keeping its id                     |
+| `insert_block`          | `InsertBlockTool`    | Insert a new block, after an anchor or at the end               |
+| `delete_block`          | `DeleteBlockTool`    | Delete one block by id                                          |
+| `move_block`            | `MoveBlockTool`      | Move one block to a new position                                |
+| `notes_answer_question` | `AnswerQuestionTool` | Mark a question block answered without touching its text        |
+| `read_revisions`        | `ReadRevisionsTool`  | Read the document's revision history, newest first              |
 
 These operate on the pinned scratchpad only and take no slug. With nothing
 pinned every one of them returns "No scratchpad is pinned. Pin a note in the
@@ -339,15 +339,20 @@ Conversations are stored as newline-delimited JSON (JSONL) in `.wichy/contexts/`
 
 ### Slash Commands
 
-| Command            | Description                                           |
-| ------------------ | ----------------------------------------------------- |
-| `/btw <question>`  | One-shot sandboxed question via a temporary RootAgent |
-| `/reset`           | Wipe context completely                               |
-| `/compact`         | Summarize context (LLM-generated summary + compact)   |
-| `/drop`            | Remove last message                                   |
-| `/status`          | Show token count and auto-compact threshold           |
-| `/logging on\|off` | Toggle verbose logging                                |
-| `/exit`            | Exit the REPL                                         |
+| Command                  | Description                                           |
+| ------------------------ | ----------------------------------------------------- |
+| `/btw <question>`        | One-shot sandboxed question via a temporary RootAgent |
+| `/reset`                 | Wipe context completely                               |
+| `/compact`               | Summarize context (LLM-generated summary + compact)   |
+| `/drop`                  | Remove last message                                   |
+| `/status`                | Show token count and auto-compact threshold           |
+| `/logging on\|off`       | Toggle verbose logging                                |
+| `/hooks`                 | Reload hook files and list all registered hooks       |
+| `/help [cmd]`            | List commands (or describe one)                       |
+| `/name [name]`           | Set or show the agent display name                    |
+| `/model [backend/model]` | Swap the LLM model mid-session                        |
+| `/exit`                  | Exit the REPL                                         |
+| `/anything-you-like`     | Custom commands registered via hooks (see below)      |
 
 ### Auto-Compaction
 
@@ -438,8 +443,10 @@ Hooks execute in priority order (lower = earlier). Default priority is 50.
 - `CONTEXT_RESET_PRE`, `CONTEXT_RESET_POST`
 - `CONTEXT_COMPACT_PRE`, `CONTEXT_COMPACT_POST`
 - `PRE_USER_MESSAGE`, `PRE_RESPONSE_TO_USER`
+- `PRE_SLASH_COMMAND`, `POST_SLASH_COMMAND`
+- `SLASH_COMMAND` (custom commands)
 
-Lifecycle hooks are mostly informational; `PRE_RESPONSE_TO_USER` hooks may modify the final assistant message.
+Lifecycle hooks are mostly informational; `PRE_RESPONSE_TO_USER` hooks may modify the final assistant message. `SLASH_COMMAND` hooks register whole new slash commands; `PRE_SLASH_COMMAND` hooks may deny any command or rewrite its arguments; `POST_SLASH_COMMAND` hooks may replace a command's result. Slash hooks run in both the REPL and the web chat, but not in pipeline mode (`--prompt`).
 
 ### Hook File Locations
 
@@ -779,6 +786,36 @@ def no_rm_rf(ctx):
     if "rm -rf" in ctx.input_args.get("command", ""):
         return HookResult.deny("Not today")
     return HookResult.approve()
+```
+
+### Adding a Custom Slash Command
+
+Custom commands live in the same hook files and appear in `/help`, tab
+completion, and the `/server/api/slashcommands` endpoint. A command that
+no hook modifies the output of is still consumed (never sent to the LLM).
+Built-in commands always win on a name collision.
+
+```python
+from wichy.hooks import HookResult, slash_command
+
+@slash_command("/deploy", description="Deploy the current branch")
+def run_deploy(ctx) -> HookResult:
+    branch = ctx.event_data["args"] or "main"
+    # ...run the deployment...
+    return HookResult.modify_output(f"deployed {branch}")
+
+# Guardrails and audit on every slash line, built-ins included:
+from wichy.hooks import pre_slash_command, post_slash_command
+
+@pre_slash_command("/reset")
+def confirm_reset(ctx) -> HookResult:
+    if not ctx.event_data["args"]:
+        return HookResult.deny("pass --sure to confirm")
+    return HookResult.approve()
+
+@post_slash_command()
+def audit(ctx) -> HookResult:
+    return HookResult.approve()  # side effects only; ctx.event_data["result"]
 ```
 
 ---

@@ -301,3 +301,48 @@ class TestPipelineMode:
 
         agent.context.append.assert_not_called()
         agent.process.assert_called_once_with("hello")
+
+    def test_pipeline_mode_never_fires_slash_command_hooks(
+        self, mock_settings, mock_root_agent
+    ):
+        """A registered custom slash command must NOT run in pipeline mode.
+
+        check_command is not on the --prompt path: the raw prompt goes
+        straight to root_agent.process. If a refactor ever routes pipeline
+        lines through the checker, this hook would fire and the call list
+        would record it.
+        """
+        from wichy.hooks import HookResult, clear_hooks, slash_command
+
+        clear_hooks()
+        calls: list[str] = []
+
+        @slash_command("/deploy", description="Deploy the current branch")
+        def run_deploy(ctx) -> HookResult:
+            calls.append(ctx.event_data["command"])
+            return HookResult.modify_output("deployed!")
+
+        try:
+            with (
+                patch(
+                    "wichy.__main__.build_agent_from_config",
+                    return_value=mock_root_agent,
+                ),
+                patch("wichy.__main__.settings", mock_settings),
+                patch.object(
+                    sys,
+                    "argv",
+                    ["wichy", "--prompt", "/deploy", "--no-server"],
+                ),
+                pytest.raises(SystemExit),
+            ):
+                from wichy.__main__ import main
+
+                main()
+
+            # The hook never fired: the line went to the agent verbatim.
+            assert calls == []
+            # The agent received the raw /deploy line, not a hook result.
+            mock_root_agent.process.assert_any_call("/deploy")
+        finally:
+            clear_hooks()

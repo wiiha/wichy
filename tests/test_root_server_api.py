@@ -8,6 +8,7 @@ import pytest
 from flask import Blueprint, Flask
 
 from wichy.context.handler import ContextHandler
+from wichy.hooks import clear_hooks, HookResult, slash_command
 from wichy.slash_commands import SlashCommandChecker
 from wichy.wichy_server.api import register_routes, set_active_session
 
@@ -177,3 +178,22 @@ class TestSlashCommandsEndpoint:
             assert "name" in cmd
             assert "description" in cmd
             assert cmd["name"].startswith("/")
+
+    def test_slashcommands_includes_hook_commands(self, client):
+        clear_hooks()
+
+        @slash_command("/deploy", description="Deploy the current branch")
+        def run_deploy(ctx) -> HookResult:
+            return HookResult.approve()
+
+        checker = SlashCommandChecker(root_agent=None)
+        set_active_session(MockSession(cmd_checker=checker))
+
+        response = client.get("/server/api/slashcommands")
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        deploy = next(c for c in data["commands"] if c["name"] == "/deploy")
+        # Assert a positive signal from the target itself (its description),
+        # never a substring a failure message could also contain.
+        assert deploy["description"] == "Deploy the current branch"
+        clear_hooks()

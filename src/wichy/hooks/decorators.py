@@ -29,7 +29,7 @@ Lifecycle hooks for session and context events:
         return HookResult.approve()
 """
 
-from typing import Callable, Optional
+from typing import Any, Callable, Dict, Optional
 
 from .registry import hook_registry
 from .types import HookType
@@ -530,4 +530,211 @@ def pre_response_to_user(
     if func_or_priority is not None:
         # Used as bare decorator: @pre_response_to_user
         return decorator(func_or_priority)
+    return decorator
+
+
+# =============================================================================
+# Slash Command Hook Decorators
+# =============================================================================
+
+
+def _normalize_command_name(command: str) -> str:
+    """Normalize a slash command name for registration.
+
+    Strips surrounding whitespace, lowercases, and prepends a leading "/"
+    if missing. An empty result raises ValueError.
+
+    Args:
+        command: The raw command name (e.g. "Deploy", "/deploy").
+
+    Returns:
+        The normalized command string (e.g. "/deploy").
+
+    Raises:
+        ValueError: If the command is empty after stripping.
+    """
+    normalized = command.strip().lower()
+    if not normalized:
+        raise ValueError("Slash command name cannot be empty")
+    if not normalized.startswith("/"):
+        normalized = "/" + normalized
+    return normalized
+
+
+def slash_command(
+    command: str,
+    *,
+    description: str = "",
+    args: Optional[Dict[str, Any]] = None,
+    priority: int = 50,
+    name: Optional[str] = None,
+) -> Callable:
+    """Decorator to register a custom slash command.
+
+    The decorated function becomes the handler for the command: it runs when
+    a typed slash line matches this command AND no built-in command owns that
+    name (built-ins always win; a colliding name never runs).
+
+    The handler receives a HookContext whose event_data holds:
+        root_agent, command, args (rest of the line), line
+
+    Return values are honored:
+        HookResult.modify_output(text) -- text is shown to the user; multiple
+        hooks for the same command chain through ctx.output (priority order).
+        HookResult.deny(msg) -- a blocked message is shown, command stops.
+        Anything else -- the command is still consumed; nothing is shown.
+
+    Control exceptions (the context reset/drop, /btw, and EOF errors) raised
+    inside the handler propagate to the caller exactly as a built-in
+    command's exceptions do.
+
+    Args:
+        command: The command name (leading "/" optional, case-insensitive).
+        description: One-line description shown by /help and list_commands().
+        args: Optional completion hints for the command's arguments. Follows
+            NestedCompleter semantics: None means free-form text, a dict maps
+            an argument word to nested completions.
+        priority: Execution order when several hooks share the command
+            (lower = earlier). Default 50.
+        name: Optional name for the hook (defaults to function name).
+
+    Returns:
+        Decorator function.
+
+    Raises:
+        ValueError: Immediately (at decorator factory call) if the command
+            name is empty after stripping.
+
+    Example:
+        @slash_command("deploy", description="Deploy the current branch")
+        def run_deploy(ctx: HookContext) -> HookResult:
+            print(f"Deploying with model {ctx.event_data['root_agent'].model_str}")
+            return HookResult.modify_output("deployed!")
+    """
+    normalized_command = _normalize_command_name(command)
+
+    def decorator(func: Callable) -> Callable:
+        """Register the function as a custom slash command."""
+        hook_registry.register(
+            hook_type=HookType.SLASH_COMMAND,
+            tool_name=normalized_command,
+            function=func,
+            priority=priority,
+            name=name or "",
+            metadata={"description": description, "args": args},
+        )
+        return func
+
+    return decorator
+
+
+def pre_slash_command(
+    command: Optional[str] = None,
+    *,
+    priority: int = 50,
+    name: Optional[str] = None,
+) -> Callable:
+    """Decorator to register a pre-slash-command hook.
+
+    Pre-slash-command hooks run before every slash line is dispatched
+    (built-in, hook-registered, or unknown command alike). They may:
+        - HookResult.deny(msg): block the command (it does not run) and show
+          a blocked message with the hook name and reason.
+        - HookResult.modify_input({"args": new_args}): replace the command's
+          argument text. The command token itself is never rewritten.
+
+    The handler receives a HookContext whose event_data holds:
+        root_agent, command, args, line, source ("builtin" | "hook" | "unknown")
+
+    Args:
+        command: Restrict to one command (leading "/" optional). None applies
+            to every command (wildcard).
+        priority: Execution order (lower = earlier). Default 50.
+        name: Optional name for the hook (defaults to function name).
+
+    Returns:
+        Decorator function.
+
+    Raises:
+        ValueError: Immediately (at decorator factory call) if a non-None
+            command name is empty after stripping.
+
+    Example:
+        @pre_slash_command()
+        def guard_resets(ctx: HookContext) -> HookResult:
+            if ctx.event_data["command"] == "/reset" and not ctx.event_data["args"]:
+                return HookResult.deny("/reset requires confirmation")
+            return HookResult.approve()
+    """
+    normalized_command: Optional[str] = (
+        _normalize_command_name(command) if command is not None else None
+    )
+
+    def decorator(func: Callable) -> Callable:
+        """Register the function as a pre-slash-command hook."""
+        hook_registry.register(
+            hook_type=HookType.PRE_SLASH_COMMAND,
+            tool_name=normalized_command,
+            function=func,
+            priority=priority,
+            name=name or "",
+        )
+        return func
+
+    return decorator
+
+
+def post_slash_command(
+    command: Optional[str] = None,
+    *,
+    priority: int = 50,
+    name: Optional[str] = None,
+) -> Callable:
+    """Decorator to register a post-slash-command hook.
+
+    Post-slash-command hooks run after a slash command completes normally --
+    they do NOT run when the command's handler raised (built-in handlers
+    signal outcomes via exceptions) nor when a pre hook denied the command.
+
+    The handler receives a HookContext whose event_data holds:
+        root_agent, command, args, line, source, result
+    where result is whatever the command produced (str, Rich Table, or None).
+
+    They may return HookResult.modify_output(new_result) to replace what the
+    user sees. Chained hooks each see the previous modification via
+    ctx.output.
+
+    Args:
+        command: Restrict to one command (leading "/" optional). None applies
+            to every command (wildcard).
+        priority: Execution order (lower = earlier). Default 50.
+        name: Optional name for the hook (defaults to function name).
+
+    Returns:
+        Decorator function.
+
+    Raises:
+        ValueError: Immediately (at decorator factory call) if a non-None
+            command name is empty after stripping.
+
+    Example:
+        @post_slash_command("/status")
+        def stamp_status(ctx: HookContext) -> HookResult:
+            return HookResult.modify_output(ctx.output + "\\n-- updated just now")
+    """
+    normalized_command: Optional[str] = (
+        _normalize_command_name(command) if command is not None else None
+    )
+
+    def decorator(func: Callable) -> Callable:
+        """Register the function as a post-slash-command hook."""
+        hook_registry.register(
+            hook_type=HookType.POST_SLASH_COMMAND,
+            tool_name=normalized_command,
+            function=func,
+            priority=priority,
+            name=name or "",
+        )
+        return func
+
     return decorator

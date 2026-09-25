@@ -8,6 +8,7 @@ from wichy.hooks.registry import (
     HookRegistry,
     clear_hooks,
     get_hooks_for_tool,
+    get_hooks_for_type,
     hook_registry,
     register_hook,
 )
@@ -143,6 +144,78 @@ class TestRegisterWildcardHook:
         assert len(write_hooks) == 1
         assert bash_hooks[0].function == sample_hook
         assert write_hooks[0].function == sample_hook
+
+    def test_register_hook_defaults_metadata_to_empty_dict(self):
+        """Registering without metadata leaves the hook's metadata empty."""
+        clear_hooks()
+
+        register_hook(
+            hook_type=HookType.PRE_TOOL,
+            function=sample_hook,
+            tool_name="bash",
+        )
+
+        hooks = get_hooks_for_tool(HookType.PRE_TOOL, "bash")
+        assert hooks[0].metadata == {}
+
+    def test_register_hook_stores_metadata(self):
+        """Metadata passed at registration survives on the RegisteredHook."""
+        clear_hooks()
+
+        register_hook(
+            hook_type=HookType.SLASH_COMMAND,
+            function=sample_hook,
+            tool_name="/deploy",
+            metadata={"description": "Deploy the current branch", "args": None},
+        )
+
+        hooks = get_hooks_for_tool(HookType.SLASH_COMMAND, "/deploy")
+        assert len(hooks) == 1
+        assert hooks[0].metadata == {
+            "description": "Deploy the current branch",
+            "args": None,
+        }
+
+    def test_register_accepts_new_hook_type_without_preseeding(self):
+        """A new HookType key springs into existence (no pre-seeded dict)."""
+        clear_hooks()
+
+        register_hook(
+            hook_type=HookType.POST_SLASH_COMMAND,
+            function=sample_hook,
+            tool_name="/deploy",
+        )
+        register_hook(
+            hook_type=HookType.PRE_SLASH_COMMAND,
+            function=sample_hook,
+            tool_name=None,
+        )
+
+        assert len(get_hooks_for_tool(HookType.POST_SLASH_COMMAND, "/deploy")) == 1
+        assert len(get_hooks_for_type(HookType.PRE_SLASH_COMMAND)) == 1
+
+    def test_register_hook_none_metadata_normalized_to_empty_dict(self):
+        """Explicit None metadata is stored as {} not None, per registry contract."""
+        clear_hooks()
+
+        hook_registry.register(
+            hook_type=HookType.SLASH_COMMAND,
+            tool_name="/deploy",
+            function=sample_hook,
+            metadata=None,
+        )
+
+        hooks = get_hooks_for_tool(HookType.SLASH_COMMAND, "/deploy")
+        assert hooks[0].metadata == {}
+        # Each registration gets its own dict instance (no shared default).
+        register_hook(
+            hook_type=HookType.SLASH_COMMAND,
+            function=another_hook,
+            tool_name="/deploy2",
+        )
+        hooks2 = get_hooks_for_tool(HookType.SLASH_COMMAND, "/deploy2")
+        hooks2[0].metadata["description"] = "changed"
+        assert hooks[0].metadata == {}
 
     def test_wildcard_and_specific_hooks_combined(self):
         """Test that wildcard and specific hooks are both returned."""

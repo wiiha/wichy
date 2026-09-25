@@ -23,6 +23,14 @@ Lifecycle Hooks (observe session and context events):
     @context_compact_pre  - Fires before context compaction
     @context_compact_post - Fires after context compaction
 
+Slash Command Hooks (custom commands and observers):
+    @slash_command("/name")  - Registers a NEW slash command
+    @pre_slash_command("/name")  - Runs before a command dispatches (may deny
+                                   or rewrite its arguments); wildcard when
+                                   the command is omitted
+    @post_slash_command("/name") - Runs after a command completes (may replace
+                                   its result); wildcard when omitted
+
     Lifecycle hooks are informational - they observe events but cannot
     block or modify them. Data is available in ctx.event_data dict.
 
@@ -44,6 +52,8 @@ from wichy.hooks import (
     session_start, session_end,
     context_reset_pre, context_reset_post,
     context_compact_pre, context_compact_post,
+    # Slash command hooks
+    slash_command, pre_slash_command, post_slash_command,
     # Context access
     context_add,
     # Types
@@ -98,6 +108,30 @@ from wichy.hooks import (
 #     if ctx.output and len(ctx.output) > max_chars:
 #         print(f"[yellow]Output truncated to {max_chars} chars[/yellow]")
 #         return HookResult.modify_output(ctx.output[:max_chars] + "\\n...[truncated]")
+#     return HookResult.approve()
+
+# =============================================================================
+# SLASH COMMAND HOOK EXAMPLES (uncomment to use)
+# =============================================================================
+
+# @slash_command("/deploy", description="Deploy the current branch")
+# def run_deploy(ctx: HookContext) -> HookResult:
+#     """A brand-new slash command: shows in /help and tab completion."""
+#     branch = ctx.event_data.get("args") or "main"
+#     print(f"[green]Deploying {branch}...[/green]")
+#     return HookResult.modify_output(f"deployed {branch}")
+
+# @pre_slash_command("/reset")
+# def confirm_reset(ctx: HookContext) -> HookResult:
+#     """Guardrail: require an argument before /reset is allowed."""
+#     if not ctx.event_data.get("args"):
+#         return HookResult.deny("/reset needs explicit confirmation")
+#     return HookResult.approve()
+
+# @post_slash_command()
+# def audit_every_command(ctx: HookContext) -> HookResult:
+#     """Audit trail: observe every command result (side effects only)."""
+#     print(f"[dim]{ctx.event_data['command']} -> done[/dim]")
 #     return HookResult.approve()
 
 # =============================================================================

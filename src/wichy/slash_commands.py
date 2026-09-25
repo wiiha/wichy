@@ -1,52 +1,28 @@
 from collections.abc import Callable
 from typing import ClassVar, TypeAlias
 
-from prompt_toolkit.completion import NestedCompleter
+from prompt_toolkit.completion import DynamicCompleter, NestedCompleter
 from rich.table import Table
 
+from wichy.config.backend_resolver import resolve_config_backend
 from wichy.helpers.console import console
+from wichy.hooks.executor import HookExecutor
 from wichy.hooks.loader import hook_loader
-from wichy.hooks.registry import hook_registry
+from wichy.hooks.registry import get_slash_commands, hook_registry
+from wichy.hooks.slash_exceptions import SlashBtwException as BtwException
+from wichy.hooks.slash_exceptions import (
+    SlashContextDropException as ContextDropException,
+)
+from wichy.hooks.slash_exceptions import (
+    SlashContextResetException as ContextResetException,
+)
 from wichy.hooks.types import HookType
 from wichy.llm_backend import backend_and_model_from_model_str, parse_generic_backend
-from wichy.config.backend_resolver import resolve_config_backend
 from wichy.root_agent.root_agent import ContextResetStrategies
 from wichy.tools.base import console_tool_result
 from wichy.tools.task import console_task_agents
 
 CommandHandler: TypeAlias = Callable[[str], str | None | Table]
-
-
-class ContextResetException(Exception):
-    def __init__(self, strategy: ContextResetStrategies, message="Reset context"):
-        self.strategy = strategy
-        self.message = message
-        super().__init__(self.message)
-
-    def __str__(self):
-        return f"{self.message}: strategy='{self.strategy}'"
-
-
-class ContextDropException(Exception):
-    def __init__(self, message="Drop last context entry"):
-        self.message = message
-        super().__init__(self.message)
-
-    def __str__(self):
-        return f"{self.message}"
-
-
-class BtwException(Exception):
-    """Raised when user invokes the /btw command with a question."""
-
-    def __init__(self, question: str, model_str: str, btw_tools: list):
-        self.question = question
-        self.model_str = model_str
-        self.btw_tools = btw_tools
-        super().__init__(question)
-
-    def __str__(self):
-        return f"/btw: {self.question}"
 
 
 class SlashCommandChecker:
@@ -156,7 +132,13 @@ class SlashCommandChecker:
                     tool_hooks.keys(), key=lambda x: (x is not None, x or "")
                 )
 
-                is_lifecycle = hook_type not in (HookType.PRE_TOOL, HookType.POST_TOOL)
+                is_lifecycle = hook_type not in (
+                    HookType.PRE_TOOL,
+                    HookType.POST_TOOL,
+                    HookType.SLASH_COMMAND,
+                    HookType.PRE_SLASH_COMMAND,
+                    HookType.POST_SLASH_COMMAND,
+                )
 
                 for tool_name in sorted_tools:
                     hooks_list = tool_hooks[tool_name]
@@ -165,11 +147,20 @@ class SlashCommandChecker:
                             tool_display = "-"
                         else:
                             tool_display = "all" if tool_name is None else tool_name
+                        # Slash command hooks show their description (what
+                        # /help would print) so the table documents them.
+                        name_display = hook.name
+                        if hook_type == HookType.SLASH_COMMAND and hook.metadata.get(
+                            "description"
+                        ):
+                            name_display = (
+                                f"{hook.name} ({hook.metadata['description']})"
+                            )
                         enabled_display = "✓" if hook.enabled else "✗"
                         table.add_row(
                             hook_type.value,
                             tool_display,
-                            hook.name,
+                            name_display,
                             str(hook.priority),
                             hook.source,
                             enabled_display,
@@ -183,9 +174,18 @@ class SlashCommandChecker:
 
             target = line.strip().split(maxsplit=1)
             if len(target) > 1 and target[1].startswith("/"):
-                # Specific command help: /help /reset
+                # Specific command help: /help /reset. Live merge so
+                # hook-registered commands document themselves.
                 cmd = target[1].lower()
-                desc = self._descriptions.get(cmd, "No description available.")
+                if cmd in self._descriptions:
+                    desc = self._descriptions[cmd]
+                else:
+                    hook = get_slash_commands(HookType.SLASH_COMMAND).get(cmd)
+                    desc = (
+                        hook.metadata.get("description", "")
+                        if hook is not None
+                        else "No description available."
+                    )
                 return f"[bold]{cmd}[/bold]: {desc}"
 
             table = Table(
@@ -194,8 +194,8 @@ class SlashCommandChecker:
             table.add_column("Command", style="cyan")
             table.add_column("Description")
 
-            for cmd, desc in sorted(self._descriptions.items()):
-                table.add_row(cmd, desc)
+            for cmd, entry in sorted(self._merged_descriptions().items()):
+                table.add_row(cmd, entry)
 
             return table
 
@@ -270,50 +270,207 @@ class SlashCommandChecker:
             "/model": "Swap the LLM model mid-session (format: <backend>/<model>)",
         }
 
-        self._completer: NestedCompleter = NestedCompleter.from_nested_dict(
-            {
-                "/btw": None,
-                "/logging": {
-                    "on": None,
-                    "off": None,
-                },
-                "/reset": None,
-                "/compact": None,
-                "/drop": None,
-                "/status": None,
-                "/exit": None,
-                "/hooks": None,
-                "/help": None,
-                "/name": None,
-                "/model": {
-                    "ollama": None,
-                    "llama_cpp": None,
-                    "open_router": None,
-                    "generic": None,
-                },
-            }
-        )
+        self._builtin_completions: dict = {
+            "/btw": None,
+            "/logging": {
+                "on": None,
+                "off": None,
+            },
+            "/reset": None,
+            "/compact": None,
+            "/drop": None,
+            "/status": None,
+            "/exit": None,
+            "/hooks": None,
+            "/help": None,
+            "/name": None,
+            "/model": {
+                "ollama": None,
+                "llama_cpp": None,
+                "open_router": None,
+                "generic": None,
+            },
+        }
+
+    def completion_dict(self) -> dict:
+        """Completion options for this checker: built-ins + live hooks.
+
+        Hook commands are read from the registry on every call so a
+        /hooks reload is reflected immediately.
+        """
+        options = dict(self._builtin_completions)
+        for name, hook in get_slash_commands(HookType.SLASH_COMMAND).items():
+            if name not in options:
+                options[name] = hook.metadata.get("args")
+        return options
+
+    def _merged_descriptions(self) -> dict[str, str]:
+        """Built-in descriptions overlaid with live hook-registered ones.
+
+        Built-ins win on collision, so a hook registering a built-in's
+        name cannot change what /help shows for it.
+        """
+        merged = dict(self._descriptions)
+        for name, hook in get_slash_commands(HookType.SLASH_COMMAND).items():
+            if name not in merged:
+                merged[name] = hook.metadata.get("description", "")
+        return merged
 
     def list_commands(self) -> list[dict[str, str]]:
-        """Return a list of slash commands with names and descriptions."""
-        return [
+        """Return all slash commands: built-ins plus hook-registered ones.
+
+        Hook-registered commands are looked up live on every call so a
+        /hooks reload is reflected immediately.
+        """
+        commands: list[dict[str, str]] = [
             {"name": name, "description": description}
             for name, description in self._descriptions.items()
         ]
+        for name, hook in sorted(get_slash_commands(HookType.SLASH_COMMAND).items()):
+            if name not in self._descriptions:
+                commands.append(
+                    {
+                        "name": name,
+                        "description": hook.metadata.get("description", ""),
+                    }
+                )
+        return commands
+
+    def _dispatch(self, command: str, args: str, line: str):
+        """Run the built-in handler or the hook-registered command.
+
+        Returns a (source, result) pair. Source is "builtin" or "hook".
+        Built-in handlers may raise control exceptions (reset/drop/btw/EOF);
+        those propagate untouched. Hook commands run through the executor,
+        which also propagates control exceptions and isolates all others.
+        """
+        handler = self._handlers.get(command)
+        if handler is not None:
+            return "builtin", handler(line)
+        hook_result = HookExecutor.run_slash_hooks(
+            hook_type=HookType.SLASH_COMMAND,
+            root_agent=self.root_agent,
+            command=command,
+            args=args,
+            line=line,
+        )
+        if not hook_result.approved:
+            return (
+                "hook",
+                f"[red]Blocked by hook {hook_result.hooks_denied[0]}: "
+                f"{hook_result.error_message}[/red]",
+            )
+        if hook_result.modified_output is not None:
+            return "hook", hook_result.modified_output
+        # No hook modified the output: the command is still consumed. A
+        # custom command must never fall through to the agent, so the
+        # empty string (printed as nothing) is returned rather than None.
+        return "hook", ""
 
     def check_command(self, line: str):
-        if line.startswith("/"):
-            # Split command from args so the dict lookup hits the bare "/cmd".
-            command = line.strip().split(maxsplit=1)[0].lower()
-            handler = self._handlers.get(command)
-            if handler is not None:
-                return handler(line.strip())
-            return f"Unknown command: {command}"
-        return None
+        """Dispatch a slash line, or return None for a normal message.
+
+        Order:
+            1. PRE_SLASH_COMMAND hooks (deny blocks everything after).
+            2. Built-in handler if one exists (built-ins always win).
+            3. Hook-registered command (SLASH_COMMAND).
+            4. Unknown command message.
+            5. POST_SLASH_COMMAND hooks may replace the result.
+        """
+        if not line.startswith("/"):
+            return None
+        # Split command from args so the dict lookup hits the bare "/cmd".
+        command = line.strip().split(maxsplit=1)[0].lower()
+        remainder = line.strip()[len(command) :].strip()
+
+        # 1. PRE hooks see every slash line, known or unknown.
+        pre = HookExecutor.run_slash_hooks(
+            hook_type=HookType.PRE_SLASH_COMMAND,
+            root_agent=self.root_agent,
+            command=command,
+            args=remainder,
+            line=line.strip(),
+            source=(
+                "builtin"
+                if command in self._handlers
+                else (
+                    "hook"
+                    if command in get_slash_commands(HookType.SLASH_COMMAND)
+                    else "unknown"
+                )
+            ),
+        )
+        if not pre.approved:
+            # Denied: no dispatch, no POST hooks.
+            return (
+                f"[red]Blocked by hook {pre.hooks_denied[0]}: "
+                f"{pre.error_message}[/red]"
+            )
+        if pre.modified_input is not None and "args" in pre.modified_input:
+            # Rebuild the line with rewritten args; the command token is
+            # untouchable by contract (the executor only honors "args").
+            remainder = pre.modified_input["args"]
+            line = command + (" " + remainder if remainder else "")
+
+        # 2 + 3. Dispatch: built-in first, then hook-registered commands.
+        if command in self._handlers or command in get_slash_commands(
+            HookType.SLASH_COMMAND
+        ):
+            source, result = self._dispatch(command, remainder, line.strip())
+        else:
+            source, result = "unknown", f"Unknown command: {command}"
+
+        # 4. POST hooks fire only after normal completion. Control
+        # exceptions from dispatch propagate before this point, so a
+        # handler raising (built-in reset/drop/btw/exit, or a hook raising
+        # one) means POST does not run.
+        post = HookExecutor.run_slash_hooks(
+            hook_type=HookType.POST_SLASH_COMMAND,
+            root_agent=self.root_agent,
+            command=command,
+            args=remainder,
+            line=line.strip(),
+            source=source,
+            result=result,
+        )
+        if not post.approved:
+            return (
+                f"[red]Blocked by hook {post.hooks_denied[0]}: "
+                f"{post.error_message}[/red]"
+            )
+        if post.modified_output is not None:
+            return post.modified_output
+        return result
 
     @property
     def completer(self) -> NestedCompleter:
-        return self._completer
+        """Build the completer live on every access.
+
+        Each access merges the built-in completions with the current
+        registry state, so commands registered (or wiped by a /hooks
+        reload) after this checker was constructed appear and disappear
+        without rebuilding anything.
+        """
+        return NestedCompleter.from_nested_dict(self.completion_dict())
 
 
-slash_completer = SlashCommandChecker(root_agent=None).completer
+def completion_dict() -> dict:
+    """Completion options: built-ins plus hook-registered commands.
+
+    Hook commands contribute their "args" metadata as nested completions
+    when provided (NestedCompleter semantics: None = free text, dict =
+    nested). Built-ins win on a name collision, as everywhere else.
+    """
+    checker = SlashCommandChecker(root_agent=None)
+    options = dict(checker._builtin_completions)
+    for name, hook in get_slash_commands(HookType.SLASH_COMMAND).items():
+        if name not in options:
+            options[name] = hook.metadata.get("args")
+    return options
+
+
+# Evaluated on every completion request so commands registered after the
+# session starts (hooks load late; /hooks can reload mid-session) are offered.
+slash_completer = DynamicCompleter(
+    lambda: NestedCompleter.from_nested_dict(completion_dict())
+)

@@ -47,12 +47,15 @@ from wichy.hooks.decorators import (
     context_compact_pre,
     context_reset_post,
     context_reset_pre,
+    post_slash_command,
     post_tool,
     pre_response_to_user,
+    pre_slash_command,
     pre_tool,
     pre_user_message,
     session_end,
     session_start,
+    slash_command,
 )
 
 # Default hook template
@@ -70,6 +73,7 @@ from wichy.hooks.registry import (
     clear_hooks,
     get_hooks_for_tool,
     get_hooks_for_type,
+    get_slash_commands,
     hook_registry,
     register_hook,
 )
@@ -111,6 +115,9 @@ __all__ = [
     "context_compact_post",
     "pre_user_message",
     "pre_response_to_user",
+    "slash_command",
+    "pre_slash_command",
+    "post_slash_command",
     # Data classes
     "HookAction",
     "HookResult",
@@ -126,6 +133,7 @@ __all__ = [
     "register_hook",
     "get_hooks_for_tool",
     "get_hooks_for_type",
+    "get_slash_commands",
     "clear_hooks",
     # Executor
     "HookExecutor",

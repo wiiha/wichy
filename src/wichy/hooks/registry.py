@@ -33,7 +33,7 @@ import heapq
 import threading
 import uuid
 from collections import defaultdict
-from typing import TYPE_CHECKING, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 from .result import HookResult
 from .types import HookType, RegisteredHook
@@ -86,6 +86,7 @@ class HookRegistry:
         priority: int = 50,
         name: str = "",
         source: str = "python",
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Register a hook in the registry.
 
@@ -96,6 +97,9 @@ class HookRegistry:
             priority: Execution priority (lower = earlier). Default is 50.
             name: Human-readable name for the hook (defaults to function name)
             source: Where the hook was registered from ("python", "yaml", or "shell")
+            metadata: Optional extra data for the hook family. For SLASH_COMMAND
+                hooks this carries user-facing command metadata
+                ({"description": str, "args": dict}).
         """
         hook_name = name or function.__name__
 
@@ -106,6 +110,7 @@ class HookRegistry:
             priority=priority,
             name=hook_name,
             source=source,
+            metadata=metadata or {},
         )
 
         with self._registry_lock:
@@ -224,6 +229,7 @@ def register_hook(
     priority: int = 50,
     name: str = "",
     source: str = "python",
+    metadata: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Convenience function to register a hook.
 
@@ -235,6 +241,9 @@ def register_hook(
         priority: Execution priority (lower = earlier). Default is 50.
         name: Human-readable name for the hook (defaults to function name)
         source: Where the hook was registered from ("python", "yaml", or "shell")
+        metadata: Optional extra data for the hook family. For SLASH_COMMAND
+            hooks this carries user-facing command metadata
+            ({"description": str, "args": dict}).
     """
     hook_registry.register(
         hook_type=hook_type,
@@ -243,6 +252,7 @@ def register_hook(
         priority=priority,
         name=name,
         source=source,
+        metadata=metadata,
     )
 
 
@@ -271,6 +281,37 @@ def get_hooks_for_type(hook_type: HookType) -> List[RegisteredHook]:
         List of RegisteredHook objects sorted by priority
     """
     return hook_registry.get_hooks_for_type(hook_type)
+
+
+def get_slash_commands(hook_type: HookType) -> Dict[str, RegisteredHook]:
+    """Convenience function to enumerate command-registered slash hooks.
+
+    Returns every hook of the given hook type (SLASH_COMMAND, PRE_SLASH_COMMAND,
+    or POST_SLASH_COMMAND) registered for a specific command name, mapped from
+    the normalized command string (e.g. "/deploy") to the RegisteredHook.
+    Wildcard hooks (tool_name=None) are not included: callers decide separately
+    whether a wildcard applies to a given command.
+
+    The lookup is live against the current registry state, so results reflect
+    the latest load/reload of hook files.
+
+    Args:
+        hook_type: The slash hook type to enumerate.
+
+    Returns:
+        Dict mapping command name to RegisteredHook, in registration order.
+        If several hooks share one command name, the last one wins in the map;
+        the registry itself keeps all of them for execution.
+    """
+    commands: Dict[str, RegisteredHook] = {}
+    for tool_name, hooks in hook_registry.list_all().get(hook_type, {}).items():
+        if tool_name is not None:
+            # list_all copies each list; take the first (lowest priority value
+            # wins for execution, but for display the first registered is fine)
+            # but keep the map deterministic: last registration wins the slot.
+            for hook in hooks:
+                commands[tool_name] = hook
+    return commands
 
 
 def clear_hooks() -> None:
