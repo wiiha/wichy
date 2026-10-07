@@ -111,7 +111,7 @@ def render_distribution(
                 patch.set_facecolor(colors[i % len(colors)])
                 patch.set_alpha(0.6)
         else:
-            bp = ax.boxplot(clean_vals, labels=[config.value], patch_artist=True)
+            bp = ax.boxplot(clean_vals, tick_labels=[config.value], patch_artist=True)
             bp["boxes"][0].set_facecolor(colors[0])
             bp["boxes"][0].set_alpha(0.6)
 
