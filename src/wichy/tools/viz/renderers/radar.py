@@ -11,9 +11,10 @@ is set, that column provides the series label in the legend.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
+from matplotlib.projections.polar import PolarAxes
 
 from wichy.tools.viz.config_models import RadarChartConfig
 from wichy.tools.viz.registry import FieldRole, register_chart_type
@@ -76,7 +77,8 @@ def render_radar(
     # Set up polar axes (replace default Cartesian from create_figure)
     fig, _default_ax = create_figure(config)
     _default_ax.remove()
-    ax = fig.add_subplot(111, projection="polar")
+    # PolarAxes at runtime; add_subplot stubs only declare Axes.
+    ax = cast(PolarAxes, fig.add_subplot(111, projection="polar"))
     ax.set_theta_offset(np.pi / 2)
     ax.set_theta_direction(-1)
 
@@ -107,7 +109,7 @@ def render_radar(
     # Center it in the available space
     ax_x = left_margin + (available_w - side) / 2
     ax_y = bottom_margin + (available_h - side) / 2
-    ax.set_position([ax_x, ax_y, side, side])
+    ax.set_position((ax_x, ax_y, side, side))
 
     # Axis labels
     ax.set_thetagrids(np.degrees(angles[:-1]), cat_labels)

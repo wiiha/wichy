@@ -179,9 +179,11 @@ def apply_theme(
             spine.set_color("white")
         ax.xaxis.label.set_color("white")
         ax.yaxis.label.set_color("white")
-        # Update existing suptitle color for dark theme
-        if config.title and fig._suptitle is not None:
-            fig._suptitle.set_color("white")
+        # _suptitle is private API absent from the stubs.
+        if config.title:
+            suptitle = getattr(fig, "_suptitle", None)
+            if suptitle is not None:
+                suptitle.set_color("white")
         # Legend text: matplotlib defaults to black, which is invisible on a
         # dark background. Style the axes' legend (if one exists yet) so the
         # labels, title, and frame edge all read white. Renderers create the

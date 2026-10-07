@@ -49,6 +49,9 @@ def render_sankey(
     targets_raw = extract_column(data_rows, config.target)
     values_raw = extract_column(data_rows, config.value)
 
+    # val: parsed flow below, later flows.get() which may return None.
+    val: float | None
+
     # Aggregate flows
     flows: dict[tuple[str, str], float] = {}
     for s, t, v in zip(sources_raw, targets_raw, values_raw):

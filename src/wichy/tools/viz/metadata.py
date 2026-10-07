@@ -98,7 +98,10 @@ def load_meta(chart_id: str) -> Optional[dict[str, Any]]:
 
     if meta_file.exists():
         try:
-            return json.loads(meta_file.read_text(encoding="utf-8"))
+            meta: dict[str, Any] | None = json.loads(
+                meta_file.read_text(encoding="utf-8")
+            )
+            return meta
         except (json.JSONDecodeError, OSError):
             pass
 

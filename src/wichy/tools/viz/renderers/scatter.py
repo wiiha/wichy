@@ -103,6 +103,7 @@ def render_scatter(
 
     if color_is_numeric:
         cbar = fig.colorbar(scatter, ax=ax, shrink=0.8)
+        assert config.color_by is not None
         cbar.set_label(config.color_by, fontsize=config.font_size)
         cbar.ax.tick_params(labelsize=config.font_size - 2)
 

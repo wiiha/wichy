@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import matplotlib.dates as mdates
+import numpy as np
 
 from wichy.tools.viz.config_models import LineChartConfig
 from wichy.tools.viz.registry import FieldRole, register_chart_type
@@ -51,6 +52,8 @@ def render_line(
     # Replace None x-values with nan so matplotlib draws gaps, not crashes
     if x_dates is None:
         x_plot = [x if x is not None else float("nan") for x in x_plot]
+    # np handles datetimes via matplotlib's date converters.
+    x_plot_arr = np.asarray(x_plot)
 
     if config.color_by:
         color_vals = extract_column(data_rows, config.color_by)
@@ -69,7 +72,7 @@ def render_line(
                     for i in indices
                 ]
                 ax.plot(
-                    gx,
+                    np.asarray(gx),
                     gy,
                     marker="o",
                     markersize=3,
@@ -83,7 +86,7 @@ def render_line(
             # Replace None with nan so matplotlib draws gaps, not crashes
             safe_y = [y if y is not None else float("nan") for y in y_vals]
             ax.plot(
-                x_plot,
+                x_plot_arr,
                 safe_y,
                 marker="o",
                 markersize=3,

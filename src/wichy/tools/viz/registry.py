@@ -9,6 +9,7 @@ if/elif chains (INV-010).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable, Optional
 
 from pydantic import BaseModel
@@ -53,7 +54,8 @@ class ChartTypeDefinition:
     config_model: Optional[type[BaseModel]] = None
     """Pydantic config model for validating chart configs."""
 
-    renderer: Optional[Callable[[list[dict[str, Any]], BaseModel, Any], None]] = None
+    #: Config arg is Any: each definition pairs its own model with its renderer.
+    renderer: Optional[Callable[[list[dict[str, Any]], Any, Path], None]] = None
     """Renderer function: (data_rows, config, output_path) -> None.
 
     The renderer creates the chart and saves it to ``output_path`` (a
@@ -73,7 +75,7 @@ def register_chart_type(
     icon: str,
     field_roles: list[FieldRole],
     config_model: type[BaseModel],
-    renderer: Callable[[list[dict[str, Any]], BaseModel, Any], None],
+    renderer: Callable[[list[dict[str, Any]], Any, Path], None],
 ) -> None:
     """Register a chart type in the global registry.
 

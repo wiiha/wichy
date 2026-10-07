@@ -8,9 +8,10 @@ to the flow value.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
+from matplotlib.projections.polar import PolarAxes
 
 from wichy.tools.viz.config_models import ChordChartConfig
 from wichy.tools.viz.registry import FieldRole, register_chart_type
@@ -106,7 +107,8 @@ def render_chord(
 
     # Use polar projection
     fig.clear()
-    ax = fig.add_subplot(111, projection="polar")
+    # PolarAxes at runtime; add_subplot stubs only declare Axes.
+    ax = cast(PolarAxes, fig.add_subplot(111, projection="polar"))
     ax.set_theta_zero_location("N")
     ax.set_theta_direction(-1)
     ax.set_ylim(0, 1.3)

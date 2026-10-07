@@ -12,11 +12,12 @@ the sum of its children's values.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.projections.polar import PolarAxes
 
 from wichy.tools.viz.config_models import SunburstChartConfig
 from wichy.tools.viz.registry import FieldRole, register_chart_type
@@ -289,7 +290,8 @@ def render_sunburst(
     # Set up polar axes (replace the default Cartesian axes from create_figure)
     fig, _default_ax = create_figure(config)
     _default_ax.remove()  # discard the unused Cartesian axes
-    ax = fig.add_subplot(111, projection="polar")
+    # PolarAxes at runtime; add_subplot stubs only declare Axes.
+    ax = cast(PolarAxes, fig.add_subplot(111, projection="polar"))
     ax.set_theta_zero_location("N")
     ax.set_theta_direction(-1)
     ax.axis("off")

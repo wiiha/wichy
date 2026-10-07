@@ -47,7 +47,9 @@ def render_violin(
         violin_data = [[v for v in gvals if v is not None] for gvals in groups.values()]
         violin_labels = list(groups.keys())
 
-        parts = ax.violinplot(violin_data, showmeans=True, showmedians=True)
+        parts: dict[str, Any] = ax.violinplot(
+            violin_data, showmeans=True, showmedians=True
+        )
         for i, pc in enumerate(parts["bodies"]):
             pc.set_facecolor(colors[i % len(colors)])
             pc.set_alpha(0.6)
@@ -61,15 +63,17 @@ def render_violin(
                 patch.set_alpha(0.3)
     else:
         parts = ax.violinplot([clean_vals], showmeans=True, showmedians=True)
-        parts["bodies"][0].set_facecolor(colors[0])
-        parts["bodies"][0].set_alpha(0.6)
+        bodies: dict[str, Any] = parts
+        bodies["bodies"][0].set_facecolor(colors[0])
+        bodies["bodies"][0].set_alpha(0.6)
         ax.set_xticks([1])
         ax.set_xticklabels([config.value])
 
         if config.box_overlay:
             bp = ax.boxplot([clean_vals], widths=0.1, patch_artist=True)
-            bp["boxes"][0].set_facecolor(colors[0])
-            bp["boxes"][0].set_alpha(0.3)
+            boxes: dict[str, Any] = bp
+            boxes["boxes"][0].set_facecolor(colors[0])
+            boxes["boxes"][0].set_alpha(0.3)
 
     apply_theme(fig, ax, config)
     mpl_to_png(fig, config, output_path)

@@ -17,9 +17,10 @@ from __future__ import annotations
 
 import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
+from matplotlib.projections.polar import PolarAxes
 
 from wichy.tools.viz.config_models import TimeCompassConfig
 from wichy.tools.viz.registry import FieldRole, register_chart_type
@@ -289,7 +290,8 @@ def render_time_compass(
     # Set up polar axes
     fig, _default_ax = create_figure(config)
     _default_ax.remove()
-    ax = fig.add_subplot(111, projection="polar")
+    # PolarAxes at runtime; add_subplot stubs only declare Axes.
+    ax = cast(PolarAxes, fig.add_subplot(111, projection="polar"))
     ax.set_theta_zero_location("N")
     ax.set_theta_direction(-1)  # Clockwise
 
@@ -312,7 +314,7 @@ def render_time_compass(
     side = min(available_w, available_h)
     ax_x = left_margin + (available_w - side) / 2
     ax_y = bottom_margin + (available_h - side) / 2
-    ax.set_position([ax_x, ax_y, side, side])
+    ax.set_position((ax_x, ax_y, side, side))
 
     # Draw bars. The scaling reference (max_abs_val) depends on mode:
     # single-series -> max abs value; grouped -> max stack height per period,
