@@ -229,7 +229,7 @@ class RootAgent(AgentCore):
             guideline_from_user_on_what_to_keep=msg, is_auto_compact=True
         )
 
-    def process(self, line: str) -> str:
+    def process(self, line: str) -> str | None:
         # Generic turn framing: notify observers that a turn is starting, and
         # guarantee an end notification whatever the outcome. The finally is
         # the point -- an error path must still close the turn, or anything
@@ -237,7 +237,7 @@ class RootAgent(AgentCore):
         with self.turn_scope():
             return self._process_turn(line)
 
-    def _process_turn(self, line: str) -> str:
+    def _process_turn(self, line: str) -> str | None:
         HookExecutor.run_context_hooks(
             HookType.PRE_USER_MESSAGE,
             root_agent=self,
@@ -398,9 +398,10 @@ class RootAgent(AgentCore):
             usage=response.usage,
         )
 
-        final_content = response.message.content
+        # content may be str, a multimodal part list, or None.
+        final_content: str | None = response.message.content
         if hook_result.modified_output is not None:
-            final_content = hook_result.modified_output
+            final_content = str(hook_result.modified_output)
             reasoning_kw = {}
             if response.message.reasoning:
                 reasoning_kw["reasoning"] = response.message.reasoning

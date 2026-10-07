@@ -48,7 +48,14 @@ UNWANTED_TAGS = [
 ]
 
 
-def strip_thinking_content(content: str):
+def strip_thinking_content(content: str | None) -> str:
+    """Strip unwanted reasoning tags from a model response.
+
+    ``None`` flows through, because ``RootAgent.process`` legitimately returns
+    ``None`` when the model produced no content and no hook supplied one.
+    """
+    if content is None:
+        return ""
     return str(remove_tagged_content(content, UNWANTED_TAGS)).strip()
 
 

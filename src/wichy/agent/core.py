@@ -33,6 +33,7 @@ from wichy.helpers.multimodal import (
 )
 
 if TYPE_CHECKING:
+    from wichy.context.handler import ContextHandler
     from wichy.llm_backend import Message, called_tool
     from wichy.tools.base import BaseTool
 
@@ -129,8 +130,8 @@ class AgentCore(ABC):
         self.model_str: str = ""
         self.tools: List = []  # List[BaseTool] at runtime
 
-        # Set by subclasses via context handler
-        self.context = None
+        # Assigned by subclasses before any turn runs.
+        self.context: ContextHandler
 
         # Loop detection — each agent instance gets its own detector
         self.loop_detector = LoopDetector()
@@ -334,8 +335,11 @@ class AgentCore(ABC):
             if result is None:
                 result = ""
 
+            # The sentinel and None case above guarantee a string by here.
+            result_str: str = str(result)
+
             # Check for multimodal content in tool result
-            display_content, multimodal_parts = extract_multimodal_content(result)
+            display_content, multimodal_parts = extract_multimodal_content(result_str)
             duration_ms = int((time.monotonic() - start_time) * 1000)
 
             self._emit_event(
@@ -460,8 +464,9 @@ class AgentCore(ABC):
         else:
             # Sequential path: single tool or --seq-exec / WICHY_PARALLEL_EXEC=false
             for i, item in enumerate(response.tool_calls):
-                tool_results[i] = self._tool_call(tools, item, inject_model_str)
-                tool_message, mm_parts = tool_results[i]
+                item_result = self._tool_call(tools, item, inject_model_str)
+                tool_results[i] = item_result
+                tool_message, mm_parts = item_result
                 self.context.append(tool_message)
                 if mm_parts:
                     multimodal_parts.extend(mm_parts)
@@ -473,8 +478,9 @@ class AgentCore(ABC):
         if self.loop_detector.enabled:
             for idx, item in enumerate(response.tool_calls):
                 result_str = ""
-                if tool_results[idx] is not None:
-                    result_str = str(tool_results[idx][0].get("content", ""))
+                item_result = tool_results[idx]
+                if item_result is not None:
+                    result_str = str(item_result[0].get("content", ""))
                 sig = compute_signature(
                     item.function.name, item.function.arguments, result_str
                 )
