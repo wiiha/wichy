@@ -352,7 +352,7 @@ class TestBlockCrud:
         assert reloaded.blocks[0].data["text"] == "one"
 
     def test_touched_by_records_each_actor_once_in_first_touch_order(self, notes_dir):
-        """INV-007: the agent can tell a block it has touched from one it has not."""
+        """The agent can tell a block it has touched from one it has not."""
         document = self._doc()
         first = document.blocks[0].id
         # The document was created by the user, so the user is already recorded
@@ -958,7 +958,6 @@ class TestDocumentModel:
 
 
 # ---------------------------------------------------------------------------
-# Defects found in review: each of these fails against the code as first written
 # ---------------------------------------------------------------------------
 
 
@@ -1155,15 +1154,7 @@ class TestNestedLockIsRefused:
 
 
 class TestStoredDataPassesThroughUnvalidated:
-    """Untouched stored data survives a save; only request data is validated.
-
-    The previous contract was the opposite -- every block re-validated on every
-    write -- and it bricked documents: one block whose shape did not fit its
-    declared type (an older build, a renamed field, a hand edit) loaded fine but
-    made every later mutation fail with a message blaming the caller's unrelated
-    new block. `load_document` validates structure only, so such a document is
-    readable and was permanently unwritable.
-    """
+    """Untouched stored data survives a save; only request data is validated."""
 
     def test_stored_data_that_does_not_fit_its_type_still_saves(self, notes_dir):
         """Persisting writes back what it loaded; it does not re-judge it."""
@@ -1358,12 +1349,7 @@ class TestStoredDataPassesThroughSaves:
 
 
 class TestMarkdownTimestampsAreStable:
-    """A legacy note without frontmatter timestamps must not look changed forever.
-
-    The fallback used to be the current time, so ``updated`` differed on every
-    read: the browser's 5-second poll saw the note as modified on every cycle,
-    and the export of an unchanged file was never byte-identical between calls.
-    """
+    """A legacy note without frontmatter timestamps must not look changed forever."""
 
     def test_two_loads_of_an_unchanged_file_agree(self, notes_dir):
         (notes_dir / "legacy.md").write_text(
@@ -1425,13 +1411,7 @@ class TestReadScratchpadNeverRaises:
 
 
 class TestRenameCannotClobberItsTarget:
-    """A rename onto a live slug must fail cleanly and destroy nothing.
-
-    The target-exists check used to run BEFORE any lock, the lock held was the
-    OLD slug's, and the allocation lock was not held at all. Two concurrent
-    renames to the same target -- or a rename racing a create -- both passed the
-    check and then renamed over the target: data loss reported as a 200.
-    """
+    """A rename onto a live slug must fail cleanly and destroy nothing."""
 
     def test_a_rename_onto_a_live_slug_is_refused_and_leaves_it_intact(self, notes_dir):
         create_document("Alpha", [{"type": "paragraph", "data": {"text": "a"}}])
@@ -1451,14 +1431,7 @@ class TestRenameCannotClobberItsTarget:
     def test_concurrent_renames_to_one_target_cannot_clobber_it(
         self, notes_dir, monkeypatch
     ):
-        """Both renames reach the target-exists check together; one must lose.
-
-        Rendezvoused INSIDE the check, not merely at thread start. Two threads
-        that both call the function do not reliably overlap -- the first can
-        finish its whole rename before the second is scheduled, and the test then
-        passes without ever exercising the race. Instrumenting the check itself
-        makes the overlap happen every run.
-        """
+        """Both renames reach the target-exists check together; one must lose, guarded by a rendezvous inside the check."""
         import wichy.tools.notes.blocks as blocks_mod
 
         create_document("Source One", [{"type": "paragraph", "data": {"text": "one"}}])
@@ -1583,13 +1556,11 @@ class TestDocumentsAreLockedAcrossProcesses:
     both would read version V, both pass their version check, and both write
     V+1 -- the second silently reverting the first, with both reporting success.
 
-    Driven through SUBPROCESSES, because threads share the in-process lock and
-    therefore cannot tell the two apart. The ordering is deliberate rather than
-    hoped for: the first process takes the document lock and holds it while the
-    second starts, so the second is provably trying to enter a held lock. A
-    symmetric rendezvous was tried first and was not reliable -- process startup
-    jitter let the first finish its whole read-check-write before the second
-    looked at anything, which passes whether or not the lock excludes anything.
+    Driven through subprocesses, because threads share the in-process lock and
+    therefore cannot tell the two apart. Marker files sequence the two sides:
+    the holder proves it is inside the lock before the other reads, and the
+    other proves it has read before the holder commits, so the stale read is
+    guaranteed to happen.
     """
 
     WORKER = """
@@ -1608,22 +1579,31 @@ from wichy.tools.notes.blocks import (
 )
 
 role = sys.argv[2]
-label = sys.argv[3]
+hold_marker = Path(sys.argv[3])
+release_marker = Path(sys.argv[4])
 
 if role == "hold":
-    # Take the lock FIRST and keep it, so the other process is definitely
-    # contending. Reading the version after acquiring would prove nothing.
+    # Take the lock FIRST and prove via the marker that the body is running,
+    # so the other process definitely reads the pre-hold version. Reading the
+    # version after acquiring would prove nothing.
     with locked_document("shared", None, author="user") as document:
         replace_block(
             document, document.blocks[0].id, data={"text": "held"}, author="user"
         )
+        hold_marker.write_text("held", encoding="utf-8")
+        # Hold until the other side PROVES it has read version 1 -- the marker
+        # carries the version it saw. The commit lands on body exit, so the
+        # counterpart's read is bracketed instead of guessed at with a sleep.
+        while not release_marker.exists():
+            time.sleep(0.02)
         print("won", flush=True)
-        time.sleep(1.5)
 else:
-    # Start late enough that the holder is inside its body, so the version read
-    # below is the PRE-hold version -- the stale read the lock must catch.
-    time.sleep(0.5)
+    # Wait for proof the holder is inside its body, so the version read below
+    # is the PRE-hold version -- the stale read the lock must catch.
+    while not hold_marker.exists():
+        time.sleep(0.02)
     version = load_document("shared").meta.version
+    release_marker.write_text(str(version), encoding="utf-8")
     try:
         with locked_document("shared", version, author="user") as document:
             replace_block(
@@ -1642,14 +1622,31 @@ else:
         script_path = tmp_path / "worker.py"
         script_path.write_text(self.WORKER, encoding="utf-8")
 
+        hold_marker = tmp_path / "holder-entered.marker"
+        release_marker = tmp_path / "latecomer-read.marker"
+
         holder = subprocess.Popen(
-            [sys.executable, str(script_path), str(notes_dir), "hold", "holder"],
+            [
+                sys.executable,
+                str(script_path),
+                str(notes_dir),
+                "hold",
+                str(hold_marker),
+                str(release_marker),
+            ],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
         )
         latecomer = subprocess.Popen(
-            [sys.executable, str(script_path), str(notes_dir), "late", "late"],
+            [
+                sys.executable,
+                str(script_path),
+                str(notes_dir),
+                "late",
+                str(hold_marker),
+                str(release_marker),
+            ],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -1660,8 +1657,8 @@ else:
         assert latecomer.returncode == 0
 
         # The holder wrote; the latecomer quoted the pre-hold version and was
-        # told it was stale. WHICH one wins is fixed by the ordering, not by the
-        # race, so the assertion cannot flake.
+        # told it was stale. The marker handshake fixes which side wins, not
+        # the race.
         assert holder_out == "won", holder_out
         assert late_out == "stale", late_out
 
@@ -1675,7 +1672,10 @@ else:
         """Direct evidence of exclusion: the latecomer BLOCKS on the lock.
 
         Asserted by timing, because a version check alone could be satisfied by a
-        fast run that never overlapped.
+        fast run that never overlapped. The parent owns the lock before the
+        probe spawns, so the probe's first acquire attempt is against a held
+        lock; the counted hold starts at a marker the probe writes once booted,
+        so how long the probe takes to boot does not shorten the measured wait.
         """
         from wichy.tools.notes.blocks import document_lock
 
@@ -1684,13 +1684,17 @@ else:
         import time as _time
 
         create_document("Shared", [{"type": "paragraph", "data": {"text": "seed"}}])
+        attempting = tmp_path / "probe-attempting.marker"
         probe = tmp_path / "probe.py"
         probe.write_text(
             "import sys, time\n"
             "from wichy.config import settings\n"
             "settings.notes_dir_name = sys.argv[1]\n"
-            "from wichy.tools.notes.blocks import document_lock\n"
-            "time.sleep(float(sys.argv[2]))\n"
+            "from wichy.tools.notes.blocks import atomic_write, document_lock\n"
+            # Announce readiness BEFORE the timer starts and before contending:
+            # the parent starts the counted hold on this marker, so boot cost
+            # stays out of the measured wait.
+            "atomic_write(sys.argv[2], 'attempting')\n"
             "start = time.time()\n"
             "with document_lock('shared'):\n"
             "    print(round(time.time() - start, 2), flush=True)\n",
@@ -1698,31 +1702,36 @@ else:
         )
 
         with document_lock("shared"):
-            # Hold the cross-process lock in THIS process while the subprocess
-            # tries to take it.
+            # The parent owns the lock before the probe can boot, so the
+            # probe's first acquire attempt is already against a held lock.
             proc = subprocess.Popen(
-                [sys.executable, str(probe), str(notes_dir), "0"],
+                [sys.executable, str(probe), str(notes_dir), str(attempting)],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
             )
+            # Rendezvous on the announce: the counted hold starts here, not at
+            # spawn, so however long the probe takes to boot is time covered by
+            # the hold rather than time subtracted from it.
+            while not attempting.exists():
+                if proc.poll() is not None:
+                    proc.communicate()
+                    raise AssertionError(
+                        f"probe died before contending: rc={proc.returncode}"
+                    )
+                _time.sleep(0.01)
             _time.sleep(0.8)
         waited = float(proc.communicate(timeout=60)[0].strip())
 
-        # It could not have entered before this process released the lock, which
-        # means it waited at least most of the 0.8s.
-        assert waited > 0.3, f"the subprocess did not wait: {waited}s"
+        # The probe could not have entered while this process held the lock
+        # (that is the exclusion property), and its clock started after the
+        # announce, so its reported wait is the hold plus bookkeeping slack,
+        # minus at most one acquire retry poll. Boot cost only ADDS to it.
+        assert waited >= 0.7, f"the subprocess waited too briefly: {waited}s"
 
 
 class TestTheMarkerIsWrittenAtomically:
-    """A torn marker reads as UNPINNED, so a failed write silently unpins.
-
-    The marker was written with a plain `open(..., "w")` under a bare
-    `except IOError: pass`. Truncate-then-write means a crash or a concurrent
-    writer can leave a partial file, and a partial marker does not raise: it
-    parses as garbage and reads as "nothing pinned", which loses the agent's
-    scratchpad with no error anywhere.
-    """
+    """A torn marker reads as UNPINNED, so a failed write silently unpins."""
 
     def test_a_successful_write_leaves_valid_json(self, notes_dir):
         set_scratchpad_state("pinned-one", ["pinned-one", "other"])
@@ -1789,14 +1798,7 @@ class TestTheMarkerIsWrittenAtomically:
 
 
 class TestAFailedRenameDoesNotPoisonTheTargetSlug:
-    """A rename that failed left the target slug claimed forever.
-
-    `document_lock(new_slug)` created the target's lock entry, and `get_doc_lock`
-    never removes one. A rename that then failed (no source files, an OSError
-    mid-move) left that entry behind, so `has_state(new_slug)` stayed true and
-    EVERY later rename onto that name was refused "still has state from another
-    document" -- with nothing actually renamed and no way to clear it.
-    """
+    """A rename that failed must release the target slug so later renames to that name succeed."""
 
     def test_a_failed_rename_leaves_the_target_free(self, notes_dir):
         from wichy.tools.notes.state import has_state
@@ -1873,10 +1875,8 @@ class TestAFailedRenameDoesNotPoisonTheTargetSlug:
 class TestABoolIsNotAVersionInTheLockEither:
     """`True == 1`, so a bool version satisfies the compare for a v1 document.
 
-    The HTTP routes narrow the type at their edge, which is what makes this
-    unreachable from a request. The narrowing is repeated here so an in-process
-    caller -- an agent tool, a test, a future route -- cannot get the same hole
-    past the compare.
+    The type is narrowed at the edge, and the narrowing is repeated here for
+    in-process callers.
     """
 
     def test_locked_document_refuses_a_bool_expected_version(self, notes_dir):
