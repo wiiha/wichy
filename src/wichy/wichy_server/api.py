@@ -267,7 +267,9 @@ def register_routes(bp: Blueprint):
             session_id = agent.context.session_id
         else:
             # Fall back to the current root session; custom frontends may poll
-            # agents that are no longer in the in-memory registries.
+            # agents that are no longer in the in-memory registries. The
+            # decorator above guarantees the session and its root agent.
+            assert session is not None and session.root_agent is not None
             session_id = session.root_agent.context.session_id
 
         store = get_agent_event_store(session_id, agent_id)
@@ -288,6 +290,7 @@ def register_routes(bp: Blueprint):
     @require_active_root_agent
     def clear_sub_agent_events(agent_id: str):
         session = get_active_session()
+        assert session is not None and session.root_agent is not None
         store = get_agent_event_store(session.root_agent.context.session_id, agent_id)
         backup = store._rotate()
         return jsonify({"status": "ok", "backup": backup.name if backup else None})

@@ -14,6 +14,7 @@ from typing import Callable, List
 
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
+from watchdog.observers.api import BaseObserver
 
 from wichy.config import settings
 from wichy.skills.loader import SkillLoader
@@ -67,7 +68,7 @@ class _SkillReloadHandler(FileSystemEventHandler):
             return
         if event.event_type == "closed_no_write":
             return
-        if event.src_path and Path(event.src_path).name.startswith("."):
+        if event.src_path and Path(str(event.src_path)).name.startswith("."):
             return
         self._schedule_reload()
 
@@ -75,7 +76,9 @@ class _SkillReloadHandler(FileSystemEventHandler):
 class SkillReloader:
     """Watch configured skills directories and reload skills on changes."""
 
-    _observer: Observer | None = None
+    # BaseObserver, not Observer: watchdog aliases Observer to the platform
+    # class at runtime, which is not usable as an annotation.
+    _observer: BaseObserver | None = None
     _lock = threading.Lock()
     _override_local_dir: Path | None = None
     _override_home_dir: Path | None = None
