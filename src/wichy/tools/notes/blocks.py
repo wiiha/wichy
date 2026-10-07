@@ -1,18 +1,12 @@
 """Document storage: slug identity, file resolution, and block edits.
 
-This module owns everything that touches block documents on disk.
+One slug is one document: a slug may have a ``.json`` (canonical) and a ``.md``
+(legacy backup); if both exist the ``.json`` wins and the ``.md`` is inert, so
+a slug never holds two live documents.
 
-**One slug is one document.** A slug may have a ``.json`` (canonical) and a
-``.md`` (legacy note, or the backup conversion leaves behind). The ``.json``
-wins whenever both exist, and once it exists the ``.md`` is inert: never
-listed, never returned as a document, never written. A slug therefore never
-holds two live documents.
-
-**Every mutation runs under one lock.** The lock is held across resolve, read,
-version compare and write, not just around the write. An atomic write on its
-own prevents a torn file but not a lost update: two actors can both read
-version V, both pass the check and both write V+1. The lock is what makes the
-409 meaningful and what makes "one request is one version bump" true.
+Every mutation runs under one lock spanning resolve, read, version compare and
+write -- the lock is what makes the 409 meaningful and keeps two actors from
+both writing from version V.
 """
 
 from __future__ import annotations
@@ -69,16 +63,8 @@ _NESTED = threading.local()
 #: whole, so it cannot be guarded by a per-document lock: two creators would
 #: hold locks for different slugs and never serialise.
 #:
-#: Lock order is NOT uniform, and the old claim that this is "always
-#: acquired BEFORE a document lock" was false. create_document takes this
-#: lock first, then the new document's lock (ALLOC -> doc:new). A rename
-#: takes the old document's lock first -- the caller enters
-#: locked_document -- then this lock, then the target's (doc:old -> ALLOC
-#: -> doc:new). That inversion cannot deadlock: this lock only guards slugs
-#: that do not exist yet (make_unique_slug and unique_slug_for_title skip
-#: taken slugs), so a creator never holds it while waiting on a document
-#: lock that a renamer holds. The two never wait on each other's
-#: documents.
+#: Taken before the new document's lock by create; after the old document's
+#: lock by a rename. Inversion is safe: only guards not-yet-existing slugs.
 _SLUG_ALLOCATION_LOCK = threading.Lock()
 
 
@@ -92,21 +78,13 @@ _FILE_LOCKS_GUARD = threading.Lock()
 def _file_lock(name: str) -> Generator[None, None, None]:
     """Hold an advisory lock file for *name*, good across processes.
 
-    Built on the repo's existing ``FileLock`` primitive. The in-process
-    ``threading`` lock keeps request threads cheap, but it cannot stop a SECOND
-    process on the same notes directory: two processes would each pass their own
-    version check and both write, losing one update, and a rename in one process
-    could clobber a document the other had just created.
+    Built on ``FileLock``: an in-process threading lock cannot stop a SECOND
+    process reading the same notes directory. The lock file lives in the notes
+    directory, named for what it guards.
 
-    The lock file lives in the notes directory and is named for what it guards,
-    so two processes aimed at the same notes directory contend on the same file.
-
-    Re-entrant PER THREAD. ``locked_document`` holds the document lock across its
-    whole body, and the rename inside that body takes the same document's lock
-    again; the underlying sidecar is created with ``O_EXCL`` and is not
-    re-entrant, so a second acquire from the same thread would block until it
-    timed out. Cross-process exclusion is unaffected: another process has its own,
-    empty, record of what this thread holds.
+    Re-entrant PER THREAD (tracked in ``_FILE_LOCKS_HELD``): ``locked_document``
+    re-takes the same document's lock inside a rename, which the O_EXCL sidecar
+    alone would not survive. Cross-process exclusion is unaffected.
     """
     from wichy.context.file_lock import FileLock
 
@@ -328,24 +306,10 @@ def unique_slug_for_title(title: str) -> str:
 def _markdown_document(slug: str, raw: str) -> BlockDocument:
     """Wrap a legacy markdown file as a read-only document with one synthetic block.
 
-    The file's frontmatter is parsed and stripped, and only the BODY becomes the
-    synthetic block's text. Keeping the fence would be wrong twice over: the
-    conversion step would see ``---`` and produce delimiter blocks for the
-    frontmatter, and export would then emit a second frontmatter block on top of
-    the one it regenerates.
-
-    The title and timestamps come from that metadata, so a legacy note keeps the
-    name the user gave it rather than being labelled with its slug.
-
-    A missing timestamp falls back to the FILE's modification time, not to the
-    current time. "Now" changes on every read, so a note without frontmatter
-    timestamps reported a new ``updated`` value every time it was listed: the
-    browser's poll saw it as changed on every cycle, and the export of an
-    unchanged file differed per request. The mtime is stable while the file is,
-    so GET, the list, and export stay mutually consistent.
-
-    ``meta.version`` is 1 because a markdown document has no versions to count:
-    nothing can write to it.
+    Frontmatter is parsed and stripped; only the body becomes the block text.
+    Title and timestamps come from the frontmatter; a missing timestamp falls
+    back to the file's mtime, so reads are stable. ``meta.version`` is 1: a
+    markdown document has no versions.
     """
     from wichy.skills.skill import parse_markdown_frontmatter
 
@@ -439,21 +403,12 @@ def load_document(
 def save_document(document: BlockDocument) -> None:
     """Write ``document`` atomically.
 
-    The lock is deliberately NOT taken here. Callers hold the document lock
-    across the whole read-check-write sequence; taking it again inside would
-    be harmless to a re-entrant lock but would invite a caller to believe this
-    function is safe to call on its own, which it is not -- an unlocked
-    read-modify-write is exactly the lost update the lock exists to prevent.
+    Callers hold the document lock across the whole read-check-write sequence:
+    an unlocked read-modify-write is the lost update the lock exists to prevent.
 
-    Stored block data is written back AS LOADED. Only data a request supplied is
+    Stored block data is written back AS LOADED. Only request-supplied data is
     validated, at the point it is supplied (``replace_block``, ``insert_block``,
-    ``merged_blocks``, ``create_document``). Re-validating every block here
-    instead made a document permanently unwritable the moment one block did not
-    fit its declared type -- an older build's shape, a renamed field, a hand
-    edit -- because each later mutation would fail while blaming the caller's
-    unrelated new block, and there was no way to repair it from the UI. Data
-    nobody touched this request survives; a malformed request-touched block is
-    still refused before it can be written.
+    ``merged_blocks``, ``create_document``).
     """
     require_valid_slug(document.meta.slug)
     document.meta.updated = now_iso()
@@ -498,12 +453,8 @@ def locked_document(
         slug: A valid slug naming an ``editorjs`` document.
         expected_version: The version the caller believes is current. A
             mismatch raises before the body runs.
-        author: Who is making the change. Required, and not defaulted on
-            purpose: every mutation must record exactly one revision entry, and
-            a default would let a caller omit it and silently break that. The
-            entry is diffed from the document as loaded to the document as left
-            by the body, so one request is one version bump is one entry by
-            construction rather than by each caller remembering to record one.
+        author: Who is making the change; required so every mutation records
+            exactly one revision entry.
         summary: Override the generated revision summary.
         extra_ops: Additional ops to include in the recorded entry, for changes
             the block diff cannot express -- notably a revert, whose marker
@@ -899,11 +850,8 @@ def read_blocks(
 ) -> list[Block]:
     """Select blocks by type and/or index range.
 
-    Both bounds are INCLUSIVE, applied after type filtering, so
-    ``read_blocks(doc, block_type="todo", start=0, end=1)`` means "the first two
-    todos" rather than "the first one". Inclusive is what the tool schema
-    documents, and a caller who reads a block and edits it by index should not
-    have to know which end is which.
+    Both bounds are INCLUSIVE, applied after type filtering: start=0, end=1
+    with block_type="todo" selects the first two todos.
 
     Args:
         document: The document to read.
@@ -1087,17 +1035,7 @@ def rename_document_files(old_slug: str, new_slug: str) -> None:
     # both passed the old check and then clobbered the target -- os.rename over a
     # live document is data loss reported as a 200.
     #
-    # Actual order on this path: the CALLER already holds the old document's
-    # lock (it entered through locked_document), so this body takes ALLOC and
-    # then doc:old (already held, re-entrant) and doc:new. The real sequence
-    # is doc:old -> ALLOC -> doc:new, the same as the instrumented trace
-    # shows -- NOT the allocation-first order create_document uses, and the
-    # old comment claiming the caller took the allocation lock first was
-    # wrong. The inversion is safe because the allocation lock only guards
-    # slugs that do not exist yet: make_unique_slug skips taken slugs, so a
-    # creator can never hold ALLOC while waiting on a document lock a
-    # renamer holds. No behaviour depends on this ordering; only the
-    # comments were untruthful.
+    # Order: old doc lock (caller), this, target; only guards absent slugs.
     with _SLUG_ALLOCATION_LOCK, _file_lock("slug-allocation"):
         # Both refusals happen HERE, before any document lock is taken and before
         # any file moves, so a refused rename leaves the operation a no-op rather
@@ -1178,10 +1116,8 @@ def list_documents() -> list[dict[str, Any]]:
             DocumentNotFoundError,
             InvalidDocumentError,
             InvalidSlugError,
-            # A non-UTF-8 file raises UnicodeDecodeError, which is a ValueError
-            # and NOT an OSError, so it escaped this tuple entirely. One such file
-            # made the whole sidebar fail to load rather than costing one row:
-            # the caller's except OSError could not see it either.
+            # UnicodeDecodeError is a ValueError, not an OSError; one bad file
+            # skips a row instead of failing the list.
             UnicodeDecodeError,
         ):
             # Skipped individually: an unreadable file degrades one row, never the

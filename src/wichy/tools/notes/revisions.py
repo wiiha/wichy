@@ -181,20 +181,9 @@ def rotated_logs(slug: str) -> list[Path]:
 def read_log_entries(path: Path, *, live: bool = False) -> list[dict]:
     """Read one JSONL file, skipping blank and malformed lines.
 
-    Deliberately tolerant, matching the context handler's reader: an old
-    malformed line in the middle of a file is corruption that predates this
-    read, and refusing the rest would turn one bad line into total history
-    loss. That middle-line behaviour is unchanged.
-
-    ``live`` marks the file as the document's CURRENT log, the one an append
-    writes to now. There a malformed LAST line, or a file that does not end in a
-    newline, is a torn write: a crash mid-append or a full disk. The line is
-    reported rather than skipped, because skipping it would make history end
-    earlier with no sign anything was lost, and the gap check cannot catch it --
-    a torn tail leaves no missing id in the middle, only an absent one at the
-    end. Rotated logs stay tolerant: rotation renames a COMPLETE file aside, so a
-    torn line there is older corruption the reader must still get past, not a
-    write that failed under it. See :class:`CorruptRevisionLogError`.
+    Malformed middle lines are skipped. On the LIVE log a malformed or
+    non-newline-terminated last line raises :class:`CorruptRevisionLogError`
+    rather than being dropped; rotated logs stay tolerant.
 
     Args:
         path: The JSONL file to read.
@@ -202,9 +191,7 @@ def read_log_entries(path: Path, *, live: bool = False) -> list[dict]:
 
     Returns:
         Parsed entries in file order; empty when the file is absent, blank or
-        malformed. A file that exists but cannot be READ reports the failure
-        instead of returning empty, because "no history" and "history I could
-        not open" call for different responses from the caller.
+        malformed. An unreadable existing file raises instead of reading as empty.
 
     Raises:
         OSError: The file exists but could not be read.
@@ -292,9 +279,7 @@ def read_revisions(
 ) -> list[dict]:
     """Read a document's revisions, newest first.
 
-    Covers rotated logs as well as the live one. Reading only the live log would
-    make history appear to vanish the moment it rotated, and would make
-    ``since_id`` useless for any id already rotated out.
+    Covers rotated logs as well as the live one.
 
     Args:
         slug: The document slug.
@@ -324,13 +309,9 @@ def count_revisions(slug: str) -> int:
 def browse_entries(slug: str) -> tuple[list[dict], str | None]:
     """Entries for BROWSING history, oldest first, surviving a torn tail.
 
-    Browsing is not the same job as restoring. A torn final line must stop a
-    restore, because a state that cannot be rebuilt exactly must not be
-    written -- but it must not cost the user the history that is still
-    readable. Refusing the whole browse because the newest line is
-    half-written would blank the history browser even when every rotated file
-    is intact: disclosure that destroys what it discloses. This reads what is
-    there and reports the tear beside it; the caller decides how to show it.
+    Unlike a restore, which must refuse a state it cannot rebuild exactly,
+    browsing reads what is there and reports the tear beside it for the caller
+    to show.
 
     Args:
         slug: The document slug.
@@ -367,11 +348,8 @@ def browse_entries_with_filters(
 ) -> tuple[list[dict], str | None, int]:
     """Read a document's revisions for BROWSING, newest first, with filters.
 
-    The same filtering ``read_revisions`` applies, over the tolerant
-    ``browse_entries`` read, so the history LIST keeps serving everything
-    still readable when the live log ends in a torn line -- with the reason
-    attached for the caller to show. Restoring is a different job and keeps
-    its strict refusal.
+    The filtering of ``read_revisions`` over the tolerant ``browse_entries``
+    read; restoring keeps its strict refusal.
 
     Args:
         slug: The document slug.
@@ -439,21 +417,9 @@ def make_entry(
 def append_entry(slug: str, entry: Mapping[str, Any]) -> None:
     """Append one entry to the document's live log.
 
-    History is append-only: the only thing that ever removes a revision is
-    deleting the note. Nothing here trims, drops or rewrites an entry -- rotating
-    the file aside is a storage detail that keeps the live file small and does
-    not discard history.
-
-    Append mode rather than a read-modify-write of the whole file: the log is
-    only ever added to, so a single-line append is atomic on a POSIX filesystem
-    and does not need the temp-and-rename treatment a document write does.
-
-    The write is flushed and fsynced before returning, so the line is durable on
-    disk. A crash after this returns cannot lose an edit the caller has already
-    acknowledged.
-
-    Rotation is checked first, so the new entry lands in the fresh log rather
-    than immediately overflowing the old one.
+    Single-line append mode (the log is only ever added to), flushed and
+    fsynced before returning, so an acknowledged edit cannot be lost to a
+    crash. Rotation is checked first, so the entry lands in the fresh log.
     """
     require_valid_slug(slug)
     rotate_if_needed(slug)
@@ -507,16 +473,8 @@ def rotate_now(slug: str) -> Path | None:
 def replay_matches_document(slug: str) -> bool | None:
     """Whether replaying the whole log reproduces the live document.
 
-    A reconstruction is only trustworthy if it agrees with the document the log
-    is supposed to describe. It can disagree when the log lost information: a
-    block whose ``add`` survives but whose later ``remove`` was dropped is
-    resurrected by a replay, so the rebuilt state contains a block the document
-    no longer has.
-
-    This is exactly what a log damaged by an older, buggy prune looks like. The
-    information is gone from the file, so no anchor can recover it -- but the
-    mismatch IS detectable, and a caller must be able to say "this history is
-    approximate" rather than presenting a wrong past as fact.
+    False when the replay resurrects or loses blocks the live document does
+    not have, so a caller can mark the history approximate.
 
     Args:
         slug: The document slug.
@@ -591,22 +549,9 @@ def prepare_revision(
 ) -> dict:
     """Build the next revision entry and advance the document's counter.
 
-    Allocation is separated from appending on purpose, so the caller can write
-    the document FIRST and append the entry after. The two orders fail
-    differently, and only one is safe:
-
-    - Append first, then write the document: a crash in between leaves the
-      counter unadvanced while an entry with that id is already in the log, so
-      the next change allocates the SAME id again. Duplicate ids make
-      ``get_revision`` and ``since_id`` ambiguous and make a replay apply one
-      change twice -- which is what a monotonic id exists to prevent.
-    - Write the document first, then append: a crash in between leaves the
-      counter advanced with no entry, i.e. a GAP. Ids stay unique and
-      unambiguous; the log is merely missing a record of one change.
-
-    A gap is recoverable and a duplicate is not, so this order is the one used.
-
-    Does no I/O beyond nothing at all: it touches only the in-memory document.
+    Allocation is separate from appending so the caller can write the document
+    FIRST, then append the entry: a crash leaves a recoverable id gap, never a
+    duplicate id. Touches only the in-memory document.
 
     Args:
         document: The document being changed; ``meta.next_revision_id`` is
@@ -645,14 +590,10 @@ def record_revision(
 ) -> dict:
     """Allocate the next entry AND append it immediately.
 
-    Convenience for callers with nothing to write afterwards. A caller that is
-    also writing the document should instead call :func:`prepare_revision`, write
-    the document, then call :func:`append_entry` -- see that function for why the
-    order matters.
-
-    Note that this is NOT the hook to pass as ``on_commit`` to
-    ``locked_document``: that context manager records the revision itself, so
-    passing this as well would produce two entries for one version bump.
+    For callers with nothing to write afterwards; otherwise call
+    :func:`prepare_revision`, write the document, then :func:`append_entry`.
+    Note ``locked_document`` records its own revision: do NOT pass this as
+    ``on_commit`` too (two entries for one version bump).
 
     Args:
         slug: The document slug.
@@ -776,13 +717,7 @@ def diff_ops(
     # position -- so a replay applies the ops in emission order and never has to
     # renumber.
     #
-    # This describes a change correctly but not always minimally: rotating three
-    # blocks records two moves where one (moving the first block to the end)
-    # would also do. Minimality is not worth the complexity here, because a
-    # wrong-but-shorter op list would make a replay rebuild the wrong order, and
-    # the ops are what a revert depends on. The common single-block drag, which
-    # is what the summary text and the browser highlight are read for, is
-    # reported as exactly one move.
+    # The op list is correct, not always minimal.
     working = [b["id"] for b in before_list if b["id"] in after_ids]
     for index, block in enumerate(after_list):
         block_id = block["id"]
@@ -900,12 +835,9 @@ def replay(slug: str, upto_id: int | None = None) -> HistoryState:
     first_entry = entries[0] if entries else None
 
     # Starting at revision 1 (or at an anchor) is not the whole story: the ids
-    # from the earliest entry up to the target must also be CONTIGUOUS. A missing
-    # id in between means an entry was lost in the MIDDLE -- dropped by an older
-    # build or removed by hand -- so every state built after it was rebuilt
-    # without that change and is not exact. A first-id check alone cannot see
-    # this: ids [1, 2, 4, 5] still "start at 1", which is how middle damage used
-    # to be served as fact.
+    # The ids from the earliest entry to the target must be CONTIGUOUS: ids
+    # [1, 2, 4, 5] still "start at 1", so contiguity is checked, not just the
+    # first id. A middle gap means a lost entry; states after it are not exact.
     #
     # A legacy anchor is NOT a gap: it reuses a real id and restates the state
     # there, so ids continuing A, A+1, A+2 ... from an anchor are contiguous. A

@@ -94,14 +94,8 @@ def file_lock(path: str) -> Generator[None, None, None]:
 def _create_exclusive(path: str) -> tuple[int, str]:
     """Create a uniquely named file next to path; return (fd, its name).
 
-    mode 0o666 is passed to os.open so the kernel applies the umask.
-
-    O_EXCL rather than tempfile.mkstemp because mkstemp forces mode 0o600, which
-    would make a NEW file written by write_file private where the previous
-    open(path, "w") honoured the umask. Passing 0o666 to os.open lets the
-    kernel apply the umask, exactly like the builtin. Reading the umask to
-    correct a mkstemp file instead is not an option: os.umask is process-global
-    and setting it in one thread races every other file creation in the batch.
+    Uses O_EXCL with 0o666 so the kernel applies the process umask, matching the
+    builtin open(). tempfile.mkstemp would force mode 0o600.
     """
     while True:
         candidate = os.path.join(
@@ -128,17 +122,8 @@ def atomic_write(path: str, content: str, encoding: Optional[str] = None) -> Non
     which write_file relied on. encoding=None means the platform default,
     matching write_file's previous open(path, "w").
 
-    Behaviour changes vs open(path, "w"):
-
-    - The inode is replaced (os.replace), so hard links to the old file are
-      broken.
-    - A read-only *file* (mode 0o444) is now overwritten when its directory is
-      writable, because os.replace needs only directory permission. Writing to
-      a read-only *directory* still fails loudly, as before. This matches the
-      other atomic writers in this repo (context/handler.py,
-      config/backend_resolver.py).
-    - The existing file's permission bits, including a read-only bit, are
-      copied onto the new file.
+    Note: replacing the inode breaks hard links to the old file and lets a
+    writable directory overwrite a read-only file; mode bits are preserved.
     """
     target = os.path.realpath(path)
     parent = os.path.dirname(target)

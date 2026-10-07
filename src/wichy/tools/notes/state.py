@@ -38,11 +38,8 @@ doc_versions: dict[str, int] = {}
 
 # slug -> per-document lock. Held across resolve -> read -> compare -> write.
 #
-# Entries are never removed, deliberately. Dropping a lock while another thread
-# holds it would hand a *different* lock object to the next caller and silently
-# break mutual exclusion -- the exact lost update these exist to prevent. The
-# set is therefore bounded by the number of documents ever touched in this
-# process, which is user data and small. A restart clears it.
+# Entries are never removed: dropping a held lock would hand the next caller a
+# different lock object and break mutual exclusion. Bounded by documents touched.
 doc_locks: dict[str, threading.RLock] = {}
 
 # True from the moment a user message is accepted until the response is ready.
@@ -51,11 +48,8 @@ agent_busy = threading.Event()
 
 # slug -> highest document version already injected into the agent's context.
 #
-# The change-notification route is otherwise not idempotent: the browser parks
-# ops on a 503 and retries, and a retry that arrives after a lost response would
-# append a second, identical summary of the same change to the agent's context.
-# Bounded by the number of documents ever touched in this process, like the rest
-# of this module. A restart clears it, which only means one retry may duplicate.
+# Records the highest injected version, so a browser retry does not append a
+# duplicate change summary. Bounded by documents touched, cleared on restart.
 last_injected: dict[str, int] = {}
 
 # Guards the three containers above. Re-entrant so a caller already inside may
@@ -67,16 +61,8 @@ _state_lock = threading.RLock()
 
 #: slug -> user ops held for the next notification.
 #:
-#: A user types in bursts: one sentence produces several editor change events,
-#: and every pause longer than the browser's debounce posted its own batch. Each
-#: batch was injected on arrival, so the agent received three or four messages
-#: describing the SAME block, none of them saying what the text had become. The
-#: buffer holds the burst instead, and one notification is delivered once the
-#: edits stop.
-#:
-#: Ops are merged per block on arrival (see ``buffer_notification``), so a
-#: sentence's worth of keystrokes costs one line per block rather than one line
-#: per keystroke batch.
+#: Ops are buffered per slug and merged per block, so one notification describes
+#: the finished burst of edits (see ``buffer_notification``).
 _pending_ops: dict[str, list[dict]] = {}
 
 #: slug -> the version the buffered ops were computed against.

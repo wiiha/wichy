@@ -101,9 +101,7 @@ class KillRecord:
         #: backstop; idents get recycled, objects do not).
         self.thread = thread
         self.thread_ident = thread.ident or 0
-        #: True while the executing thread is inside a task agent frame
-        #: (i.e. this call is the ``task`` tool call itself). Used to
-        #: arm the longer backstop grace period.
+        #: True inside a task agent frame: arms the longer backstop grace.
         self.in_task_agent_frame = in_task_agent_frame
         #: For ``task`` tool calls: the agent_id of the spawned task
         #: agent, attached by the task tool after creating it, so a
@@ -447,9 +445,9 @@ def was_killed(tool_call_id: str) -> bool:
     ID-BASED query: consults the live record first, then the killed history
     once the record is popped. Used after a call is gone (race-tolerant API
     responses, tests). It must NOT decide a call's RESULT string or kill
-    event: ids are LLM-assigned and can recur, so the history fallback would
-    misfire on a fresh call that re-emitted a previously killed id. Those
-    decisions read the record OBJECT instead (see ``record_is_killed``).
+    event: ids are LLM-assigned and can recur, so the history fallback cannot
+    decide a NEW call's result. Those decisions read the record OBJECT instead
+    (see ``record_is_killed``).
     """
     with _LOCK:
         record = _REGISTRY.get(tool_call_id)

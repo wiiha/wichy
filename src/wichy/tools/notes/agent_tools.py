@@ -1,34 +1,21 @@
 """The agent's block tools.
 
-Seven tools that read and edit block documents. `read_scratchpad` is a separate
-module (`wichy.tools.read_scratchpad`) with its own rendering of the same
-document.
+Seven tools that read and edit block documents; `read_scratchpad` is a separate
+module with its own rendering of the same document.
 
-**Writes operate on the pinned scratchpad and take no slug.** That is not a
-limitation to work around: there is one shared document, and the agent and the
-user edit the same one. The pin is the single place the decision about where
-the agent may ACT is made -- a write must never reach past it.
-
-**Reads may name a note.** Every read tool takes an optional ``slug``:
-omitted, it reads the pinned scratchpad as before; given, it reads that
-note. The pin gates where the agent edits, not what it can see -- the
-notification channel names notes the agent has never had pinned, and a read
-that cannot follow one leaves those notifications unactionable.
+Writes operate on the pinned scratchpad and take no slug. Reads may name any
+note via an optional ``slug``, defaulting to the pinned scratchpad.
 
 Two refusals are normal states rather than errors, and every tool returns the
 same sentence for each:
 
-- **Nothing pinned.** The pin is cleared on every CLI start and set only from the
-  UI, so this is the ordinary startup state.
-- **A markdown-format scratchpad.** A block write against a legacy ``.md`` would
-  materialise a ``.json`` beside it, giving one slug two live documents. The
-  tools report the same message the HTTP API uses, so the user sees one
-  explanation rather than two.
+- **Nothing pinned**: the ordinary startup state; the pin is UI-set only.
+- **A markdown-format scratchpad**: a block write would materialise a
+  ``.json`` beside the ``.md``, giving one slug two live documents.
 
 Block ``data`` is validated here, inside ``execute()``, against the strict
-per-type models. The tool framework validates only ``parameters_model``, so
-``data`` has to be declared ``dict[str, Any]`` to produce a usable function
-schema, and its contents are checked by the tool body.
+per-type models; the tool framework validates only ``parameters_model``, so
+``data`` must be declared ``dict[str, Any]``.
 """
 
 from __future__ import annotations
@@ -1374,8 +1361,7 @@ class ReadRevisionsTool(BaseTool):
         if since_id is not None and (
             isinstance(since_id, bool) or not isinstance(since_id, int)
         ):
-            # `limit` already rejected a bool; `since_id` accepted `true` and read
-            # it as id 1, which silently returned the wrong slice of history.
+            # bool subclasses int, so it is rejected explicitly.
             return "since_id must be an integer."
 
         # A read, so a markdown scratchpad yields "no revisions" from a document

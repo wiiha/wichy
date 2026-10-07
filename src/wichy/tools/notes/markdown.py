@@ -9,17 +9,10 @@ This module exists for two features that look similar and are not:
   or another tool. It is read-only and changes nothing.
 
 Neither direction is a supported round trip, and no import path should be added.
-The mapping is lossy in ways that cannot be fixed without making the output
-worse: paragraph text that happens to read as ``- item`` re-imports as a list,
-``delimiter`` collides with the frontmatter fence, adjacent lists of different
-styles merge when re-read, and the editor-only block types (``question``,
-``decision``, ``todo``) have no markdown form that reads back as themselves.
-Export is therefore deliberately one-way.
+The mapping is lossy and export is deliberately one-way.
 
-Line classification is ordered, and the order is normative. The one rule that
-depends on it is that a checklist line must be tested before a list line, because
-``- [ ] item`` matches both patterns and would otherwise become a list item whose
-text is the literal ``[ ] item``.
+Line classification is first-match-wins in a fixed order; checklist is tested
+before list, because ``- [ ] item`` matches both patterns.
 """
 
 from __future__ import annotations
@@ -38,10 +31,8 @@ _CHECKLIST_RE = re.compile(r"^[-*]\s+\[([ xX])\]\s*(.*)$")
 #: An unordered list item.
 _BULLET_RE = re.compile(r"^[-*]\s+(.*)$")
 
-#: An ordered list item, numbered with any digits. The number itself is not
-#: preserved: a list block stores one style for all its items, so the original
-#: numbering cannot be represented, and pretending otherwise would imply an
-#: exactness the format does not have.
+#: An ordered list item. The number is not preserved: a list block stores one
+#: style for all its items.
 _ORDERED_RE = re.compile(r"^\d+[.)]\s+(.*)$")
 
 #: A blockquote line.
@@ -77,14 +68,7 @@ def markdown_to_blocks(body: str) -> list[dict[str, Any]]:
     index = 0
 
     while index < len(lines):
-        # Progress is guaranteed structurally rather than by inspection. Every
-        # branch below either consumes lines or is the paragraph fallback, and
-        # the fallback consults _classify to decide where a paragraph ends. If a
-        # future rule is added to one of those two places and not the other, the
-        # paragraph branch would break on a line it never consumes and this loop
-        # would spin forever -- wedging whatever served the request. Recording
-        # the entry position and forcing a step turns that into one wrong block
-        # instead of a hang.
+        # Recorded entry position forces a step; a wrong branch cannot spin.
         start_of_iteration = index
         line = lines[index]
 
@@ -223,7 +207,7 @@ def markdown_to_blocks(body: str) -> list[dict[str, Any]]:
 def _classify(line: str) -> str | None:
     """The block type ``line`` would start, or None if it is paragraph text.
 
-    Used to decide where a paragraph ends. Checking the same rules in the same
+    Decides where a paragraph ends. Checking the same rules in the same
     order as the main loop is what keeps the two in agreement: a paragraph stops
     exactly at the line that would have started something else.
     """
@@ -250,13 +234,8 @@ def count_blocks(body: str) -> int:
 def lossy_features(body: str) -> list[str]:
     """Markdown constructs that have no block representation.
 
-    Reported before a conversion so the UI can warn. Only constructs that would
-    actually be mangled are named: a table's alignment row would otherwise become
-    a paragraph, and a footnote reference would lose its target.
-
-    Detection is deliberately conservative. Claiming a feature is present when it
-    is not produces a warning the user cannot act on, which is worse than
-    occasionally missing one, because it teaches them to dismiss the dialog.
+    Reported before a conversion so the UI can warn; only constructs that would
+    actually be mangled are named.
 
     Args:
         body: The note body, with frontmatter already stripped.
@@ -305,9 +284,7 @@ def block_text(block_type: str, data: Mapping[str, Any] | None) -> str:
     """Render one block's data as plain text, for describing it to the agent.
 
     The same renderer the markdown export uses, exposed so a change summary can
-    show what a block's text actually IS rather than only its type and id. One
-    renderer rather than two, because a second one would drift from the export
-    and the agent would then be told something the document does not say.
+    show what a block's text actually is.
 
     Args:
         block_type: The block's type.

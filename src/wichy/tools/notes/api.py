@@ -699,12 +699,7 @@ def register_routes(bp: Blueprint):
         primary = state["primary"]
         title = None
         if primary and resolve_format(primary) is not None:
-            # Scoped tightly, and NOT fatal. This route is what the notes page
-            # polls first, so one unreadable pinned file used to take the whole
-            # sidebar down with an HTML 500: a non-UTF-8 file raises
-            # UnicodeDecodeError, which is a ValueError and not an OSError, so it
-            # escaped every clause here. The pin is still reported; only its
-            # title is unknown.
+            # An unreadable pinned file must not fail the whole route; only its title is dropped.
             try:
                 title = load_document(primary).meta.title
             except (
@@ -778,12 +773,7 @@ def register_routes(bp: Blueprint):
             return _error("blocks must be a list.", 400)
         renaming = bool(new_title) and new_title != current.meta.title
 
-        # Everything -- validating the incoming blocks, renaming, and the write --
-        # happens inside ONE locked body, in that order. Renaming moves the
-        # document's files, its queued ops and the marker, so a rename that
-        # happened before a request was rejected would leave the document moved
-        # under a slug the caller never asked for, with an error response that
-        # says nothing changed.
+        # One locked body: a rejected request moves nothing.
         target_slug = slug
         rename_to: list[str] = []
 
@@ -840,13 +830,7 @@ def register_routes(bp: Blueprint):
         except OSError as e:
             return _error(f"Could not delete the note: {e}", 500)
 
-        # A deleted document's queued ops must not survive it. The slug is
-        # reusable -- converting a markdown note keeps its slug, and a later note
-        # can be created under the same name -- and `delete_document_files` only
-        # clears the version cache, so a fresh document under this name would
-        # inherit the dead one's queue on its first poll and be handed edits meant
-        # for a document that no longer exists. The injection bookkeeping goes too,
-        # so the new document's first notification is not suppressed as a repeat.
+        # The slug is reusable; a fresh document must not inherit them.
         clear_agent_changes(slug)
         forget_injected(slug)
         # A buffered notification for a deleted document would be delivered as a
@@ -1518,14 +1502,7 @@ def register_routes(bp: Blueprint):
         if resolve_format(slug) is None:
             return _error(NOT_FOUND, 404)
 
-        # An ack says "I have applied everything produced at or before this
-        # version", so it can never legitimately name a version the document has
-        # not reached. The queue logic keeps only ops strictly newer than the ack,
-        # so acknowledging 999999999 discarded every queued op AND every future
-        # agent op until the document version caught up -- silent, permanent loss
-        # of edits the browser never saw. Refused rather than clamped: a client
-        # acking beyond the document has a wrong model of the version, and
-        # silently accepting a different number would hide that.
+        # An ack ahead of the document version would discard queued and future ops.
         try:
             current = current_version(slug)
         except DocumentNotFoundError:
@@ -1613,17 +1590,7 @@ def register_routes(bp: Blueprint):
                 f"Version mismatch: expected {expected}, found {version}", 409
             )
 
-        # Authorship is stamped HERE, server-side, and the browser no longer sends
-        # the field at all. This route IS the user-to-agent channel: the browser
-        # computes the diff of the user's own edits, so every op arriving here is
-        # a user edit by construction. Trusting a client-asserted `author`
-        # allow-list made the suppression of agent ops merely conventional -- a
-        # crafted POST labelled `author: "user"` injected arbitrary text into the
-        # agent's context, and one labelled `author: "agent"` silently suppressed a
-        # genuine notification. Stamping removes both: agent-authored content
-        # reaches the agent only through the queue-and-ack direction, never here,
-        # because the browser never posts back what the agent just sent it (its
-        # sent snapshot records agent-applied content as sent).
+        # Every op here is a user edit; authorship is stamped, not claimed.
         user_ops = [{**op, "version": version, "author": "user"} for op in ops]
 
         # An empty batch has nothing to describe. Injecting here would put a
