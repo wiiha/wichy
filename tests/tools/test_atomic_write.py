@@ -100,8 +100,8 @@ def test_atomic_write_respects_encoding(tmp_path):
     assert p.read_text(encoding="utf-16") == "line 1\nline 2\n"
 
 
-def test_atomic_write_over_symlink_replaces_link(tmp_path):
-    """Documented behaviour change: the link is replaced, not written through."""
+def test_atomic_write_over_symlink_writes_through_to_target(tmp_path):
+    """A write through a link updates the target and keeps the link intact."""
     real = tmp_path / "real.txt"
     real.write_text("original")
     link = tmp_path / "link.txt"
@@ -109,9 +109,74 @@ def test_atomic_write_over_symlink_replaces_link(tmp_path):
 
     atomic_write(str(link), "new")
 
-    assert not link.is_symlink()
+    assert link.is_symlink()
+    assert real.read_text() == "new"
     assert link.read_text() == "new"
-    assert real.read_text() == "original"
+    assert _leftover_temps(tmp_path) == []
+
+
+def test_atomic_write_through_symlink_leaves_no_temp_beside_link(tmp_path):
+    """The temp is created next to the target, not next to the link.
+
+    A temp beside the link would sit in a different directory from the resolved
+    target and os.replace could fail to cross filesystems (EXDEV).
+    """
+    target_dir = tmp_path / "data"
+    link_dir = tmp_path / "links"
+    target_dir.mkdir()
+    link_dir.mkdir()
+    real = target_dir / "real.txt"
+    real.write_text("original")
+    link = link_dir / "link.txt"
+    link.symlink_to(real)
+
+    atomic_write(str(link), "new")
+
+    assert real.read_text() == "new"
+    assert _leftover_temps(target_dir) == []
+    assert _leftover_temps(link_dir) == []
+
+
+def test_atomic_write_materialises_dangling_symlink_target(tmp_path):
+    """A dangling link is not replaced by a regular file; its target is created."""
+    real = tmp_path / "real.txt"
+    link = tmp_path / "link.txt"
+    link.symlink_to(real)
+    assert not real.exists()
+
+    atomic_write(str(link), "hello")
+
+    assert link.is_symlink()
+    assert real.read_text() == "hello"
+
+
+def test_atomic_write_follows_symlink_chain(tmp_path):
+    """A chain of links resolves to the final target, which receives the write."""
+    real = tmp_path / "real.txt"
+    real.write_text("original")
+    mid = tmp_path / "mid.txt"
+    mid.symlink_to(real)
+    top = tmp_path / "top.txt"
+    top.symlink_to(mid)
+
+    atomic_write(str(top), "new")
+
+    assert top.is_symlink()
+    assert mid.is_symlink()
+    assert real.read_text() == "new"
+
+
+def test_atomic_write_through_relative_symlink(tmp_path):
+    """A link whose target is a relative path resolves against the link's dir."""
+    real = tmp_path / "real.txt"
+    real.write_text("original")
+    link = tmp_path / "link.txt"
+    link.symlink_to("real.txt")
+
+    atomic_write(str(link), "new")
+
+    assert link.is_symlink()
+    assert real.read_text() == "new"
 
 
 def test_atomic_write_concurrent_writers_never_torn(tmp_path):

@@ -117,16 +117,21 @@ def _create_exclusive(path: str) -> tuple[int, str]:
 def atomic_write(path: str, content: str, encoding: Optional[str] = None) -> None:
     """Write content atomically, preserving an existing file's mode.
 
-    The temp file lives in the SAME directory, so os.replace is atomic (same
-    filesystem). Missing parent directories are created first, which write_file
-    relied on. encoding=None means the platform default, matching write_file's
-    previous open(path, "w").
+    A symlinked path is written THROUGH to the link's final target, leaving the
+    link in place. os.replace renames a directory entry, so replacing a link
+    with a temp file would swap the link for a regular file and strand the
+    target with stale content. The path is resolved once, up front, and every
+    later step uses the resolved target.
+
+    The temp file lives in the SAME directory as that target, so os.replace is
+    atomic (same filesystem). Missing parent directories are created first,
+    which write_file relied on. encoding=None means the platform default,
+    matching write_file's previous open(path, "w").
 
     Behaviour changes vs open(path, "w"):
 
     - The inode is replaced (os.replace), so hard links to the old file are
-      broken and a symlinked path is replaced by a regular file rather than
-      written through.
+      broken.
     - A read-only *file* (mode 0o444) is now overwritten when its directory is
       writable, because os.replace needs only directory permission. Writing to
       a read-only *directory* still fails loudly, as before. This matches the
@@ -135,17 +140,18 @@ def atomic_write(path: str, content: str, encoding: Optional[str] = None) -> Non
     - The existing file's permission bits, including a read-only bit, are
       copied onto the new file.
     """
-    parent = os.path.dirname(path)
+    target = os.path.realpath(path)
+    parent = os.path.dirname(target)
     if parent:
         os.makedirs(parent, exist_ok=True)
 
     mode: Optional[int] = None
     try:
-        mode = stat.S_IMODE(os.stat(path).st_mode)
+        mode = stat.S_IMODE(os.stat(target).st_mode)
     except OSError:
         mode = None
 
-    fd, tmp = _create_exclusive(path)
+    fd, tmp = _create_exclusive(target)
     try:
         with os.fdopen(fd, "w", encoding=encoding) as f:
             f.write(content)
@@ -153,7 +159,7 @@ def atomic_write(path: str, content: str, encoding: Optional[str] = None) -> Non
             os.fsync(f.fileno())
         if mode is not None:
             os.chmod(tmp, mode)
-        os.replace(tmp, path)
+        os.replace(tmp, target)
     except BaseException:
         try:
             os.unlink(tmp)
