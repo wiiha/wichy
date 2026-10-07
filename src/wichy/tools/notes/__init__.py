@@ -141,8 +141,6 @@ def set_scratchpad_state(primary: str | None, pinned: list[str] | None = None) -
     it parses as garbage and reads as UNPINNED, so the agent silently loses its
     scratchpad.
 
-    The notes directory must already exist (call get_notes_dir() first).
-
     Args:
         primary: The slug to pin, or None to clear.
         pinned: The pinned-display list. Entries are de-duplicated, and the
@@ -154,6 +152,7 @@ def set_scratchpad_state(primary: str | None, pinned: list[str] | None = None) -
             left intact.
     """
     marker_path = settings.scratchpad_marker_path
+    marker_path.parent.mkdir(parents=True, exist_ok=True)
     entries: list[str] = []
     for slug in list(pinned or []) + ([primary] if primary else []):
         if slug and slug not in entries:
