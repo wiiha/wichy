@@ -5,9 +5,6 @@ regress silently are asserted against the shipped source, following the
 precedent in tests/test_ui_escape_helpers.py. Everything a browser would need to
 run is checked here instead; behaviour that needs a DOM is on the manual
 checklist.
-
-The guards matter more than usual for a template: a missing script tag or a
-wrong UMD global fails only in a browser, where no test would ever see it.
 """
 
 from __future__ import annotations
@@ -149,18 +146,11 @@ class TestBlockEditorScript:
         assert "destroy()" in source
 
     def test_it_reads_the_block_id_from_the_change_event(self):
-        """The event carries `detail.target.id`; anything else matches nothing.
-
-        This assertion used to require `idAt(index)`, reading `event.block.id`
-        and insisting it be a number. Editor.js emits neither: it passes
-        `event.detail.target.id`, a string, so the dirty set stayed empty and the
-        guard that protects a block being edited never armed.
-        """
+        """The change event carries `detail.target.id`; the dirty set is keyed on it."""
         source = self.script()
         assert "one.detail.target.id" in source
         assert "function changedBlockIds(" in source
         assert "dirty.add(blockId)" in source
-        # And the shape it used to require is gone.
         assert "event?.block?.id" not in source
         assert "function idAt(" not in source
 
@@ -400,13 +390,10 @@ class TestConvertButtonIsEnabledForMarkdown:
 
 
 class TestTheming:
-    """The page is deliberately light-only.
+    """The page is deliberately light-only: the editor it embeds has no matching dark theme.
 
-    It used to declare its own dark palette, but the EasyMDE/CodeMirror editor
-    has no dark theme to match: dark chrome surrounded a solid white editor and
-    the page read as broken. The user asked for removal rather than completion,
-    so the page now pins the shared light tokens and suppresses the base
-    template's theme script.
+    The page pins the shared light tokens and suppresses the base template's
+    theme script.
     """
 
     def css(self) -> str:
@@ -520,10 +507,8 @@ class TestTheMarkIsAppliedToTheBlock:
     def test_the_mark_reads_ids_without_writing_to_the_block_dom(self):
         """The ids come from the editor, never from an attribute we wrote.
 
-        Writing `data-block-id` onto the rendered block made Editor.js report the
-        write back as a user edit, so onChange scheduled a save, whose re-stamp
-        fired onChange again: the page PUT the document once per debounce interval
-        forever with no user input. Read-only id lookup is what removes that loop.
+        Read-only id lookup keeps Editor.js from reporting a written attribute back
+        as a user edit, which would loop the save on every debounce interval.
         """
         source = self.script()
         assert "stampBlockIds" not in source
@@ -551,11 +536,8 @@ class TestTheMarkIsAppliedToTheBlock:
 class TestTheBrowserSendsTheUserChanges:
     """The browser -> agent direction exists at all.
 
-    This is the guard that was missing. Every other guard in this file passed
-    while the page sent nothing: they asserted the shape of code that ran, and
-    none asserted that the one network call the whole feature depends on is
-    actually made. A shape guard cannot see an absent call, so the assertions
-    here are deliberately about the call and its payload.
+    The browser must actually POST the user's changes; this asserts the call and
+    its payload.
     """
 
     def script(self) -> str:
@@ -570,13 +552,7 @@ class TestTheBrowserSendsTheUserChanges:
         assert "/api/changes" in body
 
     def test_the_ops_it_sends_carry_no_author(self):
-        """Authorship is the server's to stamp, not the client's to claim.
-
-        The browser used to send `author: "user"` per op, and the server filtered
-        on it. That made the user-to-agent direction a convention: a crafted POST
-        could forge the field either way. The field is gone, and the route itself
-        is now the statement that these are the user's edits.
-        """
+        """Authorship is the server's to stamp; the ops the browser sends carry no author field."""
         source = self.script()
         assert 'author: "user"' not in source
         assert "author:" not in source
@@ -591,7 +567,7 @@ class TestTheBrowserSendsTheUserChanges:
         assert "version: pendingVersion.get(targetSlug)," in body
 
     def test_the_parked_version_is_the_one_the_save_produced(self):
-        """Recording the pre-save version raced the save and 409'd the notify."""
+        """The parked version is the one the save produced."""
         source = self.script()
         body = source[source.index("async function flushChangeNotify") :]
         body = body[: body.index("async function sendPendingOps")]
@@ -633,11 +609,7 @@ class TestTheBrowserSendsTheUserChanges:
         assert "pendingOps.delete" not in error_branch[: error_branch.index("HTTP 409")]
 
     def test_the_send_control_is_hidden_when_nothing_is_queued(self):
-        """An empty send would inject a message describing no change.
-
-        See TestTheQueueControl for the selector this visibility acts on: the
-        logic was always right, and the element it was applied to did not exist.
-        """
+        """An empty send would inject a message describing no change."""
         source = self.script()
         body = source[source.index("function updateQueueIndicator") :]
         body = body[: body.index("    /**\n     * Note which blocks the user touched.")]
@@ -646,7 +618,7 @@ class TestTheBrowserSendsTheUserChanges:
         assert "const empty = distinct === 0;" in body
 
     def test_the_notify_runs_after_the_save(self):
-        """Posting before the save raced it and every notify came back 409."""
+        """The notify runs after the save."""
         source = self.script()
         body = source[source.index("async function flushChangeNotify") :]
         body = body[: body.index("async function sendPendingOps")]
@@ -815,9 +787,8 @@ class TestTheMarksAreExplained:
 class TestTheHistoryBrowser:
     """The toolbar's History control opens a read-only revision browser.
 
-    It replaces the per-agent-undo control: the revision log holds EVERY
-    revision, so browsing it and restoring is both more general and more
-    honest than a button that silently meant "the agent's last change".
+    The revision log holds every revision, so browsing it and restoring is more
+    general than a single-step undo.
     """
 
     def script(self) -> str:
@@ -1091,12 +1062,8 @@ class TestTheConflictBannerResolves:
 class TestTheQueueControl:
     """On-demand mode is unusable without a control that can actually be found.
 
-    The control was looked up as `#send-changes`, an id the toolbar does not use:
-    every button there is identified by `data-action`. The lookup matched nothing,
-    the function returned early, and the queue indicator never appeared -- so
-    queued edits could not be sent by hand at all. Source guards did not catch it
-    because they asserted the visibility LOGIC, which was correct; what was wrong
-    was the selector it was applied to.
+    The queue control is found by `data-action`, so a markup change cannot
+    silently disable it.
     """
 
     def script(self) -> str:
@@ -1113,9 +1080,8 @@ class TestTheQueueControl:
     def test_the_every_selector_the_script_uses_exists_in_the_template(self):
         """A selector naming an element that is not there fails silently.
 
-        This is the general form of the defect above: the template and the script
-        are edited in different files, and a mismatch shows up as a missing
-        control rather than an error.
+        The template and the script are edited in different files, so a mismatch
+        shows up as a missing control rather than an error.
         """
         source = self.script()
         body = template()
@@ -1150,14 +1116,7 @@ class TestTheQueueControl:
 
 
 class TestTheLegacyMarkdownPage:
-    """The markdown page must read the payload the API actually sends.
-
-    It used to read `note.title` and `note.content` from a payload shaped
-    `{meta, blocks, format}` and PUT `{title, content}` to an endpoint that
-    requires `version` plus `blocks`. Both halves failed: the page rendered an
-    empty title and body, and every save was rejected -- with the only trace in
-    the browser console.
-    """
+    """The markdown page reads the payload the API actually sends: `meta.title` and the synthetic block body."""
 
     def script(self) -> str:
         return (STATIC / "notes.js").read_text(encoding="utf-8")
@@ -1250,13 +1209,7 @@ class TestTheLegacyMarkdownPage:
 
 
 class TestTheConvertOfAnOpenNote:
-    """Converting the open note must hand the editor over to the new document.
-
-    The row's Convert control re-rendered the sidebar only, leaving the markdown
-    editor holding the pre-conversion text with its debounced save still armed
-    against the same slug. Once the markdown page could save, that buffer would
-    write the old body back over the conversion result.
-    """
+    """Converting the open note hands the editor over to the new document."""
 
     def script(self) -> str:
         return (STATIC / "notes.js").read_text(encoding="utf-8")
@@ -1295,10 +1248,8 @@ class TestTheDirtyGuardDoesNotLatch:
     """An agent edit must not permanently classify its own block as conflicted.
 
     Writing an agent op into the editor makes Editor.js report those blocks as
-    changed, which added them to the dirty set. The applied content then diffed
-    empty against the refreshed snapshot, so save() returned early and the entries
-    were never cleared. After the FIRST agent edit to a block, every later agent
-    edit to it was routed to the conflict banner instead of being applied.
+    changed, so they must be disarmed once applied or every later agent edit to
+    that block is routed to the conflict banner instead of being applied.
     """
 
     def script(self) -> str:
@@ -1339,13 +1290,7 @@ class TestTheDirtyGuardDoesNotLatch:
 
 
 class TestKeepMinePersistsTheKeptContent:
-    """Keep mine must write the user's version before it acknowledges.
-
-    The old path acked, then resynced the snapshot with the kept blocks still
-    unsaved. Because the kept content was now recorded as sent, the diff was empty
-    and save() skipped the PUT: the user's kept text was never written anywhere,
-    while the ack told the server the agent's ops had been handled.
-    """
+    """Keep mine writes the user's version before it acknowledges."""
 
     def script(self) -> str:
         return (STATIC / "notes_blocks.js").read_text(encoding="utf-8")
@@ -1396,10 +1341,8 @@ class TestKeepMinePersistsTheKeptContent:
 class TestTheAckOnlyCoversWhatWasApplied:
     """Conflicted ops must survive the poll that could not apply them.
 
-    poll() acknowledged the response's version unconditionally, right after
-    applyAgentChanges returned -- including the blocked subset that went to the
-    conflict banner. The comment claiming those ops come back on the next poll was
-    false: they were already discarded server-side.
+    The poll acks only the versions it actually applied; conflicted ops survive to
+    the next poll.
     """
 
     def script(self) -> str:
@@ -1446,8 +1389,7 @@ class TestTheAckOnlyCoversWhatWasApplied:
 class TestTheConflictedReloadRespectsDirtyBlocks:
     """The wholesale reload is the one path that could overwrite typing.
 
-    On ``body.conflicted`` the poll called open(slug), which re-fetches and rebuilds
-    the editor with no regard for unsaved local edits.
+    A conflicted reload asks before discarding unsaved work.
     """
 
     def script(self) -> str:
@@ -1486,13 +1428,7 @@ class TestTheConflictedReloadRespectsDirtyBlocks:
 
 
 class TestTheOpenEpoch:
-    """Every async continuation must abandon work for a document no longer open.
-
-    `slug` and `version` are module-level and were re-read after every await, and
-    nothing cancelled the poll timer on a switch. A poll started on note A could
-    therefore apply A's ops into B's editor, ack under B's slug, and adopt A's
-    version.
-    """
+    """Every async continuation must abandon work for a document no longer open."""
 
     def script(self) -> str:
         return (STATIC / "notes_blocks.js").read_text(encoding="utf-8")
@@ -1556,9 +1492,7 @@ class TestTheOpenEpoch:
 class TestEditorInitFailureFallsBack:
     """A throwing tool constructor must not leave a broken editor.
 
-    `new EditorJS(...)` and `await editor.isReady` were outside any try/catch, so
-    a failure left a half-built instance assigned with the markdown node already
-    hidden: an empty box and no explanation.
+    Editor construction failures surface as errors, not silence.
     """
 
     def script(self) -> str:
@@ -1623,11 +1557,7 @@ class TestSwitchingNotesClearsConflictState:
 
 
 class TestOpenFailureResetsLocalState:
-    """A failed open left the editor pointing at the PREVIOUS document.
-
-    The sidebar had already marked the new note active, so every toolbar action
-    then targeted the wrong note while the user looked at the new one.
-    """
+    """A failed open resets local state to nothing."""
 
     def script(self) -> str:
         return (STATIC / "notes_blocks.js").read_text(encoding="utf-8")
@@ -1668,11 +1598,7 @@ class TestThePollStopsOnADeadSlug:
 
 
 class TestConcurrentSendsAreCoalesced:
-    """Two overlapping sends posted the same diff twice.
-
-    The toolbar click and the poll's auto-send could both read the same pending
-    ops. On a 503 both retried, so the op reached the agent's context twice.
-    """
+    """Two overlapping sends are coalesced so a diff is posted once."""
 
     def script(self) -> str:
         return (STATIC / "notes_blocks.js").read_text(encoding="utf-8")
@@ -1741,7 +1667,7 @@ class TestHistoryFlushesThePendingSave:
 
 
 class TestPinFollowThrough:
-    """Pressing Pin in the block toolbar appeared to do nothing."""
+    """Pressing Pin in the block toolbar pins the block."""
 
     def script(self) -> str:
         return (STATIC / "notes_blocks.js").read_text(encoding="utf-8")
@@ -1761,7 +1687,7 @@ class TestPinFollowThrough:
         assert "refreshScratchpadState" in source
 
     def test_a_read_failure_is_retried_before_deciding(self):
-        """A failed read used to be read as "not pinned", flipping the pin."""
+        """A failed pin read must not flip the pin."""
         body = self.pin_body()
         assert body.count("fetchJson(") >= 2
         assert "Could not read the current pin state" in body
@@ -1772,12 +1698,7 @@ class TestPinFollowThrough:
 
 
 class TestRenamesAreFollowed:
-    """A rename stranded the open editor on a slug that no longer existed.
-
-    notes.js updated `currentSlug` but never re-announced the note, so the block
-    editor kept polling and saving under the dead slug: 404s at best, and a
-    document that silently stopped persisting.
-    """
+    """A rename must re-announce the document so the open editor follows it."""
 
     def script(self) -> str:
         return (STATIC / "notes.js").read_text(encoding="utf-8")
@@ -1790,12 +1711,7 @@ class TestRenamesAreFollowed:
 
 
 class TestTheQuietPeriodIsStatedInPlainWords:
-    """The comment must name the value, not cite a document nobody can read.
-
-    A commit replaced the old citation with nothing, leaving the 1000 ms quiet
-    period documented only in the Python settings -- so a reader of the script
-    had no idea how long a burst is held for.
-    """
+    """The debounce comment in the source must name the value in words, not cite a document."""
 
     def script(self) -> str:
         return (STATIC / "notes_blocks.js").read_text(encoding="utf-8")
@@ -1831,14 +1747,11 @@ class TestTheQuietPeriodIsStatedInPlainWords:
 
 
 class TestTheTodoCheckboxAnnouncesItsChange:
-    """A toggled checkbox is a real edit and must reach the server.
+    """A toggled checkbox announces its change like a real edit and reaches the server.
 
     The checkbox edits `data` without touching the contenteditable, so the
-    editor's mutation observer never sees it. The tool tried to announce it
-    through `api.blocks.blockDidMutated`, which does not exist on the API surface
-    a tool receives (it is an internal BlockManager method), so the guard was
-    always false and the call never ran: the change event never fired, the save
-    debounce never started, and the toggle was silently unsaved.
+    editor's mutation observer never sees it; the block wrapper must announce the
+    change.
     """
 
     def custom_blocks(self) -> str:
@@ -1882,12 +1795,11 @@ class TestTheTodoCheckboxAnnouncesItsChange:
 
 
 class TestEveryAsyncActionCarriesTheEpoch:
-    """Fixing poll() alone left every OTHER async action unguarded.
+    """Every async action must carry the epoch of the document it started on.
 
     Each one captures `slug` and `version` from module state and awaits at least
-    once, so a note switch part-way through made it act on the wrong document:
-    applying the old note's ops into the new editor, PUTting the old blocks under
-    the new slug, reverting or converting a note the user had just opened.
+    once, so a note switch part-way through would otherwise make it act on the
+    wrong document.
     """
 
     def script(self) -> str:
@@ -1959,12 +1871,11 @@ class TestEveryAsyncActionCarriesTheEpoch:
 
 
 class TestTheBlockEditorHidesTheMarkdownEditor:
-    """Opening a block document must hide the WHOLE markdown editor.
+    """The markdown page swaps the textarea for the real editor.
 
     EasyMDE replaces the textarea with an `.EasyMDEContainer` and moves the
     CodeMirror wrapper inside it, so toggling `hidden` on the textarea alone
-    left the real editor standing: the page showed both editors at once,
-    stacked in the same region.
+    would leave the real editor standing.
     """
 
     def script(self) -> str:
@@ -2012,13 +1923,7 @@ class TestTheBlockEditorHidesTheMarkdownEditor:
 
 
 class TestTheTitleSaveCarriesTheVersion:
-    """The markdown page's save path was still markdown-era.
-
-    It PUT `{title, content}` to an endpoint that requires `version` and reads
-    the title from `meta`: every title edit failed with "A version is
-    required", and had it not, the markdown string in `content` would have
-    replaced the block list with one synthetic paragraph.
-    """
+    """The title save carries the version and rides in `meta`."""
 
     def script(self) -> str:
         return (STATIC / "notes.js").read_text(encoding="utf-8")
@@ -2100,12 +2005,7 @@ class TestTheTitleSaveCarriesTheVersion:
 
 
 class TestTheTitleSaveTracksServerMoves:
-    """A version held while the server moves is a 409 waiting to happen.
-
-    The page used to hold no version at all; after fixing the payload, a
-    version held but never refreshed would 409 the first save after any
-    external write -- the agent's, or another tab's.
-    """
+    """A held version must be refreshed from the list poll, or the first save after an external write is stale."""
 
     def script(self) -> str:
         return (STATIC / "notes.js").read_text(encoding="utf-8")
@@ -2138,13 +2038,9 @@ class TestTheTitleSaveTracksServerMoves:
 class TestTheListPollNeverRebuildsTheOpenEditor:
     """The sidebar poll must not re-select the note the user is writing in.
 
-    The poll compared `updated` stamps and re-selected the open note when it
-    moved. But this page's own saves move that stamp: a few seconds after every
-    pause in typing, selectNote(sameSlug) ran, and open() destroys and
-    recreates Editor.js -- the caret died mid-writing on a note the user never
-    left. External changes to the open document arrive through the block
-    editor's own pending-changes poll, which writes ops into the standing
-    editor instead of replacing it.
+    External changes to the open document arrive through the block editor's own
+    pending-changes poll, which writes ops into the standing editor instead of
+    replacing it.
     """
 
     def script(self) -> str:
@@ -2176,13 +2072,7 @@ class TestTheListPollNeverRebuildsTheOpenEditor:
 
 
 class TestTheQueueSurvivesAReload:
-    """Parked ops died with the page.
-
-    pendingOps is in-memory, and the toolbar says the edits are "queued" --
-    after leaving and re-entering the notes page the queue was empty and the
-    Send control was gone, with no trace of the edits it had promised to
-    deliver.
-    """
+    """Parked ops must survive a page reload."""
 
     def script(self) -> str:
         return (STATIC / "notes_blocks.js").read_text(encoding="utf-8")
@@ -2264,8 +2154,7 @@ class TestTheBrowserSendsThePreviousContent:
     """A diff needs the before-state, and only the browser still has it.
 
     The server's copy of a block is already the edited text, so an update sent
-    without its previous content can only be reported as "something changed" --
-    which is what made the notification useless.
+    without its previous content can only be reported as "something changed".
     """
 
     def script(self) -> str:

@@ -445,12 +445,7 @@ class TestSunburstRenderer:
         _assert_valid_png(path)
 
     def test_aggregate_root_renders(self, isolated_charts_dir: Path) -> None:
-        """Sunburst with parent value=0 (aggregate root) still renders.
-
-        This is a regression test: previously the sunburst was completely
-        blank when root nodes had value=0 because child drawing was nested
-        inside the root loop with zero angular width.
-        """
+        """A sunburst with an aggregate root (parent value=0) still renders."""
         data = [
             {"label": "Root", "value": 0, "parent": ""},
             {"label": "A", "value": 50, "parent": "Root"},
@@ -501,7 +496,7 @@ class TestRegistryPopulated:
 
 
 # ---------------------------------------------------------------------------
-# Stage 5 renderer tests: radar, violin, heatmap, correlogram
+# Renderer tests: radar, violin, heatmap, correlogram
 # ---------------------------------------------------------------------------
 
 
@@ -681,7 +676,7 @@ class TestCorrelogramRenderer:
 
 
 # ---------------------------------------------------------------------------
-# Stage 6 renderer tests: chord, time_compass
+# Renderer tests: chord, time_compass
 # ---------------------------------------------------------------------------
 
 
@@ -822,8 +817,8 @@ class TestNullHandling:
     """Tests for null/None value handling across chart renderers.
 
     Real-world datasets (e.g. Titanic) contain nulls.  Every chart type must
-    handle them gracefully — either filtering them, substituting 0, or
-    drawing gaps — rather than crashing.
+    handle them gracefully -- either filtering them, substituting 0, or
+    drawing gaps -- rather than crashing.
     """
 
     def test_bar_with_null_y(self, isolated_charts_dir: Path) -> None:

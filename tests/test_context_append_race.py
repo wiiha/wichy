@@ -7,12 +7,9 @@ new entry, rebuild `self.context` / `self.logs` from that snapshot, and wipe the
 entry out of memory. The entry is on disk but not in memory, which is exactly
 backwards from a lost write and is why a file-only assertion cannot see it.
 
-The rendezvous below parks the appending thread inside `_write_line`, at the
-point where it has already updated memory but has not yet written. Pre-fix the
-lock is free at that moment, so `tick()` runs and the divergence is real; the
-assertion fails. Post-fix the appender still holds the lock, so `tick()` waits
-for the write to land and then rebuilds from a file that includes the entry;
-the assertion passes.
+The rendezvous parks the appending thread inside `_write_line`, at the point
+where it has updated memory but not yet written and still holds the lock: a
+correct `tick()` must wait for the write to land before rebuilding.
 
 Note the rendezvous point. `_write_line` opens the target directly, so patching
 `builtins.open` catches it -- but `tick()` reads and writes via `Path.read_text`
@@ -34,9 +31,8 @@ import pytest
 
 from wichy.context.handler import ContextHandler
 
-#: Barrier timeout. Pre-fix both parties arrive and the rendezvous is cheap.
-#: Post-fix the appending thread always times out, so this value is added to
-#: every post-fix run -- keep it small.
+#: Barrier timeout. When the rendezvous loses its race the loser waits this
+#: out, so the value is added to every run -- keep it small.
 _TIMEOUT_S = 0.5
 
 
@@ -75,7 +71,7 @@ def _rendezvous(barrier: threading.Barrier, timeout: float = _TIMEOUT_S) -> None
     """Wait at *barrier*, swallowing a broken-barrier error.
 
     Must never propagate: the caller catches broad exceptions and would report a
-    spurious write failure, failing the post-fix run for the wrong reason.
+    spurious write failure, failing the run for the wrong reason.
     """
     try:
         barrier.wait(timeout=timeout)
@@ -223,9 +219,8 @@ class TestRendezvousHygiene:
     ):
         """A second append after the rendezvous is not trapped.
 
-        Guards the one-shot arming: if the proxy kept trapping, the post-fix
-        run would block on every later write and the suite would get slow
-        rather than red.
+        Guards the one-shot arming: if the proxy kept trapping, later writes
+        would block and the suite would get slow rather than red.
         """
         handler = _seeded_handler()
 

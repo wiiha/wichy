@@ -70,9 +70,7 @@ def test_insert_at_beginning(insert_lines_tool, temp_workspace):
 def test_insert_at_end(insert_lines_tool, temp_workspace):
     """Inserting at offset == line count appends.
 
-    This is the legitimate append point and must keep working; the old version
-    of this test used offset=10 on a 3-line file, which asserted the adjacent
-    behaviour of silently appending while reporting line 10.
+    This is the legitimate append point and must keep working.
     """
     test_file = os.path.join(temp_workspace, "test.txt")
 
@@ -92,11 +90,7 @@ def test_insert_at_end(insert_lines_tool, temp_workspace):
 
 
 def test_insert_beyond_end_is_rejected(insert_lines_tool, temp_workspace):
-    """offset past EOF must be rejected, not silently appended.
-
-    Previously this returned "Inserted content after line 10" for a 3-line
-    file.
-    """
+    """An offset past EOF must be rejected, not silently appended."""
     test_file = os.path.join(temp_workspace, "test.txt")
     with open(test_file) as f:
         before = f.read()

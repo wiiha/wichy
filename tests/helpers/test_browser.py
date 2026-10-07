@@ -1,19 +1,4 @@
-"""
-Test cases for the BrowserManager helper.
-
-Tests cover:
-- Browser initialization
-- Page creation and recreation when closed
-- Context handling (BrowserContext doesn't have is_closed() method)
-- Navigation, status, and screenshot functionality
-
-Key bugs that were fixed:
-1. BrowserContext does NOT have is_closed() method, only Page does
-2. Page.is_closed() is a METHOD, not a property (must be called with ())
-
-Note: These tests use execute_serialized() because the event loop now runs
-in a background thread (required for asyncio.run_coroutine_threadsafe()).
-"""
+"""Tests for BrowserManager: init, page recreation, context handling, navigation, status, screenshot."""
 
 import asyncio
 import threading
@@ -117,7 +102,7 @@ class TestBrowserManagerInitialization:
 
 
 class TestBrowserManagerGetPage:
-    """Tests for get_page method - this is where the is_closed() bug was."""
+    """Tests for get_page."""
 
     def test_get_page_returns_existing_page_when_not_closed(self):
         """Test that get_page returns existing page if it's not closed."""
@@ -285,12 +270,7 @@ class TestBrowserManagerGetPage:
 
 
 class TestPageVsContextIsClosedMethod:
-    """Tests specifically for Page.is_closed() vs BrowserContext behavior.
-
-    This documents the exact bug that was fixed:
-    - Page objects have is_closed() METHOD (must be called)
-    - BrowserContext objects do NOT have is_closed at all
-    """
+    """Page has an ``is_closed()`` method; BrowserContext does not."""
 
     def test_page_has_is_closed_method_in_playwright(self):
         """Verify that Page objects in Playwright have is_closed method.
@@ -308,15 +288,10 @@ class TestPageVsContextIsClosedMethod:
         ), "Page.is_closed should be a callable method"
 
     def test_browser_context_lacks_is_closed_in_playwright(self):
-        """Verify that BrowserContext does NOT have is_closed method.
-
-        This is the exact bug that was fixed - the code was calling
-        context.is_closed() which doesn't exist on BrowserContext.
-        """
+        """Verify that BrowserContext does NOT have is_closed method."""
         from playwright.async_api import BrowserContext
 
         # BrowserContext should NOT have is_closed
-        # This was the bug: calling context.is_closed() would fail
         assert not hasattr(
             BrowserContext, "is_closed"
         ), "BrowserContext should NOT have is_closed - this was the bug!"
@@ -1261,7 +1236,7 @@ class TestBrowserPageInfoAndAct:
             assert result["target"] == "Email"
             # fill("") is called first to clear, then fill with value
             assert mock_input.fill.call_count == 2
-            # Verify query_selector was tried first
+            # query_selector must be consulted
             mock_page.query_selector.assert_called()
         finally:
             loop_fixture.stop()

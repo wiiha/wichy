@@ -1089,7 +1089,7 @@ class TestNotesJs:
 
 
 # ---------------------------------------------------------------------------
-# Defects and gaps found in review
+# Rejection guarantees
 # ---------------------------------------------------------------------------
 
 
@@ -1958,11 +1958,11 @@ class TestDivergentHistoryIsDisclosed:
 class TestRevertToALegacyAnchor:
     """A revert to an anchor id must be refused; a restore at it must still work.
 
-    A legacy log may carry an anchor: an entry that reuses a real id and
-    restates the state where the old build's recorded history begins. The state
-    BEFORE it was never recorded, so reverting to that id would replay to an
-    empty state and write it back over the note. The route must refuse with a
-    4xx and change nothing, while restoring AT the anchor stays supported.
+    A legacy anchor reuses a real id and restates the state where its recorded
+    history begins; the state BEFORE it was never recorded, so reverting to
+    that id would replay to an empty state and write it back over the note.
+    The route must refuse with a 4xx and change nothing, while restoring AT
+    the anchor stays supported.
     """
 
     def _legacy_anchor(self, client):

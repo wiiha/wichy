@@ -7,13 +7,8 @@ edit is silently gone.
 
 A one-shot rendezvous inside the read makes the race deterministic rather than
 scheduling-dependent: the proxy blocks after the content is in hand, so both
-threads hold the stale snapshot before either writes. Post-fix the first thread
-holds the path lock, the rendezvous times out, and the second re-reads.
-
-Note on strength: the same-file race tests here fail pre-fix on every run
-(measured 20/20). `test_replace_text_and_write_file_never_splice` is different --
-it passes pre-fix too, because a wholesale overwrite loses the race either way,
-so it is an outcome check rather than a pre-fix proof.
+threads hold the stale snapshot before either writes. The first thread then holds
+the path lock, the rendezvous times out, and the second re-reads.
 """
 
 import builtins
@@ -28,10 +23,8 @@ from wichy.tools.insert_lines import InsertLinesTool
 from wichy.tools.replace_text import ReplaceTextTool
 from wichy.tools.write_file import WriteFileTool
 
-#: Barrier timeout. Keep this SMALL. Pre-fix both parties arrive and it costs
-#: nothing, but post-fix the loser always times out, so this value is added to
-#: every post-fix run of these tests -- at 2.0s that was 8s for this file
-#: alone. Kept comfortably above the rendezvous latency, which is microseconds.
+#: Barrier timeout. Keep this SMALL: when the rendezvous loses its race the loser
+#: waits this out, so the value is added to every run.
 _BARRIER_TIMEOUT_S = 0.5
 
 
@@ -44,14 +37,7 @@ def clean_locks():
 
 
 class _BarrieredRead:
-    """File proxy whose read() rendezvous AFTER capturing the content.
-
-    Meeting before the actual read is not enough: the read itself is fast, so
-    a thread can finish its whole read-compute-write before the other thread
-    reads, and the edits then land anyway. Barriering after the content is in
-    hand guarantees both threads hold the stale snapshot before either writes,
-    which is what makes the pre-fix failure deterministic.
-    """
+    """File proxy whose ``read()`` rendezvouses after capturing content, so both threads hold the stale snapshot before either writes."""
 
     def __init__(self, handle, barrier: threading.Barrier, timeout: float):
         self._handle = handle
@@ -62,9 +48,8 @@ class _BarrieredRead:
         try:
             self._barrier.wait(timeout=self._timeout)
         except threading.BrokenBarrierError:
-            # Must be swallowed. It would otherwise propagate into the tool's
-            # `except Exception` and surface as "Failed to read file", failing
-            # the post-fix run for the wrong reason.
+            # Must be swallowed: it would otherwise propagate into the tool's
+            # `except Exception` and surface as "Failed to read file".
             pass
 
     def read(self, *args):
@@ -147,10 +132,10 @@ def test_two_replace_text_same_file_in_one_batch(monkeypatch, tmp_path):
 
 
 def test_no_edit_is_skipped_silently(monkeypatch, tmp_path):
-    """The silent-loss half of the bug.
+    """Every edit that reported success must be present in the file.
 
     Both calls report success, so the only way to see the loss is the file
-    itself. This asserts every edit that claimed success is present.
+    itself.
     """
     target = tmp_path / "f.txt"
     target.write_text("a\nb\nc\nd\n")
@@ -296,9 +281,7 @@ _MODIFYING_CALLS = [
 def test_modifying_tool_waits_for_the_path_lock(name, factory, kwargs, tmp_path):
     """A modifying call must not proceed while the path is locked.
 
-    Deterministic without a race: this test holds the lock itself and asserts
-    the tool call has not finished. Pre-fix every one of these completes
-    immediately, because none of the tools consulted a lock at all.
+    This test holds the lock itself and asserts the tool call has not finished.
     """
     target = tmp_path / "f.txt"
     target.write_text("alpha\nbeta\n")

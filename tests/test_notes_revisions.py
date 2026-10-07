@@ -143,10 +143,9 @@ def append_entries(slug, count, start=1):
 def write_legacy_anchor_log(slug, *, anchor_id, keep_ids):
     """Rewrite ``slug``'s log so an anchor restates the state before a survivor.
 
-    Legacy logs from the old build carry such an anchor: it was written where
-    earlier revisions had been dropped, restating the state at that point so
-    everything onward still replays exactly. Nothing writes one now, so the log
-    is written directly -- going through ``append_entry`` never produces it.
+    The anchor reuses ``anchor_id``, and the state replayed up to the earliest
+    kept entry becomes its ops, so everything onward still replays exactly. The
+    log is written directly because ``append_entry`` cannot produce an anchor.
 
     Args:
         slug: The document slug.
@@ -927,8 +926,6 @@ class TestRevert:
 
 
 # ---------------------------------------------------------------------------
-# Defects and coverage gaps found in review
-# ---------------------------------------------------------------------------
 
 
 class TestReplayMatchesDiskForMixedChanges:
@@ -1105,9 +1102,8 @@ class TestEntryOpValues:
     ):
         """Correctness first: the ops describe the change, which may be several moves.
 
-        Rotating three blocks can be expressed as either two moves or one, and
-        this implementation picks the former. What must hold is that a replay
-        reproduces the document exactly; the op count is a presentation detail.
+        What must hold is that a replay reproduces the document exactly; the op
+        count is a presentation detail.
         """
         slug, ids = doc
         with locked_document(slug, 1, author="user") as document:
@@ -1149,9 +1145,7 @@ class TestCounterSurvivesRotation:
     ):
         """The counter lives in meta, so rotating the log cannot reset it.
 
-        Driven through real mutations, not by appending synthetic entries: only
-        record_revision allocates ids, so a test that supplies its own ids proves
-        nothing about the counter.
+        Driven through real mutations, not by appending synthetic entries.
         """
         from wichy.tools.notes.revisions import ROTATE_AT_ENTRIES
 
@@ -1295,22 +1289,7 @@ class TestInvalidSlugIsRefused:
 
 
 class TestWriteOrderPreventsDuplicateIds:
-    """The document (carrying the counter) must be written BEFORE the entry.
-
-    The two orders fail differently, and only one is recoverable:
-
-    - Entry first: a crash in between leaves an entry whose id the counter will
-      hand out again, so the next change writes a SECOND entry with the same id.
-      Duplicate ids make get_revision and since_id ambiguous and make a replay
-      apply one change twice.
-    - Document first: a crash leaves a gap. Ids stay unique; the log is merely
-      missing one record.
-
-    Simulated here by failing the DOCUMENT write once. That is the case that
-    distinguishes the two orders: if the entry has already been appended when
-    the document write fails, the counter on disk is still the old value, so the
-    next change allocates the same id again.
-    """
+    """The document (carrying the counter) is written before the entry, so a crash leaves a gap, never a duplicate id."""
 
     def test_a_failed_document_write_does_not_produce_a_reused_id(
         self, notes_dir, doc, monkeypatch
@@ -1523,10 +1502,9 @@ class TestAppendOnlyHistory:
 class TestRevertToALegacyAnchorIsRefused:
     """A legacy anchor's preceding state was never recorded, so it is refused.
 
-    An anchor reuses a real id and restates the state where the old build's
-    recorded history begins. Reverting to that id asks for the state BEFORE it,
-    which the log never held: replay breaks at the anchor as its first entry and
-    reports an empty document. Writing that back would silently destroy the note.
+    An anchor reuses a real id and restates the state where recorded history
+    begins, so reverting to it asks for a state the log never held and replay
+    reports an empty document; writing that back would destroy the note.
     """
 
     def _legacy_anchor(self, notes_dir):
@@ -1589,14 +1567,7 @@ class TestRevertToALegacyAnchorIsRefused:
 
 
 class TestAMiddleGapIsIncomplete:
-    """An entry lost in the MIDDLE breaks every state rebuilt after it.
-
-    Completeness used to be positional only: ``first_id == 1`` was enough, so a
-    log whose ids ran [1, 2, 4, 5] -- entry 3 deleted by hand or by an older
-    build -- still replayed as authoritative. The replay silently omitted
-    revision 3's change, and the rebuilt state was served as the document's past.
-    A missing id between surviving ones is what a first-id check cannot see.
-    """
+    """An entry lost in the MIDDLE breaks every state rebuilt after it: contiguity is checked, not just the first id."""
 
     def _gap_log(self, notes_dir, doc):
         """A five-revision log with the middle entry (id 3) removed by hand."""
@@ -1710,13 +1681,7 @@ class TestAMiddleGapIsIncomplete:
 
 
 class TestTornLogTailDisclosure:
-    """A torn FINAL line of the LIVE log is disclosed, not silently dropped.
-
-    Tolerant parsing made history simply end earlier when a crash or a full disk
-    left the last append half-written: no missing id in the middle, so the gap
-    check could not see it either. The READER now refuses, naming the file and
-    line, while rotated logs stay tolerant.
-    """
+    """A torn FINAL line of the LIVE log is disclosed, not silently dropped; rotated logs stay tolerant."""
 
     def test_a_torn_live_log_tail_is_disclosed(self, notes_dir, doc):
         slug, _ = doc
@@ -1826,7 +1791,7 @@ class TestReplayDoesNotInventGaps:
     def test_a_real_gap_is_still_reported(self, notes_dir, doc):
         slug, _ = doc
         append_entries(slug, 3, start=2)
-        # Delete the middle entry by hand: damage an older build could leave.
+        # Delete the middle entry by hand, as a damaged log would.
         rows = revisions_path(slug).read_text(encoding="utf-8").splitlines()
         keep = [row for row in rows if '"id": 3' not in row]
         revisions_path(slug).write_text("\n".join(keep) + "\n", encoding="utf-8")

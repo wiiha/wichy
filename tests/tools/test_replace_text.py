@@ -189,10 +189,10 @@ def test_replace_multiline_content(replace_text_tool, temp_workspace):
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-#: Hard address-space cap for the child process. The pre-fix failure is
-#: unbounded ALLOCATION (`find("", start)` returns `start`, `start += 0`), not a
-#: CPU spin, so an in-process guard would be OOM-killed and take the pytest
-#: runner down with it -- it cannot fail cleanly.
+#: Hard address-space cap for the child process. The failure mode it guards
+#: is unbounded ALLOCATION (`find("", start)` returns `start`, `start += 0`),
+#: not a CPU spin, so an in-process guard would be OOM-killed and take the
+#: pytest runner down with it -- it cannot fail cleanly.
 _EMPTY_MATCH_MEMORY_CAP = 512 * 1024 * 1024
 
 

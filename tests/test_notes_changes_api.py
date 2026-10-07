@@ -358,10 +358,8 @@ class TestPostChanges:
     def test_every_op_on_this_route_is_described(self, client, doc, session):
         """The route is the user's channel, so its whole batch is the user's.
 
-        Filtering by a client-supplied author field was how the guarantee used to
-        be made. It is now structural: agent-authored content never reaches this
-        route (the browser does not post back what the agent sent it), so nothing
-        arriving here is filtered out -- including an op that claims otherwise.
+        Nothing arriving here is filtered out -- including an op that claims an
+        author -- because agent-authored content never reaches this route.
         """
         slug, ids = doc
         post_and_flush(
@@ -802,7 +800,7 @@ class TestInjectedMessage:
 
 
 # ---------------------------------------------------------------------------
-# Defects found in review
+# Agent-op guarantees
 # ---------------------------------------------------------------------------
 
 
@@ -891,12 +889,6 @@ class TestARenamedDocumentOnARejectedRequest:
 
 class TestInjectionAuthorshipIsStampedByTheServer:
     """The route IS the user-to-agent channel, so the server decides authorship.
-
-    This used to be a client-supplied allow-list: only ops carrying
-    ``author == "user"`` were injected. That made the guarantee conventional
-    rather than structural. A crafted POST labelled ``author: "user"`` injected
-    arbitrary text into the agent's context, and one labelled ``author: "agent"``
-    silently suppressed a genuine notification. The browser no longer sends the
     field, and the server stamps it.
     """
 
@@ -1087,8 +1079,7 @@ class TestAgentWritesQueueTheirOwnOps:
     browser's view and the log cannot disagree. Driven through a real
     ``locked_document``/tool call rather than by calling ``queue_agent_change``
     directly: a test that supplies its own ops passes whether or not the
-    production path exists, which is how this gap survived the first eleven
-    stages.
+    production path exists.
     """
 
     def test_an_agent_edit_queues_an_op_carrying_its_version(self, notes_dir, doc):
@@ -1322,11 +1313,7 @@ class TestDeleteClearsPerSlugState:
 
 
 class TestCollapseInStorage:
-    """Storage is bounded by the block count, not by how long a tab stays shut.
-
-    Collapsing used to happen on the RESPONSE copy only, so a browser that never
-    acked (a closed tab) left the server accumulating one op per write forever.
-    """
+    """Storage is bounded by the block count, not by how long a tab stays shut."""
 
     def test_two_writes_to_one_block_store_one_op(self, notes_dir, doc):
         """Each write must genuinely change the text: a no-op queues nothing.
@@ -1426,9 +1413,7 @@ class TestCollapseInStorage:
 class TestInjectionIsIdempotent:
     """A retried notification must not be delivered twice.
 
-    The browser parks its ops on a 503 and retries. A retry after a lost response
-    used to append a second, identical summary of the same change to the agent's
-    context, making a turn think twice as much had happened.
+    The browser parks its ops on a 503 and retries; the retry is injected once.
     """
 
     def test_a_retry_of_the_same_version_injects_once(self, client, doc, session):
@@ -1929,9 +1914,8 @@ class TestTheSettleTimerItself:
     """The buffer's actual delivery path: a real timer thread, not the flush call.
 
     Every other test here delivers with `flush_pending_notification`, which
-    bypasses the timer. That left the timer's own bookkeeping -- clearing the
-    buffer after a delivery -- untested, and it was wrong: the ops were delivered
-    but stayed buffered, so the next timer would deliver the same change again.
+    bypasses the timer; this one exercises the timer's own bookkeeping: one
+    delivery, then the buffer cleared.
 
     The settle window is set INSIDE each test, after the client fixture has built
     the app, because registration installs the value from settings and setting it

@@ -1,38 +1,6 @@
-"""
-End-to-end test of the REAL batch dispatcher with the REAL file-editing tools.
+"""End-to-end tests of the assistant-batch dispatcher with the real file-editing tools.
 
-tests/tools/test_same_file_batch.py drives `tool.execute()` directly, which
-proves the lock but not that the batch path exercises it. This module drives
-`AgentCore._handle_tools_base`, the loop that decides to dispatch a multi-call
-message to a ThreadPoolExecutor (`agent/core.py:284-300`, `settings.parallel_exec`
-defaults True). That is the level at which the original bug corrupted a file:
-two calls in one assistant message, both reporting success, one edit gone.
-
-**On the strength of the evidence here.** These tests are a *regression* suite:
-post-fix every one must pass, and they do. They are NOT all equally strong as
-*pre-fix proofs*, which is worth stating precisely because the rendezvous depends
-on two threads starting within the barrier timeout:
-
-- `test_no_file_edit_is_lost_across_many_interleavings` is the deterministic
-  pre-fix proof at this level. It injects nothing and runs 25 real batches;
-  measured 20/20 failing pre-fix.
-- The rendezvous-based cases below are strong but NOT individually deterministic
-  at dispatcher level. Measured over 20 pre-fix runs each:
-  `test_one_batch_two_edits_both_land` 20/20,
-  `test_batch_then_read_sees_the_committed_content` 20/20,
-  `test_one_batch_mixed_tools_same_file` **17/20** (see below), and
-  `test_write_file_and_replace_text_in_one_batch` **0-2/20** -- that last one is
-  an outcome check only and does not serve as a pre-fix proof.
-
-`test_one_batch_mixed_tools_same_file` was measured over 40 trials to produce
-three distinct outcomes pre-fix: 22x `"alpha\\nbeta\\nTAIL\\n"` (the replace lost),
-5x `"ALPHA\\nbeta\\n"` (the insert lost), and 13x `"ALPHA\\nbeta\\nTAIL\\n"` (both
-landed). The last case means the two threads did not actually rendezvous -- the
-insert ran after the replace rather than alongside it. Since a test that sometimes
-passes pre-fix cannot be called deterministic, the deterministic tool-level proof
-lives in `tests/tools/test_same_file_batch.py`, whose identical-shaped rendezvous
-on a single tool measured 15/15.
-"""
+Concurrent same-file edits in one batch must not clobber each other."""
 
 import builtins
 import os
@@ -102,12 +70,7 @@ def _response(tool_calls, content="editing"):
 
 
 def _patch_parallel_reads(monkeypatch, target: str):
-    """Deterministic rendezvous on the first two read-mode opens of target.
-
-    Same rationale as tests/tools/test_same_file_batch.py: the barrier fires
-    after the content is in hand, so both threads provably hold the stale
-    snapshot before either writes.
-    """
+    """Deterministic rendezvous on the first two read-mode opens of target."""
     key = os.path.realpath(target)
     barrier = threading.Barrier(2)
     real_open = builtins.open
@@ -164,11 +127,7 @@ def _patch_parallel_reads(monkeypatch, target: str):
 
 
 def test_one_batch_two_edits_both_land(monkeypatch, tmp_path):
-    """The original bug, at the level it occurred.
-
-    One assistant message, two `replace_text` calls on one file. Pre-fix both
-    report success and one edit is missing from the file.
-    """
+    """One assistant message, two `replace_text` calls on one file; both edits must land."""
     target = tmp_path / "f.txt"
     target.write_text("alpha\nbeta\ngamma\n")
 
@@ -249,13 +208,7 @@ def test_one_batch_mixed_tools_same_file(monkeypatch, tmp_path):
 
 
 def test_one_batch_different_files_still_parallel(monkeypatch, tmp_path):
-    """Distinct files must not serialise each other.
-
-    Two different files, each with an edit. If the lock were global rather
-    than per-path, this would still pass -- so this asserts correctness of
-    outcome, not parallelism. Parallelism itself is proven at the helper level
-    by tests/tools/test_file_safety.py::test_different_keys_do_not_block.
-    """
+    """Distinct files may still be edited in parallel."""
     a = tmp_path / "a.txt"
     b = tmp_path / "b.txt"
     a.write_text("one\n")

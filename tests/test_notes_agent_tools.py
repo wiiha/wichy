@@ -299,10 +299,8 @@ class TestMarkdownScratchpad:
     def test_read_blocks_yields_the_content(self, markdown_pinned):
         """A note the agent cannot EDIT is still one it should be able to READ.
 
-        Refusing a read with the write-refusal sentence told the agent nothing
-        about a document that is present and readable, while read_scratchpad
-        showed the same note's content -- two read tools disagreeing about
-        whether the note exists.
+        ``read_scratchpad`` shows the same note's content, so the two read tools
+        must agree about whether the note exists.
         """
         result = run(ReadBlocksTool)
         assert result != MARKDOWN_WRITE_REFUSED
@@ -310,11 +308,7 @@ class TestMarkdownScratchpad:
         assert "body" in result
 
     def test_read_revisions_reports_that_there_are_none(self, markdown_pinned):
-        """A legacy note keeps no revision log, which is the honest answer.
-
-        The write-refusal sentence hid that: it named a conversion instead of the
-        real reason, and read like a failed WRITE from a read tool.
-        """
+        """A legacy note keeps no revision log, which is the honest answer."""
         result = run(ReadRevisionsTool)
         assert result != MARKDOWN_WRITE_REFUSED
         assert "No revisions recorded" in result
@@ -904,12 +898,7 @@ class TestRendering:
         )
 
     def test_the_header_line_names_id_type_and_both_authorship_fields(self, scratchpad):
-        """`author` alone told the agent the wrong thing.
-
-        It is the CREATOR and nothing updates it, so after the agent edited a
-        block, re-reading it still said `author=user`. The header now carries the
-        last writer too, under the same label read_scratchpad uses.
-        """
+        """The header names the last writer alongside the creator, under the same label read_scratchpad uses."""
         slug, ids = scratchpad
         result = run(ReadBlocksTool, block_id=ids[0])
         assert f"[header] id: {ids[0]} author=user last-touched-by=user" in result
@@ -1004,7 +993,6 @@ class TestRegistry:
 
 
 # ---------------------------------------------------------------------------
-# Defects and gaps found in review
 # ---------------------------------------------------------------------------
 
 
@@ -1012,9 +1000,7 @@ class TestSuccessMessagesReportThePersistedVersion:
     """The version a tool reports must be the one it produced.
 
     The bump happens as ``locked_document`` exits, so a tool that reads the
-    version inside the block reports the version it REPLACED. The agent would
-    then send a stale expected version on its next call and be told its own edit
-    conflicted with itself.
+    version inside the block reports the version it replaced.
     """
 
     @pytest.mark.parametrize(
@@ -1140,13 +1126,7 @@ class TestInsertPersistsEveryType:
     def test_the_block_is_really_stored_with_its_own_type_and_data(
         self, scratchpad, block_type, text
     ):
-        """A message that echoes the requested type proves nothing on its own.
-
-        The expected data is recomputed from the plain text through the same
-        coercion the tool uses, then validated against the type's model, so the
-        assertion is about the STORED shape rather than about a literal this test
-        wrote by hand.
-        """
+        """The stored block carries its own type and data; the tool's echo proves nothing on its own."""
         slug, ids = scratchpad
 
         result = run(InsertBlockTool, block_type=block_type, new_content=text)
@@ -1325,15 +1305,7 @@ class TestToolOutputMatchesTheApi:
 
 
 class TestAnswerQuestion:
-    """Marking a question answered must not touch the question's text.
-
-    Nothing in the codebase ever set ``answered``: it was read and rendered in
-    five places and written in none, so a question block the agent had already
-    dealt with kept reading as open and kept prompting for the same answer. The
-    obvious workaround -- resending the whole block -- is also the clobbering
-    one, because QuestionData forbids extra fields and the agent would have to
-    reproduce the user's text exactly.
-    """
+    """Marking a question answered flips the flag without touching the question's text."""
 
     @pytest.fixture
     def with_question(self, notes_dir):
@@ -1433,10 +1405,7 @@ class TestAnswerQuestion:
 class TestExpectedVersion:
     """A tool write can quote the version it read against.
 
-    Without it every tool write was last-writer-wins: an agent that read at v5
-    could apply its edit after the user's v6 write with no signal at all, and the
-    user's newer content was silently discarded. The lock prevented torn files,
-    never a stale-read clobber.
+    A stale quote is refused.
     """
 
     def test_quoting_the_current_version_is_accepted(self, scratchpad):
@@ -1535,13 +1504,7 @@ class TestExpectedVersion:
 
 
 class TestWriteErrorsAreNotReadErrors:
-    """An OSError after the read is a WRITE failure, and must say so.
-
-    The old tail reported every OSError as "Could not read the scratchpad",
-    because read and write shared one clause. In the append-fails case the
-    document version had already advanced with no revision entry and no queued
-    op, so the message invited a blind retry of a half-applied write.
-    """
+    """A failed save reports a WRITE failure, not a read failure."""
 
     @pytest.mark.parametrize(
         "tool,kwargs_for",
@@ -1576,7 +1539,7 @@ class TestWriteErrorsAreNotReadErrors:
         assert "write" in result.lower()
         assert "uncertain" in result.lower()
         assert "read the scratchpad" in result.lower()
-        # The old wording is gone: this was NOT a read failure.
+        # A write failure must not be reported as a read failure.
         assert "Could not read the scratchpad" not in result
 
     def test_the_document_is_unchanged_after_a_refused_write(self, scratchpad):
@@ -1909,9 +1872,8 @@ class TestFindBlockIds:
 class TestReadRevisionsMarksAnchors:
     """An anchor row is marked distinctly; ordinary rows keep their exact shape.
 
-    An anchor is the marker for where the recorded history of an older build
-    begins -- not a state the agent can browse or revert to -- so the agent must
-    not read it as an ordinary revision.
+    It marks a state the agent can neither browse nor revert to, so it must not
+    read as an ordinary revision.
     """
 
     def _write_log_with_anchor(self, slug):

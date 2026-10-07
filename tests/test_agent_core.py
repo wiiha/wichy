@@ -259,21 +259,14 @@ class TestAgentCoreGetToolDefinitions:
 
 
 # =============================================================================
-# MRO-AWARE TESTS - These would catch signature mismatch bugs
+# MRO-AWARE TESTS - signature compatibility between _handle_tools_base and _tool_call
 # =============================================================================
 
 
 class TestMROSignatureCompatibility:
-    """
-    Tests that verify Method Resolution Order (MRO) compatibility between
-    AgentCore._handle_tools_base calling self._tool_call.
+    """Guards that ``_handle_tools_base`` and ``_tool_call`` stay signature-compatible.
 
-    These tests would catch bugs where _handle_tools_base calls _tool_call
-    with arguments that don't match _tool_call's signature.
-
-    The historical bug: _tool_call had signature (self, tools, item) but
-    _handle_tools_base called it with (tools, item, inject_model_str) causing
-    a TypeError at runtime.
+    RootAgent and TaskAgent both route through the base.
     """
 
     def test_handle_tools_base_calls_tool_call_with_correct_signature(self):
@@ -493,24 +486,10 @@ class TestMROSignatureCompatibility:
 
 
 class TestSubclassIntegration:
-    """
-    Tests that verify RootAgent and TaskAgent can successfully call
-    _handle_tools_base which internally calls _tool_call.
-
-    These tests would catch the historical bug where signature mismatch
-    caused runtime TypeError when a sub-agent tried to call tools.
-    """
+    """RootAgent and TaskAgent can call ``_handle_tools_base`` without a signature error."""
 
     def test_handle_tools_base_signature_compatible_with_tool_call(self):
-        """
-        Verify that _handle_tools_base calls _tool_call with correct arguments.
-
-        This test directly verifies the signature compatibility that was broken:
-        - _handle_tools_base calls: self._tool_call(tools, item, inject_model_str)
-        - _tool_call expects: (self, tools, item, inject_model_str=False)
-
-        If signatures don't match, this will raise TypeError.
-        """
+        """``_handle_tools_base`` calls ``_tool_call`` with the arguments its signature expects."""
         agent = ConcreteAgent()
         agent.model_str = "test-model"
 
@@ -548,9 +527,7 @@ class TestSubclassIntegration:
         mock_response.content = ""
         mock_response.tool_calls = [tool_call_obj]
 
-        # This is the critical call - if signature is wrong, TypeError is raised
-        # The bug was: _tool_call had (self, tools, item) but was called with
-        # (self, tools, item, inject_model_str)
+        # Raises TypeError if the signatures disagree.
         try:
             modified, _ = agent._handle_tools_base(
                 [mock_tool], mock_response, inject_model_str=True
@@ -558,16 +535,10 @@ class TestSubclassIntegration:
             # Success means signature is compatible
             assert modified is True
         except TypeError as e:
-            # This would have caught the bug!
             pytest.fail(f"TypeError raised - signature mismatch: {e}")
 
     def test_tool_call_accepts_inject_model_str_keyword_arg(self):
-        """
-        Test that _tool_call accepts inject_model_str as a keyword argument.
-
-        The bug could have been avoided if _tool_call used **kwargs, but
-        this test verifies the explicit parameter works.
-        """
+        """``_tool_call`` accepts ``inject_model_str`` as a keyword argument."""
         agent = ConcreteAgent()
         agent.model_str = "test-model"
 
