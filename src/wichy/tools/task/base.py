@@ -465,6 +465,9 @@ class TaskAgent(AgentCore):
                     )
                 else:
                     raise
+            except Exception as e:
+                self._emit_llm_call_failed(e, len(self.context.context), len(tool_defs))
+                raise
 
             self._turns_used = 1  # Initial call counts as turn 1
             self._emit_event(
@@ -577,6 +580,11 @@ class TaskAgent(AgentCore):
                         )
                     else:
                         raise
+                except Exception as e:
+                    self._emit_llm_call_failed(
+                        e, len(self.context.context), len(tool_defs_for_call or [])
+                    )
+                    raise
 
                 self._emit_event(
                     "task_agent_llm_call_completed",

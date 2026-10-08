@@ -42,6 +42,9 @@ class HookType(Enum):
         CONTEXT_COMPACT_PRE: Executed before context compaction.
         CONTEXT_COMPACT_POST: Executed after context compaction.
 
+        ON_TURN_ERROR: Executed when a turn raises an Exception through the
+            turn scope. Observational only; its HookResult is ignored.
+
         Slash command hooks (registered with the command string like "/deploy"
         for command-specific matching, or None for wildcard):
             SLASH_COMMAND: Custom slash commands. Run when no built-in
@@ -65,6 +68,7 @@ class HookType(Enum):
     CONTEXT_COMPACT_POST = "context_compact_post"
     PRE_USER_MESSAGE = "pre_user_message"
     PRE_RESPONSE_TO_USER = "pre_response_to_user"
+    ON_TURN_ERROR = "on_turn_error"
     SLASH_COMMAND = "slash_command"
     PRE_SLASH_COMMAND = "pre_slash_command"
     POST_SLASH_COMMAND = "post_slash_command"

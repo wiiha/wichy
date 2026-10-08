@@ -234,13 +234,19 @@ class RootAgent(AgentCore):
         # guarantee an end notification whatever the outcome. The finally is
         # the point -- an error path must still close the turn, or anything
         # watching turn state stays stuck "in flight" forever.
-        with self.turn_scope():
-            return self._process_turn(line)
+        # Exposed to external callers for the turn's duration, e.g. the "line"
+        # field of the ON_TURN_ERROR hook payload.
+        self._current_user_line = line
+        try:
+            with self.turn_scope():
+                return self._process_turn(line)
+        finally:
+            self._current_user_line = None
 
     def _process_turn(self, line: str) -> str | None:
         HookExecutor.run_context_hooks(
             HookType.PRE_USER_MESSAGE,
-            root_agent=self,
+            agent=self,
             context_handler=self.context,
             message=line,
         )
@@ -281,6 +287,9 @@ class RootAgent(AgentCore):
             else:
                 # No multimodal content found, re-raise
                 raise
+        except Exception as e:
+            self._emit_llm_call_failed(e, len(self.context.context), len(tool_defs))
+            raise
 
         # Update token counts
         self._update_token_counts(response.usage)
@@ -337,6 +346,9 @@ class RootAgent(AgentCore):
                     )
                 else:
                     raise
+            except Exception as e:
+                self._emit_llm_call_failed(e, len(self.context.context), len(tool_defs))
+                raise
             self._update_token_counts(response.usage)
             self._emit_event(
                 "llm_call_completed",
@@ -391,7 +403,7 @@ class RootAgent(AgentCore):
 
         hook_result = HookExecutor.run_context_hooks(
             HookType.PRE_RESPONSE_TO_USER,
-            root_agent=self,
+            agent=self,
             context_handler=self.context,
             response_content=response.message.content,
             response_reasoning=response.message.reasoning,
@@ -469,7 +481,7 @@ class RootAgent(AgentCore):
         HookExecutor.run_context_hooks(
             HookType.CONTEXT_RESET_PRE,
             context_handler=self.context,
-            root_agent=self,
+            agent=self,
             reset_strategy=strategy.value,
         )
 
@@ -498,7 +510,7 @@ class RootAgent(AgentCore):
         HookExecutor.run_context_hooks(
             HookType.CONTEXT_RESET_POST,
             context_handler=self.context,
-            root_agent=self,
+            agent=self,
             reset_strategy=strategy.value,
         )
 
@@ -514,7 +526,7 @@ class RootAgent(AgentCore):
         HookExecutor.run_context_hooks(
             HookType.CONTEXT_COMPACT_PRE,
             context_handler=self.context,
-            root_agent=self,
+            agent=self,
             is_auto_compact=is_auto_compact,
         )
 
@@ -583,7 +595,7 @@ class RootAgent(AgentCore):
         HookExecutor.run_context_hooks(
             HookType.CONTEXT_COMPACT_POST,
             context_handler=self.context,
-            root_agent=self,
+            agent=self,
             summary=summary_msg,
             is_auto_compact=is_auto_compact,
         )

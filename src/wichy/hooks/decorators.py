@@ -533,6 +533,58 @@ def pre_response_to_user(
     return decorator
 
 
+def on_turn_error(
+    func_or_priority: Optional[Callable] = None,
+    *,
+    priority: int = 50,
+    name: Optional[str] = None,
+) -> Callable:
+    """Decorator to register an on-turn-error hook.
+
+    On-turn-error hooks run when a turn raises an Exception through the turn
+    scope, after the failure is recorded and before the exception is re-raised.
+    They are observational only: the returned HookResult is ignored, and a hook
+    that raises cannot change the turn's exception.
+
+    Can be used as a bare decorator or with arguments:
+        @on_turn_error
+        def my_hook(ctx): ...
+
+        @on_turn_error(priority=10)
+        def my_hook(ctx): ...
+
+    Args:
+        func_or_priority: Used internally for bare decorator support.
+        priority: Execution order (lower = earlier). Default 50.
+        name: Optional name for the hook (defaults to function name).
+
+    Returns:
+        Decorator function.
+
+    Example:
+        @on_turn_error
+        def on_error(ctx: HookContext) -> HookResult:
+            print(ctx.event_data.get("error_message"))
+            return HookResult.approve()
+    """
+
+    def decorator(func: Callable) -> Callable:
+        """Register the function as an on-turn-error hook."""
+        hook_registry.register(
+            hook_type=HookType.ON_TURN_ERROR,
+            tool_name=None,
+            function=func,
+            priority=priority,
+            name=name or "",
+        )
+        return func
+
+    if func_or_priority is not None:
+        # Used as bare decorator: @on_turn_error
+        return decorator(func_or_priority)
+    return decorator
+
+
 # =============================================================================
 # Slash Command Hook Decorators
 # =============================================================================

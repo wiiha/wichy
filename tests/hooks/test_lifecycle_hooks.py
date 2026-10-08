@@ -632,7 +632,7 @@ class TestLifecycleHookExecution:
         result = HookExecutor.run_context_hooks(
             HookType.CONTEXT_COMPACT_PRE,
             context_handler=mock_context_handler,
-            root_agent=mock_root_agent,
+            agent=mock_root_agent,
         )
 
         # Should return a HookExecutionResult
@@ -670,7 +670,7 @@ class TestLifecycleHookExecution:
         result = HookExecutor.run_context_hooks(
             HookType.CONTEXT_RESET_PRE,
             context_handler=mock_context_handler,
-            root_agent=mock_root_agent,
+            agent=mock_root_agent,
         )
 
         # Should succeed with no hooks executed
@@ -697,7 +697,7 @@ class TestLifecycleHookExecution:
         HookExecutor.run_context_hooks(
             HookType.CONTEXT_RESET_PRE,
             context_handler=mock_context_handler,
-            root_agent=mock_root_agent,
+            agent=mock_root_agent,
         )
 
         # Both hooks should have been attempted (possibly multiple times due to registry issue)
@@ -718,7 +718,7 @@ class TestLifecycleHookExecution:
         result = HookExecutor.run_context_hooks(
             HookType.CONTEXT_RESET_PRE,
             context_handler=mock_context_handler,
-            root_agent=mock_root_agent,
+            agent=mock_root_agent,
         )
 
         # Should have some elapsed time
@@ -1110,7 +1110,7 @@ class TestPreUserMessageExecution:
 
         result = HookExecutor.run_context_hooks(
             HookType.PRE_USER_MESSAGE,
-            root_agent=FakeRoot(),
+            agent=FakeRoot(),
             context_handler=fake_ctx,
             message="hello",
         )
@@ -1141,7 +1141,7 @@ class TestPreResponseToUserExecution:
 
         result = HookExecutor.run_context_hooks(
             HookType.PRE_RESPONSE_TO_USER,
-            root_agent=FakeRoot(),
+            agent=FakeRoot(),
             context_handler=fake_ctx,
             response_content="assistant reply",
             response_reasoning="because",
@@ -1168,7 +1168,7 @@ class TestPreResponseToUserExecution:
 
         result = HookExecutor.run_context_hooks(
             HookType.PRE_RESPONSE_TO_USER,
-            root_agent=FakeRoot(),
+            agent=FakeRoot(),
             response_content="initial content",
         )
 
@@ -1187,7 +1187,7 @@ class TestPreResponseToUserExecution:
 
         result = HookExecutor.run_context_hooks(
             HookType.PRE_RESPONSE_TO_USER,
-            root_agent=FakeRoot(),
+            agent=FakeRoot(),
             response_content="original",
         )
 
@@ -1212,7 +1212,7 @@ class TestPreResponseToUserExecution:
 
         result = HookExecutor.run_context_hooks(
             HookType.PRE_RESPONSE_TO_USER,
-            root_agent=FakeRoot(),
+            agent=FakeRoot(),
             response_content="original",
         )
 
@@ -1235,7 +1235,7 @@ class TestPreResponseToUserExecution:
 
         result = HookExecutor.run_context_hooks(
             HookType.PRE_RESPONSE_TO_USER,
-            root_agent=FakeRoot(),
+            agent=FakeRoot(),
             response_content="original",
         )
 
@@ -1259,7 +1259,7 @@ class TestPreResponseToUserExecution:
 
         result = HookExecutor.run_context_hooks(
             HookType.PRE_RESPONSE_TO_USER,
-            root_agent=FakeRoot(),
+            agent=FakeRoot(),
             response_content="original",
         )
 
@@ -1277,7 +1277,7 @@ class TestPreResponseToUserExecution:
 
         result = HookExecutor.run_context_hooks(
             HookType.PRE_RESPONSE_TO_USER,
-            root_agent=FakeRoot(),
+            agent=FakeRoot(),
             response_content="original",
         )
 

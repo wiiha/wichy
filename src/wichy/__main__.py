@@ -79,7 +79,7 @@ def _cleanup():
         try:
             HookExecutor.run_context_hooks(
                 HookType.SESSION_END,
-                root_agent=_root_agent_for_cleanup,
+                agent=_root_agent_for_cleanup,
             )
         except Exception:
             pass
@@ -392,7 +392,7 @@ def main():
 
     HookExecutor.run_context_hooks(
         HookType.SESSION_START,
-        root_agent=root_agent,
+        agent=root_agent,
     )
 
     # If we loaded a context, show a summary

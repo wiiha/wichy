@@ -8,6 +8,7 @@ shared functionality between RootAgent and TaskAgent.
 import json
 import threading
 import time
+import traceback
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
@@ -31,6 +32,7 @@ from wichy.helpers.multimodal import (
     extract_multimodal_content,
     fix_multimodal_context,
 )
+from wichy.helpers.string import truncate_to_len
 
 if TYPE_CHECKING:
     from wichy.context.handler import ContextHandler
@@ -115,6 +117,16 @@ def clear_turn_observers() -> None:
         _turn_observers = []
 
 
+_MAX_EVENT_ERROR_LEN = 500
+_MAX_EVENT_TRACEBACK_LEN = 2000
+
+
+def _agent_session_id(agent: Any) -> Optional[str]:
+    """Best-effort session id; agents without a context have none."""
+    context = getattr(agent, "context", None)
+    return getattr(context, "session_id", None)
+
+
 class AgentCore(ABC):
     """
     Abstract base class providing shared agent functionality.
@@ -132,6 +144,10 @@ class AgentCore(ABC):
 
         # Assigned by subclasses before any turn runs.
         self.context: ContextHandler
+
+        # RootAgent.process sets this for the duration of a turn; external
+        # callers read it (e.g. the "line" field of the ON_TURN_ERROR payload).
+        self._current_user_line: Optional[str] = None
 
         # Loop detection — each agent instance gets its own detector
         self.loop_detector = LoopDetector()
@@ -161,8 +177,54 @@ class AgentCore(ABC):
         try:
             self._notify_turn_observers(observers, index=0)
             yield
+        except Exception as e:
+            self._on_turn_error(e)
+            raise
         finally:
             self._notify_turn_observers(observers, index=1)
+
+    def _on_turn_error(self, e: Exception) -> None:
+        """Announce a failed turn (event + ON_TURN_ERROR hooks).
+
+        Observational only: the caller re-raises the original exception.
+        """
+        error_message = truncate_to_len(str(e), new_len=_MAX_EVENT_ERROR_LEN, suffix="")
+        error_traceback = truncate_to_len(
+            "".join(traceback.format_exception(type(e), e, e.__traceback__)),
+            new_len=_MAX_EVENT_TRACEBACK_LEN,
+            suffix="",
+        )
+        self._emit_event(
+            "turn_failed",
+            {
+                "error_type": type(e).__name__,
+                "error_message": error_message,
+                "traceback": error_traceback,
+                "agent_name": self.name,
+                "agent_id": self.agent_id,
+                "model_str": getattr(self, "model_str", ""),
+                "session_id": _agent_session_id(self),
+            },
+        )
+        from wichy.hooks.executor import HookExecutor
+        from wichy.hooks.types import HookType
+
+        HookExecutor.run_context_hooks(
+            HookType.ON_TURN_ERROR,
+            agent=self,
+            context_handler=getattr(self, "context", None),
+            extra_event_data={
+                "error": e,
+                "error_type": type(e).__name__,
+                "error_message": error_message,
+                "agent_name": self.name,
+                "agent_id": self.agent_id,
+                "model_str": getattr(self, "model_str", ""),
+                "line": getattr(self, "_current_user_line", None),
+                "session_id": _agent_session_id(self),
+                "traceback": error_traceback,
+            },
+        )
 
     def _notify_turn_observers(
         self, observers: List[_TurnObserver], index: int
@@ -509,6 +571,23 @@ class AgentCore(ABC):
     # -------------------------------------------------------------------------
     # Shared multimodal context fixing
     # -------------------------------------------------------------------------
+
+    def _emit_llm_call_failed(
+        self, e: BaseException, message_count: int, tool_count: int
+    ) -> None:
+        """Record a failed LLM call."""
+        self._emit_event(
+            "llm_call_failed",
+            {
+                "error_type": type(e).__name__,
+                "error_message": truncate_to_len(
+                    str(e), new_len=_MAX_EVENT_ERROR_LEN, suffix=""
+                ),
+                "model_str": getattr(self, "model_str", ""),
+                "message_count": message_count,
+                "tool_count": tool_count,
+            },
+        )
 
     def _fix_multimodal_context(self) -> bool:
         """

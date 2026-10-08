@@ -173,7 +173,7 @@ class HookExecutor:
     @staticmethod
     def run_context_hooks(
         hook_type: HookType,
-        root_agent: Any,
+        agent: Any,
         context_handler: Any = None,
         summary: Optional[str] = None,
         is_auto_compact: bool = False,
@@ -182,6 +182,7 @@ class HookExecutor:
         response_content: Optional[Any] = None,
         response_reasoning: Optional[str] = None,
         usage: Optional[Dict[str, Any]] = None,
+        extra_event_data: Optional[Dict[str, Any]] = None,
     ) -> HookExecutionResult:
         """Run lifecycle hooks for session and context events.
 
@@ -196,8 +197,8 @@ class HookExecutor:
             hook_type: The type of hook (SESSION_START, SESSION_END,
                         CONTEXT_RESET_PRE, CONTEXT_RESET_POST,
                         CONTEXT_COMPACT_PRE, CONTEXT_COMPACT_POST,
-                        PRE_USER_MESSAGE, PRE_RESPONSE_TO_USER)
-            root_agent: The root agent instance
+                        PRE_USER_MESSAGE, PRE_RESPONSE_TO_USER, ON_TURN_ERROR)
+            agent: The agent instance the hooks observe
             context_handler: The context handler instance (None for session hooks)
             summary: For CONTEXT_COMPACT_POST, the generated summary
             is_auto_compact: For compact hooks, whether this is auto-initiated
@@ -206,6 +207,8 @@ class HookExecutor:
             response_content: For PRE_RESPONSE_TO_USER, the assistant response content
             response_reasoning: For PRE_RESPONSE_TO_USER, optional reasoning content
             usage: For PRE_RESPONSE_TO_USER, LLM usage metadata
+            extra_event_data: Extra keys merged into event_data after the base
+                dictionary (for hook types whose payload is not built here)
 
         Returns:
             HookExecutionResult with execution details. For PRE_RESPONSE_TO_USER,
@@ -223,12 +226,16 @@ class HookExecutor:
             return result
 
         # Build event_data with all relevant context for lifecycle hooks
-        # Hooks receive data via event_data, not via tool_instance or input_args
+        # Hooks receive data via event_data, not via tool_instance or input_args.
+        # The key is part of the payload contract hooks rely on, so it stays
+        # "root_agent" even though this runs for task agents too.
         event_data: Dict[str, Any] = {
-            "root_agent": root_agent,
+            "root_agent": agent,
         }
         if context_handler is not None:
             event_data["context_handler"] = context_handler
+        if extra_event_data:
+            event_data.update(extra_event_data)
 
         # Add hook-type-specific data
         # SESSION_START/END need no additional data beyond base dict

@@ -433,7 +433,7 @@ def test_run_context_hooks_no_hooks():
 
     result = HookExecutor.run_context_hooks(
         HookType.SESSION_START,
-        root_agent=MockRootAgent(),
+        agent=MockRootAgent(),
     )
 
     assert result.approved is True
@@ -459,7 +459,7 @@ def test_run_context_hooks_session_start_ignores_return_values():
 
     result = HookExecutor.run_context_hooks(
         HookType.SESSION_START,
-        root_agent=MockRootAgent(),
+        agent=MockRootAgent(),
     )
 
     assert result.approved is True
@@ -489,7 +489,7 @@ def test_run_context_hooks_exception_continues():
 
     result = HookExecutor.run_context_hooks(
         HookType.SESSION_START,
-        root_agent=MockRootAgent(),
+        agent=MockRootAgent(),
     )
 
     assert executed == ["failing", "ok"]
