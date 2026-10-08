@@ -227,20 +227,21 @@
         let timer = null;
 
         function render(data) {
-            // Status precedence: thread dead > thread alive > REPL active > no session.
-            // thread_alive is null only when session is "none". The `mode` field
-            // ("server" or "repl") distinguishes a live REPL (no ChatSession but
-            // wichy is running in the terminal) from a genuinely idle server.
+            // Status precedence: thread alive > REPL active > thread dead > no session.
+            // A server-mode session whose run thread died reports
+            // thread_alive === false -> "Stopped". A REPL-mode session is
+            // registered but never started, so it reports thread_alive === null
+            // and must be checked BEFORE the dead-thread branch.
             if (data.session === "active" && data.thread_alive === true) {
                 pill.dataset.state = "running";
                 text.textContent = "Running";
+            } else if (data.mode === "repl" && data.thread_alive === null) {
+                // REPL mode: the ChatSession is a holder, the terminal REPL runs.
+                pill.dataset.state = "repl";
+                text.textContent = "REPL active";
             } else if (data.session === "active" && data.thread_alive === false) {
                 pill.dataset.state = "stopped";
                 text.textContent = "Stopped";
-            } else if (data.mode === "repl") {
-                // REPL mode: no ChatSession, but the terminal REPL is active.
-                pill.dataset.state = "repl";
-                text.textContent = "REPL active";
             } else {
                 pill.dataset.state = "none";
                 text.textContent = "No session";

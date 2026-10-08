@@ -16,8 +16,12 @@ from wichy.slash_commands import (
     SlashCommandChecker,
 )
 import threading
+import time
+import traceback
 from typing import Optional
 from queue import Queue, Empty
+
+_REPEAT_COLLAPSE_AFTER = 10
 
 
 class ChatSession:
@@ -44,6 +48,10 @@ class ChatSession:
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._input_queue: Queue[str] = Queue()
+        self.last_line_seen: float = 0.0
+        self._turn_started_at: Optional[float] = None
+        self._last_error_type: Optional[str] = None
+        self._repeat_count: int = 0
 
     @property
     def input_queue(self) -> Queue[str]:
@@ -51,16 +59,26 @@ class ChatSession:
 
     def run(self) -> None:
         """Run the loop that reads from a queue and passes to root agent"""
+        self.last_line_seen = time.monotonic()
         if self.root_agent.agent_has_first_initiative:
-            # Execute the "wake up" message for the agent to go first
-            self._print_separator()
-            result = self.root_agent.process(settings.wake_up_message)
-            result = strip_thinking_content(result)
-            self._print_assistant_response(result)
+            # Same failure tolerance as the loop below: a wake-up error must not
+            # kill the session before it reads a line.
+            try:
+                self._print_separator()
+                self._turn_started_at = time.monotonic()
+                try:
+                    result = self.root_agent.process(settings.wake_up_message)
+                finally:
+                    self._turn_started_at = None
+                result = strip_thinking_content(result)
+                self._print_assistant_response(result)
+            except BaseException as e:
+                self._print_failure(e)
 
         while not self._stop_event.is_set():
             try:
                 line = self.input_queue.get(timeout=1.0)
+                self.last_line_seen = time.monotonic()
                 possible_cmd = self.cmd_checker.check_command(line)
                 if possible_cmd is not None:
                     user_console.print(possible_cmd)
@@ -69,9 +87,15 @@ class ChatSession:
                 if not line.strip():
                     continue
                 self._print_separator()
-                result = self.root_agent.process(line)
+                self._turn_started_at = time.monotonic()
+                try:
+                    result = self.root_agent.process(line)
+                finally:
+                    self._turn_started_at = None
                 result = strip_thinking_content(result)
                 self._print_assistant_response(result)
+                self._last_error_type = None
+                self._repeat_count = 0
             except Empty:
                 continue
             except ContextResetException as e:
@@ -113,6 +137,61 @@ class ChatSession:
                 user_console.print("\nexiting...")
                 user_console.flush()
                 shutdown_requested.set()
+            except Exception as e:
+                self._print_failure(e)
+                continue
+            except BaseException as e:
+                self._print_failure(e)
+                continue
+
+    def _print_failure(self, e: BaseException) -> None:
+        """Report an unexpected failure without ending the loop."""
+        error_type = type(e).__name__
+        if error_type == self._last_error_type:
+            self._repeat_count += 1
+        else:
+            self._last_error_type = error_type
+            self._repeat_count = 1
+        if self._repeat_count > _REPEAT_COLLAPSE_AFTER:
+            user_console.print(
+                f"[red bold]Error:[/red bold] {error_type}: {str(e)[:120]} (repeated)"
+            )
+            return
+        text = "".join(traceback.format_exception(type(e), e, e.__traceback__))
+        if str(e) == "":
+            text = f"{error_type}: (no message)\n{text}"
+        user_console.print(
+            "[red bold]Error:[/red bold] unexpected failure in run loop:\n"
+            + text[:4000]
+        )
+
+    def status(self) -> dict:
+        """Report the loop's current state for health/UI polling.
+
+        "running" means a turn is in flight, however long it takes; callers
+        that care about slowness use turn_seconds with their own threshold.
+        """
+        thread = self._thread
+        if thread is None:
+            state = "none"
+        elif not thread.is_alive():
+            state = "stopped"
+        elif self._stop_event.is_set():
+            state = "stopping"
+        elif self._turn_started_at is None:
+            state = "idle"
+        else:
+            state = "running"
+        turn_seconds = (
+            time.monotonic() - self._turn_started_at
+            if self._turn_started_at is not None
+            else 0.0
+        )
+        return {
+            "status": state,
+            "last_line_seen": self.last_line_seen,
+            "turn_seconds": turn_seconds,
+        }
 
     def start(self) -> threading.Thread:
         if self._thread is not None and self._thread.is_alive():
@@ -121,10 +200,18 @@ class ChatSession:
         self._thread.start()
         return self._thread
 
-    def stop(self, timeout: Optional[float] = None) -> None:
+    def stop(self, timeout: Optional[float] = 5.0) -> None:
         self._stop_event.set()
-        if self._thread is not None:
-            self._thread.join(timeout)
+        thread = self._thread
+        if thread is None:
+            return
+        thread.join(timeout)
+        if thread.is_alive():
+            user_console.print(
+                "[yellow]Warning: session run thread did not stop within "
+                + str(timeout)
+                + "s; carrying on.[/yellow]"
+            )
 
     def _print_user_prompt(self) -> None:
         """Print the user prompt header."""

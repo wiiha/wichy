@@ -123,18 +123,23 @@ def create_app(no_chat: bool = False, mode: str = "repl") -> Flask:
     # ChatSession (the root-agent processing thread) is active and alive.
     # Reads the wichy_server.api module globals directly (a Python import, not
     # an HTTP call to /server/api/*), so it works in every mode where the
-    # Flask server runs. In REPL mode no ChatSession is registered, so
-    # session is "none" and thread_alive is null -- but ``mode`` is "repl"
-    # so the admin UI can show "REPL active" rather than "No session".
+    # Flask server runs. In REPL mode the registered ChatSession is never
+    # started, so thread_alive is null (not false, which reads as "Stopped");
+    # ``mode`` is "repl" so the admin UI can show "REPL active".
     @app.route("/health")
     def health():
         from wichy.wichy_server import api as server_api
 
         session = server_api.get_active_session()
         thread_alive: bool | None = None
+        session_status = "none"
+        turn_seconds = 0.0
         if session is not None:
             thread = getattr(session, "_thread", None)
-            thread_alive = bool(thread.is_alive()) if thread is not None else False
+            thread_alive = bool(thread.is_alive()) if thread is not None else None
+            session_state = session.status()
+            session_status = session_state["status"]
+            turn_seconds = session_state["turn_seconds"]
         return jsonify(
             {
                 "status": "ok",
@@ -142,6 +147,8 @@ def create_app(no_chat: bool = False, mode: str = "repl") -> Flask:
                 "chat_available": not no_chat,
                 "session": "active" if session is not None else "none",
                 "thread_alive": thread_alive,
+                "session_status": session_status,
+                "turn_seconds": turn_seconds,
             }
         )
 
