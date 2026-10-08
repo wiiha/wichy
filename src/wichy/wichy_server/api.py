@@ -90,6 +90,12 @@ def register_routes(bp: Blueprint):
 
     @bp.route("/messages", methods=["POST"])
     def post_new_message():
+        session = get_active_session()
+        if session is None:
+            return jsonify({"error": "no active session"}), 503
+        thread = getattr(session, "_thread", None)
+        if thread is None or not thread.is_alive():
+            return jsonify({"error": "session run thread is not alive"}), 503
         q = get_input_queue()
         if not q:
             return (
@@ -558,6 +564,27 @@ def register_routes(bp: Blueprint):
         store = get_tool_results_store()
         count = store.delete_all()
         return jsonify({"status": "ok", "deleted": count})
+
+    # Diagnostics: which hook files loaded and why any failed to load.
+    @bp.route("/hooks/status", methods=["GET"])
+    def hooks_status():
+        from wichy.hooks.loader import hook_loader
+
+        errors = [
+            {
+                "path": str(path),
+                "error_type": type(err).__name__,
+                "error_message": str(err),
+            }
+            for path, err in hook_loader.get_load_errors().items()
+        ]
+        return jsonify(
+            {
+                "loaded": hook_loader.is_loaded(),
+                "loaded_paths": [str(p) for p in hook_loader.get_loaded_paths()],
+                "errors": errors,
+            }
+        )
 
     def _tool_requires_verification(tool: BaseTool) -> bool:
         """Return True if the tool is marked as needing API-side verification.

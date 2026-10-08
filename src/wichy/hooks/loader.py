@@ -166,10 +166,23 @@ class HookLoader:
                 self._errors[path] = ImportError(error_msg)
                 return False
 
-            # Create and execute the module
-            module = importlib.util.module_from_spec(spec)
-            sys.modules[module_name] = module
-            spec.loader.exec_module(module)
+            # A hooks file may import a sibling by plain name, so its directory
+            # is on sys.path for the exec only.
+            hooks_dir = str(path.resolve().parent)
+            added = hooks_dir not in sys.path
+            if added:
+                sys.path.insert(0, hooks_dir)
+            try:
+                # Create and execute the module
+                module = importlib.util.module_from_spec(spec)
+                sys.modules[module_name] = module
+                spec.loader.exec_module(module)
+            finally:
+                if added:
+                    try:
+                        sys.path.remove(hooks_dir)
+                    except ValueError:
+                        pass
 
             self._loaded_paths.append(path)
             return True
@@ -207,6 +220,30 @@ class HookLoader:
         # Remove all wichy_user_hooks modules from sys.modules
         for module_name in list(sys.modules.keys()):
             if module_name.startswith("wichy_user_hooks"):
+                del sys.modules[module_name]
+
+        # Evict modules imported from a hooks file's own directory so they
+        # re-execute and re-register on reload like an inline hooks file.
+        hooks_dirs = set()
+        for path in self.hooks_paths:
+            try:
+                hooks_dirs.add(path.resolve().parent)
+            except (OSError, ValueError):
+                pass
+        for module_name in list(sys.modules):
+            mod = sys.modules.get(module_name)
+            file = getattr(mod, "__file__", None) if mod is not None else None
+            if (
+                file is None
+                or module_name == "wichy"
+                or module_name.startswith("wichy.")
+            ):
+                continue
+            try:
+                parent = Path(file).resolve().parent
+            except (OSError, ValueError):
+                continue
+            if parent in hooks_dirs:
                 del sys.modules[module_name]
 
         any_success = False
