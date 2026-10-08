@@ -755,7 +755,7 @@ make build
 
 ### Adding a Tool
 
-Subclass `BaseTool`, implement `execute()`, and import it in `src/wichy/tools/__init__.py` — the metaclass auto-registers it. Return plain strings or error strings (`format_error()` / `format_error_with_context()`). Never raise exceptions from `execute()`.
+Subclass `BaseTool`, implement `execute()`, and import it in `src/wichy/tools/__init__.py` - the metaclass auto-registers it. Return plain strings or error strings (`format_error()` / `format_error_with_context()`). Never raise exceptions from `execute()`.
 
 For API safety, set `needs_verification_in_api = False` only for read-only or otherwise safe tools.
 
