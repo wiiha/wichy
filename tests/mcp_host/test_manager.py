@@ -262,11 +262,6 @@ class TestMCPManagerDisconnectAll:
 class TestMCPManagerSingleton:
     """Test the global singleton pattern."""
 
-    def test_get_mcp_manager_returns_instance(self):
-        """get_mcp_manager should return an MCPManager instance."""
-        manager = get_mcp_manager()
-        assert isinstance(manager, MCPManager)
-
     def test_get_mcp_manager_returns_same_instance(self):
         """get_mcp_manager should return the same instance on repeated calls."""
         m1 = get_mcp_manager()

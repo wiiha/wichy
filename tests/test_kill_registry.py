@@ -166,7 +166,6 @@ class TestListing:
         assert entry["tool_name"] == "bash"
         assert entry["agent_id"] == "root"
         assert entry["status"] == "running"
-        assert entry["duration_s"] >= 0.0
         # underscore-prefixed kwargs are plumbing, not args
         assert "_hidden" not in entry["arguments"]
         assert entry["arguments"]["command"] == "sleep 10"

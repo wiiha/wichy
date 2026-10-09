@@ -88,9 +88,12 @@ def test_line_absent_when_all_inactive(tmp_path):
 
 
 def test_registry_keeps_inactive_skill(tmp_path):
+    """An inactive skill stays loaded but is flagged inactive and omitted from info."""
     skills = {
         "alpha": _skill(tmp_path, "alpha"),
         "beta": _skill(tmp_path, "beta", inactive=True),
     }
     agent = _build(tmp_path, skills)
     assert set(agent.skills) == {"alpha", "beta"}
+    assert agent.skills["beta"].inactive is True
+    assert agent.skills["alpha"].inactive is False

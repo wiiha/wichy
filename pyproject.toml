@@ -112,6 +112,10 @@ wichy = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+    "e2e: Playwright browser tests; run with `make test-e2e`",
+]
+addopts = "-m 'not e2e'"
 
 [tool.mypy]
 python_version = "3.10"

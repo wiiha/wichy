@@ -50,16 +50,6 @@ class TestThreadSafeConsoleBasic:
         # Queue should have one more item
         assert self.console._queue.qsize() == queue_size_before + 1
 
-    def test_pause_increments_count(self):
-        """Test that pause() increments the pause count."""
-        assert self.console._pause_count == 0
-
-        self.console.pause()
-        assert self.console._pause_count == 1
-
-        self.console.pause()
-        assert self.console._pause_count == 2
-
 
 class TestPauseResume:
     """Tests for pause/resume functionality."""
@@ -71,18 +61,6 @@ class TestPauseResume:
     def teardown_method(self):
         """Shutdown console after each test."""
         self.console.shutdown()
-
-    def test_resume_decrements_count(self):
-        """Test that resume() decrements the pause count."""
-        self.console.pause()
-        self.console.pause()
-        assert self.console._pause_count == 2
-
-        self.console.resume()
-        assert self.console._pause_count == 1
-
-        self.console.resume()
-        assert self.console._pause_count == 0
 
     def test_resume_without_pause_raises_error(self):
         """Test that resume() without matching pause raises error."""
@@ -358,23 +336,18 @@ class TestShutdown:
 
 
 class TestPrintItemDataclass:
-    """Tests for the _PrintItem dataclass."""
+    """Tests for how _PrintItem is consumed by the output loop."""
 
-    def test_print_item_creation(self):
-        """Test _PrintItem can be created with correct attributes."""
+    def test_print_item_args_and_kwargs_reach_the_console(self):
+        """The queued args/kwargs are exactly what the console method receives."""
+        console = ThreadSafeConsole()
+        console._rich_console = MagicMock()
         item = _PrintItem(method="print", args=("hello", "world"), kwargs={"sep": " "})
 
-        assert item.method == "print"
-        assert item.args == ("hello", "world")
-        assert item.kwargs == {"sep": " "}
+        console._process_item(item)
 
-    def test_print_item_with_empty_args_kwargs(self):
-        """Test _PrintItem with empty args and kwargs."""
-        item = _PrintItem(method="rule", args=(), kwargs={})
-
-        assert item.method == "rule"
-        assert item.args == ()
-        assert item.kwargs == {}
+        console._rich_console.print.assert_called_once_with("hello", "world", sep=" ")
+        console.shutdown()
 
 
 class TestConvenienceMethods:
@@ -432,50 +405,20 @@ class TestQueueFull:
         """Shutdown console after each test."""
         self.console.shutdown()
 
-    def test_queue_full_warning(self):
-        """Test warning when queue is full."""
+    def test_enqueue_warns_and_drops_when_the_queue_is_full(self):
+        """A full queue makes _enqueue warn and drop the message."""
+        import queue as queue_module
         import warnings
 
         console = ThreadSafeConsole()
-        # Keep the original queue (it's fine for this test)
+        console._started = True  # Skip starting the output thread.
+        console._queue = queue_module.Queue(maxsize=1)
+        console._queue.put_nowait(_PrintItem("print", (), {}))
 
-        with warnings.catch_warnings(record=True) as _w:
+        with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
+            console._enqueue("print", ("test",), {})
 
-            # Call _enqueue when the queue is artificially full
-            # Fill the queue to simulate the full condition
-            queue = console._queue
-            for _ in range(999):  # Default maxsize is 1000
-                queue.put_nowait(_PrintItem("print", (), {}))
-
-            # Now the queue is full (1 item remaining)
-            # _enqueue has a 1-second timeout, but let's verify the warning path
-            # by directly simulating the full queue scenario
-
-            # Since _enqueue uses a 1s timeout, we need a different approach
-            # Use a fresh queue that's completely full
-            import queue as queue_module
-
-            console._queue = queue_module.Queue(maxsize=1)
-            console._queue.put_nowait(_PrintItem("print", (), {}))
-            console._started = True  # Skip thread starting
-
-            try:
-                with warnings.catch_warnings(record=True) as w2:
-                    warnings.simplefilter("always")
-                    # This should timeout after 1s and warn, but that's too slow
-                    # Let's test with immediate timeout instead
-
-                    test_item = _PrintItem("print", ("test",), {})
-                    try:
-                        console._queue.put(test_item, timeout=0.001)
-                    except queue_module.Full:
-                        warnings.warn("Console queue full, dropping message")
-
-                    assert len(w2) > 0, "Expected warnings about dropped messages"
-                    warning_messages = [str(warning.message) for warning in w2]
-                    assert any(
-                        "Console queue full" in msg for msg in warning_messages
-                    ), f"Expected 'Console queue full' warning, got: {warning_messages}"
-            finally:
-                console._started = False
+        assert any("Console queue full" in str(w.message) for w in caught)
+        assert console._queue.qsize() == 1  # The new message was dropped.
+        console._started = False

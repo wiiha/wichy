@@ -29,7 +29,6 @@ from wichy.hooks import (
     HookContext,
     HookResult,
     HookType,
-    HookPriority,
 )
 from wichy.hooks.executor import HookExecutor
 
@@ -54,363 +53,99 @@ def setup_hooks():
 class TestHookTypeLifecycleValues:
     """Tests for lifecycle hook type enum values."""
 
-    def test_session_start_value(self):
-        """SESSION_START should have correct string value."""
-        assert HookType.SESSION_START.value == "session_start"
-
-    def test_session_end_value(self):
-        """SESSION_END should have correct string value."""
-        assert HookType.SESSION_END.value == "session_end"
-
-    def test_context_reset_pre_value(self):
-        """CONTEXT_RESET_PRE should have correct string value."""
-        assert HookType.CONTEXT_RESET_PRE.value == "context_reset_pre"
-
-    def test_context_reset_post_value(self):
-        """CONTEXT_RESET_POST should have correct string value."""
-        assert HookType.CONTEXT_RESET_POST.value == "context_reset_post"
-
-    def test_context_compact_pre_value(self):
-        """CONTEXT_COMPACT_PRE should have correct string value."""
-        assert HookType.CONTEXT_COMPACT_PRE.value == "context_compact_pre"
-
-    def test_context_compact_post_value(self):
-        """CONTEXT_COMPACT_POST should have correct string value."""
-        assert HookType.CONTEXT_COMPACT_POST.value == "context_compact_post"
-
-    def test_all_lifecycle_types_exist(self):
-        """All 6 lifecycle types should exist in the enum."""
-        lifecycle_types = [
-            HookType.SESSION_START,
-            HookType.SESSION_END,
-            HookType.CONTEXT_RESET_PRE,
-            HookType.CONTEXT_RESET_POST,
-            HookType.CONTEXT_COMPACT_PRE,
-            HookType.CONTEXT_COMPACT_POST,
-        ]
-        # Verify they're all valid enum members
-        for hook_type in lifecycle_types:
-            assert isinstance(hook_type, HookType)
-
-    def test_lifecycle_types_are_distinct(self):
-        """All lifecycle types should have distinct values."""
-        lifecycle_values = [
+    def test_the_six_lifecycle_types_and_their_wire_values(self):
+        """All six lifecycle types exist with distinct, documented values."""
+        assert {
             HookType.SESSION_START.value,
             HookType.SESSION_END.value,
             HookType.CONTEXT_RESET_PRE.value,
             HookType.CONTEXT_RESET_POST.value,
             HookType.CONTEXT_COMPACT_PRE.value,
             HookType.CONTEXT_COMPACT_POST.value,
-        ]
-        assert len(lifecycle_values) == len(set(lifecycle_values))
+        } == {
+            "session_start",
+            "session_end",
+            "context_reset_pre",
+            "context_reset_post",
+            "context_compact_pre",
+            "context_compact_post",
+        }
 
 
 # =============================================================================
-# Session Start Decorator Tests
+# Lifecycle Decorator Tests
 # =============================================================================
 
-
-class TestSessionStartDecorator:
-    """Tests for @session_start decorator."""
-
-    def test_bare_decorator(self):
-        """@session_start should register a hook."""
-
-        @session_start
-        def on_start(ctx: HookContext) -> HookResult:
-            return HookResult.approve()
-
-        # Hook should be registered
-        hooks = get_hooks_for_type(HookType.SESSION_START)
-        assert len(hooks) == 1
-        assert hooks[0].function == on_start
-        assert hooks[0].hook_type == HookType.SESSION_START
-        assert hooks[0].tool_name is None
-
-    def test_decorator_with_priority(self):
-        """@session_start(priority=10) should register with priority."""
-
-        @session_start(priority=10)
-        def on_start(ctx: HookContext) -> HookResult:
-            return HookResult.approve()
-
-        hooks = get_hooks_for_type(HookType.SESSION_START)
-        assert len(hooks) == 1
-        assert hooks[0].priority == 10
-
-    def test_decorator_with_name(self):
-        """@session_start(name='custom') should register with name."""
-
-        @session_start(name="custom_session_start")
-        def on_start(ctx: HookContext) -> HookResult:
-            return HookResult.approve()
-
-        hooks = get_hooks_for_type(HookType.SESSION_START)
-        assert len(hooks) == 1
-        assert hooks[0].name == "custom_session_start"
-
-    def test_decorator_with_priority_and_name(self):
-        """@session_start(priority=10, name='custom') should work."""
-
-        @session_start(priority=10, name="custom_hook")
-        def on_start(ctx: HookContext) -> HookResult:
-            return HookResult.approve()
-
-        hooks = get_hooks_for_type(HookType.SESSION_START)
-        assert len(hooks) == 1
-        assert hooks[0].priority == 10
-        assert hooks[0].name == "custom_hook"
-
-    def test_function_remains_callable(self):
-        """Decorated function should remain directly callable."""
-
-        @session_start
-        def on_start(ctx: HookContext) -> HookResult:
-            return HookResult.approve()
-
-        # Should be able to call the function directly
-        mock_ctx = HookContext(tool_name=None, tool_instance=None)
-        result = on_start(mock_ctx)
-        assert result.action.value == "approve"
-
-    def test_multiple_session_start_hooks(self):
-        """Multiple @session_start hooks should all register."""
-
-        @session_start(priority=10)
-        def first(ctx: HookContext) -> HookResult:
-            return HookResult.approve()
-
-        @session_start(priority=20)
-        def second(ctx: HookContext) -> HookResult:
-            return HookResult.approve()
-
-        hooks = get_hooks_for_type(HookType.SESSION_START)
-        assert len(hooks) == 2
-
-
-# =============================================================================
-# Session End Decorator Tests
-# =============================================================================
-
-
-class TestSessionEndDecorator:
-    """Tests for @session_end decorator."""
-
-    def test_bare_decorator(self):
-        """@session_end should register a hook."""
-
-        @session_end
-        def on_end(ctx: HookContext) -> HookResult:
-            return HookResult.approve()
-
-        hooks = get_hooks_for_type(HookType.SESSION_END)
-        assert len(hooks) == 1
-        assert hooks[0].function == on_end
-        assert hooks[0].hook_type == HookType.SESSION_END
-        assert hooks[0].tool_name is None
-
-    def test_decorator_with_priority(self):
-        """@session_end(priority=10) should register with priority."""
-
-        @session_end(priority=HookPriority.EARLY.value)
-        def on_end(ctx: HookContext) -> HookResult:
-            return HookResult.approve()
-
-        hooks = get_hooks_for_type(HookType.SESSION_END)
-        assert len(hooks) == 1
-        assert hooks[0].priority == HookPriority.EARLY.value
-
-    def test_decorator_with_name(self):
-        """@session_end(name='custom') should register with name."""
-
-        @session_end(name="cleanup_session")
-        def on_end(ctx: HookContext) -> HookResult:
-            return HookResult.approve()
-
-        hooks = get_hooks_for_type(HookType.SESSION_END)
-        assert len(hooks) == 1
-        assert hooks[0].name == "cleanup_session"
-
-
-# =============================================================================
-# Context Reset Pre Decorator Tests
-# =============================================================================
-
-
-class TestContextResetPreDecorator:
-    """Tests for @context_reset_pre decorator."""
-
-    def test_bare_decorator(self):
-        """@context_reset_pre should register a hook."""
-
-        @context_reset_pre
-        def before_reset(ctx: HookContext) -> HookResult:
-            return HookResult.approve()
-
-        hooks = get_hooks_for_type(HookType.CONTEXT_RESET_PRE)
-        assert len(hooks) == 1
-        assert hooks[0].function == before_reset
-        assert hooks[0].hook_type == HookType.CONTEXT_RESET_PRE
-        assert hooks[0].tool_name is None
-
-    def test_decorator_with_priority(self):
-        """@context_reset_pre(priority=10) should register with priority."""
-
-        @context_reset_pre(priority=10)
-        def before_reset(ctx: HookContext) -> HookResult:
-            return HookResult.approve()
-
-        hooks = get_hooks_for_type(HookType.CONTEXT_RESET_PRE)
-        assert len(hooks) == 1
-        assert hooks[0].priority == 10
-
-    def test_decorator_with_name(self):
-        """@context_reset_pre(name='custom') should register with name."""
-
-        @context_reset_pre(name="log_before_reset")
-        def before_reset(ctx: HookContext) -> HookResult:
-            return HookResult.approve()
-
-        hooks = get_hooks_for_type(HookType.CONTEXT_RESET_PRE)
-        assert len(hooks) == 1
-        assert hooks[0].name == "log_before_reset"
-
-
-# =============================================================================
-# Context Reset Post Decorator Tests
-# =============================================================================
-
-
-class TestContextResetPostDecorator:
-    """Tests for @context_reset_post decorator."""
-
-    def test_bare_decorator(self):
-        """@context_reset_post should register a hook."""
-
-        @context_reset_post
-        def after_reset(ctx: HookContext) -> HookResult:
-            return HookResult.approve()
-
-        hooks = get_hooks_for_type(HookType.CONTEXT_RESET_POST)
-        assert len(hooks) == 1
-        assert hooks[0].function == after_reset
-        assert hooks[0].hook_type == HookType.CONTEXT_RESET_POST
-        assert hooks[0].tool_name is None
-
-    def test_decorator_with_priority(self):
-        """@context_reset_post(priority=10) should register with priority."""
-
-        @context_reset_post(priority=10)
-        def after_reset(ctx: HookContext) -> HookResult:
-            return HookResult.approve()
-
-        hooks = get_hooks_for_type(HookType.CONTEXT_RESET_POST)
-        assert len(hooks) == 1
-        assert hooks[0].priority == 10
-
-    def test_decorator_with_name(self):
-        """@context_reset_post(name='custom') should register with name."""
-
-        @context_reset_post(name="init_after_reset")
-        def after_reset(ctx: HookContext) -> HookResult:
-            return HookResult.approve()
-
-        hooks = get_hooks_for_type(HookType.CONTEXT_RESET_POST)
-        assert len(hooks) == 1
-        assert hooks[0].name == "init_after_reset"
-
-
-# =============================================================================
-# Context Compact Pre Decorator Tests
-# =============================================================================
-
-
-class TestContextCompactPreDecorator:
-    """Tests for @context_compact_pre decorator."""
-
-    def test_bare_decorator(self):
-        """@context_compact_pre should register a hook."""
-
-        @context_compact_pre
-        def before_compact(ctx: HookContext) -> HookResult:
-            return HookResult.approve()
-
-        hooks = get_hooks_for_type(HookType.CONTEXT_COMPACT_PRE)
-        assert len(hooks) == 1
-        assert hooks[0].function == before_compact
-        assert hooks[0].hook_type == HookType.CONTEXT_COMPACT_PRE
-        assert hooks[0].tool_name is None
-
-    def test_decorator_with_priority(self):
-        """@context_compact_pre(priority=10) should register with priority."""
-
-        @context_compact_pre(priority=10)
-        def before_compact(ctx: HookContext) -> HookResult:
-            return HookResult.approve()
-
-        hooks = get_hooks_for_type(HookType.CONTEXT_COMPACT_PRE)
-        assert len(hooks) == 1
-        assert hooks[0].priority == 10
-
-    def test_decorator_with_name(self):
-        """@context_compact_pre(name='custom') should register with name."""
-
-        @context_compact_pre(name="preserve_state")
-        def before_compact(ctx: HookContext) -> HookResult:
-            return HookResult.approve()
-
-        hooks = get_hooks_for_type(HookType.CONTEXT_COMPACT_PRE)
-        assert len(hooks) == 1
-        assert hooks[0].name == "preserve_state"
-
-
-# =============================================================================
-# Context Compact Post Decorator Tests
-# =============================================================================
-
-
-class TestContextCompactPostDecorator:
-    """Tests for @context_compact_post decorator."""
-
-    def test_bare_decorator(self):
-        """@context_compact_post should register a hook."""
-
-        @context_compact_post
-        def after_compact(ctx: HookContext) -> HookResult:
-            return HookResult.approve()
-
-        hooks = get_hooks_for_type(HookType.CONTEXT_COMPACT_POST)
-        assert len(hooks) == 1
-        assert hooks[0].function == after_compact
-        assert hooks[0].hook_type == HookType.CONTEXT_COMPACT_POST
-        assert hooks[0].tool_name is None
-
-    def test_decorator_with_priority(self):
-        """@context_compact_post(priority=10) should register with priority."""
-
-        @context_compact_post(priority=10)
-        def after_compact(ctx: HookContext) -> HookResult:
-            return HookResult.approve()
-
-        hooks = get_hooks_for_type(HookType.CONTEXT_COMPACT_POST)
-        assert len(hooks) == 1
-        assert hooks[0].priority == 10
-
-    def test_decorator_with_name(self):
-        """@context_compact_post(name='custom') should register with name."""
-
-        @context_compact_post(name="validate_compact")
-        def after_compact(ctx: HookContext) -> HookResult:
-            return HookResult.approve()
-
-        hooks = get_hooks_for_type(HookType.CONTEXT_COMPACT_POST)
-        assert len(hooks) == 1
-        assert hooks[0].name == "validate_compact"
-
-
-# =============================================================================
-# Registry get_hooks_for_type Tests
-# =============================================================================
+#: Each lifecycle decorator and the HookType it must register under.
+LIFECYCLE_DECORATORS = [
+    pytest.param(session_start, HookType.SESSION_START, id="session_start"),
+    pytest.param(session_end, HookType.SESSION_END, id="session_end"),
+    pytest.param(context_reset_pre, HookType.CONTEXT_RESET_PRE, id="context_reset_pre"),
+    pytest.param(
+        context_reset_post, HookType.CONTEXT_RESET_POST, id="context_reset_post"
+    ),
+    pytest.param(
+        context_compact_pre, HookType.CONTEXT_COMPACT_PRE, id="context_compact_pre"
+    ),
+    pytest.param(
+        context_compact_post, HookType.CONTEXT_COMPACT_POST, id="context_compact_post"
+    ),
+]
+
+
+@pytest.mark.parametrize("decorator,hook_type", LIFECYCLE_DECORATORS)
+def test_bare_decorator_registers_under_its_type(decorator, hook_type):
+    """The bare decorator registers the function under the right type."""
+
+    @decorator
+    def on_event(ctx: HookContext) -> HookResult:
+        return HookResult.approve()
+
+    hooks = get_hooks_for_type(hook_type)
+    assert len(hooks) == 1
+    assert hooks[0].function == on_event
+    assert hooks[0].hook_type == hook_type
+    assert hooks[0].tool_name is None
+
+
+@pytest.mark.parametrize("decorator,hook_type", LIFECYCLE_DECORATORS)
+def test_decorator_with_priority_and_name(decorator, hook_type):
+    """Called with args, the decorator stores the priority and custom name."""
+
+    @decorator(priority=10, name="custom_hook")
+    def on_event(ctx: HookContext) -> HookResult:
+        return HookResult.approve()
+
+    hooks = get_hooks_for_type(hook_type)
+    assert len(hooks) == 1
+    assert hooks[0].priority == 10
+    assert hooks[0].name == "custom_hook"
+
+
+def test_the_decorated_function_stays_callable():
+    """A decorated hook remains an ordinary function that returns its result."""
+
+    @session_start
+    def on_start(ctx: HookContext) -> HookResult:
+        return HookResult.approve()
+
+    mock_ctx = HookContext(tool_name=None, tool_instance=None)
+    assert on_start(mock_ctx).action.value == "approve"
+
+
+def test_multiple_hooks_of_one_type_all_register():
+    """Several hooks on one lifecycle type coexist, ordered by priority."""
+
+    @session_start(priority=20)
+    def second(ctx: HookContext) -> HookResult:
+        return HookResult.approve()
+
+    @session_start(priority=10)
+    def first(ctx: HookContext) -> HookResult:
+        return HookResult.approve()
+
+    hooks = get_hooks_for_type(HookType.SESSION_START)
+    assert [h.priority for h in hooks] == [10, 20]
 
 
 class TestGetHooksForType:
@@ -518,37 +253,10 @@ class TestHookContextForLifecycle:
         assert ctx.tool_name is None
         assert ctx.tool_instance is None
 
-    def test_event_data_field_exists(self):
-        """HookContext should have event_data field."""
-        ctx = HookContext(
-            tool_name=None,
-            tool_instance=None,
-            event_data={"key": "value", "count": 42},
-        )
-        assert ctx.event_data == {"key": "value", "count": 42}
-
     def test_event_data_defaults_to_empty_dict(self):
         """HookContext event_data should default to empty dict."""
         ctx = HookContext(tool_name=None, tool_instance=None)
         assert ctx.event_data == {}
-
-    def test_hook_type_field_exists(self):
-        """HookContext should have hook_type field."""
-        ctx = HookContext(
-            tool_name=None,
-            tool_instance=None,
-            hook_type=HookType.SESSION_START,
-        )
-        assert ctx.hook_type == HookType.SESSION_START
-
-    def test_lifecycle_event_field_exists(self):
-        """HookContext should have lifecycle_event field."""
-        ctx = HookContext(
-            tool_name=None,
-            tool_instance=None,
-            lifecycle_event="session_start",
-        )
-        assert ctx.lifecycle_event == "session_start"
 
     def test_full_lifecycle_context(self):
         """HookContext should support all lifecycle-related fields."""
@@ -575,15 +283,6 @@ class TestHookContextForLifecycle:
         assert ctx.lifecycle_event == "context_compact_pre"
         assert ctx.event_data["message_count"] == 10
         assert ctx.event_data["token_count"] == 5000
-
-    def test_state_is_mutable(self):
-        """HookContext state should be mutable for sharing between hooks."""
-        ctx = HookContext(tool_name=None, tool_instance=None)
-        ctx.state["counter"] = 1
-        ctx.state["items"] = ["item1"]
-
-        assert ctx.state["counter"] == 1
-        assert ctx.state["items"] == ["item1"]
 
 
 # =============================================================================
@@ -635,10 +334,10 @@ class TestLifecycleHookExecution:
             agent=mock_root_agent,
         )
 
-        # Should return a HookExecutionResult
-        assert hasattr(result, "approved")
-        assert hasattr(result, "hooks_executed")
-        assert hasattr(result, "total_time_ms")
+        from wichy.hooks.executor import HookExecutionResult
+
+        assert isinstance(result, HookExecutionResult)
+        assert len(result.hooks_executed) == 1
 
     def test_context_compact_post_receives_summary(self):
         """Context compact post hook receives summary in output field."""
@@ -721,8 +420,7 @@ class TestLifecycleHookExecution:
             agent=mock_root_agent,
         )
 
-        # Should have some elapsed time
-        assert result.total_time_ms >= 0  # Just check it runs
+        assert isinstance(result.total_time_ms, float)
 
 
 class TestLifecycleHookPriorityOrdering:

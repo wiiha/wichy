@@ -89,9 +89,14 @@ def test_read_agent_max_turns_prints_warning_for_invalid_value(
     assert "positive integer" in printed[0]
 
 
-def test_read_agent_max_turns_uses_module_singleton_by_default():
-    """When called without arguments, the function reads the global settings singleton."""
-    # This just ensures the default argument path doesn't crash. The actual value
-    # depends on whether a real settings file happens to exist in the test environment.
-    result = _read_agent_max_turns_setting()
-    assert result is None or (isinstance(result, int) and result > 0)
+def test_read_agent_max_turns_uses_module_singleton_by_default(monkeypatch):
+    """With no argument the function reads the module-level settings singleton."""
+
+    from wichy.config._yaml_settings import SettingsNamespace
+
+    class _Settings:
+        def get_namespace(self, name: str) -> SettingsNamespace:
+            return SettingsNamespace({"max_turns": 42})
+
+    monkeypatch.setattr("wichy.tools.task_tool.settings", _Settings())
+    assert _read_agent_max_turns_setting() == 42

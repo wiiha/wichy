@@ -4,6 +4,7 @@ import os
 import tempfile
 import pytest
 
+from wichy.tools.base import ParametersModel
 from wichy.tools.duckdb_manager import DuckDBManager
 from wichy.tools.duckdb_load import DuckDBLoadTool
 from wichy.tools.duckdb_query import DuckDBQueryTool
@@ -43,11 +44,11 @@ class TestDuckDBManager:
         manager2 = DuckDBManager.get_instance()
         assert manager1 is manager2
 
-    def test_get_connection(self):
-        """Test that connection is created."""
+    def test_get_connection_is_usable(self):
+        """The pooled connection can actually execute a query."""
         manager = DuckDBManager.get_instance()
-        conn = manager.get_connection()
-        assert conn is not None
+        with manager.get_connection() as conn:
+            assert conn.execute("SELECT 1").fetchone() == (1,)
 
     def test_reset_clears_state(self):
         """Test that reset clears all state."""
@@ -184,7 +185,7 @@ class TestDuckDBPersistence:
             # Persist
             persist_tool = DuckDBPersistTool()
             result = persist_tool.execute(db_path=db_path)
-            assert "persisted" in result.lower() or "error" not in result.lower()
+            assert "persisted" in result.lower(), result
 
             # Reset
             DuckDBManager.reset()
@@ -192,7 +193,7 @@ class TestDuckDBPersistence:
             # Load database
             load_db_tool = DuckDBLoadDBTool()
             result = load_db_tool.execute(db_path=db_path)
-            assert "Loaded database" in result or "error" not in result.lower()
+            assert "Loaded database" in result, result
 
             # Verify data still exists
             status_tool = DuckDBStatusTool()
@@ -203,29 +204,21 @@ class TestDuckDBPersistence:
 class TestToolDefinitions:
     """Test that tools have proper definitions."""
 
-    def test_load_tool_definition(self):
-        """Test DuckDBLoadTool has proper definition."""
-        tool = DuckDBLoadTool()
-        assert tool.name == "duckdb_load"
+    @pytest.mark.parametrize(
+        "tool_cls,expected_name",
+        [
+            (DuckDBLoadTool, "duckdb_load"),
+            (DuckDBQueryTool, "duckdb_query"),
+            (DuckDBSchemaTool, "duckdb_schema"),
+        ],
+    )
+    def test_tool_definitions(self, tool_cls, expected_name):
+        """Each DuckDB tool advertises a name, descriptions, and a param model."""
+        tool = tool_cls()
+        assert tool.name == expected_name
         assert tool.description != ""
         assert tool.description_long != ""
-        assert hasattr(tool, "parameters_model")
-
-    def test_query_tool_definition(self):
-        """Test DuckDBQueryTool has proper definition."""
-        tool = DuckDBQueryTool()
-        assert tool.name == "duckdb_query"
-        assert tool.description != ""
-        assert tool.description_long != ""
-        assert hasattr(tool, "parameters_model")
-
-    def test_schema_tool_definition(self):
-        """Test DuckDBSchemaTool has proper definition."""
-        tool = DuckDBSchemaTool()
-        assert tool.name == "duckdb_schema"
-        assert tool.description != ""
-        assert tool.description_long != ""
-        assert hasattr(tool, "parameters_model")
+        assert issubclass(tool.parameters_model, ParametersModel)
 
     def test_all_tools_registered(self):
         """Test that all DuckDB tools are registered in the tool registry."""

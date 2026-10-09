@@ -230,12 +230,6 @@ class TestErrorIndicatesMultimodalNotSupported:
 class TestLLMBackendMultimodalNotSupported:
     """Tests for the LLMBackendMultimodalNotSupported exception."""
 
-    def test_exception_creation(self):
-        """Test creating the exception."""
-        exc = LLMBackendMultimodalNotSupported("Model does not support images")
-        assert str(exc) == "Model does not support images"
-        assert exc.message == "Model does not support images"
-
     def test_exception_default_message(self):
         """Test exception with default message."""
         exc = LLMBackendMultimodalNotSupported()

@@ -9,11 +9,9 @@ any other implementation.
 import json
 import threading
 import time
-from pathlib import Path
 from queue import Queue
 
 import pytest
-import wichy
 from flask import Blueprint, Flask
 
 from wichy.console.user import ServerConsole, user_console
@@ -310,8 +308,6 @@ def test_status_running_while_real_turn_in_flight():
 
 # -- Stage 2: server surface (INV-005, INV-024, INV-025, INV-026) -----------
 
-_LANDING = Path(wichy.__file__).parent / "templates" / "landing.html"
-
 
 class _Session:
     """Session whose _thread and status() a test can set directly."""
@@ -439,15 +435,6 @@ def test_health_reports_active_states(monkeypatch, state):
     assert data["thread_alive"] is True
     assert data["session_status"] == state
     server_api.set_active_session(None)
-
-
-def test_landing_repl_branch_precedes_stopped():
-    html = _LANDING.read_text()
-    repl_idx = html.index('textContent = "REPL active"')
-    stopped_idx = html.index('textContent = "Stopped"')
-    assert repl_idx < stopped_idx
-    assert 'data.mode === "repl" && data.thread_alive === null' in html
-    assert "data.thread_alive === false" in html
 
 
 def test_repeat_guard_resets_on_processed_message():

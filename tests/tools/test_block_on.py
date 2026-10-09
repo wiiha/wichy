@@ -66,11 +66,7 @@ def test_block_on_preserves_function_metadata():
     """Test that block_on preserves the wrapped function's name and docstring."""
     tool = MockTool(blocked=False)
 
-    assert tool.execute.__name__ == "execute"
-    assert (
-        "Mock execute method" in tool.execute.__doc__
-        or "execute" in tool.execute.__doc__
-    )
+    assert "Mock execute method" in tool.execute.__doc__
 
 
 def test_block_on_decision_receives_correct_arguments():

@@ -53,11 +53,14 @@ def chart_with_meta(isolated_charts_dir: Path) -> str:
 class TestGetChartsDir:
     """Tests for get_charts_dir."""
 
-    def test_creates_directory(self, isolated_charts_dir: Path) -> None:
-        """get_charts_dir creates the directory if it doesn't exist."""
-        # isolated_charts_dir already created it, so let's test a subdirectory
+    def test_creates_the_directory_on_demand(self, isolated_charts_dir: Path) -> None:
+        """get_charts_dir creates the directory when it was removed."""
+        # The fixture pre-created it; remove it so creation is actually exercised.
+        for child in isolated_charts_dir.iterdir():
+            child.unlink()
+        isolated_charts_dir.rmdir()
+
         result = get_charts_dir()
-        assert result.exists()
         assert result.is_dir()
 
 

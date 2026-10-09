@@ -1,4 +1,4 @@
-.PHONY: help install test test-verbose build build-wheel build-sdist clean clean-all run-server server check-manifest lint format typecheck check dev validate pipx-install pipx-reinstall pipx-uninstall docker-build docker-run docker-clean
+.PHONY: help install test test-verbose test-e2e build build-wheel build-sdist clean clean-all run-server server check-manifest lint format typecheck check dev validate pipx-install pipx-reinstall pipx-uninstall docker-build docker-run docker-clean
 
 .DELETE_ON_ERROR:
 
@@ -8,7 +8,8 @@
 # WICHY_CONTAINER=1 is set in the Dockerfile, same signal the app uses
 VENV_PATH ?= $(shell echo $$WICHY_CONTAINER | grep -q 1 && echo venv || echo host_venv)
 # Fail fast with a fix hint if the venv is missing, then activate per recipe line
-VENV_ACTIVATE = test -x "$(VENV_PATH)/bin/activate" || { echo "Venv '$(VENV_PATH)' not found — run: make VENV_PATH=$(VENV_PATH) install" >&2; exit 1; }; . "$(VENV_PATH)/bin/activate" &&
+# activate is sourced, so test it with -f (the execute bit is not required)
+VENV_ACTIVATE = test -f "$(VENV_PATH)/bin/activate" || { echo "Venv '$(VENV_PATH)' not found — run: make VENV_PATH=$(VENV_PATH) install" >&2; exit 1; }; . "$(VENV_PATH)/bin/activate" &&
 
 # Default target
 help:
@@ -16,8 +17,9 @@ help:
 	@echo ""
 	@echo "Available targets:"
 	@echo "  install          - Install project dependencies in editable mode (with dev extras)"
-	@echo "  test             - Run pytest tests"
+	@echo "  test             - Run pytest tests (excludes browser e2e)"
 	@echo "  test-verbose     - Run tests with verbose output"
+	@echo "  test-e2e         - Run the Playwright browser tests (needs chromium)"
 	@echo "  build            - Build both wheel and sdist"
 	@echo "  build-wheel      - Build wheel only"
 	@echo "  build-sdist      - Build source distribution only"
@@ -57,6 +59,10 @@ test:
 test-verbose:
 	@echo "Running tests (verbose)..."
 	$(VENV_ACTIVATE) pytest tests/ -vv
+
+test-e2e:
+	@echo "Running browser tests (needs: playwright install chromium)..."
+	$(VENV_ACTIVATE) pytest tests/e2e/ -o addopts= -m e2e
 
 # Build package (sequential: clean first, then wheel, then sdist)
 build: clean

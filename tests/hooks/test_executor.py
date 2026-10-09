@@ -25,16 +25,6 @@ def test_result_defaults():
     assert result.total_time_ms == 0.0
 
 
-def test_result_lists_initialized():
-    """hooks_executed and hooks_denied are lists."""
-    result = HookExecutionResult()
-
-    assert isinstance(result.hooks_executed, list)
-    assert isinstance(result.hooks_denied, list)
-    assert len(result.hooks_executed) == 0
-    assert len(result.hooks_denied) == 0
-
-
 # =============================================================================
 # build_context tests
 # =============================================================================
@@ -439,7 +429,6 @@ def test_run_context_hooks_no_hooks():
     assert result.approved is True
     assert result.modified_output is None
     assert result.hooks_executed == []
-    assert result.total_time_ms >= 0
 
 
 def test_run_context_hooks_session_start_ignores_return_values():

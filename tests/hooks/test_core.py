@@ -17,73 +17,29 @@ from wichy.hooks.types import HookType, HookPriority, RegisteredHook
 class TestHookAction:
     """Test suite for HookAction enum."""
 
-    def test_approve_value_exists(self):
-        """Test that APPROVE action exists with correct value."""
-        assert hasattr(HookAction, "APPROVE")
-        assert HookAction.APPROVE.value == "approve"
-
-    def test_deny_value_exists(self):
-        """Test that DENY action exists with correct value."""
-        assert hasattr(HookAction, "DENY")
-        assert HookAction.DENY.value == "deny"
-
-    def test_modify_input_value_exists(self):
-        """Test that MODIFY_INPUT action exists with correct value."""
-        assert hasattr(HookAction, "MODIFY_INPUT")
-        assert HookAction.MODIFY_INPUT.value == "modify_input"
-
-    def test_modify_output_value_exists(self):
-        """Test that MODIFY_OUTPUT action exists with correct value."""
-        assert hasattr(HookAction, "MODIFY_OUTPUT")
-        assert HookAction.MODIFY_OUTPUT.value == "modify_output"
-
-    def test_log_value_exists(self):
-        """Test that LOG action exists with correct value."""
-        assert hasattr(HookAction, "LOG")
-        assert HookAction.LOG.value == "log"
-
-    def test_all_actions_count(self):
-        """Test that all expected actions are present."""
-        actions = list(HookAction)
-        assert len(actions) == 5
+    def test_the_members_and_their_wire_values(self):
+        """The members and their string values are the hook result contract."""
+        assert {action.name: action.value for action in HookAction} == {
+            "APPROVE": "approve",
+            "DENY": "deny",
+            "MODIFY_INPUT": "modify_input",
+            "MODIFY_OUTPUT": "modify_output",
+            "LOG": "log",
+        }
 
 
 class TestHookResult:
     """Test suite for HookResult dataclass."""
 
-    def test_default_action_is_approve(self):
-        """Test that default action is APPROVE."""
+    def test_defaults_are_an_approval_with_no_side_data(self):
+        """A bare result approves and carries none of the optional payloads."""
         result = HookResult()
         assert result.action == HookAction.APPROVE
-
-    def test_default_modified_input_is_none(self):
-        """Test that default modified_input is None."""
-        result = HookResult()
         assert result.modified_input is None
-
-    def test_default_modified_output_is_none(self):
-        """Test that default modified_output is None."""
-        result = HookResult()
         assert result.modified_output is None
-
-    def test_default_error_message_is_none(self):
-        """Test that default error_message is None."""
-        result = HookResult()
         assert result.error_message is None
-
-    def test_default_log_data_is_none(self):
-        """Test that default log_data is None."""
-        result = HookResult()
         assert result.log_data is None
-
-    def test_default_hook_name_is_empty_string(self):
-        """Test that default hook_name is empty string."""
-        result = HookResult()
         assert result.hook_name == ""
-
-    def test_default_execution_time_is_none(self):
-        """Test that default execution_time_ms is None."""
-        result = HookResult()
         assert result.execution_time_ms is None
 
 
@@ -328,9 +284,8 @@ class TestHookContext:
         # Assert
         assert context.state == {}
 
-    def test_hook_context_optional_output_can_be_none(self):
-        """Test that output field can be None."""
-        # Arrange & Act
+    def test_optional_fields_default_to_none(self):
+        """A context created without the optional fields leaves them unset."""
         context = HookContext(
             tool_name="test",
             tool_instance=None,
@@ -341,76 +296,10 @@ class TestHookContext:
             working_directory=Path.cwd(),
             environment={},
         )
-
-        # Assert
         assert context.output is None
-
-    def test_hook_context_optional_error_can_be_none(self):
-        """Test that error field can be None."""
-        # Arrange & Act
-        context = HookContext(
-            tool_name="test",
-            tool_instance=None,
-            input_args={},
-            raw_input_args={},
-            execution_id="test-id",
-            timestamp=datetime.now(),
-            working_directory=Path.cwd(),
-            environment={},
-        )
-
-        # Assert
         assert context.error is None
-
-    def test_hook_context_optional_session_id_can_be_none(self):
-        """Test that session_id can be None."""
-        # Arrange & Act
-        context = HookContext(
-            tool_name="test",
-            tool_instance=None,
-            input_args={},
-            raw_input_args={},
-            execution_id="test-id",
-            timestamp=datetime.now(),
-            working_directory=Path.cwd(),
-            environment={},
-        )
-
-        # Assert
         assert context.session_id is None
-
-    def test_hook_context_optional_user_message_can_be_none(self):
-        """Test that user_message can be None."""
-        # Arrange & Act
-        context = HookContext(
-            tool_name="test",
-            tool_instance=None,
-            input_args={},
-            raw_input_args={},
-            execution_id="test-id",
-            timestamp=datetime.now(),
-            working_directory=Path.cwd(),
-            environment={},
-        )
-
-        # Assert
         assert context.user_message is None
-
-    def test_hook_context_optional_conversation_turn_can_be_none(self):
-        """Test that conversation_turn can be None."""
-        # Arrange & Act
-        context = HookContext(
-            tool_name="test",
-            tool_instance=None,
-            input_args={},
-            raw_input_args={},
-            execution_id="test-id",
-            timestamp=datetime.now(),
-            working_directory=Path.cwd(),
-            environment={},
-        )
-
-        # Assert
         assert context.conversation_turn is None
 
     def test_hook_context_can_set_optional_fields(self):
@@ -446,14 +335,9 @@ class TestHookContext:
 class TestHookType:
     """Test suite for HookType enum."""
 
-    def test_pre_tool_exists(self):
-        """Test that PRE_TOOL type exists."""
-        assert hasattr(HookType, "PRE_TOOL")
+    def test_members_and_values(self):
+        """PRE_TOOL/POST_TOOL and their wire values are the hook-type contract."""
         assert HookType.PRE_TOOL.value == "pre_tool"
-
-    def test_post_tool_exists(self):
-        """Test that POST_TOOL type exists."""
-        assert hasattr(HookType, "POST_TOOL")
         assert HookType.POST_TOOL.value == "post_tool"
 
     def test_all_hook_types_count(self):
@@ -466,20 +350,18 @@ class TestHookType:
 class TestHookPriority:
     """Test suite for HookPriority enum."""
 
-    def test_early_value(self):
-        """Test that EARLY priority has value 10."""
-        assert hasattr(HookPriority, "EARLY")
-        assert HookPriority.EARLY.value == 10
-
-    def test_normal_value(self):
-        """Test that NORMAL priority has value 50."""
-        assert hasattr(HookPriority, "NORMAL")
-        assert HookPriority.NORMAL.value == 50
-
-    def test_late_value(self):
-        """Test that LATE priority has value 90."""
-        assert hasattr(HookPriority, "LATE")
-        assert HookPriority.LATE.value == 90
+    def test_ordering_and_values(self):
+        """EARLY < NORMAL < LATE, at the documented values."""
+        assert (
+            HookPriority.EARLY.value,
+            HookPriority.NORMAL.value,
+            HookPriority.LATE.value,
+        ) == (10, 50, 90)
+        assert (
+            HookPriority.EARLY.value
+            < HookPriority.NORMAL.value
+            < HookPriority.LATE.value
+        )
 
     def test_all_priorities_count(self):
         """Test that all expected priorities are present."""

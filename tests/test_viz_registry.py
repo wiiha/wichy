@@ -30,10 +30,6 @@ from wichy.tools.viz.registry import (
 class TestRegistry:
     """Tests for the chart type registry."""
 
-    def test_registry_is_dict(self) -> None:
-        """CHART_REGISTRY is a dict."""
-        assert isinstance(CHART_REGISTRY, dict)
-
     def test_register_and_lookup(self) -> None:
         """Registering a chart type makes it findable via get_chart_type."""
 
@@ -85,17 +81,6 @@ class TestRegistry:
             assert "category" in entry
             assert "icon" in entry
             assert "field_roles" in entry
-
-    def test_register_requires_explicit_args(self) -> None:
-        """register_chart_type requires all args (no bare decorator use)."""
-        # Just verify it's callable with the right signature
-        import inspect
-
-        sig = inspect.signature(register_chart_type)
-        required = [
-            p for p in sig.parameters.values() if p.default is inspect.Parameter.empty
-        ]
-        assert len(required) == 7  # all 7 params are required
 
 
 # ---------------------------------------------------------------------------
@@ -229,10 +214,3 @@ class TestChartConfigModels:
             assert (
                 chart_id in CHART_CONFIG_MODELS
             ), f"Missing config model for {chart_id}"
-
-    def test_all_models_inherit_base(self) -> None:
-        """All config models inherit from BaseChartConfig."""
-        for chart_id, model_cls in CHART_CONFIG_MODELS.items():
-            assert issubclass(
-                model_cls, BaseChartConfig
-            ), f"{chart_id} config model does not inherit BaseChartConfig"

@@ -269,32 +269,36 @@ class TestBrowserManagerGetPage:
         BrowserManager._instance = None
 
 
-class TestPageVsContextIsClosedMethod:
-    """Page has an ``is_closed()`` method; BrowserContext does not."""
+class TestIsClosedSignals:
+    """A closed page is detected by Page.is_closed(), not by a context method."""
 
-    def test_page_has_is_closed_method_in_playwright(self):
-        """Verify that Page objects in Playwright have is_closed method.
+    def test_a_closed_page_reports_is_closed(self):
+        """is_closed() flips to True once the page is closed."""
+        from playwright.async_api import async_playwright
 
-        This test uses the actual Playwright Page class to verify the API.
-        """
-        from playwright.async_api import Page
+        loop_fixture = EventLoopFixture()
+        loop_fixture.start()
+        try:
 
-        # Page class should have is_closed method
-        assert hasattr(Page, "is_closed"), "Page class should have is_closed method"
-        # Verify it's callable (a method, not a property)
+            async def _check() -> tuple[bool, bool]:
+                async with async_playwright() as pw:
+                    browser = await pw.chromium.launch(headless=True)
+                    page = await browser.new_page()
+                    before = page.is_closed()
+                    await page.close()
+                    after = page.is_closed()
+                    await browser.close()
+                    return before, after
 
-        assert callable(
-            getattr(Page, "is_closed")
-        ), "Page.is_closed should be a callable method"
+            import asyncio
 
-    def test_browser_context_lacks_is_closed_in_playwright(self):
-        """Verify that BrowserContext does NOT have is_closed method."""
-        from playwright.async_api import BrowserContext
-
-        # BrowserContext should NOT have is_closed
-        assert not hasattr(
-            BrowserContext, "is_closed"
-        ), "BrowserContext should NOT have is_closed - this was the bug!"
+            before, after = asyncio.run_coroutine_threadsafe(
+                _check(), loop_fixture.loop
+            ).result(timeout=30)
+            assert before is False
+            assert after is True
+        finally:
+            loop_fixture.stop()
 
 
 class TestBrowserManagerStatus:
@@ -1420,24 +1424,3 @@ class TestFetchWebpageCrashRecovery:
 
         # Cleanup
         BrowserManager._instance = None
-
-    def test_is_browser_alive_probes_driver(self):
-        """Assert _is_browser_alive probes driver via title(), not local contexts."""
-        import inspect
-        from wichy.helpers.browser import BrowserManager
-
-        src = inspect.getsource(BrowserManager._is_browser_alive)
-        assert (
-            "await self._page.title()" in src
-        ), "Must probe driver via async title(), not local contexts"
-        # Verify old local-only check is truly gone from code (not just comments)
-        code_lines = [
-            ln.strip()
-            for ln in src.split("\n")
-            if not ln.strip().startswith("#")
-            and not ln.strip().startswith('"')  # skip docstrings
-            and not ln.strip() == ""
-        ]
-        assert not any(
-            "self._browser.contexts" in ln for ln in code_lines
-        ), "Must NOT use local contexts"

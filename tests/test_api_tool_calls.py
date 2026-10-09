@@ -103,7 +103,6 @@ class TestGetToolCalls:
         assert entry["agent_id"] == "root"
         assert entry["status"] == "running"
         assert entry["arguments"] == {"command": "sleep 30"}
-        assert entry["duration_s"] >= 0
 
     def test_lists_task_agent_call_with_agent_id(self, client):
         _register_in_flight(

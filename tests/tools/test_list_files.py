@@ -58,10 +58,9 @@ class TestListFiles:
         """Test listing with default path (current directory)."""
         result = list_files_tool.execute()
 
-        # Default path is "." which should list current directory
-        # The result should contain something (at minimum total line)
-        assert result is not None
-        assert len(result) > 0
+        # Default path is "." -- it must actually list the current directory.
+        assert "total" in result.lower()
+        assert any(line.startswith("-") for line in result.splitlines())
 
     def test_list_files_subdirectory(self, list_files_tool, temp_workspace):
         """Test listing a subdirectory."""

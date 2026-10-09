@@ -46,18 +46,12 @@ class TestAgentCoreName:
 class TestAgentCoreLogging:
     """Tests for logging methods."""
 
-    def test_log_default_implementation_does_nothing(self):
-        """Test default _log implementation does nothing."""
-        # Create a concrete agent but use the base class _log method
+    def test_log_defaults_are_safe_no_ops(self):
+        """The base logger must be callable and side-effect free, so subclasses
+        that never override it still work."""
         agent = ConcreteAgent()
-        # Should not raise - default implementation is pass
-        AgentCore._log(agent, "test message")
-
-    def test_log_dict_default_implementation_does_nothing(self):
-        """Test default _log_dict implementation does nothing."""
-        agent = ConcreteAgent()
-        # Should not raise - default implementation is pass
-        AgentCore._log_dict(agent, {"test": "data"})
+        assert AgentCore._log(agent, "test message") is None
+        assert AgentCore._log_dict(agent, {"test": "data"}) is None
 
 
 class TestAgentCoreToolCall:

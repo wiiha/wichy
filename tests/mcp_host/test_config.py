@@ -51,7 +51,7 @@ class TestMCPServerConfigStdio:
             future_field="some_value",
         )
         assert config.command == "python"
-        assert not hasattr(config, "future_field")
+        assert config.model_config["extra"] == "ignore"
 
 
 class TestMCPServerConfigHttp:
@@ -342,8 +342,9 @@ class TestLoadMcpConfig:
             # Local replaced the global entry entirely
             assert config.mcpServers["shared_server"].transport == "http"
             assert config.mcpServers["shared_server"].url == "http://local.local"
-            # Old global fields must NOT survive
-            assert not hasattr(config.mcpServers["shared_server"], "command")
+            # Old global fields must NOT survive: the merged entry is HTTP-only.
+            merged = config.mcpServers["shared_server"]
+            assert "command" not in merged.model_dump()
         finally:
             os.chdir(orig_cwd)
 

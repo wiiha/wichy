@@ -569,23 +569,16 @@ class TestThreadLockBehavior:
         ):
             BrowserManager._instance = None
 
-    def test_browser_thread_lock_is_class_level(self):
-        """Test that _browser_thread_lock is a class-level lock."""
-        # Verify the lock exists at class level
-        assert hasattr(BrowserManager, "_browser_thread_lock")
-        # Check for lock methods (more reliable than isinstance check)
-        assert hasattr(BrowserManager._browser_thread_lock, "acquire")
-        assert hasattr(BrowserManager._browser_thread_lock, "release")
-        assert hasattr(BrowserManager._browser_thread_lock, "locked")
-
-    def test_singleton_lock_is_class_level(self):
-        """Test that _singleton_lock is a class-level lock."""
-        # Verify the lock exists at class level
-        assert hasattr(BrowserManager, "_singleton_lock")
-        # Check for lock methods (more reliable than isinstance check)
-        assert hasattr(BrowserManager._singleton_lock, "acquire")
-        assert hasattr(BrowserManager._singleton_lock, "release")
-        assert hasattr(BrowserManager._singleton_lock, "locked")
+    def test_class_level_locks_are_shared_and_mutually_exclusive(self):
+        """Both class-level locks are shared across instances and exclude."""
+        for lock in (
+            BrowserManager._browser_thread_lock,
+            BrowserManager._singleton_lock,
+        ):
+            assert lock.acquire(timeout=1)
+            assert lock.locked()
+            lock.release()
+            assert not lock.locked()
 
     def test_multiple_managers_same_lock(self):
         """Test that BrowserManager singleton pattern works correctly.

@@ -32,8 +32,13 @@ class TestMCPErrorHierarchy:
         assert str(err) == msg
         assert err.args == (msg,)
 
-    def test_specific_errors_are_distinct(self):
-        """Each error type should be distinguishable (not aliases)."""
-        assert MCPConfigError is not MCPConnectionError
-        assert MCPConnectionError is not MCPToolExecutionError
-        assert MCPToolExecutionError is not MCPTimeoutError
+    def test_each_error_type_is_a_catchable_distinct_class(self):
+        """Each error type is a real, catchable exception class."""
+        for error_cls in (
+            MCPConfigError,
+            MCPConnectionError,
+            MCPToolExecutionError,
+            MCPTimeoutError,
+        ):
+            with pytest.raises(error_cls):
+                raise error_cls("boom")

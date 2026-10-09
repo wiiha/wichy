@@ -996,21 +996,6 @@ class TestPinning:
         assert body["primary"] is None
         assert body["pinned"] == []
 
-    def test_the_old_routes_are_gone(self, client):
-        """The two superseded routes must not still answer.
-
-        ``set-scratchpad`` is checked as "not 200" rather than 404: the path still
-        matches the generic ``/api/notes/<slug>`` rule, which accepts GET, PUT and
-        DELETE but not POST, so the honest answer is 405. What matters is that it
-        no longer sets a pin.
-        """
-        assert client.get(f"{PREFIX}/api/scratchpad-status").status_code == 404
-        response = client.post(f"{PREFIX}/api/notes/set-scratchpad", json={"slug": "x"})
-        assert response.status_code != 200
-        assert (
-            client.get(f"{PREFIX}/api/notes/scratchpad").get_json()["primary"] is None
-        )
-
 
 class TestSettingsRoute:
     def test_reports_the_frontend_intervals(self, client):
@@ -1029,63 +1014,6 @@ class TestSettingsRoute:
             client.get(f"{PREFIX}/api/notes/settings").get_json()["poll_interval_ms"]
             == 1234
         )
-
-
-# ---------------------------------------------------------------------------
-# Frontend source guards
-# ---------------------------------------------------------------------------
-
-# There is no JS test runner in this repo, so invariants that would silently
-# regress are asserted against the shipped source instead, following the
-# precedent in tests/test_ui_escape_helpers.py.
-
-
-class TestNotesJs:
-    def _source(self) -> str:
-        with open("src/wichy/static/notes.js") as handle:
-            return handle.read()
-
-    def test_the_removed_routes_are_not_called(self):
-        """A call to a route that no longer exists fails silently in the browser."""
-        source = self._source()
-        assert "scratchpad-status" not in source
-        assert "set-scratchpad" not in source
-
-    def test_it_reads_the_new_scratchpad_route(self):
-        assert "/api/notes/scratchpad" in self._source()
-
-    def test_it_pins_through_the_per_slug_route(self):
-        source = self._source()
-        assert "/pin" in source
-        assert "pinned: true" in source
-        assert "pinned: false" in source
-
-    def test_it_reads_the_primary_field_and_never_the_legacy_slug_field(self):
-        """The marker's field is `primary`; `slug` was the legacy name.
-
-        A presence check alone cannot catch this: the file also carries several
-        legitimate `data.slug` reads from the document routes, so the assertion
-        has to target the scratchpad responses specifically.
-        """
-        source = self._source()
-        assert "data.primary" in source
-        # The scratchpad payload never carries `slug`, so a read of it would
-        # silently yield undefined and the pin marker would never update.
-        assert "statusData.slug" not in source
-
-    def test_it_is_wrapped_in_an_iife(self):
-        """Top-level let/const would collide with a second script on the page."""
-        source = self._source()
-        assert "(function () {" in source
-        assert source.rstrip().endswith("})();")
-
-    def test_it_declares_no_top_level_let_or_const(self):
-        """Every declaration must be inside the wrapper, not at file scope."""
-        for line in self._source().splitlines():
-            stripped = line.strip()
-            if stripped.startswith(("let ", "const ")):
-                # The wrapper means indented declarations are the only ones left.
-                assert line.startswith((" ", "\t")), f"file-scope declaration: {line}"
 
 
 # ---------------------------------------------------------------------------

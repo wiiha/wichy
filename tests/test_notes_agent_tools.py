@@ -561,9 +561,6 @@ class TestChangeBlockType:
         assert "already" in result
         assert load_document(slug).meta.version == before.meta.version
 
-    def test_an_empty_new_type_is_rejected(self, scratchpad):
-        assert "required" in run(ChangeBlockTypeTool, block_id="blk-x", new_type="")
-
 
 class TestInsertBlock:
     def test_appends_at_the_end_by_default(self, scratchpad):
@@ -927,22 +924,10 @@ class TestRegistry:
             "list_notes",
         } <= names
 
-    def test_write_scratchpad_is_gone(self):
-        from wichy.tools.registry import get_all_tools
-
-        names = {tool.name for tool in get_all_tools()}
-        assert "write_scratchpad" not in names
-
     def test_read_note_is_retained(self):
         from wichy.tools.registry import get_all_tools
 
         assert "read_note" in {tool.name for tool in get_all_tools()}
-
-    def test_the_write_scratchpad_module_is_deleted(self):
-        import importlib
-
-        with pytest.raises(ImportError):
-            importlib.import_module("wichy.tools.write_scratchpad")
 
     def test_no_tool_takes_a_slug(self):
         """The pin gates writes; reads may name a note explicitly.

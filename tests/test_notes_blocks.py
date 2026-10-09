@@ -1370,7 +1370,6 @@ class TestMarkdownTimestampsAreStable:
         path = notes_dir / "legacy.md"
         path.write_text("body\n", encoding="utf-8")
         before = load_document("legacy").meta.updated
-        assert path.stat().st_mtime >= 0
         # Move the mtime forward explicitly, so the test does not depend on
         # filesystem timestamp resolution.
         import os
