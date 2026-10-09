@@ -9,6 +9,7 @@ checklist.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 STATIC = Path("src/wichy/static")
@@ -31,6 +32,28 @@ BUNDLES = {
 def template() -> str:
     """The notes template source."""
     return TEMPLATE.read_text(encoding="utf-8")
+
+
+def element_by_id(source: str, element_id: str) -> str:
+    """The full markup of the element carrying ``id="element_id"``.
+
+    Counts nested open/close tags so the returned slice covers the whole
+    element, whatever whitespace a formatter leaves between attributes.
+    """
+    tag_start = source.rindex("<", 0, source.index(f'id="{element_id}"'))
+    tag = source[tag_start + 1 :].split()[0].rstrip(">")
+    cursor = source.index(">", tag_start) + 1
+    depth = 1
+    while depth:
+        opening = source.find(f"<{tag}", cursor)
+        closing = source.find(f"</{tag}>", cursor)
+        if opening != -1 and opening < closing:
+            depth += 1
+            cursor = source.index(">", opening) + 1
+        else:
+            depth -= 1
+            cursor = closing + len(tag) + 3
+    return source[tag_start:cursor]
 
 
 class TestVendoredBundles:
@@ -80,7 +103,7 @@ class TestTemplateScriptTags:
     def test_each_global_is_guarded_individually(self):
         """Guarding only the core would let a missing plugin fail at init."""
         source = template()
-        assert "_guard('EditorJS')" in source
+        assert re.search(r"""_guard\(['"]EditorJS['"]\)""", source)
         for name in ("Header", "List", "CodeTool", "Quote", "Checklist", "Delimiter"):
             assert name in source, f"{name} is not guarded"
         assert "WichyCustomBlocks" in source
@@ -211,16 +234,12 @@ class TestToolbarControls:
         Checked on the element itself: `aria-live` appearing somewhere in the
         file would still pass if it were moved to another node.
         """
-        import re
-
-        match = re.search(r'<span id="editor-status"[^>]*>', template())
+        match = re.search(r'<span\b[^>]*\bid="editor-status"[^>]*>', template())
         assert match, "no status region found"
         assert 'aria-live="polite"' in match.group(0)
 
     def test_the_conflict_banner_is_a_live_region_and_focusable(self):
-        import re
-
-        match = re.search(r'<div id="conflict-banner"[^>]*>', template())
+        match = re.search(r'<div\b[^>]*\bid="conflict-banner"[^>]*>', template())
         assert match, "no conflict banner found"
         markup = match.group(0)
         assert 'aria-live="polite"' in markup
@@ -232,9 +251,9 @@ class TestToolbarControls:
         The sidebar's "New Note" button legitimately IS full width, so this
         checks the toolbar's own buttons rather than the whole file.
         """
-        import re
-
-        toolbar = re.search(r'<div id="toolbar".*?</div>', template(), flags=re.S)
+        toolbar = re.search(
+            r'<div\b[^>]*\bid="toolbar"[^>]*>.*?</div>', template(), flags=re.S
+        )
         assert toolbar, "no toolbar block found"
         markup = toolbar.group(0)
         assert 'class="btn ' in markup
@@ -412,8 +431,6 @@ class TestTheming:
     def test_no_dark_palette_is_declared(self):
         """The page states light tokens under a dark attribute rather than
         declaring dark values: the palette is a pin, not a theme."""
-        import re
-
         css = self.css()
         match = re.search(r'\[data-theme="dark"\][^{]*\{([^}]*)\}', css)
         assert match, "no light-pin rule found"
@@ -713,7 +730,8 @@ class TestAgentChangeVisualization:
 
     def test_the_busy_notice_names_what_happens_to_the_users_edits(self):
         source = self.script()
-        assert "next thinking" in source
+        assert "next thinking" not in source
+        assert "queued and will be sent" in source
 
     def test_the_flash_respects_reduced_motion(self):
         css = (STATIC / "notes.css").read_text(encoding="utf-8")
@@ -736,11 +754,9 @@ class TestTheMarksAreExplained:
         assert "[AGENT NEW]" in body
 
     def test_the_legend_says_what_each_mark_means_in_words(self):
-        body = template()
-        legend = body[body.index('id="agent-legend"') :]
-        legend = legend[: legend.index("</span>\n")]
-        assert "changed by the agent" in legend
-        assert "created by the agent" in legend
+        legend = element_by_id(template(), "agent-legend")
+        assert re.search(r"changed\s+by\s+the\s+agent", legend)
+        assert re.search(r"created\s+by\s+the\s+agent", legend)
 
     def test_the_legend_starts_hidden(self):
         """It must not describe a state the document is not in."""
@@ -1085,8 +1101,6 @@ class TestTheQueueControl:
         """
         source = self.script()
         body = template()
-        import re
-
         ids = set(re.findall(r'getElementById\("([^"]+)"\)', source))
         actions = set(re.findall(r'querySelector\(.\[data-action="([^"]+)"\]', source))
         for element_id in ids:
@@ -2216,3 +2230,101 @@ class TestTheTornTailWarningIsShown:
         clear_at = body.index("clearHistoryDetail();")
         warning_at = body.index("torn.textContent = listed.history_warning")
         assert warning_at > clear_at, "the warning must render after the clear"
+
+
+class TestProposalReviewSurface:
+    """The proposal review UI is wired and mobile-first."""
+
+    def test_the_proposals_script_is_loaded_outside_the_block_editor_guard(self):
+        source = template()
+        assert "notes_proposals.js" in source
+        # The mode toggle must exist even when the block editor is disabled, so
+        # the script is not inside the enable_block_editor guard.
+        guard = source.index("enable_block_editor")
+        include = source.index("notes_proposals.js")
+        assert include < guard
+
+    def test_the_review_control_and_mode_toggle_exist(self):
+        source = template()
+        assert 'id="btn-proposals"' in source
+        assert 'id="btn-proposals-mode"' in source
+
+    def test_the_sheet_is_marked_up_and_hidden_by_default(self):
+        source = template()
+        assert 'id="proposal-sheet"' in source
+        assert 'class="overlay-surface hidden"' in source
+        assert 'id="proposal-list"' in source
+        assert 'id="proposal-close"' in source
+
+    def test_the_client_takes_the_version_from_the_proposals_read(self):
+        source = (STATIC / "notes_proposals.js").read_text(encoding="utf-8")
+        # Accept must post a version that came from the same list it displayed.
+        assert "version = list.body.version" in source
+        assert "JSON.stringify({ version: version })" in source
+        assert "/proposals" in source
+        assert "note-opened" in source
+
+    def test_the_sheet_can_be_dismissed_by_escape_and_backdrop(self):
+        source = (STATIC / "notes_proposals.js").read_text(encoding="utf-8")
+        assert 'event.key === "Escape"' in source
+        assert "event.target === sheet" in source
+
+    def test_the_sheet_restores_focus_on_close(self):
+        source = (STATIC / "notes_proposals.js").read_text(encoding="utf-8")
+        assert "lastFocus" in source
+        assert "lastFocus.focus()" in source
+
+    def test_an_open_sheet_repaints_when_new_proposals_arrive(self):
+        source = (STATIC / "notes_proposals.js").read_text(encoding="utf-8")
+        assert "if (open) renderSheet();" in source
+
+    def test_the_controls_are_disabled_with_no_note_open(self):
+        source = template()
+        review = re.search(r'<button\b[^>]*\bid="btn-proposals"[^>]*>', source)
+        assert review, "no review-proposals control found"
+        assert "btn btn-secondary" in review.group(0)
+        assert "disabled" in review.group(0)
+        mode = re.search(r'<button\b[^>]*\bid="btn-proposals-mode"[^>]*>', source)
+        assert mode, "no proposals-mode control found"
+        assert "disabled" in mode.group(0)
+
+    def test_the_client_guards_against_a_stale_note(self):
+        source = (STATIC / "notes_proposals.js").read_text(encoding="utf-8")
+        assert "epoch += 1" in source
+        assert "if (mine !== epoch) return;" in source
+
+    def test_overlay_surfaces_have_a_desktop_breakpoint(self):
+        css = (STATIC / "notes.css").read_text(encoding="utf-8")
+        assert ".overlay-surface" in css
+        assert "min-width: 1025px" in css
+
+    def test_review_and_mode_controls_meet_the_touch_target_size(self):
+        css = (STATIC / "notes.css").read_text(encoding="utf-8")
+        assert "min-height: 44px" in css
+
+
+class TestMobileFirstChrome:
+    """The note page is usable one-handed at a phone width."""
+
+    def test_the_drawer_button_exists(self):
+        assert 'id="btn-drawer"' in template()
+
+    def test_the_drawer_is_css_driven_and_toggled_by_script(self):
+        css = (STATIC / "notes.css").read_text(encoding="utf-8")
+        script = (STATIC / "notes.js").read_text(encoding="utf-8")
+        assert ".sidebar.sidebar-open" in css
+        assert "translateX(-100%)" in css
+        assert "sidebar-open" in script
+
+    def test_the_old_desktop_stacking_rule_is_gone(self):
+        css = (STATIC / "notes.css").read_text(encoding="utf-8")
+        assert "max-width: 768px" not in css
+
+    def test_the_legend_is_allowed_to_wrap_on_mobile(self):
+        css = (STATIC / "notes.css").read_text(encoding="utf-8")
+        assert "white-space: normal" in css
+
+    def test_mobile_controls_meet_the_touch_target_size(self):
+        css = (STATIC / "notes.css").read_text(encoding="utf-8")
+        mobile = css[css.index("@media (max-width: 640px)") :]
+        assert "min-height: 44px" in mobile

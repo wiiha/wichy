@@ -637,6 +637,21 @@ def forget_pending_notification(slug: str) -> None:
         timer.cancel()
 
 
+def forget_proposals(slug: str) -> None:
+    """Remove *slug*'s proposal file.
+
+    Called when the slug stops naming the document the proposals were made
+    against (delete, rename). A proposal left behind describes a document that
+    is gone, and its acceptance would be attributed to the wrong name.
+
+    Args:
+        slug: The document slug.
+    """
+    from wichy.tools.notes.proposals import forget_proposals as _forget_proposals
+
+    _forget_proposals(slug)
+
+
 # -------------------------------------------------------------------------
 # Versions
 # -------------------------------------------------------------------------
@@ -723,7 +738,7 @@ def describe_pending(slug: str) -> dict:
 
 
 def has_state(slug: str) -> bool:
-    """Whether *slug* has any in-memory state of its own.
+    """Whether *slug* has any state of its own, in memory or on disk.
 
     A caller about to move a document ONTO this slug needs to know before it
     touches a single file: the refusal has to happen while the operation is still
@@ -734,9 +749,16 @@ def has_state(slug: str) -> bool:
         slug: The document slug.
 
     Returns:
-        True when a lock, queued ops, a buffered notification, a cached version
-        or an injection mark exists for the slug.
+        True when a lock, queued ops, a buffered notification, a cached version,
+        an injection mark, or a proposal file exists for the slug.
     """
+    # Imported here, not at module scope: ``proposals`` imports this package's
+    # blocks module, and this module is imported by blocks.
+    from wichy.tools.notes.proposals import proposals_path
+
+    # Checked BEFORE the lock: this lock is never held across file I/O.
+    has_proposals = proposals_path(slug).exists()
+
     with _state_lock:
         return (
             slug in doc_locks
@@ -744,6 +766,7 @@ def has_state(slug: str) -> bool:
             or slug in _pending_ops
             or slug in doc_versions
             or slug in last_injected
+            or has_proposals
         )
 
 

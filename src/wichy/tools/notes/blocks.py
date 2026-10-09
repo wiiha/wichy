@@ -765,8 +765,9 @@ def insert_block(
     data: Mapping[str, Any],
     author: Author,
     after_block_id: str | None = None,
+    block_id: str | None = None,
 ) -> Block:
-    """Insert a new block, generating a new id.
+    """Insert a new block, generating a new id unless one is given.
 
     Args:
         document: The document to mutate.
@@ -775,6 +776,7 @@ def insert_block(
         author: Who is inserting.
         after_block_id: Insert directly after this block, or at the end when
             None.
+        block_id: An explicit id, or None to generate one.
 
     Returns:
         The inserted block.
@@ -782,13 +784,16 @@ def insert_block(
     Raises:
         BlockNotFoundError: ``after_block_id`` is given but not present.
         BlockDataError: The data does not match the type's schema.
+        ValueError: An explicit ``block_id`` is already used in ``document``.
     """
     if after_block_id is not None and not document.has_block(after_block_id):
         raise BlockNotFoundError(
             f"Cannot insert after '{after_block_id}': no such block."
         )
 
-    block = make_block(block_type, data, author=author, document=document)
+    block = make_block(
+        block_type, data, author=author, document=document, block_id=block_id
+    )
     if after_block_id is None:
         document.blocks.append(block)
     else:
@@ -998,13 +1003,18 @@ def delete_document_files(slug: str) -> list[str]:
 
 
 def document_files(slug: str) -> list[Path]:
-    """Every file belonging to ``slug``: document, backup, and revision logs."""
+    """Every file belonging to ``slug``: document, backup, proposal, and logs."""
     require_valid_slug(slug)
+    # Imported here, not at module scope: ``proposals`` imports ``notes_dir``
+    # from this module, so a top-level import would be circular.
+    from wichy.tools.notes.proposals import proposals_path
+
     directory = notes_dir()
     found = [
         directory / f"{slug}.json",
         directory / f"{slug}.md",
         directory / f"{slug}.revisions.jsonl",
+        proposals_path(slug),
     ]
     # Rotated logs carry a timestamp between the slug and the extension, so
     # they are matched by prefix rather than constructed.

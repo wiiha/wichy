@@ -1,263 +1,425 @@
-{% extends "base.html" %}
-
-{% block title %}Wichy - Notes{% endblock title %}
-
-{# The page is light-only: notes.css declares no dark palette, and the EasyMDE
-   editor has none to match, so a dark document theme left white-on-dark chrome
-   around a white editor. Pinning color-scheme to light keeps the browser's own
-   widgets (scrollbars, form controls) consistent with it, and suppressing the
-   theme script means no theme is applied before any CSS loads. #}
-
-{% block color_scheme %}<meta name="color-scheme" content="light" />{% endblock color_scheme %}
-
-{% block theme_script %}{% endblock theme_script %}
-
-{% block extra_css %}
-<link rel="stylesheet" href="{{ url_for('shared.static', filename='notes.css') }}">
+{% extends "base.html" %} {% block title %}Wichy - Notes{% endblock title %} {#
+The page is light-only: notes.css declares no dark palette, and the EasyMDE
+editor has none to match, so a dark document theme left white-on-dark chrome
+around a white editor. Pinning color-scheme to light keeps the browser's own
+widgets (scrollbars, form controls) consistent with it, and suppressing the
+theme script means no theme is applied before any CSS loads. #} {% block
+color_scheme %}<meta name="color-scheme" content="light" />{% endblock
+color_scheme %} {% block theme_script %}{% endblock theme_script %} {% block
+extra_css %}
+<link
+  rel="stylesheet"
+  href="{{ url_for('shared.static', filename='notes.css') }}"
+/>
 <!-- EasyMDE from local static -->
-<link rel="stylesheet" href="{{ url_for('notes.static', filename='easymde.min.css') }}">
+<link
+  rel="stylesheet"
+  href="{{ url_for('notes.static', filename='easymde.min.css') }}"
+/>
 <!-- Block editor: styling for the custom block types only; Editor.js and its
      plugins inject their own styles at load time. -->
-<link rel="stylesheet" href="{{ url_for('shared.static', filename='editorjs/editorjs-custom-blocks.css') }}">
-{% endblock extra_css %}
-
-{% block body %}
-    <div class="container">
-        <header class="header-simple">
-            <div>
-                <h1 class="header-title">Notes</h1>
-                <p class="header-subtitle">Your scratchpad and personal notes</p>
-            </div>
-            <nav class="header-nav">
-                <a href="/">Back to Home</a>
-            </nav>
-        </header>
-
-        {# A plain button row. `data-action` is what the page script binds to, so
-           a new control needs no change to the binding list. Every control is
-           `disabled` rather than hidden when it does not apply: a control that
-           appears and disappears moves the others, and with no note open there
-           is no state to test anyway. #}
-        <div id="toolbar" class="toolbar" role="toolbar" aria-label="Document actions">
-            <button class="btn btn-secondary" data-action="export" disabled>Export</button>
-            <button class="btn btn-secondary" data-action="convert" disabled>Convert to blocks</button>
-            <button class="btn btn-secondary" data-action="pin" disabled>Pin as Scratchpad</button>
-            <button class="btn btn-danger" data-action="delete" disabled>Delete</button>
-            {# Hidden until there is something unsent, so the control is never
-               offered empty: sending an empty op list would inject a change
-               message describing nothing. In auto mode it appears only while a
-               send is failing and the ops are parked. #}
-            <button class="btn btn-secondary hidden" data-action="send-changes"
-                    title="Changes queued. Send a chat message to start the agent.">
-                Queue Changes for Agent (<span id="queued-count">0</span>)
-            </button>
-            {# What the in-block marks mean. Without it the meaning is only
-               discoverable by hovering a block and reading its tooltip. #}
-            <span id="agent-legend" class="agent-legend hidden">
-                <span class="legend-mark">[AGENT]</span> = changed by the agent
-                <span class="legend-mark legend-created">[AGENT NEW]</span> = created by the agent
-            </span>
-            <button class="btn btn-secondary" data-action="history" disabled
-                    title="Browse this note's revision history.">
-                History
-            </button>
-            <span id="editor-status" class="editor-status" role="status" aria-live="polite"></span>
-        </div>
-
-
-
-        {# Announced politely rather than assertively: a conflict is important but
-           must not interrupt what the user is typing. Keeping the local version is
-           the default and the banner is inert on its own -- only [Keep agent's]
-           discards anything. #}
-        <div id="conflict-banner" class="conflict-banner hidden" role="status" aria-live="polite" tabindex="0">
-            <span id="conflict-text">Agent also edited this block. Your version is kept.</span>
-            <button class="btn btn-secondary" data-conflict="mine">Keep mine</button>
-            <button class="btn btn-secondary" data-conflict="theirs">Keep agent's</button>
-            <button class="btn btn-secondary" data-conflict="compare">Compare</button>
-        </div>
-
-        {# The conversion confirmation. A real dialog rather than window.confirm,
-           because it has to name each feature that does not map -- a list
-           confirm() cannot show. Cancel issues no request at all. #}
-        <div id="convert-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="convert-modal-title">
-            <div class="modal-content">
-                <h3 id="convert-modal-title" class="modal-title">Convert to blocks?</h3>
-                <p class="modal-body">
-                    These features of this note have no block equivalent and will
-                    become plain text:
-                </p>
-                <ul id="convert-modal-features" class="modal-body"></ul>
-                <p class="modal-body">
-                    The original markdown is kept as a backup, but the conversion
-                    cannot be undone from here.
-                </p>
-                <div class="modal-footer">
-                    <button id="convert-modal-cancel" class="btn btn-secondary">Cancel</button>
-                    <button id="convert-modal-confirm" class="btn btn-primary">Convert</button>
-                </div>
-            </div>
-        </div>
-
-        {# Read-only, and it resolves to neither side: the point is to help the
-           user choose, so closing it leaves the banner up. #}
-        <div id="compare-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="compare-modal-title">
-            <div class="modal-content">
-                <h3 id="compare-modal-title" class="modal-title">Compare the two versions</h3>
-                <div class="compare-grid">
-                    <div>
-                        <h4 class="compare-heading">Your version</h4>
-                        <pre id="compare-mine" class="compare-body"></pre>
-                    </div>
-                    <div>
-                        <h4 class="compare-heading">Agent's version</h4>
-                        <pre id="compare-theirs" class="compare-body"></pre>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button id="compare-modal-close" class="btn btn-secondary">Close</button>
-                </div>
-            </div>
-        </div>
-
-        {# The revision browser. Read-only apart from Restore, which is offered
-           per revision so the user picks a state rather than trusting a label:
-           the confirmation inside names the scope before anything changes. #}
-        <div id="history-modal" class="modal-overlay hidden" role="dialog"
-             aria-modal="true" aria-labelledby="history-modal-title">
-            <div class="modal-content modal-wide">
-                <h3 id="history-modal-title" class="modal-title">Revision history</h3>
-                <div class="history-layout">
-                    <div class="history-list" id="history-list" role="listbox"
-                         aria-label="Revisions, newest first"></div>
-                    <div class="history-detail">
-                        <h4 class="history-detail-heading" id="history-detail-heading"></h4>
-                        <div class="history-incomplete hidden" id="history-incomplete"></div>
-                        <pre id="history-content" class="history-content"></pre>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button id="history-restore" class="btn btn-danger" disabled>
-                        Restore to this revision
-                    </button>
-                    <button id="history-modal-close" class="btn btn-secondary">Close</button>
-                </div>
-            </div>
-        </div>
-
-        {# Announced politely: a restore is the user's own action, but its result
-           should not interrupt what they were typing. #}
-        <div class="main-layout">
-            <aside class="sidebar">
-                <div class="sidebar-section">
-                    <button id="btn-new-note" class="btn btn-primary btn-block">+ New Note</button>
-                </div>
-                <div class="sidebar-section">
-                    <input type="text" id="note-search" class="form-input" placeholder="Search notes...">
-                </div>
-                <div class="sidebar-section notes-list-container">
-                    <div id="notes-list">
-                        <!-- Notes rendered here -->
-                    </div>
-                    <div id="empty-state" class="empty-state hidden">
-                        <p>No notes yet.</p>
-                        <p>Create your first note above.</p>
-                    </div>
-                </div>
-            </aside>
-
-            <main class="editor">
-                <div id="no-note-selected" class="no-note-selected">
-                    <p>Select a note from the sidebar or create a new one.</p>
-                </div>
-                <div id="note-editor" class="note-editor hidden">
-                    <div class="editor-header" id="editor-header" data-saving="false">
-                        <div class="note-title-input" id="note-title-wrapper">
-                            <span id="note-title" class="note-title-text" contenteditable="true" placeholder="Note title..."></span>
-                            <span id="note-title-unsaved" class="note-title-unsaved" title="Unsaved changes"></span>
-                            <span id="note-title-saving" class="note-title-saving">saving…</span>
-                        </div>
-                        <div class="editor-actions">
-                            <button id="btn-pin" class="btn btn-secondary">
-                                <span class="pin-icon">☆</span> Pin as Scratchpad
-                            </button>
-                            <button id="btn-delete" class="btn btn-danger">Delete</button>
-                        </div>
-                    </div>
-                    {# A legacy .md note is read-only here by design: the bridge
-                       keeps .md as markdown and conversion is the edit path. The
-                       hint names that path instead of offering a save that can
-                       never succeed. #}
-                    <div id="convert-hint" class="convert-hint hidden" role="status" aria-live="polite">
-                        <span>This note is stored as markdown, so it is shown read-only.</span>
-                        <button id="btn-convert-hint" class="btn btn-secondary btn-sm" type="button">
-                            Convert to blocks to edit
-                        </button>
-                    </div>
-                    {# Errors surfaced here, not only in the console: a failed
-                       load or save with no visible message reads as a page that
-                       silently did nothing. #}
-                    <p id="note-error" class="note-error hidden" role="status" aria-live="polite"></p>
-                    {# The markdown editor and the block editor are separate nodes.
-                       Sharing one container would make each editor fight the
-                       other for the same DOM, so the page swaps between them by
-                       document format and neither can disturb the other. #}
-                    <textarea id="note-content"></textarea>
-                    <div id="block-editor" class="block-editor hidden" aria-label="Block editor"></div>
-                </div>
-            </main>
-        </div>
+<link
+  rel="stylesheet"
+  href="{{ url_for('shared.static', filename='editorjs/editorjs-custom-blocks.css') }}"
+/>
+{% endblock extra_css %} {% block body %}
+<div class="container">
+  <header class="header-simple">
+    <div>
+      <h1 class="header-title">Notes</h1>
+      <p class="header-subtitle">Your notes, shared with the agent</p>
     </div>
-{% endblock body %}
+    <nav class="header-nav">
+      <button
+        id="btn-drawer"
+        class="btn btn-secondary btn-drawer"
+        type="button"
+        aria-label="Show notes list"
+        aria-expanded="false"
+      >
+        Notes
+      </button>
+      <a href="/">Back to Home</a>
+    </nav>
+  </header>
 
-{% block extra_js %}
-    <!-- EasyMDE from local static -->
-    <script src="{{ url_for('notes.static', filename='easymde.min.js') }}"></script>
+  {# A plain button row. `data-action` is what the page script binds to, so a
+  new control needs no change to the binding list. Every control is `disabled`
+  rather than hidden when it does not apply: a control that appears and
+  disappears moves the others, and with no note open there is no state to test
+  anyway. #}
+  <div
+    id="toolbar"
+    class="toolbar"
+    role="toolbar"
+    aria-label="Document actions"
+  >
+    <button class="btn btn-secondary" data-action="export" disabled>
+      Export
+    </button>
+    <button class="btn btn-secondary" data-action="convert" disabled>
+      Convert to blocks
+    </button>
+    <button class="btn btn-secondary" data-action="pin" disabled>
+      Pin for Agent
+    </button>
+    <button class="btn btn-danger" data-action="delete" disabled>Delete</button>
+    {# Hidden until there is something unsent, so the control is never offered
+    empty: sending an empty op list would inject a change message describing
+    nothing. In auto mode it appears only while a send is failing and the ops
+    are parked. #}
+    <button
+      class="btn btn-secondary hidden"
+      data-action="send-changes"
+      title="Changes queued. Send a chat message to start the agent."
+    >
+      Queue Changes for Agent (<span id="queued-count">0</span>)
+    </button>
+    {# What the in-block marks mean. Without it the meaning is only discoverable
+    by hovering a block and reading its tooltip. #}
+    <span id="agent-legend" class="agent-legend hidden">
+      <span class="legend-mark">[AGENT]</span> = changed by the agent
+      <span class="legend-mark legend-created">[AGENT NEW]</span> = created by
+      the agent
+    </span>
+    <button
+      class="btn btn-secondary"
+      data-action="history"
+      disabled
+      title="Browse this note's revision history."
+    >
+      History
+    </button>
+    <span
+      id="editor-status"
+      class="editor-status"
+      role="status"
+      aria-live="polite"
+    ></span>
+  </div>
+  <div class="toolbar toolbar-secondary">
+    <button
+      id="btn-proposals"
+      class="btn btn-secondary"
+      type="button"
+      disabled
+      title="Changes the agent proposed for you to review"
+    >
+      Review Proposals
+    </button>
+    <button
+      id="btn-proposals-mode"
+      class="btn btn-secondary"
+      type="button"
+      aria-pressed="true"
+      disabled
+      title="Agent edits arrive for your review before they are applied"
+    >
+      Proposals: On
+    </button>
+  </div>
 
-    {# Editor.js and its plugins, each guarded individually. A single guard on
-       the core alone would let a missing plugin fail silently at editor init
-       instead of visibly at load, which is much harder to diagnose. The page
-       script checks `window.editorjsReady` and falls back to markdown editing
-       if any asset is absent, so a bad vendor drop degrades rather than
-       breaking the page. #}
-    <script src="{{ url_for('shared.static', filename='editorjs/editorjs.umd.js') }}"></script>
-    <script>
-        window.editorjsMissing = [];
-        function _guard(name) {
-            if (!window[name]) { window.editorjsMissing.push(name); }
-        }
-        _guard('EditorJS');
-    </script>
-    <script src="{{ url_for('shared.static', filename='editorjs/header.umd.js') }}"></script>
-    <script src="{{ url_for('shared.static', filename='editorjs/list.umd.js') }}"></script>
-    <script src="{{ url_for('shared.static', filename='editorjs/code.umd.js') }}"></script>
-    <script src="{{ url_for('shared.static', filename='editorjs/quote.umd.js') }}"></script>
-    <script src="{{ url_for('shared.static', filename='editorjs/checklist.umd.js') }}"></script>
-    <script src="{{ url_for('shared.static', filename='editorjs/delimiter.umd.js') }}"></script>
-    <script>
-        ['Header', 'List', 'CodeTool', 'Quote', 'Checklist', 'Delimiter'].forEach(_guard);
-    </script>
-    <!-- Loaded after the plugins, because it defines the custom block classes. -->
-    <script src="{{ url_for('shared.static', filename='editorjs/custom-blocks.js') }}"></script>
-    <script>
-        _guard('WichyCustomBlocks');
-        window.editorjsReady = window.editorjsMissing.length === 0;
-    </script>
+  {# Announced politely rather than assertively: a conflict is important but
+  must not interrupt what the user is typing. Keeping the local version is the
+  default and the banner is inert on its own -- only [Keep agent's] discards
+  anything. #}
+  <div
+    id="conflict-banner"
+    class="conflict-banner hidden"
+    role="status"
+    aria-live="polite"
+    tabindex="0"
+  >
+    <span id="conflict-text"
+      >Agent also edited this block. Your version is kept.</span
+    >
+    <button class="btn btn-secondary" data-conflict="mine">Keep mine</button>
+    <button class="btn btn-secondary" data-conflict="theirs">
+      Keep agent's
+    </button>
+    <button class="btn btn-secondary" data-conflict="compare">Compare</button>
+  </div>
 
-    {# The intervals the frontend uses, so they are settings rather than
-       constants buried in the script. Injected as JSON so a value can never be
-       interpolated as live code. #}
-    <script type="application/json" id="notes-settings">
-        {{ {
-            "poll_interval_ms": notes_settings.poll_interval_ms,
-            "change_debounce_ms": notes_settings.change_debounce_ms,
-            "save_debounce_ms": notes_settings.save_debounce_ms,
-            "notification_mode": notes_settings.notification_default_mode
-        } | tojson }}
-    </script>
+  {# The conversion confirmation. A real dialog rather than window.confirm,
+  because it has to name each feature that does not map -- a list confirm()
+  cannot show. Cancel issues no request at all. #}
+  <div
+    id="convert-modal"
+    class="modal-overlay hidden"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="convert-modal-title"
+  >
+    <div class="modal-content">
+      <h3 id="convert-modal-title" class="modal-title">Convert to blocks?</h3>
+      <p class="modal-body">
+        These features of this note have no block equivalent and will become
+        plain text:
+      </p>
+      <ul id="convert-modal-features" class="modal-body"></ul>
+      <p class="modal-body">
+        The original markdown is kept as a backup, but the conversion cannot be
+        undone from here.
+      </p>
+      <div class="modal-footer">
+        <button id="convert-modal-cancel" class="btn btn-secondary">
+          Cancel
+        </button>
+        <button id="convert-modal-confirm" class="btn btn-primary">
+          Convert
+        </button>
+      </div>
+    </div>
+  </div>
 
-    <script src="{{ url_for('shared.static', filename='notes.js') }}"></script>
-    {% if notes_settings.enable_block_editor %}
-    <script src="{{ url_for('shared.static', filename='notes_blocks.js') }}"></script>
-    {% endif %}
-{% endblock extra_js %}
+  {# Read-only, and it resolves to neither side: the point is to help the user
+  choose, so closing it leaves the banner up. #}
+  <div
+    id="compare-modal"
+    class="modal-overlay hidden"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="compare-modal-title"
+  >
+    <div class="modal-content">
+      <h3 id="compare-modal-title" class="modal-title">
+        Compare the two versions
+      </h3>
+      <div class="compare-grid">
+        <div>
+          <h4 class="compare-heading">Your version</h4>
+          <pre id="compare-mine" class="compare-body"></pre>
+        </div>
+        <div>
+          <h4 class="compare-heading">Agent's version</h4>
+          <pre id="compare-theirs" class="compare-body"></pre>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="compare-modal-close" class="btn btn-secondary">
+          Close
+        </button>
+      </div>
+    </div>
+  </div>
+
+  {# The revision browser. Read-only apart from Restore, which is offered per
+  revision so the user picks a state rather than trusting a label: the
+  confirmation inside names the scope before anything changes. #}
+  <div
+    id="history-modal"
+    class="modal-overlay hidden"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="history-modal-title"
+  >
+    <div class="modal-content modal-wide">
+      <h3 id="history-modal-title" class="modal-title">Revision history</h3>
+      <div class="history-layout">
+        <div
+          class="history-list"
+          id="history-list"
+          role="listbox"
+          aria-label="Revisions, newest first"
+        ></div>
+        <div class="history-detail">
+          <h4 class="history-detail-heading" id="history-detail-heading"></h4>
+          <div class="history-incomplete hidden" id="history-incomplete"></div>
+          <pre id="history-content" class="history-content"></pre>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="history-restore" class="btn btn-danger" disabled>
+          Restore to this revision
+        </button>
+        <button id="history-modal-close" class="btn btn-secondary">
+          Close
+        </button>
+      </div>
+    </div>
+  </div>
+
+  {# Announced politely: a restore is the user's own action, but its result
+  should not interrupt what they were typing. #}
+  <div class="main-layout">
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <button id="btn-new-note" class="btn btn-primary btn-block">
+          + New Note
+        </button>
+      </div>
+      <div class="sidebar-section">
+        <input
+          type="text"
+          id="note-search"
+          class="form-input"
+          placeholder="Search notes..."
+        />
+      </div>
+      <div class="sidebar-section notes-list-container">
+        <div id="notes-list">
+          <!-- Notes rendered here -->
+        </div>
+        <div id="empty-state" class="empty-state hidden">
+          <p>No notes yet.</p>
+          <p>Create your first note above.</p>
+        </div>
+      </div>
+    </aside>
+
+    <main class="editor">
+      <div id="no-note-selected" class="no-note-selected">
+        <p>Select a note from the sidebar or create a new one.</p>
+      </div>
+      <div id="note-editor" class="note-editor hidden">
+        <div class="editor-header" id="editor-header" data-saving="false">
+          <div class="note-title-input" id="note-title-wrapper">
+            <span
+              id="note-title"
+              class="note-title-text"
+              contenteditable="true"
+              placeholder="Note title..."
+            ></span>
+            <span
+              id="note-title-unsaved"
+              class="note-title-unsaved"
+              title="Unsaved changes"
+            ></span>
+            <span id="note-title-saving" class="note-title-saving"
+              >saving…</span
+            >
+          </div>
+          <div class="editor-actions">
+            <button id="btn-pin" class="btn btn-secondary">
+              <span class="pin-icon">☆</span> Pin for Agent
+            </button>
+            <button id="btn-delete" class="btn btn-danger">Delete</button>
+          </div>
+        </div>
+        {# A legacy .md note is read-only here by design: the bridge keeps .md
+        as markdown and conversion is the edit path. The hint names that path
+        instead of offering a save that can never succeed. #}
+        <div
+          id="convert-hint"
+          class="convert-hint hidden"
+          role="status"
+          aria-live="polite"
+        >
+          <span
+            >This note is stored as markdown, so it is shown read-only.</span
+          >
+          <button
+            id="btn-convert-hint"
+            class="btn btn-secondary btn-sm"
+            type="button"
+          >
+            Convert to blocks to edit
+          </button>
+        </div>
+        {# Errors surfaced here, not only in the console: a failed load or save
+        with no visible message reads as a page that silently did nothing. #}
+        <p
+          id="note-error"
+          class="note-error hidden"
+          role="status"
+          aria-live="polite"
+        ></p>
+        {# The markdown editor and the block editor are separate nodes. Sharing
+        one container would make each editor fight the other for the same DOM,
+        so the page swaps between them by document format and neither can
+        disturb the other. #}
+        <textarea id="note-content"></textarea>
+        <div
+          id="block-editor"
+          class="block-editor hidden"
+          aria-label="Block editor"
+        ></div>
+      </div>
+    </main>
+  </div>
+</div>
+
+{# The review surface: only *proposed* agent changes appear here. An accepted
+proposal becomes an ordinary agent edit and is shown by the editor marks. #}
+<div
+  id="proposal-sheet"
+  class="overlay-surface hidden"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="proposal-title"
+>
+  <div class="overlay-panel proposal-panel">
+    <div class="proposal-header">
+      <h3 id="proposal-title" class="proposal-title">Proposed changes</h3>
+      <button id="proposal-close" class="btn btn-secondary" type="button">
+        Close
+      </button>
+    </div>
+    <p
+      id="proposal-status"
+      class="proposal-status"
+      role="status"
+      aria-live="polite"
+    ></p>
+    <ul
+      id="proposal-list"
+      class="proposal-list"
+      aria-label="Proposed changes"
+    ></ul>
+    <p id="proposal-empty" class="proposal-empty">No proposed changes.</p>
+  </div>
+</div>
+{% endblock body %} {% block extra_js %}
+<!-- EasyMDE from local static -->
+<script src="{{ url_for('notes.static', filename='easymde.min.js') }}"></script>
+
+{# Editor.js and its plugins, each guarded individually. A single guard on the
+core alone would let a missing plugin fail silently at editor init instead of
+visibly at load, which is much harder to diagnose. The page script checks
+`window.editorjsReady` and falls back to markdown editing if any asset is
+absent, so a bad vendor drop degrades rather than breaking the page. #}
+<script src="{{ url_for('shared.static', filename='editorjs/editorjs.umd.js') }}"></script>
+<script>
+  window.editorjsMissing = [];
+  function _guard(name) {
+    if (!window[name]) {
+      window.editorjsMissing.push(name);
+    }
+  }
+  _guard("EditorJS");
+</script>
+<script src="{{ url_for('shared.static', filename='editorjs/header.umd.js') }}"></script>
+<script src="{{ url_for('shared.static', filename='editorjs/list.umd.js') }}"></script>
+<script src="{{ url_for('shared.static', filename='editorjs/code.umd.js') }}"></script>
+<script src="{{ url_for('shared.static', filename='editorjs/quote.umd.js') }}"></script>
+<script src="{{ url_for('shared.static', filename='editorjs/checklist.umd.js') }}"></script>
+<script src="{{ url_for('shared.static', filename='editorjs/delimiter.umd.js') }}"></script>
+<script>
+  ["Header", "List", "CodeTool", "Quote", "Checklist", "Delimiter"].forEach(
+    _guard,
+  );
+</script>
+<!-- Loaded after the plugins, because it defines the custom block classes. -->
+<script src="{{ url_for('shared.static', filename='editorjs/custom-blocks.js') }}"></script>
+<script>
+  _guard("WichyCustomBlocks");
+  window.editorjsReady = window.editorjsMissing.length === 0;
+</script>
+
+{# The intervals the frontend uses, so they are settings rather than constants
+buried in the script. Injected as JSON so a value can never be interpolated as
+live code. #}
+<script type="application/json" id="notes-settings">
+  {{ {
+      "poll_interval_ms": notes_settings.poll_interval_ms,
+      "change_debounce_ms": notes_settings.change_debounce_ms,
+      "save_debounce_ms": notes_settings.save_debounce_ms,
+      "notification_mode": notes_settings.notification_default_mode
+  } | tojson }}
+</script>
+
+<script src="{{ url_for('shared.static', filename='notes.js') }}"></script>
+<script src="{{ url_for('shared.static', filename='notes_proposals.js') }}"></script>
+{% if notes_settings.enable_block_editor %}
+<script src="{{ url_for('shared.static', filename='notes_blocks.js') }}"></script>
+{% endif %} {% endblock extra_js %}

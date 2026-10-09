@@ -44,6 +44,7 @@ from wichy.tools.notes.blocks import (
     InvalidSlugError,
     MarkdownDocumentError,
     StaleVersionError,
+    block_snapshot_of,
     create_document,
     delete_block,
     delete_document_files,
@@ -62,6 +63,10 @@ from wichy.tools.notes.blocks import (
     replace_block,
     resolve_format,
     slug_exists,
+)
+from wichy.tools.notes.proposals import (
+    load_proposals,
+    save_proposals,
 )
 from wichy.tools.notes.markdown import (
     block_text,
@@ -91,6 +96,7 @@ from wichy.tools.notes.state import (
     note_injected,
     peek_pending_notification,
     pending_notification_version,
+    queue_agent_change,
     set_doc_version,
     set_notify_flush,
     set_notify_settle_seconds,
@@ -102,8 +108,11 @@ from wichy.tools.notes.revisions import (
     IncompleteHistoryError,
     replay,
     RevisionNotFoundError,
+    append_entry,
     browse_entries_with_filters,
+    diff_ops,
     get_revision,
+    prepare_revision,
     replay_matches_document,
     restore_document,
     revert_document,
@@ -125,8 +134,8 @@ MAX_CONFLICT_BLOCKS = 20
 #: (the agent's tools resolve their target from the pin and take no slug), so a
 #: title here would name something the agent has no other word for. It is the
 #: scratchpad, always.
-CHANGE_MESSAGE_OPEN = "[Scratchpad changes]"
-CHANGE_MESSAGE_CLOSE = "[End scratchpad changes]"
+CHANGE_MESSAGE_OPEN = "[Note changes]"
+CHANGE_MESSAGE_CLOSE = "[End note changes]"
 
 #: Verb per op kind, for the injected summary.
 _OP_VERBS = {
@@ -1185,6 +1194,302 @@ def register_routes(bp: Blueprint):
         if error is not None:
             return error
         return jsonify({"version": document.meta.version, "block_id": block_id})
+
+    # -------------------------------------------------------------------------
+    # Proposals
+    # -------------------------------------------------------------------------
+
+    @bp.route("/api/notes/<slug>/proposals-mode")
+    def get_proposals_mode(slug: str):
+        """Whether agent edits on this note are recorded as proposals."""
+        invalid = _validate_slug(slug)
+        if invalid is not None:
+            return invalid
+
+        try:
+            document = load_document(slug)
+        except InvalidSlugError as e:
+            return _error(str(e), 400)
+        except DocumentNotFoundError:
+            return _error(NOT_FOUND, 404)
+        except (InvalidDocumentError, UnicodeDecodeError, OSError) as e:
+            return _error(f"Note '{slug}' could not be read: {e}", 500)
+
+        return jsonify({"enabled": bool(document.meta.proposals_enabled)})
+
+    @bp.route("/api/notes/<slug>/proposals-mode", methods=["POST"])
+    def set_proposals_mode(slug: str):
+        """Turn proposal review for this note on or off."""
+        data = _json_body()
+        if data is None:
+            return _error("The request body must be a JSON object.", 400)
+        if "enabled" not in data or not isinstance(data["enabled"], bool):
+            return _error("enabled must be a boolean.", 400)
+        enabled = data["enabled"]
+        expected = data.get("version")
+        if expected is not None and (
+            isinstance(expected, bool) or not isinstance(expected, int)
+        ):
+            return _error("version must be an integer.", 400)
+
+        def mutate(document):
+            document.meta.proposals_enabled = enabled
+
+        document, error = _apply_locked(slug, expected, "user", mutate)
+        if error is not None:
+            return error
+        return jsonify({"enabled": bool(document.meta.proposals_enabled)})
+
+    def _open_proposals(slug: str) -> list[dict]:
+        """Unresolved proposals, in id order."""
+        proposals = load_proposals(slug)
+        return [
+            proposal.model_dump()
+            for proposal in sorted(proposals.values(), key=lambda p: p.id)
+            if not proposal.resolved
+        ]
+
+    @bp.route("/api/notes/<slug>/proposals")
+    def list_proposals(slug: str):
+        """List unresolved proposals and the document version they belong to."""
+        invalid = _validate_slug(slug)
+        if invalid is not None:
+            return invalid
+
+        try:
+            document = load_document(slug)
+        except InvalidSlugError as e:
+            return _error(str(e), 400)
+        except DocumentNotFoundError:
+            return _error(NOT_FOUND, 404)
+        except (InvalidDocumentError, UnicodeDecodeError, OSError) as e:
+            return _error(f"Note '{slug}' could not be read: {e}", 500)
+
+        return jsonify(
+            {"proposals": _open_proposals(slug), "version": document.meta.version}
+        )
+
+    @bp.route("/api/notes/<slug>/proposals/<proposal_id>/reject", methods=["POST"])
+    def reject_proposal(slug: str, proposal_id: str):
+        """Discard a pending proposal. The document is never touched."""
+        invalid = _validate_slug(slug)
+        if invalid is not None:
+            return invalid
+
+        if resolve_format(slug) is None:
+            return _error(NOT_FOUND, 404)
+
+        # Under the lock: the proposals file is the sole authority, so a bare
+        # read-modify-write would lose a proposal an agent stored concurrently.
+        with document_lock(slug):
+            try:
+                document = load_document(slug)
+            except (InvalidDocumentError, UnicodeDecodeError, OSError) as e:
+                return _error(f"Note '{slug}' could not be read: {e}", 500)
+
+            proposals = load_proposals(slug)
+            proposal = proposals.get(proposal_id)
+            if proposal is None or proposal.resolved:
+                return _error("Proposal not found", 404)
+
+            del proposals[proposal_id]
+            save_proposals(slug, proposals)
+            return jsonify(
+                {"proposals": _open_proposals(slug), "version": document.meta.version}
+            )
+
+    @bp.route("/api/notes/<slug>/proposals/<proposal_id>/accept", methods=["POST"])
+    def accept_proposal(slug: str, proposal_id: str):
+        """Apply a pending proposal to the document, as one agent revision."""
+        invalid = _validate_slug(slug)
+        if invalid is not None:
+            return invalid
+
+        data = _json_body()
+        if data is None:
+            return _error("The request body must be a JSON object.", 400)
+        expected, version_error = _expected_version(data)
+        if version_error is not None:
+            return _error(version_error, 400)
+
+        from wichy.tools.notes.agent_tools import convert_data, text_to_data
+        from wichy.tools.notes.proposals import fingerprint_block
+
+        def write_payload(block, payload):
+            # The answer flag belongs to notes_answer_question, which stores no
+            # text; everything else replaces the block's content.
+            if "answer" in payload:
+                if block.type != "question":
+                    raise BlockNotFoundError(
+                        f"Block '{block.id}' is a {block.type}, not a question."
+                    )
+                return "question", {
+                    **block.data,
+                    "answered": bool(payload.get("answer")),
+                }
+            return block.type, text_to_data(block.type, str(payload.get("text") or ""))
+
+        def insert_payload(payload):
+            block_type = str(payload.get("type") or "paragraph")
+            if block_type == "question":
+                return block_type, {
+                    "text": str(payload.get("text") or ""),
+                    "answered": False,
+                }
+            return block_type, text_to_data(block_type, str(payload.get("text") or ""))
+
+        noop = False
+        block_id_result = None
+        try:
+            with document_lock(slug):
+                try:
+                    fmt = resolve_format(slug)
+                    if fmt is None:
+                        raise DocumentNotFoundError(f"No note found for slug '{slug}'.")
+                    if fmt == FORMAT_MARKDOWN:
+                        raise MarkdownDocumentError(MARKDOWN_WRITE_REFUSED)
+
+                    document = load_document(slug)
+
+                    proposals = load_proposals(slug)
+                    proposal = proposals.get(proposal_id)
+                    if proposal is None or proposal.resolved:
+                        return _error("Proposal not found", 404)
+
+                    if expected is not None and document.meta.version != expected:
+                        raise StaleVersionError(expected, document.meta.version)
+
+                    before_snapshot = block_snapshot_of(document)
+                    if proposal.kind == "insert":
+                        if proposal.block_id_hint and document.has_block(
+                            proposal.block_id_hint
+                        ):
+                            noop = True
+                            block_id_result = proposal.block_id_hint
+                        else:
+                            created = insert_block(
+                                document,
+                                block_type=insert_payload(proposal.payload)[0],
+                                data=insert_payload(proposal.payload)[1],
+                                author="agent",
+                                after_block_id=proposal.anchor_id,
+                                block_id=proposal.block_id_hint or None,
+                            )
+                            block_id_result = created.id
+                    else:
+                        if proposal.block_id is None:
+                            return _error("Proposal targets no block", 409)
+                        target = document.get_block(proposal.block_id)
+                        if target is None:
+                            raise BlockNotFoundError(
+                                f"Block '{proposal.block_id}' no longer exists."
+                            )
+                        if (
+                            proposal.fingerprint is not None
+                            and fingerprint_block(target) != proposal.fingerprint
+                        ):
+                            return _error(
+                                "The block changed since the proposal was made.",
+                                409,
+                            )
+                        before_snapshot = block_snapshot_of(document)
+                        if proposal.kind == "write":
+                            btype, bdata = write_payload(target, proposal.payload)
+                            replace_block(
+                                document,
+                                target.id,
+                                data=bdata,
+                                author="agent",
+                                block_type=btype,
+                            )
+                        elif proposal.kind == "change_type":
+                            btype = str(proposal.payload.get("type") or target.type)
+                            replace_block(
+                                document,
+                                target.id,
+                                data=convert_data(target.type, target.data, btype),
+                                author="agent",
+                                block_type=btype,
+                            )
+                        elif proposal.kind == "delete":
+                            delete_block(document, target.id)
+                        elif proposal.kind == "move":
+                            move_block(
+                                document,
+                                target.id,
+                                after_block_id=proposal.payload.get("after_block_id"),
+                            )
+                        else:
+                            raise ValueError(
+                                f"Unknown proposal kind '{proposal.kind}'."
+                            )
+                        block_id_result = target.id
+                        if block_snapshot_of(document) == before_snapshot:
+                            noop = True
+
+                    if not noop:
+                        document.meta.version += 1
+                        document.meta.last_author = "agent"
+                        ops = diff_ops(before_snapshot, block_snapshot_of(document))
+                        entry = prepare_revision(document, author="agent", ops=ops)
+                        from wichy.tools.notes.blocks import (
+                            save_document as _save_document,
+                        )
+
+                        _save_document(document)
+                        set_doc_version(slug, document.meta.version)
+                        append_entry(slug, entry)
+                        # An accepted proposal is an ordinary agent write, so the
+                        # browser is told about it exactly as a direct one: after
+                        # the write, from the same ops the revision records.
+                        for op in ops:
+                            queue_agent_change(
+                                document.meta.slug,
+                                {
+                                    **op,
+                                    "author": "agent",
+                                    "version": document.meta.version,
+                                },
+                            )
+
+                    # Removed, not flagged: a resolved entry would grow the file
+                    # without bound, and a re-accept must find nothing (404).
+                    del proposals[proposal_id]
+                    save_proposals(slug, proposals)
+                    new_version = document.meta.version
+                    resolved_list = _open_proposals(slug)
+                except InvalidSlugError as e:
+                    return _error(str(e), 400)
+                except DocumentNotFoundError:
+                    return _error(NOT_FOUND, 404)
+                except MarkdownDocumentError:
+                    return _error(MARKDOWN_WRITE_REFUSED, 409)
+                except StaleVersionError as e:
+                    return _error(str(e), 409)
+                except BlockNotFoundError as e:
+                    return _error(str(e), 409)
+                except BlockDataError as e:
+                    return _error(str(e), 400)
+                except (ValueError, AttributeError, TypeError) as e:
+                    # A stored proposal whose payload cannot be interpreted is
+                    # corrupt state, not a conflict: 400 tells the client not to
+                    # retry, which a 409 would invite.
+                    return _error(str(e), 400)
+                except OSError as e:
+                    return _error(f"Could not write the note: {e}", 500)
+        except ValueError as e:
+            return _error(str(e), 400)
+
+        return jsonify(
+            {
+                "proposals": resolved_list,
+                "version": new_version,
+                "applied": {
+                    "block_id": block_id_result,
+                    "noop": noop,
+                },
+            }
+        )
 
     # -------------------------------------------------------------------------
     # Revisions

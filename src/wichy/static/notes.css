@@ -281,21 +281,74 @@
   color: var(--text-muted);
 }
 
-/* Responsive */
-@media (max-width: 768px) {
+/* Responsive.
+
+   Mobile first: at <=640px the sidebar is an off-canvas drawer opened by the
+   header button, and the editor takes the full width. 641-1024 keeps a narrower
+   sidebar; above 1024 the desktop layout is unchanged. */
+.btn-drawer {
+    display: none;
+}
+
+@media (max-width: 640px) {
   .main-layout {
     flex-direction: column;
   }
 
+  .btn-drawer {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    min-width: 44px;
+    margin-right: 8px;
+  }
+
   .sidebar {
-    width: 100%;
-    max-height: 300px;
-    margin-bottom: var(--space-lg);
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 55;
+    width: min(280px, 85vw);
+    max-height: none;
+    background: var(--surface, #fff);
+    box-shadow: 0 0 24px rgba(0, 0, 0, 0.2);
+    transform: translateX(-100%);
+    visibility: hidden;
+    transition: transform 0.2s ease;
+  }
+
+  .sidebar.sidebar-open {
+    transform: translateX(0);
+    visibility: visible;
   }
 
   .editor {
     margin-left: 0;
     flex: 1;
+  }
+
+  .toolbar .btn,
+  .toolbar .note-item-convert,
+  .history-row,
+  .conflict-banner button {
+    min-height: 44px;
+  }
+
+  /* The legend is wider than a phone: let it flow rather than force the
+     toolbar to scroll sideways. */
+  .agent-legend {
+    white-space: normal;
+  }
+}
+
+@media (min-width: 641px) and (max-width: 1024px) {
+  .sidebar {
+    width: 220px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar {
+    transition: none;
   }
 }
 
@@ -744,5 +797,104 @@
 @media (prefers-reduced-motion: reduce) {
     .block-editor .ce-block__content.agent-flash {
         animation: none;
+    }
+}
+
+/* ---------------------------------------------------------------------------
+   Proposals: the review surface and its toolbar controls.
+
+   An overlay-surface is the shared shell for the sheet and the mobile drawer:
+   a full-bleed fixed layer on mobile, a right-hand panel above 1024px. The
+   breakpoints are defined here once.
+   --------------------------------------------------------------------------- */
+.overlay-surface {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.4);
+}
+
+.overlay-panel {
+    background: var(--surface, #fff);
+    width: 100%;
+    max-height: 80vh;
+    overflow-y: auto;
+    border-radius: 12px 12px 0 0;
+    padding: 16px;
+}
+
+.proposal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.proposal-title {
+    margin: 0;
+    font-size: 1rem;
+}
+
+.proposal-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.proposal-item {
+    border-top: 1px solid var(--border, #e5e7eb);
+    padding: 12px 0;
+}
+
+.proposal-text {
+    margin: 0 0 4px;
+    word-break: break-word;
+}
+
+.proposal-meta {
+    margin: 0 0 8px;
+    font-size: 0.8rem;
+    color: var(--text-muted, #666);
+}
+
+.proposal-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.proposal-empty {
+    color: var(--text-muted, #666);
+    margin: 8px 0;
+}
+
+.proposal-status {
+    color: var(--text-muted, #666);
+    margin: 4px 0 8px;
+    min-height: 1.2em;
+}
+
+/* Touch targets: every control a thumb reaches is at least 44px tall. */
+.toolbar-secondary .btn,
+.proposal-actions .btn {
+    min-height: 44px;
+    min-width: 44px;
+}
+
+@media (min-width: 1025px) {
+    .overlay-surface {
+        align-items: stretch;
+        justify-content: flex-end;
+    }
+
+    .overlay-panel {
+        width: 380px;
+        max-width: 100%;
+        height: 100%;
+        max-height: none;
+        border-radius: 0;
     }
 }

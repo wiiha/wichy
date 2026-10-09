@@ -309,6 +309,7 @@ class DocumentMeta(BaseModel):
     updated: str = Field(default_factory=now_iso)
     last_author: Author = "user"
     is_scratchpad: bool = False
+    proposals_enabled: bool = True
     #: Source of the next revision id. Lives in meta rather than in the log so
     #: that monotonicity survives rotation.
     next_revision_id: int = 1
@@ -357,3 +358,21 @@ def is_valid_slug(slug: str) -> bool:
     whitespace on its own, so validity has to be enforced rather than assumed.
     """
     return bool(_SLUG_RE.match(slug))
+
+
+class Proposal(BaseModel):
+    """One agent edit awaiting the user's decision."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    kind: str  # insert | write | delete | move | change_type
+    block_id: str | None = None
+    anchor_id: str | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+    fingerprint: str | None = None
+    block_id_hint: str | None = None
+    base_version: int = 1
+    author: Author = "agent"
+    created: str = Field(default_factory=now_iso)
+    resolved: bool = False

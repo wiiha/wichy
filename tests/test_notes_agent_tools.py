@@ -48,8 +48,9 @@ from wichy.tools.notes.blocks import (
     revisions_path,
     save_document,
 )
+from wichy.tools.notes.proposals import load_proposals, proposals_path
 from wichy.tools.notes.state import reset_state
-from wichy.tools.read_scratchpad import ReadScratchpadTool
+from wichy.tools.read_note import ReadNoteTool
 
 BLOCK_TOOLS = [
     ReadBlocksTool,
@@ -62,7 +63,7 @@ BLOCK_TOOLS = [
     ReadRevisionsTool,
     GetBlockTool,
     FindBlockIdsTool,
-    ReadScratchpadTool,
+    ReadNoteTool,
 ]
 
 
@@ -79,7 +80,7 @@ def notes_dir(tmp_path, monkeypatch):
 
 @pytest.fixture
 def scratchpad(notes_dir):
-    """A pinned scratchpad document with three blocks."""
+    """A pinned note in DIRECT mode, so a tool call writes immediately."""
     document = create_document(
         "Scratch",
         [
@@ -88,6 +89,8 @@ def scratchpad(notes_dir):
             {"type": "todo", "data": {"text": "a task"}},
         ],
     )
+    document.meta.proposals_enabled = False
+    save_document(document)
     set_scratchpad_state(document.meta.slug)
     return document.meta.slug, [b.id for b in document.blocks]
 
@@ -109,8 +112,8 @@ class TestNoScratchpadPinned:
     def test_every_tool_refuses_identically(self, notes_dir, tool):
         assert run(tool) == NO_SCRATCHPAD
 
-    def test_read_scratchpad_refuses_the_same_way(self, notes_dir):
-        assert run(ReadScratchpadTool) == NO_SCRATCHPAD
+    def test_read_note_refuses_the_same_way(self, notes_dir):
+        assert run(ReadNoteTool) == NO_SCRATCHPAD
 
     def test_a_read_tool_writes_nothing(self, notes_dir):
         before = sorted(p.name for p in notes_dir.iterdir())
@@ -124,7 +127,7 @@ class TestNoScratchpadPinned:
 
     def test_the_message_says_what_to_do(self, notes_dir):
         """An error that does not say how to fix it leaves the agent stuck."""
-        assert "Pin a note" in NO_SCRATCHPAD
+        assert "Pin one" in NO_SCRATCHPAD
 
     def test_a_pin_to_a_missing_document_is_reported_not_crashed(self, notes_dir):
         set_scratchpad_state("ghost-doc")
@@ -164,7 +167,7 @@ class TestReadsMayNameANote:
         solo = create_document(
             "Solo", [{"type": "paragraph", "data": {"text": "solo content"}}]
         )
-        result = run(ReadScratchpadTool, slug=solo.meta.slug)
+        result = run(ReadNoteTool, slug=solo.meta.slug)
         assert "solo content" in result
 
     def test_no_pin_and_no_slug_still_returns_the_refusal(self, notes_dir):
@@ -184,10 +187,10 @@ class TestReadsMayNameANote:
         other = create_document(
             "Other", [{"type": "paragraph", "data": {"text": "other content"}}]
         )
-        result = run(ReadScratchpadTool, slug=other.meta.slug)
+        result = run(ReadNoteTool, slug=other.meta.slug)
         assert "other content" in result
         # The header names the OTHER note's title, so the pinned one was not read.
-        assert "Scratchpad: Scratch" not in result
+        assert "Note: Scratch" not in result
 
     def test_all_five_read_tools_accept_the_slug(self, scratchpad, notes_dir):
         """Every read tool follows the slug, and none falls back to the pin."""
@@ -202,14 +205,14 @@ class TestReadsMayNameANote:
                 FindBlockIdsTool, search_str="other", slug=slug
             ),
             "read_revisions": run(ReadRevisionsTool, slug=slug),
-            "read_scratchpad": run(ReadScratchpadTool, slug=slug),
+            "read_note": run(ReadNoteTool, slug=slug),
         }
         # The OTHER note's header names it in every rendering. This is a
         # positive signal from the document itself, not a substring of the
         # failure message: a tool that fell back to the pinned document used
         # to satisfy the needle-quoting "No block contains 'other'" sentence
         # here, because the searched string and the slug are the same word.
-        other_header = "[Scratchpad: Other"
+        other_header = "[Note: Other"
         for name, result in results.items():
             if name == "read_revisions":
                 # A revision read names the slug, not the title:
@@ -299,7 +302,7 @@ class TestMarkdownScratchpad:
     def test_read_blocks_yields_the_content(self, markdown_pinned):
         """A note the agent cannot EDIT is still one it should be able to READ.
 
-        ``read_scratchpad`` shows the same note's content, so the two read tools
+        ``read_note`` shows the same note's content, so the two read tools
         must agree about whether the note exists.
         """
         result = run(ReadBlocksTool)
@@ -321,10 +324,8 @@ class TestMarkdownScratchpad:
         run(InsertBlockTool, block_type="paragraph", new_content="x")
         assert not (notes_dir / "legacy.json").exists()
 
-    def test_read_scratchpad_explains_rather_than_reporting_empty(
-        self, markdown_pinned
-    ):
-        result = run(ReadScratchpadTool)
+    def test_read_note_explains_rather_than_reporting_empty(self, markdown_pinned):
+        result = run(ReadNoteTool)
         assert "markdown" in result.lower()
         # It still shows the content, so the agent is not left blind.
         assert "# H" in result
@@ -339,7 +340,7 @@ class TestReadBlocks:
     def test_reads_all_blocks_with_metadata(self, scratchpad):
         slug, ids = scratchpad
         result = run(ReadBlocksTool)
-        assert "[Scratchpad: Scratch | version 1 | 3 blocks]" in result
+        assert "[Note: Scratch | version 1 | 3 blocks | proposals: off]" in result
         for block_id in ids:
             assert block_id in result
 
@@ -898,7 +899,7 @@ class TestRendering:
         )
 
     def test_the_header_line_names_id_type_and_both_authorship_fields(self, scratchpad):
-        """The header names the last writer alongside the creator, under the same label read_scratchpad uses."""
+        """The header names the last writer alongside the creator, under the same label read_note uses."""
         slug, ids = scratchpad
         result = run(ReadBlocksTool, block_id=ids[0])
         assert f"[header] id: {ids[0]} author=user last-touched-by=user" in result
@@ -932,10 +933,10 @@ class TestRegistry:
         names = {tool.name for tool in get_all_tools()}
         assert "write_scratchpad" not in names
 
-    def test_read_scratchpad_is_retained(self):
+    def test_read_note_is_retained(self):
         from wichy.tools.registry import get_all_tools
 
-        assert "read_scratchpad" in {tool.name for tool in get_all_tools()}
+        assert "read_note" in {tool.name for tool in get_all_tools()}
 
     def test_the_write_scratchpad_module_is_deleted(self):
         import importlib
@@ -964,7 +965,7 @@ class TestRegistry:
             GetBlockTool,
             FindBlockIdsTool,
             ReadRevisionsTool,
-            ReadScratchpadTool,
+            ReadNoteTool,
         ]
         for tool_class in write_tools:
             fields = set(tool_class.parameters_model.model_fields)
@@ -975,14 +976,14 @@ class TestRegistry:
         assert "slug" not in set(ListNotesTool.parameters_model.model_fields)
 
     def test_every_tool_has_a_description(self):
-        for tool_class in [*BLOCK_TOOLS, ReadScratchpadTool]:
+        for tool_class in [*BLOCK_TOOLS, ReadNoteTool]:
             instance = tool_class()
             assert instance.description
             assert instance.needs_verification_in_api is False
 
     def test_every_tool_produces_a_usable_function_schema(self):
         """The schema is what the model sees; an unusable one makes the tool invisible."""
-        for tool_class in [*BLOCK_TOOLS, ReadScratchpadTool]:
+        for tool_class in [*BLOCK_TOOLS, ReadNoteTool]:
             schema = tool_class().to_function_definition()
             assert schema["type"] == "function"
             props = schema["function"]["parameters"]["properties"]
@@ -1317,6 +1318,8 @@ class TestAnswerQuestion:
                 {"type": "todo", "data": {"text": "a task"}},
             ],
         )
+        document.meta.proposals_enabled = False
+        save_document(document)
         set_scratchpad_state(document.meta.slug)
         return document.meta.slug, [b.id for b in document.blocks]
 
@@ -1538,9 +1541,9 @@ class TestWriteErrorsAreNotReadErrors:
         result = run(tool, **kwargs)
         assert "write" in result.lower()
         assert "uncertain" in result.lower()
-        assert "read the scratchpad" in result.lower()
+        assert "read the note" in result.lower()
         # A write failure must not be reported as a read failure.
-        assert "Could not read the scratchpad" not in result
+        assert "Could not read the note" not in result
 
     def test_the_document_is_unchanged_after_a_refused_write(self, scratchpad):
         slug, ids = scratchpad
@@ -1567,7 +1570,7 @@ class TestBothAuthorshipFieldsAreReported:
         assert "author=user" in result
         assert "last-touched-by=agent" in result
 
-    def test_read_scratchpad_reports_the_same_two_fields(self, scratchpad):
+    def test_read_note_reports_the_same_two_fields(self, scratchpad):
         """In block style, which is where metadata lives."""
         slug, ids = scratchpad
         run(
@@ -1575,7 +1578,7 @@ class TestBothAuthorshipFieldsAreReported:
             block_id=ids[1],
             new_content="agent wrote this",
         )
-        result = run(ReadScratchpadTool, style="block")
+        result = run(ReadNoteTool, style="block")
         assert "author=user" in result
         assert "last-touched-by=agent" in result
 
@@ -1583,7 +1586,7 @@ class TestBothAuthorshipFieldsAreReported:
         """Two vocabularies for one fact make the agent guess."""
         slug, ids = scratchpad
         from_block_tool = run(ReadBlocksTool, block_id=ids[1])
-        from_scratchpad = run(ReadScratchpadTool, style="block")
+        from_scratchpad = run(ReadNoteTool, style="block")
         for label in ("author=", "last-touched-by="):
             assert label in from_block_tool
             assert label in from_scratchpad
@@ -1698,7 +1701,7 @@ class TestReadScratchpadStyles:
     """
 
     def test_markdown_is_the_default(self, scratchpad):
-        result = run(ReadScratchpadTool)
+        result = run(ReadNoteTool)
         assert "md" not in result.split("\n")[0]
         # Content, rendered as markdown.
         assert "## Title" in result
@@ -1706,38 +1709,36 @@ class TestReadScratchpadStyles:
 
     def test_each_block_is_wrapped_in_a_tag_naming_its_id(self, scratchpad):
         slug, ids = scratchpad
-        result = run(ReadScratchpadTool)
+        result = run(ReadNoteTool)
         for block_id in ids:
             assert f"<{block_id}>" in result
             assert f"</{block_id}>" in result
 
     def test_the_default_omits_the_raw_data_object(self, scratchpad):
-        result = run(ReadScratchpadTool)
+        result = run(ReadNoteTool)
         assert '"text"' not in result
         assert "author=" not in result
 
     def test_block_style_shows_the_metadata_and_raw_data(self, scratchpad):
         slug, ids = scratchpad
-        result = run(ReadScratchpadTool, style="block")
+        result = run(ReadNoteTool, style="block")
         assert "author=" in result
         assert "last-touched-by=" in result
         assert '"text": "some text"' in result
 
     def test_md_is_an_alias_for_markdown(self, scratchpad):
-        assert run(ReadScratchpadTool, style="md") == run(ReadScratchpadTool)
+        assert run(ReadNoteTool, style="md") == run(ReadNoteTool)
 
     def test_the_style_is_case_insensitive(self, scratchpad):
-        assert run(ReadScratchpadTool, style="BLOCK") == run(
-            ReadScratchpadTool, style="block"
-        )
+        assert run(ReadNoteTool, style="BLOCK") == run(ReadNoteTool, style="block")
 
     def test_an_unknown_style_names_the_valid_ones(self, scratchpad):
-        result = run(ReadScratchpadTool, style="fancy")
+        result = run(ReadNoteTool, style="fancy")
         assert "markdown" in result
         assert "block" in result
 
     def test_an_empty_style_is_the_default(self, scratchpad):
-        assert run(ReadScratchpadTool, style="") == run(ReadScratchpadTool)
+        assert run(ReadNoteTool, style="") == run(ReadNoteTool)
 
     def test_a_delimiter_block_still_has_an_addressable_id(self, notes_dir):
         """A block with no text of its own must not lose its id to an empty body."""
@@ -1750,15 +1751,15 @@ class TestReadScratchpadStyles:
         )
         set_scratchpad_state(document.meta.slug)
         delimiter_id = document.blocks[1].id
-        result = run(ReadScratchpadTool)
+        result = run(ReadNoteTool)
         assert f"<{delimiter_id}>" in result
 
     def test_the_header_reports_the_version(self, scratchpad):
-        assert "version 1" in run(ReadScratchpadTool)
+        assert "version 1" in run(ReadNoteTool)
 
     def test_the_header_names_the_title(self, scratchpad):
-        result = run(ReadScratchpadTool)
-        assert "[Scratchpad: Scratch | version 1 | 3 blocks]" in result
+        result = run(ReadNoteTool)
+        assert "[Note: Scratch | version 1 | 3 blocks | proposals: off]" in result
 
     def test_an_untitled_note_degrades_to_the_unnamed_header(self, notes_dir):
         # ``create_document`` refuses an empty title (the sidebar must be able
@@ -1770,9 +1771,9 @@ class TestReadScratchpadStyles:
         untitled.meta.title = ""
         save_document(untitled)
         set_scratchpad_state(untitled.meta.slug)
-        result = run(ReadScratchpadTool)
-        assert "[Scratchpad | version 1 | 1 blocks]" in result
-        assert "Scratchpad: " not in result
+        result = run(ReadNoteTool)
+        assert "[Note | version 1 | 1 blocks | proposals: on]" in result
+        assert "Note: " not in result
 
 
 class TestGetBlock:
@@ -1789,12 +1790,10 @@ class TestGetBlock:
     def test_a_missing_id_is_reported(self, scratchpad):
         assert "required" in run(GetBlockTool)
 
-    def test_it_matches_read_scratchpad_block_style_for_the_same_block(
-        self, scratchpad
-    ):
+    def test_it_matches_read_note_block_style_for_the_same_block(self, scratchpad):
         """The agent should not have to learn two formats for one block."""
         slug, ids = scratchpad
-        from_all = run(ReadScratchpadTool, style="block")
+        from_all = run(ReadNoteTool, style="block")
         one = run(GetBlockTool, block_id=ids[1])
         # The header differs (document header vs one block), the block does not.
         assert one.split("\n", 2)[2] in from_all
@@ -1819,7 +1818,7 @@ class TestFindBlockIds:
         """Otherwise the agent issues one get_block per hit to learn anything.
 
         The body is the stored data object, as in get_block and the block style of
-        read_scratchpad, so a hit carries everything a follow-up write needs.
+        read_note, so a hit carries everything a follow-up write needs.
         """
         result = run(FindBlockIdsTool, search_str="a task")
         assert "author=" in result
@@ -1916,3 +1915,84 @@ class TestReadRevisionsMarksAnchors:
             " [history anchor -- the start of recorded history; not a browsable"
             " state]" in lines
         )
+
+
+# ---------------------------------------------------------------------------
+# Proposal mode: an agent write becomes a pending proposal, not a write
+# ---------------------------------------------------------------------------
+
+
+class TestProposalMode:
+    """With proposals on, a write tool records a proposal and changes nothing."""
+
+    @pytest.fixture
+    def proposed(self, notes_dir):
+        document = create_document(
+            "Shared",
+            [
+                {"type": "paragraph", "data": {"text": "one"}},
+                {"type": "paragraph", "data": {"text": "two"}},
+                {"type": "paragraph", "data": {"text": "three"}},
+                {"type": "paragraph", "data": {"text": "four"}},
+            ],
+        )
+        set_scratchpad_state(document.meta.slug)
+        return document.meta.slug, [b.id for b in document.blocks]
+
+    def test_a_write_proposes_instead_of_writing(self, proposed):
+        slug, ids = proposed
+        before = load_document(slug)
+        result = run(WriteBlockTool, block_id=ids[0], new_content="changed")
+        assert "review" in result.lower()
+        after = load_document(slug)
+        assert after.meta.version == before.meta.version
+        assert [b.data for b in after.blocks] == [b.data for b in before.blocks]
+        assert proposals_path(slug).exists()
+
+    def test_the_read_header_reports_the_mode(self, proposed):
+        assert "proposals: on" in run(ReadNoteTool)
+
+    def test_mode_off_writes_directly(self, proposed):
+        slug, ids = proposed
+        document = load_document(slug)
+        document.meta.proposals_enabled = False
+        save_document(document)
+        result = run(WriteBlockTool, block_id=ids[0], new_content="changed")
+        assert "Updated block" in result
+        assert not proposals_path(slug).exists()
+
+    def test_each_write_tool_proposes(self, proposed):
+        slug, ids = proposed
+        run(WriteBlockTool, block_id=ids[0], new_content="x")
+        run(ChangeBlockTypeTool, block_id=ids[1], new_type="todo")
+        run(DeleteBlockTool, block_id=ids[2])
+        run(InsertBlockTool, block_type="paragraph", new_content="five")
+        run(MoveBlockTool, block_id=ids[3])
+        stored = load_proposals(slug)
+        assert {p.kind for p in stored.values()} == {
+            "write",
+            "change_type",
+            "delete",
+            "insert",
+            "move",
+        }
+
+    def test_a_proposal_records_the_base_version_and_fingerprint(self, proposed):
+        slug, ids = proposed
+        run(WriteBlockTool, block_id=ids[0], new_content="x")
+        (proposal,) = load_proposals(slug).values()
+        assert proposal.base_version == 1
+        assert proposal.fingerprint is not None
+
+    def test_a_write_to_a_vanished_block_is_refused_not_proposed(self, proposed):
+        slug, _ = proposed
+        result = run(WriteBlockTool, block_id="blk-nope", new_content="x")
+        assert "No block" in result
+        assert not proposals_path(slug).exists()
+
+    def test_markdown_refuses_a_proposal_too(self, notes_dir):
+        (notes_dir / "legacy.md").write_text("# H\n", encoding="utf-8")
+        set_scratchpad_state("legacy")
+        result = run(InsertBlockTool, block_type="paragraph", new_content="x")
+        assert result == MARKDOWN_WRITE_REFUSED
+        assert not proposals_path("legacy").exists()

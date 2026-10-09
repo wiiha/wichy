@@ -40,6 +40,10 @@ when you need them.
   entries on every read. An unmaintained notebook is worse than none.
 - **Git the dump, not the binary.** The `.db` is untracked; dump to `.wichy/notebook.sql`
   and commit that. Keep the binary as a living workspace.
+- **Know the two stores.** Durable insight (decisions, gotchas, patterns) belongs here.
+  The pinned *note* is the user's document that you may only propose changes to -- it is
+  not a scratchpad, and writing your working state into it is the failure this skill exists
+  to prevent.
 
 ## Why This Matters: Agent Memory as Thinking, Not Filing
 

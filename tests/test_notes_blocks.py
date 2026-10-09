@@ -1400,11 +1400,11 @@ class TestMarkdownTimestampsAreStable:
 
 class TestReadScratchpadNeverRaises:
     def test_a_non_utf8_pinned_file_is_reported(self, notes_dir):
-        from wichy.tools.read_scratchpad import ReadScratchpadTool
+        from wichy.tools.read_note import ReadNoteTool
 
         (notes_dir / "binary.md").write_bytes(b"\xff\xfe\x00\x01")
         set_scratchpad_state("binary")
-        result = ReadScratchpadTool().execute()
+        result = ReadNoteTool().execute()
         assert "could not be read" in result
         # And it names the file, so the user can find it.
         assert "binary" in result

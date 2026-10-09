@@ -1648,11 +1648,11 @@
         if (Date.now() >= statusHoldUntil) {
             if (body.agent_busy) {
                 // Names what happens to the user's edits, not just that the agent
-                // is busy: the queue is not discarded, it lands in the next
-                // thinking step, and the user should know that before typing more.
+                // is busy: the queue is not discarded, it is sent when the turn
+                // finishes, and the user should know that before typing more.
                 setStatus(
-                    "Agent is working. Your edits will appear in its next thinking " +
-                        "step -- this may redirect its attention."
+                    "Agent is working. Your edits are queued and will be sent " +
+                        "when it finishes."
                 );
             } else if ((pendingOps.get(targetSlug) || []).length && !AUTO_SEND) {
                 setStatus("Edits queued for next turn.");

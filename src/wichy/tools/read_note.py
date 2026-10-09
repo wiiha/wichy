@@ -1,11 +1,11 @@
-"""ReadScratchpadTool - read the agent's pinned scratchpad document.
+"""ReadNoteTool - read the pinned note document.
 
 Reimplemented over block documents. The previous version read ``<slug>.md``
-directly and swallowed every failure into "scratchpad is empty", which became
-wrong the moment a pin could name a ``.json``: it would report an empty
-scratchpad for a document that plainly existed. It now resolves the pin through
-the same file-resolution rules as everything else, so a converted document is
-read as a block document and a legacy note is still read as markdown.
+directly and swallowed every failure into "empty", which became wrong the moment
+a pin could name a ``.json``: it would report an empty document for a document
+that plainly existed. It now resolves the pin through the same file-resolution
+rules as everything else, so a converted document is read as a block document and
+a legacy note is still read as markdown.
 
 The tool is deliberately forgiving, because "nothing is pinned" is a normal state
 rather than an error: the pin is cleared on every CLI start, and the UI is the
@@ -18,6 +18,12 @@ from __future__ import annotations
 from pydantic import Field
 
 from wichy.tools.base import BaseTool, ParametersModel
+from wichy.tools.notes.agent_tools import (
+    _read_slug,
+    normalize_style,
+    render_document,
+    render_markdown_document,
+)
 from wichy.tools.notes.blocks import (
     FORMAT_MARKDOWN,
     MARKDOWN_WRITE_REFUSED,
@@ -26,21 +32,15 @@ from wichy.tools.notes.blocks import (
     InvalidSlugError,
     load_document,
 )
-from wichy.tools.notes.agent_tools import (
-    _read_slug,
-    normalize_style,
-    render_document,
-    render_markdown_document,
-)
 
 
-class ScratchpadParams(ParametersModel):
-    """Parameters for reading the scratchpad."""
+class ReadNoteParams(ParametersModel):
+    """Parameters for reading the note."""
 
     style: str | None = Field(
         default=None,
         description=(
-            "How to render the scratchpad. 'markdown' (default) returns the "
+            "How to render the note. 'markdown' (default) returns the "
             "content as clean markdown with each block wrapped in a tag naming "
             "its id, e.g. <blk-a12>. 'block' additionally returns each block's "
             "author, last writer and raw data object -- use it when you need the "
@@ -50,24 +50,23 @@ class ScratchpadParams(ParametersModel):
     slug: str | None = Field(
         default=None,
         description=(
-            "Optional: the name of the note to read. Omit to read the pinned "
-            "scratchpad."
+            "Optional: the name of the note to read. Omit to read the pinned note."
         ),
     )
 
 
-class ReadScratchpadTool(BaseTool):
-    """Read a note: the pinned scratchpad by default, or the slug it names."""
+class ReadNoteTool(BaseTool):
+    """Read a note: the pinned note by default, or the slug it names."""
 
-    name = "read_scratchpad"
+    name = "read_note"
     description = (
-        "Read the pinned scratchpad. Returns its content as markdown by default, "
+        "Read the pinned note. Returns its content as markdown by default, "
         "with every block wrapped in a tag naming its block id so you can target "
         "it with a write tool. Pass style='block' when you need each block's "
         "author, last writer and raw data object instead. Pass slug='<note "
-        "name>' to read another note; omit it to read the pinned scratchpad."
+        "name>' to read another note; omit it to read the pinned note."
     )
-    parameters_model = ScratchpadParams
+    parameters_model = ReadNoteParams
     needs_verification_in_api: bool = False
 
     def execute(self, **kwargs) -> str:

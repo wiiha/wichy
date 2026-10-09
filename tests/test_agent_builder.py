@@ -29,6 +29,10 @@ class MockSkill:
         self.tags = []
         self.scripts = []
 
+    @property
+    def inactive(self):
+        return False
+
 
 class TestAgentBuilder:
     """Test suite for AgentBuilder."""

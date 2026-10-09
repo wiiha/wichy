@@ -59,6 +59,12 @@
         initSidebar();
         init();
 
+        // Mobile drawer toggle
+        const drawerButton = document.getElementById('btn-drawer');
+        if (drawerButton) {
+            drawerButton.addEventListener('click', () => toggleDrawer());
+        }
+
         // New note button
         btnNewNote.addEventListener('click', createNewNote);
 
@@ -428,12 +434,23 @@
         });
     }
 
+    /** Open or close the mobile notes drawer. */
+    function toggleDrawer(open) {
+        const sidebar = document.querySelector('.sidebar');
+        const button = document.getElementById('btn-drawer');
+        if (!sidebar) return;
+        const next = typeof open === 'boolean' ? open : !sidebar.classList.contains('sidebar-open');
+        sidebar.classList.toggle('sidebar-open', next);
+        if (button) button.setAttribute('aria-expanded', next ? 'true' : 'false');
+    }
+
     async function selectNote(slug) {
         // Cancel any pending debounce
         clearTimeout(saveTimer);
         saveTimer = null;
 
         currentSlug = slug;
+        toggleDrawer(false);
         announceNoteOpened(slug);
         setToolbarEnabled(true);
 
@@ -887,13 +904,13 @@
 
         if (isPinned) {
             btnPin.classList.add('pinned');
-            btnPin.title = 'Unpin from scratchpad';
+            btnPin.title = 'Unpin from the agent';
             if (pinIcon) pinIcon.textContent = '★';
             btnPin.innerHTML = '<span class="pin-icon">★</span> Unpin';
         } else {
             btnPin.classList.remove('pinned');
-            btnPin.title = 'Pin as scratchpad';
-            btnPin.innerHTML = '<span class="pin-icon">☆</span> Pin as Scratchpad';
+            btnPin.title = 'Pin for the agent';
+            btnPin.innerHTML = '<span class="pin-icon">☆</span> Pin for Agent';
         }
     }
 

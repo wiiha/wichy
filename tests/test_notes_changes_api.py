@@ -330,16 +330,16 @@ class TestPostChanges:
         assert len(session.root_agent.context.injected) == 1
         role, content = session.root_agent.context.injected[0]
         assert role == "user"
-        assert content.startswith("[Scratchpad changes]")
-        assert content.endswith("[End scratchpad changes]")
+        assert content.startswith("[Note changes]")
+        assert content.endswith("[End note changes]")
 
     def test_the_message_names_no_document(self, client, doc, session):
-        """The agent has no word for a note's name; it knows only "the scratchpad"."""
+        """The agent has no word for a note's name; it knows only "the note"."""
         slug, ids = doc
         post_and_flush(client, slug, [op(block_id=ids[0])])
         content = session.root_agent.context.injected[0][1]
         assert "Change Doc" not in content
-        assert "scratchpad" in content.lower()
+        assert "note" in content.lower()
 
     def test_the_message_describes_each_op(self, client, doc, session):
         slug, ids = doc
@@ -783,8 +783,8 @@ class TestInjectedMessage:
     def test_it_is_plain_text_not_markdown_heading(self):
         """The agent reads it as a message, so brackets delimit it, not markdown."""
         message = api.change_message([op(block_id="blk-a")])
-        assert message.startswith("[Scratchpad changes]")
-        assert message.endswith("[End scratchpad changes]")
+        assert message.startswith("[Note changes]")
+        assert message.endswith("[End note changes]")
 
     def test_one_line_per_op(self):
         message = api.change_message([op("update", "blk-a"), op("remove", "blk-b")])

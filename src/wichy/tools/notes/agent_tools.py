@@ -1,27 +1,16 @@
 """The agent's block tools.
 
-Seven tools that read and edit block documents; `read_scratchpad` is a separate
-module with its own rendering of the same document.
-
-Writes operate on the pinned scratchpad and take no slug. Reads may name any
-note via an optional ``slug``, defaulting to the pinned scratchpad.
-
-Two refusals are normal states rather than errors, and every tool returns the
-same sentence for each:
-
-- **Nothing pinned**: the ordinary startup state; the pin is UI-set only.
-- **A markdown-format scratchpad**: a block write would materialise a
-  ``.json`` beside the ``.md``, giving one slug two live documents.
-
-Block ``data`` is validated here, inside ``execute()``, against the strict
-per-type models; the tool framework validates only ``parameters_model``, so
-``data`` must be declared ``dict[str, Any]``.
+Writes stay on the pinned note and take no slug; reads may name any note.
+Two refusals are normal states, not errors: nothing pinned, and a markdown
+note, where a block write would materialise a ``.json`` beside its ``.md``.
+Block ``data`` is validated in ``execute()``, so it is declared ``dict[str, Any]``.
 """
 
 from __future__ import annotations
 
 import json
 import re
+import uuid
 from typing import Any, Mapping
 
 from pydantic import Field
@@ -39,23 +28,25 @@ from wichy.tools.notes.blocks import (
     StaleVersionError,
     block_snapshot_of,
     delete_block,
+    document_lock,
+    insert_block,
     list_documents,
     load_document,
     locked_document,
-    insert_block,
     move_block,
     read_blocks,
     replace_block,
+    resolve_format,
 )
 from wichy.tools.notes.models import (
     BLOCK_DATA_MODELS,
     BlockDataError,
+    Proposal,
     is_valid_slug,
 )
 from wichy.tools.notes.revisions import CorruptRevisionLogError, read_revisions
 
-#: Marker patterns for reading plain text as a block. Shared with the markdown
-#: converter so text the agent copies out of a read is accepted back as input.
+#: Marker patterns shared by the markdown reader and writer.
 HEADER_RE = re.compile(r"^(#{1,6})\s+(.*)$")
 LIST_MARKER_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
 ORDERED_MARKER_RE = re.compile(r"^\s*\d+[.)]\s+")
@@ -65,7 +56,9 @@ CODE_FENCE_RE = re.compile(r"^(`{3,}|~{3,})\s*([\w+-]*)\s*$")
 CODE_CLOSE_RE = re.compile(r"\n?(`{3,}|~{3,})\s*$")
 
 #: Returned by every tool when no document is pinned.
-NO_SCRATCHPAD = "No scratchpad is pinned. Pin a note in the notes UI first."
+NO_SCRATCHPAD = (
+    "No note is pinned for the agent to edit. Pin one in the notes UI first."
+)
 
 #: The valid block types, for use in tool descriptions and error messages.
 VALID_TYPES = ", ".join(sorted(BLOCK_DATA_MODELS))
@@ -96,6 +89,74 @@ class _NoChange(Exception):
         self.message = message
 
 
+def _new_block_id() -> str:
+    """A fresh block id, for a proposal that has no document to draw one from."""
+    from wichy.tools.notes.models import new_block_id as _make
+
+    return _make()
+
+
+#: Human words for a proposal kind, so the agent can relay it plainly.
+_KIND_WORDS = {
+    "insert": "adding a block",
+    "write": "rewriting a block",
+    "delete": "deleting a block",
+    "move": "moving a block",
+    "change_type": "changing a block's type",
+}
+
+
+def _propose_or_none(slug: str, proposal: Proposal) -> str | None:
+    """Record ``proposal`` when the note is in proposal mode; otherwise None.
+
+    None means "write directly": every caller then runs its ordinary locked write.
+    The read is the cheapest gate, and it happens before any document mutation.
+    """
+    try:
+        with document_lock(slug):
+            fmt = resolve_format(slug)
+            if fmt is None:
+                raise DocumentNotFoundError(f"No note found for slug '{slug}'.")
+            if fmt == FORMAT_MARKDOWN:
+                raise MarkdownDocumentError(MARKDOWN_WRITE_REFUSED)
+            document = load_document(slug)
+            if not document.meta.proposals_enabled:
+                return None
+
+            from wichy.tools.notes.proposals import (
+                create_or_supersede,
+                fingerprint_block,
+            )
+
+            proposal.base_version = document.meta.version
+            if proposal.kind != "insert" and proposal.block_id is not None:
+                target = document.get_block(proposal.block_id)
+                if target is None:
+                    # Refused here too: a proposal that could only fail would mislead.
+                    return f"No block '{proposal.block_id}' in this document."
+                if "answer" in proposal.payload and target.type != "question":
+                    return (
+                        f"Block {proposal.block_id} is a {target.type}, not a "
+                        "question. Only a question block has an answered flag."
+                    )
+                proposal.fingerprint = fingerprint_block(target)
+
+            create_or_supersede(slug, proposal)
+            return (
+                f"I proposed an edit to the pinned note ({_KIND_WORDS.get(proposal.kind, proposal.kind)}). "
+                "It is waiting for the user's review and nothing has changed yet. "
+                "The user decides whether to accept it."
+            )
+    except DocumentNotFoundError:
+        return f"The pinned note '{slug}' no longer exists."
+    except MarkdownDocumentError:
+        return MARKDOWN_WRITE_REFUSED
+    except (InvalidDocumentError, InvalidSlugError, UnicodeDecodeError) as e:
+        return _read_error(slug, e)
+    except OSError as e:
+        return _write_error(slug, e)
+
+
 def _scratchpad_slug() -> str:
     """Resolve the pinned scratchpad, or explain why there is none.
 
@@ -111,7 +172,7 @@ def _scratchpad_slug() -> str:
         raise ScratchpadUnavailable(NO_SCRATCHPAD)
     if not is_valid_slug(slug):
         raise ScratchpadUnavailable(
-            f"The pinned scratchpad name '{slug}' is not a valid note name. "
+            f"The pinned note name '{slug}' is not a valid note name. "
             "Pin a note in the notes UI to fix it."
         )
     return slug
@@ -159,7 +220,7 @@ def _open(slug: str, *, for_write: bool = True) -> tuple[Any, str | None]:
             beside it and give one slug two live documents. When false, the
             markdown note is returned as its synthetic single-block document: a
             note the agent cannot edit is still a note it should be able to read,
-            and ``read_scratchpad`` has always shown its content.
+            and ``read_note`` has always shown its content.
 
     Returns:
         ``(document, error)``.
@@ -167,9 +228,7 @@ def _open(slug: str, *, for_write: bool = True) -> tuple[Any, str | None]:
     try:
         document, fmt = load_document(slug, with_format=True)
     except DocumentNotFoundError:
-        # A write tool reaches here only through the pin, so "pin another
-        # note" is the right advice; a read tool reaches here through an
-        # explicit slug as well, where the note is the one that was named.
+        # Writes arrive via the pin, reads via an explicit slug.
         return None, (
             f"The note '{slug}' no longer exists. "
             "Pin another note in the notes UI, or call list_notes to see "
@@ -202,14 +261,7 @@ def render_block(
     Returns:
         The rendered block.
     """
-    # The metadata line has ONE spelling, shared by read_blocks, get_block,
-    # find_block_id_for_string and the block style of read_scratchpad. Two
-    # spellings of the same facts would make the agent translate between them.
-    # The body differs by audience: rendered content to read, JSON to write.
-    # Both authorship fields, consistently labeled. `author` alone was wrong twice
-    # over: it is the CREATOR and `touch_block` never updates it, so an agent
-    # re-reading a block it had just edited was told the user wrote it.
-    # `touched_by[-1]` is the last writer, which is the one the agent wants.
+    # author is the creator; touched_by[-1] is the last writer.
     touched = ",".join(block.meta.touched_by) or "nobody"
     last_touched = block.meta.touched_by[-1] if block.meta.touched_by else "nobody"
     header = (
@@ -257,9 +309,7 @@ def render_data(block_type: str, data: dict[str, Any]) -> str:
     try:
         return _render_typed(block_type, data)
     except (TypeError, ValueError, AttributeError, KeyError):
-        # The shape does not match the declared type. Showing the raw data is
-        # more useful than an error, because the content is what the agent needs
-        # and the mismatch is what the user needs to see.
+        # Shape mismatched the declared type: show the raw data instead of raising.
         return json.dumps(data, ensure_ascii=False)
 
 
@@ -367,14 +417,11 @@ def text_to_data(block_type: str, text: str) -> dict[str, Any]:
         language = ""
         trimmed = text.strip("\n")
         first_line, _, remainder = trimmed.partition("\n")
-        # Matched against the FIRST LINE, not the whole body: the pattern is
-        # anchored, and a body that happens to contain a fence would otherwise
-        # never match its own opening one.
+        # Matched against the first line only, since the pattern is anchored.
         fence = CODE_FENCE_RE.match(first_line.strip())
         if fence:
             language = fence.group(2)
-            # Drop the opening line and any closing fence, keeping the body as
-            # written -- indentation inside code is content, not formatting.
+            # Drop the opening and closing fences, keeping the body as written.
             code_body = remainder
             code_body = CODE_CLOSE_RE.sub("", code_body)
         return {"code": code_body.rstrip("\n"), "language": language}
@@ -497,15 +544,20 @@ def scratchpad_header(document: Any) -> str:
         shape rather than an empty one.
     """
     title = str(getattr(document.meta, "title", "") or "")
+    mode = (
+        "proposals: on"
+        if getattr(document.meta, "proposals_enabled", True)
+        else "proposals: off"
+    )
     if not title:
-        # A missing title is a state to show as unnamed, not as `Scratchpad: `.
+        # A missing title is a state to show as unnamed, not as `Note: `.
         return (
-            f"[Scratchpad | version {document.meta.version} | "
-            f"{len(document.blocks)} blocks]"
+            f"[Note | version {document.meta.version} | "
+            f"{len(document.blocks)} blocks | {mode}]"
         )
     return (
-        f"[Scratchpad: {title} | version {document.meta.version} | "
-        f"{len(document.blocks)} blocks]"
+        f"[Note: {title} | version {document.meta.version} | "
+        f"{len(document.blocks)} blocks | {mode}]"
     )
 
 
@@ -530,9 +582,7 @@ def render_document(
     chosen = document.blocks if blocks is None else blocks
     lines: list[str] = []
     if include_metadata:
-        # No slug: the agent knows this document only as the scratchpad, and the
-        # internal name is not something it can use. The version IS useful, for the
-        # expected_version argument of a write.
+        # The version is what a write needs as expected_version.
         lines = [scratchpad_header(document), ""]
     for block in chosen:
         lines.append(
@@ -542,21 +592,10 @@ def render_document(
     return "\n".join(lines).rstrip()
 
 
-#: The styles ``read_scratchpad`` can render in.
-#:
-#: ``markdown`` is the default because it is what a read is usually FOR: seeing
-#: what the scratchpad says. ``block`` is the verbose form -- a metadata line and
-#: the raw data object -- which is needed when the agent must construct a write.
-#: Both accept the alias ``md``, because an agent that has seen the word
-#: "markdown" in many other contexts will reach for either spelling.
+#: Render styles read_note accepts; ``md`` aliases ``markdown``.
 READ_STYLES = ("markdown", "md", "block")
 
-#: Render markdown-style: the block's text wrapped in a tag naming its id.
-#:
-#: The id has to be present or the agent cannot target the block afterwards, and
-#: XML-ish tags are how it is attached without a metadata line per block. The tag
-#: is a real block id, not a placeholder, so it can be fed straight to a write
-#: tool.
+#: Markdown reads wrap each block's text in a tag carrying its real id.
 _MARKDOWN_BLOCK_OPEN = "<{block_id}>"
 _MARKDOWN_BLOCK_CLOSE = "</{block_id}>"
 
@@ -653,22 +692,19 @@ def _parse_expected_version(raw: Any) -> tuple[int | None, str | None]:
     return raw, None
 
 
-#: The tail shared by every write tool's except chain. Split so the read phase and
-#: the write phase report differently: an OSError arriving AFTER the document was
-#: read is a WRITE failure, and saying "could not read" hid a half-applied write
-#: behind a message that invites a blind retry.
+#: Write-phase tail of every tool's except chain; a late OSError is a write failure.
 def _write_error(slug: str, error: Exception) -> str:
     """The message for a failure that happened during the write phase."""
     return (
-        f"The write to the scratchpad '{slug}' failed mid-way ({error}). Its "
-        "result is uncertain: read the scratchpad to see the current state "
+        f"The write to the note '{slug}' failed mid-way ({error}). Its "
+        "result is uncertain: read the note to see the current state "
         "before retrying."
     )
 
 
 def _read_error(slug: str, error: Exception) -> str:
     """The message for a failure that happened while reading the document."""
-    return f"Could not read the scratchpad '{slug}': {error}"
+    return f"Could not read the note '{slug}': {error}"
 
 
 def _stale_message(error: StaleVersionError) -> str:
@@ -680,7 +716,7 @@ def _stale_message(error: StaleVersionError) -> str:
     """
     return (
         f"The note changed since you read it (you expected v{error.expected}, it "
-        f"is now v{error.actual}). Re-read the scratchpad, then retry -- or omit "
+        f"is now v{error.actual}). Re-read the note, then retry -- or omit "
         "expected_version to write over the current state."
     )
 
@@ -700,8 +736,7 @@ class ReadBlocksParams(ParametersModel):
     slug: str | None = Field(
         default=None,
         description=(
-            "Optional: the name of the note to read. Omit to read the pinned "
-            "scratchpad."
+            "Optional: the name of the note to read. Omit to read the pinned " "note."
         ),
     )
 
@@ -711,11 +746,11 @@ class ReadBlocksTool(BaseTool):
 
     name = "read_blocks"
     description = (
-        "Read the pinned scratchpad's blocks. Filter by type, by a single block "
+        "Read the pinned note's blocks. Filter by type, by a single block "
         "id, or by an index range. Returns each block's id so you can target it "
         "with write_block, change_block_type, delete_block or move_block. Pass "
         "slug='<note name>' to read another note; omit it to read the pinned "
-        "scratchpad."
+        "note."
     )
     parameters_model = ReadBlocksParams
     needs_verification_in_api = False
@@ -732,8 +767,7 @@ class ReadBlocksTool(BaseTool):
         end_raw = kwargs.get("end_index")
         include_metadata = kwargs.get("include_metadata", True)
 
-        # A single-block read is a different question from a filtered range, so
-        # combining them would leave which one wins undefined.
+        # A single-block read and a filtered range are mutually exclusive.
         if block_id and (filter_type or start_raw is not None or end_raw is not None):
             return (
                 "block_id cannot be combined with filter_type or an index range. "
@@ -750,10 +784,7 @@ class ReadBlocksTool(BaseTool):
         if filter_type and filter_type not in BLOCK_DATA_MODELS:
             return f"Unknown block type '{filter_type}'. Valid types: {VALID_TYPES}."
 
-        # A read of a markdown scratchpad yields its content rather than the
-        # write-refusal sentence: the synthetic block view is what
-        # read_scratchpad shows, and two read tools disagreeing about whether the
-        # document is readable is worse than either answer alone.
+        # Read markdown as content, not the write-refusal.
         document, error = _open(slug, for_write=False)
         if error is not None:
             return error
@@ -817,9 +848,7 @@ class WriteBlockTool(BaseTool):
             return "new_content is required."
         new_content = str(new_content)
         if not new_content.strip():
-            # Checked BEFORE the document is opened: writing nothing is almost
-            # certainly a caller meaning to remove the block, and saying so is
-            # more useful than a version bump that stores an empty string.
+            # Checked before opening: empty content means delete, not an empty write.
             return "new_content must not be empty. Use delete_block to remove a block."
 
         expected, version_error = _parse_expected_version(
@@ -828,15 +857,26 @@ class WriteBlockTool(BaseTool):
         if version_error is not None:
             return version_error
 
+        proposed = _propose_or_none(
+            slug,
+            Proposal(
+                id=str(uuid.uuid4()),
+                kind="write",
+                block_id=block_id,
+                payload={"text": new_content},
+                base_version=expected or 0,
+            ),
+        )
+        if proposed is not None:
+            return proposed
+
         committed = None
         try:
             with locked_document(slug, expected, author="agent") as document:
                 block = document.get_block(block_id)
                 if block is None:
                     raise BlockNotFoundError(f"No block '{block_id}' in this document.")
-                # The type is KEPT, which is the point of this tool: the caller
-                # supplies content, not a schema. The text is read using the
-                # block's own type, so a header written "## T" gets level 2.
+                # The type is kept; the text is read using the block's own type.
                 block_type = block.type
                 data = text_to_data(block_type, new_content)
                 before = block_snapshot_of(document)
@@ -860,7 +900,7 @@ class WriteBlockTool(BaseTool):
         except MarkdownDocumentError:
             return MARKDOWN_WRITE_REFUSED
         except DocumentNotFoundError:
-            return f"The pinned scratchpad '{slug}' no longer exists."
+            return f"The pinned note '{slug}' no longer exists."
         except (
             InvalidDocumentError,
             InvalidSlugError,
@@ -916,6 +956,19 @@ class ChangeBlockTypeTool(BaseTool):
         if version_error is not None:
             return version_error
 
+        proposed = _propose_or_none(
+            slug,
+            Proposal(
+                id=str(uuid.uuid4()),
+                kind="change_type",
+                block_id=block_id,
+                payload={"type": new_type},
+                base_version=expected or 0,
+            ),
+        )
+        if proposed is not None:
+            return proposed
+
         committed = None
         old_type = ""
         try:
@@ -950,7 +1003,7 @@ class ChangeBlockTypeTool(BaseTool):
         except MarkdownDocumentError:
             return MARKDOWN_WRITE_REFUSED
         except DocumentNotFoundError:
-            return f"The pinned scratchpad '{slug}' no longer exists."
+            return f"The pinned note '{slug}' no longer exists."
         except (
             InvalidDocumentError,
             InvalidSlugError,
@@ -989,9 +1042,9 @@ class InsertBlockTool(BaseTool):
 
     name = "insert_block"
     description = (
-        "Insert a new block into the pinned scratchpad, with its content as plain "
-        "text. Leave after_block_id empty to append at the end. Returns the new "
-        "block's id."
+        "Insert a new block into the pinned note, with its content as plain "
+        "text. Give after_block_id to place it after a specific block, or omit "
+        "it to add the block at the end. Returns the new block's id."
     )
     parameters_model = InsertBlockParams
     needs_verification_in_api = False
@@ -1021,6 +1074,20 @@ class InsertBlockTool(BaseTool):
         if version_error is not None:
             return version_error
 
+        proposed = _propose_or_none(
+            slug,
+            Proposal(
+                id=str(uuid.uuid4()),
+                kind="insert",
+                anchor_id=after,
+                payload={"type": block_type, "text": str(new_content)},
+                block_id_hint=_new_block_id(),
+                base_version=expected or 0,
+            ),
+        )
+        if proposed is not None:
+            return proposed
+
         created_id = None
         committed = None
         try:
@@ -1034,8 +1101,7 @@ class InsertBlockTool(BaseTool):
                 )
                 created_id = block.id
                 committed = document
-            # Read after the block exits: the version bump happens on the way
-            # out, so reading inside would report the version this call replaced.
+            # Read after the locked body exits, once the version bump has run.
             new_version = committed.meta.version
         except StaleVersionError as e:
             return _stale_message(e)
@@ -1049,7 +1115,7 @@ class InsertBlockTool(BaseTool):
         except MarkdownDocumentError:
             return MARKDOWN_WRITE_REFUSED
         except DocumentNotFoundError:
-            return f"The pinned scratchpad '{slug}' no longer exists."
+            return f"The pinned note '{slug}' no longer exists."
         except (
             InvalidDocumentError,
             InvalidSlugError,
@@ -1078,7 +1144,7 @@ class DeleteBlockTool(BaseTool):
 
     name = "delete_block"
     description = (
-        "Delete one block from the pinned scratchpad by its id. "
+        "Delete one block from the pinned note by its id. "
         "Read the document first to get the id."
     )
     parameters_model = DeleteBlockParams
@@ -1101,6 +1167,18 @@ class DeleteBlockTool(BaseTool):
         if version_error is not None:
             return version_error
 
+        proposed = _propose_or_none(
+            slug,
+            Proposal(
+                id=str(uuid.uuid4()),
+                kind="delete",
+                block_id=block_id,
+                base_version=expected or 0,
+            ),
+        )
+        if proposed is not None:
+            return proposed
+
         committed = None
         try:
             with locked_document(slug, expected, author="agent") as document:
@@ -1114,7 +1192,7 @@ class DeleteBlockTool(BaseTool):
         except MarkdownDocumentError:
             return MARKDOWN_WRITE_REFUSED
         except DocumentNotFoundError:
-            return f"The pinned scratchpad '{slug}' no longer exists."
+            return f"The pinned note '{slug}' no longer exists."
         except (
             InvalidDocumentError,
             InvalidSlugError,
@@ -1140,7 +1218,7 @@ class MoveBlockTool(BaseTool):
 
     name = "move_block"
     description = (
-        "Move one block to a different position in the pinned scratchpad. "
+        "Move one block to a different position in the pinned note. "
         "Leave after_block_id empty to move it to the end."
     )
     parameters_model = MoveBlockParams
@@ -1164,6 +1242,19 @@ class MoveBlockTool(BaseTool):
         if version_error is not None:
             return version_error
 
+        proposed = _propose_or_none(
+            slug,
+            Proposal(
+                id=str(uuid.uuid4()),
+                kind="move",
+                block_id=block_id,
+                payload={"after_block_id": after},
+                base_version=expected or 0,
+            ),
+        )
+        if proposed is not None:
+            return proposed
+
         committed = None
         try:
             with locked_document(slug, expected, author="agent") as document:
@@ -1175,15 +1266,14 @@ class MoveBlockTool(BaseTool):
         except BlockNotFoundError as e:
             return str(e)
         except UnicodeDecodeError as e:
-            # Before the ValueError clause: a decode failure IS a ValueError, and
-            # the generic clause would pass the raw codec message through.
+            # Before the ValueError clause: a decode failure is itself a ValueError.
             return _read_error(slug, e)
         except ValueError as e:
             return str(e)
         except MarkdownDocumentError:
             return MARKDOWN_WRITE_REFUSED
         except DocumentNotFoundError:
-            return f"The pinned scratchpad '{slug}' no longer exists."
+            return f"The pinned note '{slug}' no longer exists."
         except (InvalidDocumentError, InvalidSlugError) as e:
             return _read_error(slug, e)
         except OSError as e:
@@ -1200,8 +1290,7 @@ class GetBlockParams(ParametersModel):
     slug: str | None = Field(
         default=None,
         description=(
-            "Optional: the name of the note to read. Omit to read the pinned "
-            "scratchpad."
+            "Optional: the name of the note to read. Omit to read the pinned " "note."
         ),
     )
 
@@ -1213,9 +1302,9 @@ class GetBlockTool(BaseTool):
     description = (
         "Read one block by id, showing its type, author, last writer and raw "
         "data object. Use this when you need the exact field names to build a "
-        "write, or the block's metadata. For seeing what the scratchpad says, "
-        "prefer read_scratchpad. Pass slug='<note name>' to read another note; "
-        "omit it to read the pinned scratchpad."
+        "write, or the block's metadata. For seeing what the note says, "
+        "prefer read_note. Pass slug='<note name>' to read another note; "
+        "omit it to read the pinned note."
     )
     parameters_model = GetBlockParams
     needs_verification_in_api = False
@@ -1249,8 +1338,7 @@ class FindBlocksParams(ParametersModel):
     slug: str | None = Field(
         default=None,
         description=(
-            "Optional: the name of the note to read. Omit to read the pinned "
-            "scratchpad."
+            "Optional: the name of the note to read. Omit to read the pinned " "note."
         ),
     )
 
@@ -1264,7 +1352,7 @@ class FindBlockIdsTool(BaseTool):
         "substring match) and return those blocks in full detail, exactly as "
         "get_block renders one. Use this to locate a block by something it says "
         "when you do not know its id. Pass slug='<note name>' to read another "
-        "note; omit it to read the pinned scratchpad."
+        "note; omit it to read the pinned note."
     )
     parameters_model = FindBlocksParams
     needs_verification_in_api = False
@@ -1287,10 +1375,7 @@ class FindBlockIdsTool(BaseTool):
         matched = [
             block
             for block in document.blocks
-            # Searched against the RENDERED text, which is what the agent has
-            # seen. Matching the raw data instead would find "checked" in every
-            # checklist block's JSON -- a field name, not content the agent was
-            # looking for -- while missing nothing it could actually read.
+            # Searched against the rendered text, not the raw JSON.
             if needle in render_data(block.type, block.data).lower()
         ]
         if not matched:
@@ -1298,9 +1383,7 @@ class FindBlockIdsTool(BaseTool):
                 f"No block contains '{search}' "
                 f"({len(document.blocks)} blocks searched)."
             )
-        # Every match is returned IN FULL, not as a list of ids: the caller wants
-        # to know what the blocks say, and an id list would make it issue one
-        # get_block per match to find out.
+        # Every match is returned in full, not as an id list.
         return render_document(document, matched, include_metadata=True, raw_data=True)
 
 
@@ -1313,26 +1396,25 @@ class ReadRevisionsParams(ParametersModel):
     slug: str | None = Field(
         default=None,
         description=(
-            "Optional: the name of the note to read. Omit to read the pinned "
-            "scratchpad."
+            "Optional: the name of the note to read. Omit to read the pinned " "note."
         ),
     )
 
 
 class ReadRevisionsTool(BaseTool):
-    """Read the scratchpad's revision history."""
+    """Read the note's revision history."""
 
     name = "read_revisions"
     description = (
-        "Read the pinned scratchpad's revision history, newest first. Shows who "
+        "Read the pinned note's revision history, newest first. Shows who "
         "changed what and when, so you can see recent edits by the user. Pass "
         "slug='<note name>' to read another note; omit it to read the pinned "
-        "scratchpad."
+        "note."
     )
     parameters_model = ReadRevisionsParams
     needs_verification_in_api = False
 
-    #: The spec caps a history read at 100 entries.
+    #: Cap on entries returned by a history read.
     MAX_LIMIT = 100
 
     def execute(self, **kwargs: Any) -> str:
@@ -1349,8 +1431,7 @@ class ReadRevisionsTool(BaseTool):
         if limit < 1:
             return "limit must be at least 1."
         if limit > self.MAX_LIMIT:
-            # Capped rather than refused: asking for too much history is not a
-            # mistake worth failing, and the cap keeps the output readable.
+            # Capped, not refused: too much history is not an error worth failing.
             limit = self.MAX_LIMIT
 
         author = kwargs.get("author")
@@ -1364,9 +1445,7 @@ class ReadRevisionsTool(BaseTool):
             # bool subclasses int, so it is rejected explicitly.
             return "since_id must be an integer."
 
-        # A read, so a markdown scratchpad yields "no revisions" from a document
-        # that was actually read, not the write-refusal sentence. A legacy note
-        # keeps no revision log, so the honest answer is that there is none.
+        # A legacy note keeps no revision log, so a read reports none.
         _document, error = _open(slug, for_write=False)
         if error is not None:
             return error
@@ -1381,17 +1460,23 @@ class ReadRevisionsTool(BaseTool):
             UnicodeDecodeError,
             OSError,
         ) as e:
-            # The revision log is read off disk as UTF-8 text: a non-UTF-8 file
-            # raises UnicodeDecodeError, and leaving it out would let a read tool
-            # raise despite promising a string result. A torn live-log tail is
-            # reported the same way, disclosing a history that ends mid-entry.
+            # A non-UTF-8 or torn log must not raise from a tool returning a string.
             return f"Could not read revisions: {e}"
 
         if not entries:
             return f"No revisions recorded for '{slug}'."
 
+        # Every read reports the mode, so a write knows whether it will apply.
+        try:
+            mode_doc = load_document(slug)
+            mode = (
+                "proposals: on" if mode_doc.meta.proposals_enabled else "proposals: off"
+            )
+        except (DocumentNotFoundError, InvalidDocumentError, OSError):
+            mode = "proposals: on"
+
         lines = [
-            f"[Document: {slug} | {len(entries)} revision(s), newest first]",
+            f"[Document: {slug} | {len(entries)} revision(s), newest first | {mode}]",
             "",
         ]
         for entry in entries:
@@ -1401,9 +1486,7 @@ class ReadRevisionsTool(BaseTool):
                 if op.get("block_id")
             ]
             suffix = f" (blocks: {', '.join(block_ids)})" if block_ids else ""
-            # An anchor is the marker for where the recorded history of an older
-            # build begins, not a state the agent can browse or revert to. Marked
-            # distinctly so the agent does not read it as an ordinary revision.
+            # An anchor marks where an older build's history begins.
             if entry.get("baseline"):
                 suffix += (
                     " [history anchor -- the start of recorded history; "
@@ -1429,7 +1512,7 @@ class AnswerQuestionTool(BaseTool):
 
     name = "notes_answer_question"
     description = (
-        "Mark a question block in the pinned scratchpad as answered, so later "
+        "Mark a question block in the pinned note as answered, so later "
         "reads stop showing it as open. Flips only the answered flag: the "
         "question text the user typed is left exactly as it is. Read the "
         "document first to get the block id."
@@ -1454,6 +1537,19 @@ class AnswerQuestionTool(BaseTool):
         if version_error is not None:
             return version_error
 
+        proposed = _propose_or_none(
+            slug,
+            Proposal(
+                id=str(uuid.uuid4()),
+                kind="write",
+                block_id=block_id,
+                payload={"answer": True},
+                base_version=expected or 0,
+            ),
+        )
+        if proposed is not None:
+            return proposed
+
         committed = None
         try:
             with locked_document(slug, expected, author="agent") as document:
@@ -1461,19 +1557,14 @@ class AnswerQuestionTool(BaseTool):
                 if block is None:
                     raise BlockNotFoundError(f"No block '{block_id}' in this document.")
                 if block.type != "question":
-                    # Raised rather than returned: a `return` inside the locked
-                    # body still runs the version bump on the way out, recording
-                    # a change that did not happen.
+                    # Raised, not returned: a return still bumps the version.
                     raise _NoChange(
                         f"Block {block_id} is a {block.type}, not a question. "
                         "Only a question block has an answered flag."
                     )
                 if block.data.get("answered"):
                     raise _NoChange(f"Block {block_id} is already marked answered.")
-                # A copy, not the stored dict: the block write validates the whole
-                # data object against the question schema, and QuestionData
-                # forbids extra fields, so the agent must not resend (and thereby
-                # risk clobbering) the text the user typed.
+                # Copy, not the stored dict: QuestionData forbids extra fields.
                 data = dict(block.data)
                 data["answered"] = True
                 replace_block(
@@ -1486,8 +1577,7 @@ class AnswerQuestionTool(BaseTool):
                 committed = document
             new_version = committed.meta.version
         except _NoChange as e:
-            # Nothing was written: the locked body raised before its bump ran,
-            # so the document is exactly as this call found it.
+            # The locked body raised before its bump, so nothing changed.
             return e.message
         except StaleVersionError as e:
             return _stale_message(e)
@@ -1498,7 +1588,7 @@ class AnswerQuestionTool(BaseTool):
         except MarkdownDocumentError:
             return MARKDOWN_WRITE_REFUSED
         except DocumentNotFoundError:
-            return f"The pinned scratchpad '{slug}' no longer exists."
+            return f"The pinned note '{slug}' no longer exists."
         except (
             InvalidDocumentError,
             InvalidSlugError,

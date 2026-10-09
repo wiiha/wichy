@@ -70,11 +70,13 @@ class RootAgent(AgentCore):
         if self._display_name:
             info_lines.append(f"- **display name:** {self._display_name}")
 
-        # Add skills in alphabetical order
-        if self.skills:
-            skill_names = sorted(self.skills.keys())
-            skills_str = ", ".join(skill_names)
-            info_lines.append(f"- **skills:** {skills_str}")
+        # Inactive skills are unreachable for the agent, so listing them here
+        # would advertise capabilities it cannot use.
+        active_skill_names = sorted(
+            name for name, skill in self.skills.items() if not skill.inactive
+        )
+        if active_skill_names:
+            info_lines.append(f"- **skills:** {', '.join(active_skill_names)}")
 
         self.context.add_log(
             {"source": "root_agent", "data": {"info_lines": info_lines}}

@@ -255,11 +255,11 @@ Predefined sub-agent types:
 | `ask_user_question` | `AskUserQuestionTool` | TUI dialog prompts (radio or checkbox); auto-appends "Other" option; `needs_user_attention` bell          |
 | `todo`              | `TodoTool`            | Session-scoped task list; states: `PENDING` → `IN_PROGRESS` → `COMPLETED`; single in-progress enforcement |
 
-#### Notes & Scratchpad
+#### Notes
 
 | Tool                    | Class                | Description                                                     |
 | ----------------------- | -------------------- | --------------------------------------------------------------- |
-| `read_scratchpad`       | `ReadScratchpadTool` | Read the pinned scratchpad document with block ids and metadata |
+| `read_note`             | `ReadNoteTool`       | Read the pinned note document with block ids and metadata       |
 | `read_blocks`           | `ReadBlocksTool`     | Read blocks by type, single id, or index range                  |
 | `replace_block`         | `ReplaceBlockTool`   | Replace one block's content, keeping its id                     |
 | `insert_block`          | `InsertBlockTool`    | Insert a new block, after an anchor or at the end               |
@@ -268,9 +268,9 @@ Predefined sub-agent types:
 | `notes_answer_question` | `AnswerQuestionTool` | Mark a question block answered without touching its text        |
 | `read_revisions`        | `ReadRevisionsTool`  | Read the document's revision history, newest first              |
 
-These operate on the pinned scratchpad only and take no slug. With nothing
-pinned every one of them returns "No scratchpad is pinned. Pin a note in the
-notes UI first." and writes nothing; with a markdown-format scratchpad the write
+These operate on the pinned note only and take no slug. With nothing
+pinned every one of them returns "No note is pinned for the agent to edit. Pin one
+in the notes UI first." and writes nothing; with a markdown-format note the write
 tools return the conversion message instead, because a block write would
 otherwise give one slug two live documents. The read tools still show the
 content, so a note the agent cannot edit is still one it can read.
