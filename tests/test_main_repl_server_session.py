@@ -108,3 +108,50 @@ class TestReplModeRegistersTheServerSession:
 
                 main()
         mock_set_session.assert_not_called()
+
+
+class TestBackgroundServerShutdown:
+    """The REPL's background server must be stoppable, not left to daemon-kill.
+
+    A serving thread still running at interpreter finalization keeps the Flask
+    app and its imports (including DuckDB's extension module) alive during
+    teardown, which leaks warnings on exit.
+    """
+
+    @staticmethod
+    def _can_connect(port: int) -> bool:
+        import socket
+
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.5):
+                return True
+        except OSError:
+            return False
+
+    def test_stop_background_server_stops_serving_and_joins(self):
+        import time
+
+        from flask import Flask
+
+        import wichy.server as server_module
+
+        # A bare app: create_app() registers blueprints that may only be
+        # registered once per process, which would leak into other tests.
+        app = Flask("shutdown-test")
+
+        with patch.object(server_module, "create_app", return_value=app):
+            port = server_module.start_server_in_background(port=8299)
+            thread = server_module._server_thread
+            try:
+                deadline = time.monotonic() + 10
+                while not self._can_connect(port):
+                    assert time.monotonic() < deadline, "server never accepted"
+                    time.sleep(0.05)
+                assert server_module.is_server_running()
+                assert thread is not None and thread.is_alive()
+            finally:
+                server_module.stop_background_server()
+
+        assert not server_module.is_server_running()
+        assert not thread.is_alive()
+        assert not self._can_connect(port)

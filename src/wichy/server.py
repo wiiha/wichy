@@ -10,6 +10,7 @@ import socket
 import threading
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from typing import Any
 
 from flask import Blueprint, Flask, jsonify, render_template
 
@@ -181,6 +182,7 @@ def register_blueprints(app: Flask, no_chat: bool = False) -> None:
 _server_thread: threading.Thread | None = None
 _server_app: Flask | None = None
 _server_port: int | None = None
+_server: Any = None
 
 
 def run_server(
@@ -202,7 +204,7 @@ def start_server_in_background(port: int | None = None, host: str | None = None)
     Returns:
         The actual port number the server is running on.
     """
-    global _server_thread, _server_app, _server_port
+    global _server_thread, _server_app, _server_port, _server
 
     if _server_thread is not None and _server_thread.is_alive():
         assert _server_port is not None
@@ -225,19 +227,12 @@ def start_server_in_background(port: int | None = None, host: str | None = None)
     msg = f"Starting wichy server in background on {host}:{actual_port}"
     _server_app.logger.info(msg)
 
-    def run_app():
-        from werkzeug.serving import run_simple
+    # make_server (not run_simple) keeps a handle so the server can be shut
+    # down from another thread on exit.
+    from werkzeug.serving import make_server
 
-        run_simple(
-            host,
-            actual_port,
-            _server_app,
-            threaded=True,
-            use_reloader=False,
-            use_debugger=False,
-        )
-
-    _server_thread = threading.Thread(target=run_app, daemon=True)
+    _server = make_server(host, actual_port, _server_app, threaded=True)
+    _server_thread = threading.Thread(target=_server.serve_forever, daemon=True)
     _server_thread.start()
 
     return actual_port
@@ -245,14 +240,16 @@ def start_server_in_background(port: int | None = None, host: str | None = None)
 
 def stop_background_server() -> None:
     """Stop the background Flask server if running."""
-    global _server_thread, _server_app, _server_port
+    global _server_thread, _server_app, _server_port, _server
 
+    if _server is not None:
+        _server.shutdown()
+        _server = None
     if _server_thread is not None:
-        # werkzeug doesn't have a clean way to stop from another thread
-        # The daemon thread will be killed when the main process exits
+        _server_thread.join(timeout=5.0)
         _server_thread = None
-        _server_app = None
-        _server_port = None
+    _server_app = None
+    _server_port = None
 
 
 def is_server_running() -> bool:

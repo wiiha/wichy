@@ -92,6 +92,15 @@ def _cleanup():
     except Exception:
         pass
 
+    # Stop the background web server so its thread is not still running at
+    # interpreter finalization.
+    try:
+        from wichy.server import stop_background_server
+
+        stop_background_server()
+    except Exception:
+        pass
+
     # Stop browser and its event loop thread
     try:
         from wichy.helpers.browser import browser_manager
