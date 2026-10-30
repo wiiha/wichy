@@ -10,6 +10,8 @@
 # Layer 4: Source code (changes most often during development)
 # Layer 5: Build + install wheel (changes with source or deps)
 #
+# Bundled language toolchains: Go, Node.js, Rust (selected from TARGETARCH)
+#
 # Build:
 #   docker build -f fat.Dockerfile -t wichy-fat .
 #
@@ -30,11 +32,21 @@
 
 FROM python:3.12-slim
 
+# BuildKit sets this to amd64 or arm64; every toolchain below is fetched to match it.
+ARG TARGETARCH
+
 # -----------------------------------------------------------------------------
 # Layer 1: System packages, tools, user setup (changes LEAST often)
 # All system-level setup in ONE consolidated RUN to minimize layers
 # -----------------------------------------------------------------------------
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN set -eu; \
+    ARCH="${TARGETARCH:-$(dpkg --print-architecture)}"; \
+    case "${ARCH}" in \
+      amd64) GO_ARCH="amd64"; NODE_ARCH="x64"; RUST_ARCH="x86_64" ;; \
+      arm64) GO_ARCH="arm64"; NODE_ARCH="arm64"; RUST_ARCH="aarch64" ;; \
+      *) echo "Unsupported architecture: ${ARCH}" >&2; exit 1 ;; \
+    esac; \
+    apt-get update && apt-get install -y --no-install-recommends \
     # Core Chromium dependencies (for Playwright)
     libnss3 \
     libnspr4 \
@@ -79,20 +91,38 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     openssh-client \
     sqlite3 \
     poppler-utils \
+    # Node.js and Rust runtimes need these; build-essential pulls them in today
+    libatomic1 \
+    libstdc++6 \
+    # tar -J for the .tar.xz archives
+    xz-utils \
     && rm -rf /var/lib/apt/lists/* \
     # Install ripgrep (not in Debian slim repos — fetch from GitHub releases)
-    && RG_VERSION="14.1.0" \
-    && curl -fsSL "https://github.com/BurntSushi/ripgrep/releases/download/${RG_VERSION}/ripgrep-${RG_VERSION}-x86_64-unknown-linux-musl.tar.gz" -o /tmp/ripgrep.tar.gz \
+    && RG_VERSION="15.2.0" \
+    && curl -fsSL "https://github.com/BurntSushi/ripgrep/releases/download/${RG_VERSION}/ripgrep-${RG_VERSION}-${RUST_ARCH}-unknown-linux-musl.tar.gz" -o /tmp/ripgrep.tar.gz \
     && tar -xzf /tmp/ripgrep.tar.gz -C /tmp \
-    && mv /tmp/ripgrep-"${RG_VERSION}"-x86_64-unknown-linux-musl/rg /usr/local/bin/rg \
-    && rm -rf /tmp/ripgrep.tar.gz /tmp/ripgrep-*-x86_64-unknown-linux-musl \
+    && mv /tmp/ripgrep-"${RG_VERSION}"-${RUST_ARCH}-unknown-linux-musl/rg /usr/local/bin/rg \
+    && rm -rf /tmp/ripgrep.tar.gz /tmp/ripgrep-*-${RUST_ARCH}-unknown-linux-musl \
     # Install Go (pinned version)
     && GO_VERSION="1.25.0" \
-    && curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tar.gz \
+    && curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${GO_ARCH}.tar.gz" -o /tmp/go.tar.gz \
     && tar -C /usr/local -xzf /tmp/go.tar.gz \
     && rm /tmp/go.tar.gz \
     && ln -s /usr/local/go/bin/go /usr/local/bin/go \
     && ln -s /usr/local/go/bin/gofmt /usr/local/bin/gofmt \
+    # Install Node.js (pinned LTS)
+    && NODE_VERSION="26.13.0" \
+    && curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz" -o /tmp/node.tar.xz \
+    && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 --exclude=CHANGELOG.md --exclude=README.md --exclude=LICENSE \
+    && rm /tmp/node.tar.xz \
+    # Install Rust (pinned rustup)
+    && RUSTUP_VERSION="1.29.2" \
+    && curl -fsSL "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/${RUST_ARCH}-unknown-linux-gnu/rustup-init" -o /tmp/rustup-init \
+    && chmod +x /tmp/rustup-init \
+    && RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo /tmp/rustup-init -y \
+         --profile minimal --default-toolchain stable --no-modify-path \
+    && RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo /usr/local/cargo/bin/rustup component add rustfmt clippy \
+    && rm /tmp/rustup-init \
     # Create the wichy user with home directory and locked password
     && useradd -r -m -d /home/wichy -s /bin/bash wichy && passwd -l wichy \
     # Create the Python venv at /opt/wichy
@@ -100,6 +130,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Set proper ownership and permissions on /opt/wichy (root owns, wichy group can read/execute)
     && chown -R root:wichy /opt/wichy \
     && chmod -R 755 /opt/wichy \
+    # rustup and cargo write to their homes, so the wichy user needs access
+    && chmod -R a+w /usr/local/rustup /usr/local/cargo \
+    && mkdir -p /home/wichy/.npm-global \
+    && chown -R wichy:wichy /home/wichy/.npm-global \
     # Create workspace directory for user mounts
     && mkdir -p /workspace && chown -R wichy:wichy /workspace
 
@@ -138,7 +172,10 @@ RUN /opt/wichy/bin/pip install --no-cache-dir --upgrade build \
 USER wichy
 
 # Environment variables
-ENV PATH="/usr/local/go/bin:/opt/wichy/bin:$PATH"
+ENV PATH="/usr/local/go/bin:/usr/local/cargo/bin:/opt/wichy/bin:/home/wichy/.npm-global/bin:$PATH"
+ENV RUSTUP_HOME="/usr/local/rustup"
+ENV CARGO_HOME="/usr/local/cargo"
+ENV NPM_CONFIG_PREFIX="/home/wichy/.npm-global"
 ENV WICHY_CONTAINER=1
 ENV WICHY_OLLAMA_BASE_URL="http://host.docker.internal:11434/v1"
 ENV WICHY_SERVER_HOST="0.0.0.0"
