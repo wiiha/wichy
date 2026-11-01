@@ -76,6 +76,8 @@ class Settings(BaseSettings):
     # Server settings
     server_host: str = "127.0.0.1"
     server_port: int = 7891
+    # Bounded ring of captured console output for /server/api/messages/history
+    console_history_max: int = 2000
 
     # Pipeline / REPL settings
     wake_up_message: str = (

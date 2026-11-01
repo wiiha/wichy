@@ -14,6 +14,8 @@ from rich.console import Console as RichConsole
 from rich.markdown import Markdown
 from rich.table import Table
 
+from wichy.config.settings import settings
+
 
 def _table_to_markdown(table: Table) -> str:
     """Convert a rich.table.Table into a Markdown table string.
@@ -264,6 +266,10 @@ class ThreadSafeConsole:
 # ── Server backend (captured text, no threads) ─────
 
 
+def _history_cap() -> int:
+    return max(0, int(getattr(settings, "console_history_max", 2000)))
+
+
 class ServerConsole:
     """Lightweight capture backend for API server mode."""
 
@@ -271,6 +277,9 @@ class ServerConsole:
         self._messages: list[str] = []
         self._lock = threading.Lock()
         self._quiet: bool = False
+        self._history: list[tuple[int, str]] = []
+        self._next_seq: int = 1
+        self._evicted_seq: int = 0
 
     # ── capture API ─────────────────────────────────
 
@@ -280,6 +289,33 @@ class ServerConsole:
             self._messages.clear()
             return msgs
 
+    def read_since(
+        self, since_id: int, limit: int
+    ) -> tuple[list[str], int, bool, bool]:
+        """Non-destructive cursor read of the captured output history."""
+        with self._lock:
+            cap = _history_cap()
+            if cap == 0:
+                self._history.clear()
+                return [], 0, False, False
+            if len(self._history) > cap:
+                drop_count = len(self._history) - cap
+                dropped = self._history[drop_count - 1][0]
+                del self._history[:drop_count]
+                self._evicted_seq = max(self._evicted_seq, dropped)
+            limit = max(limit, 1)
+            overflowed = self._evicted_seq > since_id
+            start = next(
+                (i for i, (seq, _) in enumerate(self._history) if seq > since_id),
+                len(self._history),
+            )
+            batch = self._history[start : start + limit]
+            has_more = start + limit < len(self._history)
+            if not batch:
+                return [], 0, False, overflowed
+            texts = [t for _, t in batch]
+            return texts, batch[-1][0], has_more, overflowed
+
     # ── console interface (same as ThreadSafeConsole) ─
 
     def print(self, *args, **kwargs) -> None:
@@ -288,6 +324,18 @@ class ServerConsole:
         text = _plain_text(*args, **kwargs)
         with self._lock:
             self._messages.append(text)
+            cap = _history_cap()
+            if cap > 0:
+                self._history.append((self._next_seq, text))
+                self._next_seq += 1
+                if len(self._history) > cap:
+                    drop_count = len(self._history) - cap
+                    dropped = self._history[drop_count - 1][0]
+                    del self._history[:drop_count]
+                    self._evicted_seq = max(self._evicted_seq, dropped)
+            else:
+                self._evicted_seq = max(self._evicted_seq, self._next_seq)
+                self._next_seq += 1
 
     def log(self, *args, **kwargs) -> None:
         self.print(*args, **kwargs)
@@ -398,6 +446,13 @@ class _ConsoleProxy:
         if isinstance(self._impl, ServerConsole):
             return self._impl.get_messages()
         return []
+
+    def read_since(
+        self, since_id: int, limit: int
+    ) -> tuple[list[str], int, bool, bool]:
+        if isinstance(self._impl, ServerConsole):
+            return self._impl.read_since(since_id, limit)
+        return [], 0, False, False
 
 
 # ── Module-level singletons ────────────────────────

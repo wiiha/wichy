@@ -106,6 +106,26 @@ def register_routes(bp: Blueprint):
         q.put(data.get("line", ""))
         return jsonify({"status": "ok"})
 
+    @bp.route("/messages/history", methods=["GET"])
+    def get_message_history():
+        raw_since = request.args.get("since_id", "")
+        raw_limit = request.args.get("limit", "")
+        try:
+            since_id = int(raw_since) if raw_since else 0
+            limit = int(raw_limit) if raw_limit else 100
+        except ValueError:
+            return jsonify({"error": "invalid since_id or limit"}), 400
+        limit = min(limit, 1000)
+        msgs, last_id, has_more, overflowed = user_console.read_since(since_id, limit)
+        return jsonify(
+            {
+                "messages": msgs,
+                "last_id": last_id,
+                "has_more": has_more,
+                "overflowed": overflowed,
+            }
+        )
+
     @bp.route("/steer", methods=["POST"])
     def steer():
         session = get_active_session()
