@@ -71,6 +71,117 @@ class TestAgentCoreToolCall:
         assert "no tool called" in result["content"].lower()
         assert multimodal is None
 
+    def test_tool_call_case_insensitive_match_executes_tool(self):
+        """Test _tool_call dispatches a case-insensitive name match."""
+        agent = ConcreteAgent()
+
+        mock_tool = Mock()
+        mock_tool.name = "read_file"
+        mock_tool.validate_and_execute = Mock(return_value="file contents")
+        agent.tools = [mock_tool]
+
+        mock_tool_call = Mock()
+        mock_tool_call.function.name = "READ_FILE"
+        mock_tool_call.function.arguments = "{}"
+        mock_tool_call.id = "call-123"
+
+        result, multimodal = agent._tool_call([mock_tool], mock_tool_call)
+
+        mock_tool.validate_and_execute.assert_called_once()
+        assert result["content"] == "file contents"
+        assert multimodal is None
+
+    def test_tool_call_exact_match_wins_over_case_variant(self):
+        """Test _tool_call prefers the exactly named tool over a case variant."""
+        agent = ConcreteAgent()
+
+        exact_tool = Mock()
+        exact_tool.name = "Read_File"
+        exact_tool.validate_and_execute = Mock(return_value="EXACT")
+
+        lower_tool = Mock()
+        lower_tool.name = "read_file"
+        lower_tool.validate_and_execute = Mock(return_value="LOWER")
+
+        mock_tool_call = Mock()
+        mock_tool_call.function.name = "Read_File"
+        mock_tool_call.function.arguments = "{}"
+        mock_tool_call.id = "call-123"
+
+        result, multimodal = agent._tool_call([lower_tool, exact_tool], mock_tool_call)
+
+        exact_tool.validate_and_execute.assert_called_once()
+        lower_tool.validate_and_execute.assert_not_called()
+        assert result["content"] == "EXACT"
+        assert multimodal is None
+
+    def test_tool_call_ambiguous_case_match_executes_nothing(self):
+        """Test _tool_call refuses to dispatch when case variants conflict."""
+        agent = ConcreteAgent()
+
+        upper_tool = Mock()
+        upper_tool.name = "Task"
+        upper_tool.validate_and_execute = Mock(return_value="UPPER")
+
+        lower_tool = Mock()
+        lower_tool.name = "task"
+        lower_tool.validate_and_execute = Mock(return_value="lower")
+
+        mock_tool_call = Mock()
+        mock_tool_call.function.name = "TASK"
+        mock_tool_call.function.arguments = "{}"
+        mock_tool_call.id = "call-123"
+
+        result, multimodal = agent._tool_call([upper_tool, lower_tool], mock_tool_call)
+
+        upper_tool.validate_and_execute.assert_not_called()
+        lower_tool.validate_and_execute.assert_not_called()
+        content = result["content"]
+        assert "no tool called" in content.lower()
+        assert '"TASK"' in content
+        assert '"Task"' in content
+        assert '"task"' in content
+        assert multimodal is None
+
+    def test_tool_call_unknown_tool_error_lists_available_tools(self):
+        """Test _tool_call names the called tool and the available tools."""
+        agent = ConcreteAgent()
+
+        alpha = Mock()
+        alpha.name = "alpha"
+        beta = Mock()
+        beta.name = "beta"
+
+        mock_tool_call = Mock()
+        mock_tool_call.function.name = "gamma"
+        mock_tool_call.function.arguments = "{}"
+        mock_tool_call.id = "call-123"
+
+        result, multimodal = agent._tool_call([alpha, beta], mock_tool_call)
+
+        assert result["content"] == (
+            'There is no tool called "gamma". Available tools: alpha, beta.'
+        )
+        assert "error" not in result["content"]
+        alpha.validate_and_execute.assert_not_called()
+        beta.validate_and_execute.assert_not_called()
+        assert multimodal is None
+
+    def test_tool_call_unknown_tool_with_empty_tool_list(self):
+        """Test _tool_call reports an empty tool list when nothing is available."""
+        agent = ConcreteAgent()
+
+        mock_tool_call = Mock()
+        mock_tool_call.function.name = "anything"
+        mock_tool_call.function.arguments = "{}"
+        mock_tool_call.id = "call-123"
+
+        result, multimodal = agent._tool_call([], mock_tool_call)
+
+        assert "no tool called" in result["content"].lower()
+        assert "(none)" in result["content"]
+        assert multimodal is None
+
     def test_tool_calls_validate_and_execute(self):
         """Test _tool_call calls validate_and_execute on matching tool."""
         agent = ConcreteAgent()

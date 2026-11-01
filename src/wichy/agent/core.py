@@ -366,10 +366,22 @@ class AgentCore(ABC):
 
         start_time = time.monotonic()
         try:
+            target: Optional["BaseTool"] = None
+            case_matches: List["BaseTool"] = []
             for tool in tools:
                 if name == tool.name:
-                    result = tool.validate_and_execute(**args)
+                    target = tool
                     break
+                if tool.name.lower() == name.lower():
+                    case_matches.append(tool)
+
+            if target is None and len(case_matches) == 1:
+                target = case_matches[0]
+
+            ambiguous = case_matches if target is None and len(case_matches) > 1 else []
+
+            if target is not None:
+                result = target.validate_and_execute(**args)
 
             # Kill event from the executing thread's finalize handoff. The
             # record is already popped, so this cannot be an id lookup.
@@ -390,7 +402,30 @@ class AgentCore(ABC):
                 )
 
             if result is _NOT_FOUND:
-                result = "There is no tool called " + item.function.name + "."
+                if ambiguous:
+                    candidates = ", ".join('"' + t.name + '"' for t in ambiguous)
+                    result = (
+                        'There is no tool called "'
+                        + name
+                        + '": it matches multiple tools by case: '
+                        + candidates
+                        + "."
+                    )
+                elif tools:
+                    available = ", ".join(t.name for t in tools)
+                    result = (
+                        'There is no tool called "'
+                        + name
+                        + '". Available tools: '
+                        + available
+                        + "."
+                    )
+                else:
+                    result = (
+                        'There is no tool called "'
+                        + name
+                        + '". Available tools: (none).'
+                    )
 
             # A tool may legitimately return None; coerce to empty string so
             # the downstream LLM API (which requires string content) is happy.
