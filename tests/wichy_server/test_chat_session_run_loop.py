@@ -9,7 +9,6 @@ any other implementation.
 import json
 import threading
 import time
-from queue import Queue
 
 import pytest
 from flask import Blueprint, Flask
@@ -21,6 +20,7 @@ from wichy.wichy_server import api as server_api
 from wichy.wichy_server import chat_session as chat_session_module
 from wichy.wichy_server.api import register_routes
 from wichy.wichy_server.chat_session import ChatSession
+from wichy.wichy_server.input_queue import PendingMessage, TrackedInputQueue
 
 
 class _StubChecker:
@@ -347,7 +347,7 @@ def test_post_messages_no_session_503(api_client):
 
 def test_post_messages_never_started_503(api_client):
     server_api.set_active_session(_Session(thread=None))
-    server_api.set_input_queue(Queue())
+    server_api.set_input_queue(TrackedInputQueue())
     resp = api_client.post("/server/api/messages", json={"line": "hi"})
     assert resp.status_code == 503
     assert json.loads(resp.data)["error"] == "session run thread is not alive"
@@ -356,7 +356,7 @@ def test_post_messages_never_started_503(api_client):
 def test_post_messages_dead_thread_503(api_client):
     fake = _FakeThread(alive=False)
     server_api.set_active_session(_Session(thread=fake))
-    server_api.set_input_queue(Queue())
+    server_api.set_input_queue(TrackedInputQueue())
     resp = api_client.post("/server/api/messages", json={"line": "hi"})
     assert resp.status_code == 503
     assert json.loads(resp.data)["error"] == "session run thread is not alive"
@@ -372,11 +372,15 @@ def test_post_messages_alive_but_no_queue_503(api_client):
 
 def test_post_messages_accepts_when_live(api_client):
     session = _Session(thread=_FakeThread(alive=True))
-    q: Queue = Queue()
+    q = TrackedInputQueue()
     server_api.set_active_session(session)
     server_api.set_input_queue(q)
     resp = api_client.post("/server/api/messages", json={"line": "hi"})
     assert resp.status_code == 200
+    message_id = resp.get_json()["id"]
+    assert isinstance(message_id, str)
+    assert message_id
+    assert q.snapshot() == [PendingMessage(id=message_id, line="hi")]
     assert q.get_nowait() == "hi"
 
 

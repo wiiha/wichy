@@ -19,7 +19,9 @@ import threading
 import time
 import traceback
 from typing import Optional
-from queue import Queue, Empty
+from queue import Empty
+
+from wichy.wichy_server.input_queue import TrackedInputQueue
 
 _REPEAT_COLLAPSE_AFTER = 10
 
@@ -47,14 +49,14 @@ class ChatSession:
         self.cmd_checker = cmd_checker
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
-        self._input_queue: Queue[str] = Queue()
+        self._input_queue = TrackedInputQueue()
         self.last_line_seen: float = 0.0
         self._turn_started_at: Optional[float] = None
         self._last_error_type: Optional[str] = None
         self._repeat_count: int = 0
 
     @property
-    def input_queue(self) -> Queue[str]:
+    def input_queue(self) -> TrackedInputQueue:
         return self._input_queue
 
     def run(self) -> None:

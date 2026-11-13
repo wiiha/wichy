@@ -5,10 +5,9 @@ from __future__ import annotations
 import json
 import logging
 import functools
-from queue import Queue
 from typing import TYPE_CHECKING, Optional
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, Response, jsonify, request
 
 from wichy.console import user_console
 
@@ -28,22 +27,25 @@ from wichy.tools.task.base import (
 from wichy.context.handler import read_jsonl_entries
 from wichy.event_log import get_agent_event_store, get_event_store
 from wichy.event_log.store import EventStore
+from wichy.wichy_server.input_queue import TrackedInputQueue
 from wichy.wichy_server.interaction_provider import ServerInteractionProvider
 from wichy.wichy_server.tool_results_store import get_tool_results_store
 from wichy.wichy_server.verification_provider import ServerVerificationProvider
 
 logger = logging.getLogger(__name__)
 
-_input_queue: Optional[Queue[str]] = None
+_input_queue: Optional[TrackedInputQueue] = None
 
 
-def set_input_queue(q: Queue[str]):
+def set_input_queue(q: TrackedInputQueue | None) -> None:
     """Set the currently active context handler for the web editor to manipulate."""
     global _input_queue
+    if q is not None and not isinstance(q, TrackedInputQueue):
+        raise TypeError("input queue must be a TrackedInputQueue or None")
     _input_queue = q
 
 
-def get_input_queue():
+def get_input_queue() -> TrackedInputQueue | None:
     return _input_queue
 
 
@@ -80,6 +82,23 @@ def require_active_root_agent(func):
     return wrapper
 
 
+def _require_input_queue() -> TrackedInputQueue | tuple[Response, int]:
+    """Return the active tracked input queue or a readiness error response."""
+    session = get_active_session()
+    if session is None:
+        return jsonify({"error": "no active session"}), 503
+    thread = getattr(session, "_thread", None)
+    if thread is None or not thread.is_alive():
+        return jsonify({"error": "session run thread is not alive"}), 503
+    q = get_input_queue()
+    if q is None:
+        return (
+            jsonify({"error": "Server input not available: no active input queue"}),
+            503,
+        )
+    return q
+
+
 def register_routes(bp: Blueprint):
     """Register all API routes on the given blueprint."""
 
@@ -89,21 +108,63 @@ def register_routes(bp: Blueprint):
         return jsonify(msgs)
 
     @bp.route("/messages", methods=["POST"])
-    def post_new_message():
-        session = get_active_session()
-        if session is None:
-            return jsonify({"error": "no active session"}), 503
-        thread = getattr(session, "_thread", None)
-        if thread is None or not thread.is_alive():
-            return jsonify({"error": "session run thread is not alive"}), 503
-        q = get_input_queue()
-        if not q:
-            return (
-                jsonify({"error": "Server input not available: no active input queue"}),
-                503,
-            )
+    def post_new_message() -> Response | tuple[Response, int]:
+        q = _require_input_queue()
+        if not isinstance(q, TrackedInputQueue):
+            return q
         data = request.get_json(silent=True) or {}
-        q.put(data.get("line", ""))
+        message_id = q.put(data.get("line", ""))
+        return jsonify({"status": "ok", "id": message_id})
+
+    @bp.route("/messages/pending", methods=["GET"])
+    def get_pending_messages() -> Response | tuple[Response, int]:
+        q = _require_input_queue()
+        if not isinstance(q, TrackedInputQueue):
+            return q
+        return jsonify(
+            {
+                "messages": [
+                    {"id": message.id, "line": message.line, "position": position}
+                    for position, message in enumerate(q.snapshot())
+                ]
+            }
+        )
+
+    @bp.route("/messages/pending/<message_id>", methods=["PUT"])
+    def put_pending_message(message_id: str) -> Response | tuple[Response, int]:
+        q = _require_input_queue()
+        if not isinstance(q, TrackedInputQueue):
+            return q
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return jsonify({"error": "request body must be a JSON object"}), 400
+        if "line" not in data:
+            return jsonify({"error": "line is required"}), 400
+        line = data["line"]
+        if not isinstance(line, str):
+            return jsonify({"error": "line must be a string"}), 400
+        if not line.strip():
+            return (
+                jsonify({"error": "line must contain non-whitespace characters"}),
+                400,
+            )
+        position = q.edit(message_id, line)
+        if position is None:
+            return jsonify({"error": "message not found or no longer pending"}), 404
+        return jsonify(
+            {
+                "status": "ok",
+                "message": {"id": message_id, "line": line, "position": position},
+            }
+        )
+
+    @bp.route("/messages/pending/<message_id>", methods=["DELETE"])
+    def delete_pending_message(message_id: str) -> Response | tuple[Response, int]:
+        q = _require_input_queue()
+        if not isinstance(q, TrackedInputQueue):
+            return q
+        if not q.delete(message_id):
+            return jsonify({"error": "message not found or no longer pending"}), 404
         return jsonify({"status": "ok"})
 
     @bp.route("/messages/history", methods=["GET"])
