@@ -15,7 +15,9 @@ from flask import Blueprint, Flask
 
 from wichy.console.user import ServerConsole, user_console
 from wichy.helpers.shutdown import shutdown_requested
+from wichy.root_agent.root_agent import ContextResetStrategies
 from wichy.server import create_app
+from wichy.slash_commands import ContextResetException
 from wichy.wichy_server import api as server_api
 from wichy.wichy_server import chat_session as chat_session_module
 from wichy.wichy_server.api import register_routes
@@ -136,6 +138,54 @@ def test_base_exception_is_absorbed(server_console, exc):
         )
         assert any(type(exc()).__name__ in m for m in got)
         assert session._thread.is_alive()
+    finally:
+        session.stop()
+
+
+# -- context reset failure is contained and the loop keeps going --------------
+
+
+@pytest.mark.parametrize("exc_type", [RuntimeError, KeyboardInterrupt])
+def test_reset_failure_is_contained_and_loop_continues(server_console, exc_type):
+    class _ResetChecker:
+        def check_command(self, line):
+            if line == "reset":
+                raise ContextResetException(strategy=ContextResetStrategies.NUKE)
+            return None
+
+    class _ResetFailingRootAgent(_StubRootAgent):
+        def __init__(self):
+            super().__init__()
+            self.reset_calls = []
+
+        def reset_context(self, strategy):
+            self.reset_calls.append(strategy)
+            raise exc_type("reset boom")
+
+    agent = _ResetFailingRootAgent()
+    session = ChatSession(root_agent=agent, cmd_checker=_ResetChecker())
+    session.start()
+    try:
+        session.input_queue.put("reset")
+        first = _drain_until(
+            server_console,
+            lambda ms: any(exc_type.__name__ + ": reset boom" in m for m in ms),
+        )
+        assert any(exc_type.__name__ in m for m in first)
+        assert any("reset boom" in m for m in first)
+        assert agent.reset_calls == [ContextResetStrategies.NUKE]
+
+        session.input_queue.put("hello")
+        second = _drain_until(
+            server_console,
+            lambda ms: any("### Stub" in m for m in ms)
+            and any(m.strip() == "ok" for m in ms),
+        )
+        assert any("### Stub" in m for m in second)
+        assert any(m.strip() == "ok" for m in second)
+
+        combined = first + second
+        assert sum(m.count("unexpected failure in run loop") for m in combined) == 1
     finally:
         session.stop()
 

@@ -101,7 +101,10 @@ class ChatSession:
             except Empty:
                 continue
             except ContextResetException as e:
-                self.root_agent.reset_context(strategy=e.strategy)
+                try:
+                    self.root_agent.reset_context(strategy=e.strategy)
+                except BaseException as reset_error:
+                    self._print_failure(reset_error)
                 continue
             except ContextDropException:
                 self.root_agent.drop_last_context_entry()

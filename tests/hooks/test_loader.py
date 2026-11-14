@@ -1,10 +1,13 @@
 """Tests for the HookLoader class in wichy.hooks.loader."""
 
 import os
+import sys
 import tempfile
 from pathlib import Path
 
+import pytest
 
+from wichy.console.user import ServerConsole, user_console
 from wichy.hooks import (
     HookLoader,
     HookType,
@@ -12,6 +15,18 @@ from wichy.hooks import (
     get_hooks_for_tool,
 )
 from wichy.hooks.loader import get_default_paths
+
+
+@pytest.fixture
+def cleanup_user_hook_modules():
+    """Remove ``wichy_user_hooks_*`` modules created by a failing load."""
+    prior_modules = set(sys.modules)
+    try:
+        yield
+    finally:
+        for name in set(sys.modules) - prior_modules:
+            if name.startswith("wichy_user_hooks_"):
+                sys.modules.pop(name, None)
 
 
 class TestHookLoader:
@@ -104,34 +119,72 @@ def my_hook(ctx):
             os.unlink(temp_path)
             clear_hooks()
 
-    def test_load_hooks_import_error(self):
+    def test_load_hooks_import_error(self, cleanup_user_hook_modules, tmp_path):
         """Handles import errors gracefully."""
         clear_hooks()
 
-        # Create temp hooks file with import error
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-            f.write("""
-from nonexistent_module import something
+        hooks_file = tmp_path / "hooks.py"
+        hooks_file.write_text("import wichy_missing_dependency_for_loader_test\n")
 
-@pre_tool('test')
-def my_hook(ctx):
-    return HookResult.approve()
-""")
-            temp_path = f.name
+        loader = HookLoader(hooks_file)
+        result = loader.load_hooks()
+        err = loader.get_load_error()
 
+        assert result is False
+        assert type(err) is ModuleNotFoundError
+        assert err.name == "wichy_missing_dependency_for_loader_test"
+        assert loader.is_loaded() is False
+        assert loader.get_loaded_paths() == []
+
+    def test_missing_module_warning_is_exact(self, cleanup_user_hook_modules, tmp_path):
+        """Emits the exact missing-module warning, including Rich markup."""
+        hooks_file = tmp_path / "hooks.py"
+        hooks_file.write_text("import wichy_missing_dependency_for_loader_test\n")
+
+        expected = (
+            f"[yellow]Warning: Failed to load hooks from {hooks_file}: "
+            "missing module 'wichy_missing_dependency_for_loader_test'. "
+            "Install the providing package or fix the import that references "
+            "it.[/yellow]"
+        )
+
+        prior = user_console._impl
+        user_console.set_impl(ServerConsole())
         try:
-            loader = HookLoader(Path(temp_path))
-            result = loader.load_hooks()
-            assert result is False
-            assert loader.is_loaded() is False
-            assert loader.get_load_error() is not None
-            # Import errors can be ModuleNotFoundError or ImportError
-            assert isinstance(
-                loader.get_load_error(), (ImportError, ModuleNotFoundError)
-            )
+            loader = HookLoader(hooks_file)
+            assert loader.load_hooks() is False
+            messages = user_console.get_messages()
         finally:
-            os.unlink(temp_path)
-            clear_hooks()
+            user_console.set_impl(prior)
+
+        assert messages == [expected]
+
+    def test_plain_import_error_keeps_generic_warning(
+        self, cleanup_user_hook_modules, tmp_path
+    ):
+        """A plain ImportError keeps the generic warning."""
+        hooks_file = tmp_path / "hooks.py"
+        hooks_file.write_text('raise ImportError("plain import failure")\n')
+
+        prior = user_console._impl
+        user_console.set_impl(ServerConsole())
+        try:
+            loader = HookLoader(hooks_file)
+            assert loader.load_hooks() is False
+            err = loader.get_load_error()
+            messages = user_console.get_messages()
+        finally:
+            user_console.set_impl(prior)
+
+        assert type(err) is ImportError
+        assert loader.is_loaded() is False
+        assert loader.get_loaded_paths() == []
+        assert len(messages) == 1
+        warning = messages[0]
+        assert "Failed to load hooks from" in warning
+        assert "plain import failure" in warning
+        assert "missing module" not in warning
+        assert "Install the providing package" not in warning
 
     def test_is_loaded(self):
         """Tracks loaded state."""

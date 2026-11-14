@@ -187,6 +187,15 @@ class HookLoader:
             self._loaded_paths.append(path)
             return True
 
+        except ModuleNotFoundError as e:
+            self._errors[path] = e
+            user_console.print(
+                f"[yellow]Warning: Failed to load hooks from {path}: missing module "
+                f"'{e.name or '<unknown>'}'. Install the providing package or fix "
+                "the import that references it.[/yellow]"
+            )
+            return False
+
         except Exception as e:
             self._errors[path] = e
             user_console.print(
